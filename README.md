@@ -175,6 +175,39 @@ are the wrong logic and a true CTL checker is needed.
 | V | None | No formal tooling |
 | Zig | None | `comptime` + safety builds; community interest, no deductive verifier |
 
+#### Why C++ is "weak (subsets only)"
+
+C++'s semantics are uniquely hostile to *sound* deductive verification. Tools attempt it
+and end up supporting only restricted subsets because:
+
+- **Pervasive undefined behavior (UB).** Hundreds of UB triggers (signed overflow,
+  out-of-bounds, use-after-free, strict-aliasing violations, uninitialized reads, invalid
+  downcasts, data races, unspecified evaluation order). A sound verifier must *prove UB
+  never occurs on any path* — a huge burden on top of the actual property, with no simple
+  fallback semantics because UB means "anything may happen."
+- **A brutal memory/object model.** Pointer arithmetic, `reinterpret_cast`, unions,
+  placement `new`, and intricate **object-lifetime** rules require separation-logic-grade
+  aliasing reasoning; there is no small, clean memory model to build on.
+- **Templates / metaprogramming.** Turing-complete at compile time; no fixed program
+  until instantiation, which itself depends on overload resolution, ADL, SFINAE, concepts.
+- **Implicit control flow everywhere.** Almost any operation can throw; unwinding runs
+  destructors in reverse construction order (RAII), so every function fans out into many
+  invisible exceptional paths.
+- **A research-grade concurrency model.** The C++11+ memory model (relaxed atomics,
+  happens-before) is one of the hardest formal objects in any mainstream language.
+- **Even the front-end is hard.** Only a few complete C++ front-ends exist; a verifier
+  must assign formal meaning to that entire, still-growing (C++11/14/17/20/23…) AST.
+
+Contrast: Rust verification (Prusti, Verus) works *because* Rust was co-designed with
+verification-friendly invariants (borrow checker restricts aliasing; safe Rust has little
+UB). C++ made the opposite trade — zero-cost abstraction and backward compatibility over
+analyzability.
+
+**Decision for this project:** accept the limitation. C++ is deprioritized; if it is ever
+addressed, the realistic path is a *constrained verifiable subset* (SPARK-for-Ada style,
+think MISRA/AUTOSAR-restricted C++), not the whole language. Revisit later to whatever
+degree is practical.
+
 ### Intermediate verification languages — the multi-language / extensibility pattern
 
 The established way to cover many languages *without rebuilding the prover* is an
@@ -224,6 +257,12 @@ drill down; fuller treatment lives in the sections above.
   weak, subsets only (full deductive C++ ≈ open problem). Java: strong (KeY/JML,
   VerCors). Kotlin: essentially none. D/Dart/V/Zig: no real deductive verifiers — open
   territory. See *Coverage by language*.
+- **Why is C++ specifically so weak?** Its semantics are hostile to sound verification —
+  pervasive undefined behavior, a brutal memory/object-lifetime model, Turing-complete
+  templates, implicit exception/destructor control flow, and a research-grade concurrency
+  model. Rust verifies well because it was co-designed for it; C++ chose the opposite
+  trade. **Decision:** deprioritize C++; revisit later only as a constrained verifiable
+  subset (SPARK-style). See *Why C++ is "weak (subsets only)"*.
 - **How big a deal to build a wider-spectrum, extensible tool?** Not "invent something
   new" — adopt the **IVL pattern** (Why3 or Viper): reuse the solved core (VC generation,
   SMT back-ends) and write a *faithful per-language front-end* per language. Front-ends
