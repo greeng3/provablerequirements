@@ -233,9 +233,9 @@ than conquering the whole language.
 ### Language shortlist assessment (related project's target set)
 
 A companion research project targets this language set:
-ada, C, C++, C3, C#, D, dart, go, java, lua, mojo, ocaml, odin, python, ruby, rust,
-swift, systemC, typescript, V, and zig. Assessed against verification reality (deductive
-axis):
+ada, C, C++, C3, C#, D, dart, go, java, kotlin, lua, mojo, ocaml, odin, python, ruby,
+rust, swift, systemC, typescript, V, and zig. Assessed against verification reality
+(deductive axis):
 
 **Bucket A — first-class existing support (7).** **Ada** (SPARK), **C** (Frama-C/ACSL,
 VeriFast, VCC), **Java** (KeY/JML, VerCors), **Rust** (Verus, Prusti, Creusot, Kani),
@@ -243,12 +243,13 @@ VeriFast, VCC), **Java** (KeY/JML, VerCors), **Rust** (Verus, Prusti, Creusot, K
 GOSPEL). These cluster on the Why3/Viper IVLs — which is exactly why a unified tool is
 feasible.
 
-**Bucket B — possible in a unified tool (9), mainly a front-end + semantics effort.**
+**Bucket B — possible in a unified tool (10), mainly a front-end + semantics effort.**
 Cheap wins (managed/typed): **C#** (dead precedent Spec#; CIL front-end feasible),
-**Dart**, **Swift** (types + value semantics + ownership). C-like systems (need
-Viper-style separation logic): **C3**, **Odin**, **Zig**, **D**, **V**. Gated by JS
-runtime semantics: **TypeScript** (its type system helps; the underlying JavaScript is
-the mess).
+**Dart**, **Swift** (types + value semantics + ownership), **Kotlin** (managed, typed,
+null-safe — verify at JVM-bytecode level or via a Viper front-end; medium because of
+coroutines / smart casts / reified generics). C-like systems (need Viper-style
+separation logic): **C3**, **Odin**, **Zig**, **D**, **V**. Gated by JS runtime
+semantics: **TypeScript** (its type system helps; the underlying JavaScript is the mess).
 
 **Bucket C — impractical (5), and why.** **C++** (see above). **SystemC** — *is* C++ (an
 electronic-system-level modeling library), so it inherits everything; its real home is
@@ -301,9 +302,10 @@ drill down; fuller treatment lives in the sections above.
   model. Rust verifies well because it was co-designed for it; C++ chose the opposite
   trade. **Decision:** deprioritize C++; revisit later only as a constrained verifiable
   subset (SPARK-style). See *Why C++ is "weak (subsets only)"*.
-- **Of the companion project's 21 languages, what's supported / buildable / impractical?**
+- **Of the companion project's 22 languages, what's supported / buildable / impractical?**
   First-class today (7): Ada, C, Java, Rust, Go, Python, OCaml. Buildable via IVL
-  front-ends (9): C#, Dart, Swift, C3, Odin, Zig, D, V, TypeScript. Impractical (5):
+  front-ends (10): C#, Dart, Swift, Kotlin, C3, Odin, Zig, D, V, TypeScript.
+  Impractical (5):
   C++, SystemC (it *is* C++; belongs on the temporal/model-checking axis), Lua, Ruby
   (dynamic typing — need a typed dialect), Mojo (immature moving target). Deciding
   factors: static typing (price of admission), memory model (front-end cost), and the
