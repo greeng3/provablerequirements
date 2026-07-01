@@ -110,6 +110,48 @@ layer tags each requirement with a category that determines routing (1 → deduc
 model checker; 2b → monitor synthesis + observability; 3 → UI driver); the LLM front-end
 lowers to the matching target per category; the verdict model gains the strength field.
 
+### Concurrency & parallelism requirements
+
+Yes — expressible, and in fact **concurrency is the best-served domain in formal
+methods**: model checking and process algebra were essentially invented for it (and
+`go-ctl2` is literally about verifying concurrent actor systems). All such properties are
+*temporal*, so they slot into the categories above and split along the classic **safety
+vs liveness** line.
+
+| Requirement | Class | Checkable in | Representative tools |
+| --- | --- | --- | --- |
+| **Mutual exclusion** | Safety (`AG ¬(cs₁ ∧ cs₂)`) | 1, 2a, 2b | Rust ownership, VerCors/VeriFast (1); SPIN/TLA+/NuSMV (2a); ThreadSanitizer (2b) |
+| **Progress / no deadlock** | Liveness + global reachability | 2a (best), 1 (partial), 2b | SPIN/TLA+/mCRL2/**CSP+FDR** (2a); lock-order proofs (1); watchdogs (2b) |
+| **Temporal ordering of ops/calls** | Safety / protocol | 1, 2a, 2b | **session types / typestate** (1); LTL/CTL (2a); RV monitors (2b) |
+
+- **Category 1 (code):** concurrent separation logic (what Viper's permissions are *for*)
+  — **VerCors**, **VeriFast** verify data-race freedom; **Iris** (Coq) is the gold
+  standard for fine-grained structures; **Rust ownership statically guarantees data-race
+  freedom** in safe code. Ordering of operations → **session types / typestate**.
+  Deadlock-freedom is the weak spot (needs lock-order discipline).
+- **Category 2a (design, model checking) — home turf:** mutual exclusion is *the*
+  canonical example; **deadlock detection is built in** (SPIN, TLC, mCRL2, CSP+FDR);
+  progress = liveness under **fairness** (SPIN/NuSMV/TLA+ WF/SF).
+- **Category 2b (runtime):** ThreadSanitizer / Go `-race` / Helgrind (races), deadlock
+  watchdogs, RV monitors over call/event traces.
+
+**Caveats (all consistent with the verdict-strength spine):**
+
+- **State explosion** is the fundamental limit of 2a (interleavings blow up); mitigated by
+  partial-order / symbolic / bounded / symmetry reduction, but why real systems get
+  *abstracted* to models.
+- **Liveness needs fairness assumptions** — "progress" only holds under a fair scheduler;
+  the assumption must be *stated* (weak/strong fairness).
+- **Dynamic detectors have false negatives** — TSan finds a race only on the schedule it
+  observed. 2b *falsifies* concurrency bugs; only 1 and 2a *prove* their absence.
+- **Deadlock vs livelock** — deadlock is directly checkable; livelock (running, no
+  progress) is subtler and wants process-algebra/liveness tooling.
+
+**Implication for the requirement language:** it needs, as first-class citizens,
+**temporal operators** (□/◇/until, CTL `E`/`A` path quantifiers), **fairness
+assumptions**, and a notion of **atomic operations/events** (so "in critical section" and
+"ordering of function calls" are expressible).
+
 ## Inspiration & Prior Art
 
 This work is inspired by two repositories from **Rob Fielding**, both of which treat
@@ -443,6 +485,15 @@ drill down; fuller treatment lives in the sections above.
   (dynamic typing — need a typed dialect), Mojo (immature moving target). Deciding
   factors: static typing (price of admission), memory model (front-end cost), and the
   deductive-vs-temporal axis. See *Language shortlist assessment*.
+- **Can we express concurrency/parallelism requirements (deadlock-freedom, mutual
+  exclusion, ordering)?** Yes — concurrency is the best-served formal-methods domain. All
+  are *temporal* (safety vs liveness): mutual exclusion = safety; progress/no-deadlock =
+  liveness + reachability; ordering = safety/protocol. Checkable in category 1 (CSL,
+  Rust ownership, VerCors/VeriFast, Iris; session types/typestate for ordering), 2a
+  (SPIN/TLA+/NuSMV/mCRL2/CSP+FDR — home turf, built-in deadlock detection), and 2b
+  (ThreadSanitizer, watchdogs, RV monitors). Caveats: state explosion, liveness needs
+  fairness, dynamic detectors have false negatives. Language must support temporal
+  operators + fairness + atomic events. See *Concurrency & parallelism requirements*.
 - **Are code, system-behavior, and UI requirements the same kind of claim?** No — they
   sit on one epistemic spine (proof → model-checked → monitored/tested), trading
   universality for fidelity. Four categories: (1) **Code** (deductive, proof ∀), (2a)
