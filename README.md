@@ -158,6 +158,45 @@ Open selection criterion: **branching-time (CTL) vs linear-time (LTL).** If requ
 need "there exists a future where…" (`EF`) claims, the design-level tools (TLA+/Alloy)
 are the wrong logic and a true CTL checker is needed.
 
+### Coverage by language (deductive / functional-correctness tools)
+
+| Language | Coverage | Tools / spec language |
+| --- | --- | --- |
+| C | Strong | **Frama-C** + **ACSL** (WP→SMT); **VeriFast**; **VCC**; bounded: **CBMC**, **CPAchecker**, **Ultimate** |
+| C++ | Weak (subsets only) | **CBMC/ESBMC** (bounded); **Infer**, **Astrée** (static analysis). Full deductive C++ ≈ open problem |
+| Java | Strong | **KeY** + **JML**; **OpenJML**; **VerCors**; **VeriFast**; bounded **JBMC** |
+| Kotlin | Essentially none | Only its sound null-safety type system; JVM-bytecode tools could apply but nothing dedicated |
+| Rust | Strong | **Verus**, **Prusti** |
+| Go | Yes | **Gobra** (Viper) |
+| Python | Yes | **Nagini** (Viper) |
+| Ada | Strong | **SPARK** (a verifiable *subset* of Ada, on Why3) |
+| D | None (runtime only) | Built-in `in`/`out`/`invariant` contracts are *runtime* checks, not static proof |
+| Dart | None | Sound null-safety only |
+| V | None | No formal tooling |
+| Zig | None | `comptime` + safety builds; community interest, no deductive verifier |
+
+### Intermediate verification languages — the multi-language / extensibility pattern
+
+The established way to cover many languages *without rebuilding the prover* is an
+**Intermediate Verification Language (IVL)**: a shared VC-generating core, with a
+per-language *front-end* translating source (+ spec annotations) into the IVL, and
+pluggable SMT/prover *back-ends*.
+
+- **Why3** (WhyML) — front-ends for SPARK/Ada, Java (Krakatoa), C; dispatches to
+  Alt-Ergo/Z3/CVC5/Coq/Isabelle.
+- **Viper** (ETH; permission/separation logic) — front-ends **Prusti** (Rust),
+  **Nagini** (Python), **Gobra** (Go), **VerCors** (Java/C). Cleanest "add a language =
+  add a front-end" template.
+- **Boogie** (Microsoft) — targeted by Dafny and VCC.
+
+Effort reality for building a wide-spectrum, extensible tool: the IVL core, VC
+generation, and SMT back-ends are *already solved* and reusable. The real cost is a
+**faithful per-language front-end** — precisely modeling each language's semantics
+(memory model, aliasing, overflow, exceptions, generics/templates, concurrency, FFI).
+That ranges from tractable (Dart, a Zig subset) to brutal (C++). Prusti and VerCors each
+took years. Pragmatic precedent: **SPARK** *constrains* Ada to a verifiable subset rather
+than conquering the whole language.
+
 ## Design Q&A (living notes)
 
 A running log of questions worked through and their distilled answers. Refined as we
@@ -181,6 +220,18 @@ drill down; fuller treatment lives in the sections above.
   language (set theory + schemas), weak automation, superseded for our goals by Event-B
   (refinement) or Alloy (automation). **Z3** = the SMT solver already underpinning
   Verus/Dafny/F\*/Apalache — infrastructure, not a competitor.
+- **What about C/C++, Java/Kotlin, and D/Dart/V/Zig?** C: strong (Frama-C/ACSL). C++:
+  weak, subsets only (full deductive C++ ≈ open problem). Java: strong (KeY/JML,
+  VerCors). Kotlin: essentially none. D/Dart/V/Zig: no real deductive verifiers — open
+  territory. See *Coverage by language*.
+- **How big a deal to build a wider-spectrum, extensible tool?** Not "invent something
+  new" — adopt the **IVL pattern** (Why3 or Viper): reuse the solved core (VC generation,
+  SMT back-ends) and write a *faithful per-language front-end* per language. Front-ends
+  are the real cost (tractable for clean languages, brutal for C++). Keep the requirement
+  layer IVL-agnostic; consider *constraining* a language to a verifiable subset (SPARK
+  precedent). Note this is the *deductive* axis, distinct from the *temporal/CTL* axis —
+  a general tool likely needs a requirement layer that routes properties to the right
+  engine.
 
 ## Status
 
