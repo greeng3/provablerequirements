@@ -152,6 +152,59 @@ vs liveness** line.
 assumptions**, and a notion of **atomic operations/events** (so "in critical section" and
 "ordering of function calls" are expressible).
 
+### Worked example: message reliability ("no message is ever lost")
+
+Requirement: every accepted queue message is either processed successfully, or fails
+transiently and is retried, or fails long-term and is recorded somewhere with a reason.
+This is the canonical distributed-systems guarantee, and it decomposes cleanly:
+
+- **Safety (conservation — nothing vanishes):** every message is *always* in exactly one
+  of `{in-flight, retrying, succeeded, dead-lettered}`; no transition drops a message
+  without recording it. A conservation invariant (like conservation of mass).
+- **Liveness (disposition):** `□(accepted(m) → ◇(succeeded(m) ∨ deadLettered(m)))` — every
+  accepted message eventually reaches a terminal state.
+- **Reason field:** permanent failure → dead-letter store with a non-empty, classified
+  reason.
+- **Retry-loop hazard:** if transient failures recur forever the message livelocks in
+  `retrying` and liveness fails. Two sound fixes — **bounded retries** (after N,
+  transient → permanent → dead-lettered; makes liveness *unconditional*, preferred) or an
+  explicit **fairness assumption** ("transient conditions eventually clear").
+
+Category: fundamentally **2a/2b (system), not code.** Model-check the design (2a; TLA+ is
+tailor-made — failure modes as nondeterministic choices); monitor the deployment (2b;
+reconciliation `count_in == succeeded + dead_lettered + in_flight` + bounded-liveness
+deadline monitors).
+
+**Honest caveat:** *exactly-once processing is impossible* under distributed failure. "No
+loss" = at-least-once (achievable, checkable, may duplicate → needs idempotency);
+at-most-once = no duplicates but possible loss. The language must let you say *which* you
+mean.
+
+### "Requirements become models, which are then checked"
+
+A sound and productive direction — with one fork that is a trap. Four readings:
+
+1. **Standard model checking — model and property are *separate*.** A model `M` (system
+   behavior) and property `φ` (the requirement); the checker decides `M ⊨ φ`. The
+   requirement is an *independent assertion about* the model, not the model itself.
+2. **Generate the model *from* requirements (the `go-ctl2` style).** Powerful, but the
+   trap: if the *same* source produces both the model and the property, verification can
+   be **vacuous/circular** — the model is built to satisfy the property. **The property
+   must be an independent constraint the model could plausibly violate** (the "review the
+   statement, not the proof" principle again).
+3. **Refinement (richest reading) — Event-B / TLA+.** Treat the requirement as a
+   high-level abstract model, check it, then **refine stepwise toward code, proving each
+   step preserves the abstract guarantees.** A principled bridge from a category-2a
+   requirement-model down to category-1 code — the taxonomy's two ends connected by proof.
+4. **Synthesis (advanced) — reactive synthesis / GR(1).** Generate a correct-by-
+   construction implementation from a temporal spec. Real but heavier; not a starting
+   point.
+
+**Discipline:** keep model and property independent even when an LLM generates the model.
+The LLM (untrusted) may *propose* the model; the property stays an independent, trusted
+assertion; the checker is the trusted judge — the same trust boundary as the workflow,
+applied to model generation.
+
 ## Inspiration & Prior Art
 
 This work is inspired by two repositories from **Rob Fielding**, both of which treat
@@ -485,6 +538,21 @@ drill down; fuller treatment lives in the sections above.
   (dynamic typing — need a typed dialect), Mojo (immature moving target). Deciding
   factors: static typing (price of admission), memory model (front-end cost), and the
   deductive-vs-temporal axis. See *Language shortlist assessment*.
+- **Can we express "no queue message is ever lost"?** Yes — it decomposes into a
+  *conservation* safety invariant (every message always in exactly one of
+  in-flight/retrying/succeeded/dead-lettered) + a *disposition* liveness property (every
+  accepted message eventually succeeds or is dead-lettered-with-reason). Retry loops need
+  bounded retries (preferred) or a stated fairness assumption to avoid livelock. It's a
+  2a/2b system property (TLA+ + runtime reconciliation). Caveat: exactly-once is
+  impossible; "no loss" = at-least-once + idempotency. See *Worked example: message
+  reliability*.
+- **Can requirements "become models" that are then checked?** Yes, soundly — but keep the
+  *model* and the *property* independent, or verification is vacuous/circular. Four
+  readings: standard `M ⊨ φ` (separate); generate model from requirements (go-ctl2 style —
+  the trap); **refinement (Event-B/TLA+)** — refine a requirement-model toward code
+  preserving guarantees (richest, bridges 2a→1); synthesis/GR(1) (advanced). The LLM may
+  propose the model but the property stays an independent trusted check. See
+  *"Requirements become models, which are then checked"*.
 - **Can we express concurrency/parallelism requirements (deadlock-freedom, mutual
   exclusion, ordering)?** Yes — concurrency is the best-served formal-methods domain. All
   are *temporal* (safety vs liveness): mutual exclusion = safety; progress/no-deadlock =
