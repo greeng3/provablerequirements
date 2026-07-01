@@ -269,6 +269,68 @@ moving target; promising ownership design but not pin-down-able yet ("wait, not 
    deductive engine *and* a model-checking engine, with the requirement layer routing
    properties to whichever fits.
 
+## Architecture Direction: Layered Hybrid (decided)
+
+**The question.** Should the project be a *scattered* set of best-of-breed tools (a
+different verifier per language, plus bespoke tooling for the rest), or *one unified,
+extensible* tool built on an existing IVL?
+
+**Reframing.** The two options aren't the real choice. The project's actual contribution
+is the **requirement layer** (expressing provable/falsifiable requirements, LLM-assisted
+translation, and routing to a checker); the checkers underneath are largely
+interchangeable infrastructure. So the real question is *where unification must live*.
+
+### Option A — scattered / federated (per-language native tools)
+
+- **Pros:** fastest to breadth (reuse mature SPARK/Frama-C/Verus/KeY/Gobra/Nagini/… on
+  day one); best-in-class per language; low semantic burden (upstream owns the hard
+  parts).
+- **Cons:** no common meaning of "proved" (N spec dialects + N logics → non-comparable
+  verdicts, which undercuts the whole "provable requirements" claim); permanent
+  integration tax (N parsers/toolchains/formats/TCBs/failure modes, glue rots); ragged
+  expressiveness (collapses to the intersection); you still build from scratch for
+  uncovered languages *anyway*; cross-language requirements ≈ impossible; the LLM must
+  target N formalisms.
+
+### Option B — unified extensible tool on one IVL (Why3 or Viper)
+
+- **Pros:** one semantics of "proved" (single requirement language, logic, and
+  verdict format); one trust story / TCB; extensibility first-class (add a language = a
+  front-end; separation-logic machinery reused across all manual-memory languages);
+  cross-language requirements become conceivable; the LLM targets *one* formalism; still
+  reuses the hard-won IVL core (not writing the prover).
+- **Cons:** slower to breadth (one language before many; front-ends are person-months);
+  leaves mature tools on the table (re-deriving what SPARK already nails); you own the
+  faithful-semantics burden per language; **IVL ceiling risk** (Why3/Viper limits around
+  concurrency, higher-order, temporal); and it isn't fully unified anyway — the temporal
+  axis needs a separate engine regardless.
+
+### Decision — layered hybrid: unify the *meaning*, federate the *engines*
+
+Deciding principle: **unify the thing that must mean one thing — the requirement and its
+verdict — and be pragmatic about the engines underneath.**
+
+1. **Unified requirement layer + one notion of proof, from day one.** Non-negotiable;
+   it's the project's identity. A requirement means one thing; a verdict is *proof /
+   counterexample / honest-unknown* in one format.
+2. **One primary IVL as the workhorse — Viper.** Covers the largest chunk of the
+   *buildable* set with shared separation-logic machinery; Prusti/Nagini/Gobra already
+   prove the "add a language = add a front-end" template.
+3. **Delegate to a mature native tool as a normalized back-end** where it clearly
+   dominates (e.g. Ada → SPARK) — *only if* its result maps into the uniform verdict
+   model. Federation stays *behind* the uniform layer, never in front of it (no N spec
+   dialects exposed to users or the LLM).
+4. **A second engine for the temporal axis** (NuSMV/mCRL2 lineage) sits behind the *same*
+   requirement layer for CTL / SystemC-style properties. "Unified" = unified interface,
+   not one engine.
+5. **Sequence it.** Prove the whole architecture end-to-end on **one clean language
+   first** (Rust via a Viper front-end, or a managed language like Dart/C# for lower
+   semantic drag), then add front-ends and native-tool back-ends.
+
+One-line test for any design choice here: *does a requirement — and the answer to "does
+it hold?" — mean the same thing regardless of which engine ran?* If yes, scattered
+engines are fine; if no, it isn't really provable requirements.
+
 ## Design Q&A (living notes)
 
 A running log of questions worked through and their distilled answers. Refined as we
@@ -310,6 +372,12 @@ drill down; fuller treatment lives in the sections above.
   (dynamic typing — need a typed dialect), Mojo (immature moving target). Deciding
   factors: static typing (price of admission), memory model (front-end cost), and the
   deductive-vs-temporal axis. See *Language shortlist assessment*.
+- **Scattered per-language tooling, or one unified extensible tool?** Neither in its pure
+  form — **layered hybrid (decided).** Unify the *requirement layer and the meaning of a
+  verdict*; federate the *engines* behind it: one primary IVL (**Viper**) as workhorse,
+  mature native tools (e.g. SPARK) as normalized back-ends, plus a model checker for the
+  temporal axis — all behind one uniform interface. Sequence: one clean language
+  end-to-end first. See *Architecture Direction: Layered Hybrid*.
 - **How big a deal to build a wider-spectrum, extensible tool?** Not "invent something
   new" — adopt the **IVL pattern** (Why3 or Viper): reuse the solved core (VC generation,
   SMT back-ends) and write a *faithful per-language front-end* per language. Front-ends
