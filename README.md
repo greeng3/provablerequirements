@@ -1,93 +1,188 @@
-# ProvableRequirements
+# Provable Requirements
 
+A space to brainstorm — and eventually build — an approach to software requirements
+that make **provable, falsifiable claims** about code and system behavior.
 
+## The Idea
 
-## Getting started
+Most software requirements are written in prose. They are ambiguous, untestable in
+any rigorous sense, and drift out of sync with the systems they describe. This project
+explores an alternative: requirements expressed as **precise statements about code and
+system behavior that can be proven or falsified**.
 
-To make it easy for you to get started with GitLab, here's a list of recommended next steps.
+A requirement here is not "the system should be fast" but a claim with a definite
+truth value against a given implementation or design — something a tool could
+mechanically check, or at least attempt to refute.
 
-Already a pro? Just edit this README.md and make it your own. Want to make it easy? [Use the template at the bottom](#editing-this-readme)!
+## Goals
 
-## Add your files
+The project is intended to progress roughly in these stages:
 
-* [Create](https://docs.gitlab.com/user/project/repository/web_editor/#create-a-file) or [upload](https://docs.gitlab.com/user/project/repository/web_editor/#upload-a-file) files
-* [Add files using the command line](https://docs.gitlab.com/topics/git/add_files/#add-files-to-a-git-repository) or push an existing Git repository with the following command:
+1. **Brainstorm** — explore what it means for a requirement to be provable/falsifiable:
+   which languages, logics, or formalisms are appropriate; what "the system" and "the
+   code" refer to precisely; and where the boundaries of decidability lie.
+2. **Express** — develop a way to write requirements as assertions about behavior that
+   carry a definite truth value (provable and/or falsifiable) against a real system.
+3. **Prove / Falsify** — build tooling that can evaluate such requirements against
+   **real code and/or system designs**, producing a proof, a counterexample, or an
+   honest "unknown."
 
+## Scope & Open Questions
+
+This is early-stage and exploratory. Some of the questions we expect to wrestle with:
+
+- What formal foundation fits — formal specification, model checking, type systems,
+  property-based testing, SMT/theorem proving, or some blend?
+- What can be *proven* versus only *falsified* (found a counterexample), and how do we
+  represent "not yet decided" honestly?
+- How do requirements attach to artifacts — source code, running systems, or
+  higher-level designs and architectures?
+- How do we keep requirements and the systems they describe from drifting apart?
+
+## Inspiration & Prior Art
+
+This work is inspired by two repositories from **Rob Fielding**, both of which treat
+temporal-logic requirements as executable, machine-checkable artifacts rather than
+prose.
+
+### `ctl` — POBTL\* Model Checker (Python)
+
+- Author: Rob Fielding
+- URL: <https://github.com/rfielding/ctl>
+
+A modal / temporal logic model checker written in Python. Systems are described as
+collections of states (dictionaries), propositions are plain Python lambdas over those
+states, and requirements are expressed with CTL\*-style operators that reason about
+possible futures and past states:
+
+- **Future / global:** *Exists Finally* (EF) and *Always Finally* (AF) for properties
+  that eventually hold; *Exists Globally* (EG) and *Always Globally* (AG) for properties
+  that persist.
+- **Past:** *Exists/Always Previously* (EP/AP) and *Exists/Always Historically* (EH/AH)
+  for constraints on history.
+- **Strong implication:** a combined reachability-plus-guarantee construct — `p` strongly
+  implies `q` when `p` is reachable and, whenever `p` holds, `q` always follows.
+
+The checker evaluates a formula against the state space and returns the set of states
+that satisfy it, letting you formally state a requirement and mechanically find where it
+holds or fails — no specialized symbolic-logic tooling required.
+
+### `go-ctl2` — Kripke Philosophy Calculator (Go)
+
+- Author: Rob Fielding
+- URL: <https://github.com/rfielding/go-ctl2>
+
+A successor project, rewritten in Go, aimed at formally verifying **actor-based,
+concurrent/distributed systems** with CTL. Its distinguishing ideas:
+
+- **Verify visible behavior only.** CTL assertions range over *visible* state — named
+  control states and mailbox/channel contents — rather than actors' internal variables,
+  keeping specifications at the level of observable system behavior.
+- **LLM-assisted specification.** The intended workflow bridges natural-language
+  requirements and machine-checkable models: (1) a language model emits a Lisp-based
+  intermediate representation, (2) a compiler turns it into an explicit transition
+  system, (3) the developer inspects the states, channels, diagrams, and CTL claims,
+  and (4) the model is refined iteratively until the requirements are precise enough to
+  verify.
+- **Structured messaging.** Properties can assert facts such as a server reaching a
+  "done" state, or a client's mailbox containing a specific structured event with a
+  particular timestamp and value.
+
+It also ships visualization (JavaScript/CSS webapp) for inspecting the generated
+transition systems.
+
+## Proposed Workflow
+
+The working direction is an **LLM-as-untrusted-front-end** pipeline: use an LLM to
+translate informal, text-based requirements into formal statements, then hand those to
+a trusted checker (a prover and/or model checker) to prove or falsify them.
+
+```text
+English requirement
+   → [LLM] candidate formal statement   ← HUMAN (or adversarial LLM) reviews THIS
+   → [LLM] candidate proof / model
+   → [Checker: prover / model checker] verify
+        ├─ proved         → done
+        ├─ counterexample → report the falsifying witness / trace
+        └─ stuck/unknown  → feed the error back to the LLM, refine (bounded loop)
 ```
-cd existing_repo
-git remote add origin https://gitlab.com/greeng3/provablerequirements.git
-git branch -M main
-git push -uf origin main
-```
 
-## Integrate with your tools
+This generalizes the `go-ctl2` loop (LLM proposes, a mechanical checker disposes) and
+matches the project's goal of producing a proof, a counterexample, or an honest
+"unknown."
 
-* [Set up project integrations](https://gitlab.com/greeng3/provablerequirements/-/settings/integrations)
+**Principles that make it sound:**
 
-## Collaborate with your team
+- **Trust boundary.** The LLM is *untrusted* — a synthesizer, good at bridging fuzzy
+  English to formal syntax, unreliable about soundness. The checker is *trusted* — a
+  small, sound kernel that validates the LLM's output. Never let the LLM into the
+  trusted checking path.
+- **The specification gap is the real risk.** A checker verifies that *the proof proves
+  the theorem*; it cannot verify that *the theorem faithfully captures your intent*. The
+  translation step we are handing the LLM is exactly where meaning can silently leak
+  (e.g. a vacuously-true formula that "verifies" but means nothing).
+- **Review the statement, not the proof.** Keep the generated formal statement
+  human-readable and reviewable so a person (or a second, adversarial LLM pass) can
+  confirm it means what was asked. Let the LLM and checker own the proof entirely.
+- **Proof *and* falsification.** Provers give proofs but rarely cheap counterexamples;
+  model checkers give counterexamples cheaply. Expect a *portfolio* of checkers rather
+  than a single tool.
 
-* [Invite team members and collaborators](https://docs.gitlab.com/user/project/members/)
-* [Create a new merge request](https://docs.gitlab.com/user/project/merge_requests/creating_merge_requests/)
-* [Automatically close issues from merge requests](https://docs.gitlab.com/user/project/issues/managing_issues/#closing-issues-automatically)
-* [Enable merge request approvals](https://docs.gitlab.com/user/project/merge_requests/approvals/)
-* [Set auto-merge](https://docs.gitlab.com/user/project/merge_requests/auto_merge/)
+## Tool Landscape (under investigation)
 
-## Test and Deploy
+Candidate checkers we are evaluating, grouped by role. To be refined as we dig in.
 
-Use the built-in continuous integration in GitLab.
+- **Foundational provers** — Lean 4, Coq, Isabelle/HOL, Agda. Deepest expressiveness;
+  reason about objects defined in their own logic, so real code must be modeled inside
+  the tool (or written in the prover itself). Weakest automation.
+- **Code verifiers (SMT-backed)** — **Verus** (verifies real Rust in place), **Dafny**
+  (own language → C#/Java/Go/Python/JS), **F\*** (own ML-family language → OCaml/F#/C/
+  Wasm; e.g. HACL\* crypto). Smaller code-to-proof gap; Floyd–Hoare style
+  (pre/post/invariants), not temporal.
+- **Design-level checkers** — **TLA+** (with TLC / Apalache / TLAPS) and **Alloy**.
+  Model designs, not code; both are *linear-time* temporal (LTL-style), and Alloy is a
+  *bounded* falsifier. Also in this family: **Z** notation (set-theory/schema-based
+  specification, but oriented to *manual/interactive* proof — weak automation) and its
+  more actionable descendants **B / Event-B** (refinement down toward code; Rodin /
+  Atelier B tooling). Alloy was designed as an *automatically analyzable* answer to Z.
+- **Temporal model checkers (the direct lineage of `ctl`/`go-ctl2`)** — **NuSMV/nuXmv**
+  (native **CTL and LTL**, symbolic/SMT), **mCRL2** (modal μ-calculus, which subsumes
+  CTL\*). These are the mature, industrial versions of branching-time CTL model checking.
 
-* [Get started with GitLab CI/CD](https://docs.gitlab.com/ci/quick_start/)
-* [Analyze your code for known vulnerabilities with Static Application Security Testing (SAST)](https://docs.gitlab.com/user/application_security/sast/)
-* [Deploy to Kubernetes, Amazon EC2, or Amazon ECS using Auto Deploy](https://docs.gitlab.com/topics/autodevops/requirements/)
-* [Use pull-based deployments for improved Kubernetes management](https://docs.gitlab.com/user/clusters/agent/)
-* [Set up protected environments](https://docs.gitlab.com/ci/environments/protected_environments/)
+Not a checker but shared infrastructure: **Z3** (SMT solver, Microsoft Research) is the
+common backend under Verus, Dafny, F\*, and Apalache — the engine that makes the
+SMT-backed tools automatic, not a tool one selects directly. (Do not confuse with **Z**
+notation above.)
 
-***
+Open selection criterion: **branching-time (CTL) vs linear-time (LTL).** If requirements
+need "there exists a future where…" (`EF`) claims, the design-level tools (TLA+/Alloy)
+are the wrong logic and a true CTL checker is needed.
 
-# Editing this README
+## Design Q&A (living notes)
 
-When you're ready to make this README your own, just edit this file and use the handy template below (or feel free to structure it however you want - this is just a starting point!). Thanks to [makeareadme.com](https://www.makeareadme.com/) for this template.
+A running log of questions worked through and their distilled answers. Refined as we
+drill down; fuller treatment lives in the sections above.
 
-## Suggestions for a good README
+- **Should an LLM be part of an automated pipeline?** Yes — but strictly as an
+  *untrusted front-end* that translates text requirements into formal statements, with a
+  trusted checker validating the output. See *Proposed Workflow*.
+- **Do foundational provers (Lean 4, Coq, Isabelle/HOL, Agda) all share a code-to-proof
+  gap?** Yes, fundamentally — they reason about objects defined in their own logic, so
+  real code must be modeled inside the tool. Mitigations: write the program *in* the
+  prover (no gap), or bridge via extraction / embedded semantics (Coq→CompCert,
+  Isabelle→seL4) at real cost.
+- **Which languages do the code verifiers cover?** Verus → real **Rust** in place;
+  Dafny → its own language, compiling to C#/Java/Go/Python/JS; F\* → its own ML-family
+  language, extracting to OCaml/F#/C/Wasm.
+- **Do any of these subsume `ctl` / `go-ctl2`?** Only true CTL model checkers:
+  **NuSMV/nuXmv** (native CTL + LTL) and **mCRL2** (μ-calculus, superset of CTL\*).
+  TLA+/Alloy cover the same *use case* but in linear-time logic, not branching-time CTL.
+- **Is Z / Z3 useful here?** Two different things. **Z** = a design-level specification
+  language (set theory + schemas), weak automation, superseded for our goals by Event-B
+  (refinement) or Alloy (automation). **Z3** = the SMT solver already underpinning
+  Verus/Dafny/F\*/Apalache — infrastructure, not a competitor.
 
-Every project is different, so consider which of these sections apply to yours. The sections used in the template are suggestions for most open source projects. Also keep in mind that while a README can be too long and detailed, too long is better than too short. If you think your README is too long, consider utilizing another form of documentation rather than cutting out information.
+## Status
 
-## Name
-Choose a self-explaining name for your project.
-
-## Description
-Let people know what your project can do specifically. Provide context and add a link to any reference visitors might be unfamiliar with. A list of Features or a Background subsection can also be added here. If there are alternatives to your project, this is a good place to list differentiating factors.
-
-## Badges
-On some READMEs, you may see small images that convey metadata, such as whether or not all the tests are passing for the project. You can use Shields to add some to your README. Many services also have instructions for adding a badge.
-
-## Visuals
-Depending on what you are making, it can be a good idea to include screenshots or even a video (you'll frequently see GIFs rather than actual videos). Tools like ttygif can help, but check out Asciinema for a more sophisticated method.
-
-## Installation
-Within a particular ecosystem, there may be a common way of installing things, such as using Yarn, NuGet, or Homebrew. However, consider the possibility that whoever is reading your README is a novice and would like more guidance. Listing specific steps helps remove ambiguity and gets people to using your project as quickly as possible. If it only runs in a specific context like a particular programming language version or operating system or has dependencies that have to be installed manually, also add a Requirements subsection.
-
-## Usage
-Use examples liberally, and show the expected output if you can. It's helpful to have inline the smallest example of usage that you can demonstrate, while providing links to more sophisticated examples if they are too long to reasonably include in the README.
-
-## Support
-Tell people where they can go to for help. It can be any combination of an issue tracker, a chat room, an email address, etc.
-
-## Roadmap
-If you have ideas for releases in the future, it is a good idea to list them in the README.
-
-## Contributing
-State if you are open to contributions and what your requirements are for accepting them.
-
-For people who want to make changes to your project, it's helpful to have some documentation on how to get started. Perhaps there is a script that they should run or some environment variables that they need to set. Make these steps explicit. These instructions could also be useful to your future self.
-
-You can also document commands to lint the code or run tests. These steps help to ensure high code quality and reduce the likelihood that the changes inadvertently break something. Having instructions for running tests is especially helpful if it requires external setup, such as starting a Selenium server for testing in a browser.
-
-## Authors and acknowledgment
-Show your appreciation to those who have contributed to the project.
-
-## License
-For open source projects, say how it is licensed.
-
-## Project status
-If you have run out of energy or time for your project, put a note at the top of the README saying that development has slowed down or stopped completely. Someone may choose to fork your project or volunteer to step in as a maintainer or owner, allowing your project to keep going. You can also make an explicit request for maintainers.
+Brainstorming. No code yet — ideas, notes, and direction come first; implementation
+follows once the concepts are sharp enough to build on.
