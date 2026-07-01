@@ -39,6 +39,77 @@ This is early-stage and exploratory. Some of the questions we expect to wrestle 
   higher-level designs and architectures?
 - How do we keep requirements and the systems they describe from drifting apart?
 
+## Requirement Categories
+
+Requirements are not all the same *kind* of claim. They differ along one deep axis:
+**what makes a verdict true, and how strong that truth is.** The spine runs
+
+> **proof (static, universal) → model-checked (universal over a model) → monitored/tested
+> (empirical, existential).**
+
+Moving down that spine trades *universality* for *fidelity to reality*. That tradeoff is
+why these are genuinely different categories, not a matter of taste. (Work so far has
+focused on category 1.)
+
+| # | Category | Artifact checked | Method / engine | Verdict strength |
+| --- | --- | --- | --- | --- |
+| 1 | **Code** (functional correctness) | source code | deductive verifier (Viper/Why3/SMT) | **Proof** — holds ∀ executions |
+| 2a | **System — design-time** (behavioral/temporal) | a *model* of the system | model checker (TLA+, NuSMV, mCRL2; timing → MTL/TCTL) | **Proof over the model** — ∀ model behaviors (model ≠ reality) |
+| 2b | **System — runtime** (behavioral/temporal) | the *running* system's traces | runtime verification: monitors from temporal specs + observability (tracing, queue/DB metrics) | **Empirical** — falsify, or confidence over observed runs |
+| 3 | **UI** (acceptance) | the *rendered, running* UI | driver (Selenium/Playwright) exercising scenarios → True/False | **Empirical** — falsify, or confidence over exercised scenarios |
+
+Example mappings (distributed-system flavored):
+
+- **Data lands on queues; ordering; timing** — temporal properties. Ordering is a
+  *consistency* property (linearizability / causal consistency); timing needs a *metric*
+  temporal logic (MTL / Signal Temporal Logic). Model-check the design (2a); monitor the
+  live queues (2b).
+- **Data into/out of databases** — distributed consistency. Canonical *empirical* tool:
+  **Jepsen** (with **Elle**/Knossos), which exercises real databases under fault
+  injection and checks histories against linearizability/serializability (category 2b).
+- **Monitors that start/stop/scale/tune components** — control-loop properties: *safety*
+  ("never scale below min replicas") + *bounded liveness* ("under load > X, start an
+  instance within T"). Model-checkable (2a), monitorable (2b).
+- **UI appearance/behavior via Selenium** — category 3, pure black-box empirical.
+
+### The unifying insight
+
+**Temporal logic is the shared specification spine for category 2 (and much of 3).** The
+same property — "messages delivered in order within 100 ms" — can be *model-checked*
+against a design model (2a, proof over the model) *and* compiled into a *runtime monitor*
+checked against the live trace (2b, empirical). Same spec, different engine, different
+verdict strength — the layered-hybrid principle ("unify the meaning, federate the
+engines") extended past code into behavior.
+
+The categories also **cross-check** each other: code proofs (1) establish what the model
+assumes; the design model (2a) proves global behavior *assuming the model is faithful*;
+runtime monitoring (2b) checks the real system against the model — **closing the design
+gap**; UI acceptance (3) checks the top, user-observable layer. Each layer validates an
+assumption the layer below cannot see.
+
+### Honest limits
+
+- **2b and 3 can only falsify or build confidence — never prove** (finitely many observed
+  runs). That is the *falsifiable* half of the project, and must be labeled as such.
+- **Safety vs liveness at runtime.** Safety ("bad thing never happens") is monitorable;
+  liveness ("good thing eventually happens") is *not* falsifiable from a finite trace —
+  bound it (MTL "within T") to make it checkable. Most timing requirements are already
+  bounded.
+- **UI oracle & flakiness.** "Looks right" must reduce to precise assertions; Selenium is
+  non-deterministic — strong for falsification/regression, weak as positive evidence.
+- **Nondeterminism → probabilistic verdicts** in distributed 2b: "not falsified over N
+  runs" is confidence, not proof.
+
+**Non-negotiable consequence:** every requirement carries its **category/modality** and
+its **verdict strength**, and the system must *never* render a Selenium green like a proof
+green. The uniform verdict format gains an epistemic-strength field: `proven ∀` /
+`model-checked ∀ over M` / `not-falsified over N runs` / `falsified: <trace>`.
+
+Architecturally this slots into the layered hybrid untouched: the unified requirement
+layer tags each requirement with a category that determines routing (1 → deductive; 2a →
+model checker; 2b → monitor synthesis + observability; 3 → UI driver); the LLM front-end
+lowers to the matching target per category; the verdict model gains the strength field.
+
 ## Inspiration & Prior Art
 
 This work is inspired by two repositories from **Rob Fielding**, both of which treat
@@ -372,6 +443,14 @@ drill down; fuller treatment lives in the sections above.
   (dynamic typing — need a typed dialect), Mojo (immature moving target). Deciding
   factors: static typing (price of admission), memory model (front-end cost), and the
   deductive-vs-temporal axis. See *Language shortlist assessment*.
+- **Are code, system-behavior, and UI requirements the same kind of claim?** No — they
+  sit on one epistemic spine (proof → model-checked → monitored/tested), trading
+  universality for fidelity. Four categories: (1) **Code** (deductive, proof ∀), (2a)
+  **System design-time** (model checking, proof over a model), (2b) **System runtime**
+  (runtime verification/monitoring, empirical), (3) **UI** (Selenium/driver, empirical).
+  Temporal logic is the shared spec for 2 (and much of 3); the layers cross-check (2b
+  closes the design gap). Every requirement must carry its modality + verdict strength;
+  never conflate a Selenium green with a proof. See *Requirement Categories*.
 - **Scattered per-language tooling, or one unified extensible tool?** Neither in its pure
   form — **layered hybrid (decided).** Unify the *requirement layer and the meaning of a
   verdict*; federate the *engines* behind it: one primary IVL (**Viper**) as workhorse,
