@@ -230,6 +230,44 @@ That ranges from tractable (Dart, a Zig subset) to brutal (C++). Prusti and VerC
 took years. Pragmatic precedent: **SPARK** *constrains* Ada to a verifiable subset rather
 than conquering the whole language.
 
+### Language shortlist assessment (related project's target set)
+
+A companion research project targets this language set:
+ada, C, C++, C3, C#, D, dart, go, java, lua, mojo, ocaml, odin, python, ruby, rust,
+swift, systemC, typescript, V, and zig. Assessed against verification reality (deductive
+axis):
+
+**Bucket A — first-class existing support (7).** **Ada** (SPARK), **C** (Frama-C/ACSL,
+VeriFast, VCC), **Java** (KeY/JML, VerCors), **Rust** (Verus, Prusti, Creusot, Kani),
+**Go** (Gobra), **Python** (Nagini — *requires type annotations*), **OCaml** (Cameleer +
+GOSPEL). These cluster on the Why3/Viper IVLs — which is exactly why a unified tool is
+feasible.
+
+**Bucket B — possible in a unified tool (9), mainly a front-end + semantics effort.**
+Cheap wins (managed/typed): **C#** (dead precedent Spec#; CIL front-end feasible),
+**Dart**, **Swift** (types + value semantics + ownership). C-like systems (need
+Viper-style separation logic): **C3**, **Odin**, **Zig**, **D**, **V**. Gated by JS
+runtime semantics: **TypeScript** (its type system helps; the underlying JavaScript is
+the mess).
+
+**Bucket C — impractical (5), and why.** **C++** (see above). **SystemC** — *is* C++ (an
+electronic-system-level modeling library), so it inherits everything; its real home is
+*hardware model checking* (the temporal axis, not deductive). **Lua** and **Ruby** —
+dynamically typed, no static structure; only buildable if a typed dialect
+(Luau/Teal/Sorbet) is required first. **Mojo** — immature, unstable, semi-proprietary
+moving target; promising ownership design but not pin-down-able yet ("wait, not no").
+
+**Three fault lines that decide the buckets:**
+
+1. **Static typing is the price of admission** — every impractical dynamic language fails
+   for the same reason; Python only qualifies *via* mandatory annotations.
+2. **Memory model sets the front-end cost** — managed languages are cheap; every
+   manual-memory systems language needs the *same* reusable separation-logic machinery
+   (argues for the **Viper** IVL if we go unified).
+3. **SystemC belongs on the temporal axis** — a reminder the project likely wants both a
+   deductive engine *and* a model-checking engine, with the requirement layer routing
+   properties to whichever fits.
+
 ## Design Q&A (living notes)
 
 A running log of questions worked through and their distilled answers. Refined as we
@@ -263,6 +301,13 @@ drill down; fuller treatment lives in the sections above.
   model. Rust verifies well because it was co-designed for it; C++ chose the opposite
   trade. **Decision:** deprioritize C++; revisit later only as a constrained verifiable
   subset (SPARK-style). See *Why C++ is "weak (subsets only)"*.
+- **Of the companion project's 21 languages, what's supported / buildable / impractical?**
+  First-class today (7): Ada, C, Java, Rust, Go, Python, OCaml. Buildable via IVL
+  front-ends (9): C#, Dart, Swift, C3, Odin, Zig, D, V, TypeScript. Impractical (5):
+  C++, SystemC (it *is* C++; belongs on the temporal/model-checking axis), Lua, Ruby
+  (dynamic typing — need a typed dialect), Mojo (immature moving target). Deciding
+  factors: static typing (price of admission), memory model (front-end cost), and the
+  deductive-vs-temporal axis. See *Language shortlist assessment*.
 - **How big a deal to build a wider-spectrum, extensible tool?** Not "invent something
   new" — adopt the **IVL pattern** (Why3 or Viper): reuse the solved core (VC generation,
   SMT back-ends) and write a *faithful per-language front-end* per language. Front-ends
