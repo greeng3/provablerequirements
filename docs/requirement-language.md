@@ -200,6 +200,92 @@ Chosen: authors **declare** the category; PRL may **infer** it as a hint when om
 Declared is authoritative; inference is a labeled, explainable convenience that never
 silently determines a verdict's strength.
 
+### D4 — Separate reusable vocabulary from per-environment groundings
+
+Chosen: the **vocabulary (signature)** — abstract, typed, category-independent — is a
+**shared, named module** (a domain ontology reused across requirements); **groundings** are
+separate per-(category, environment) adapter modules that bind each symbol to a concrete
+observable. Inline vocabulary is allowed for one-offs. See *Grounding layer*.
+
+### D5 — Binding fidelity is first-class and feeds verdict strength
+
+Each grounding declares `fidelity ∈ {definitional, observed, probed}`:
+
+- `definitional` — true by construction (2a model variables/actions).
+- `observed` — a runtime observation that can be wrong (2b event/log/DB queries).
+- `probed` — a UI probe, flaky (3 selectors/driver).
+
+`observed` and `probed` bindings are **three-valued**: a missing observation is
+`unobserved ⇒ unknown`, never silently `false`. **A verdict can never be stronger than its
+weakest binding's fidelity.**
+
+### D6 — Mandatory correspondence for multi-category symbols; identity + time mandatory
+
+- **Identity/correlation keys and time sources are mandatory** parts of runtime/UI
+  bindings (a quantified variable needs an identity field; a timing bound needs a named
+  clock).
+- **Cross-category coherence is mandatory (fork 2 = a):** whenever a symbol is grounded in
+  ≥2 categories, the author must state a **refinement mapping** asserting the bindings
+  correspond (the runtime/UI binding is a faithful observation of the model binding). To
+  keep this practical, a **trivial/identity correspondence may be explicitly acknowledged**
+  when the bindings are definitionally the same — the author must confront and record it,
+  but need not write a heavyweight mapping. Generated consistency checks (run the 2b
+  grounding, confirm observed events match the 2a model) are opt-in high-assurance,
+  mirroring D2a. This is where "2b monitoring closes the design gap" becomes concrete.
+
+## Grounding layer (signature / interpretation)
+
+Grounding binds abstract predicates/events to real observables. It is where the
+specification gap bites hardest and most invisibly — a wrong binding silently makes a
+true-looking requirement meaningless — so bindings are typed, reviewable, and
+trust-annotated. The mechanism is the logic **signature / interpretation** split, the same
+structure as TLA+ **refinement mappings**, model-based-testing **adapters**, Cucumber
+**step-definitions**, and MonPoly **log schemas** (proven patterns, synthesized — not
+invented).
+
+Three parts:
+
+1. **Vocabulary (signature)** — abstract, typed, category-independent:
+
+   ```text
+   vocabulary MessageLifecycle {
+     sort  Message
+     event accepted(m: Message)
+     state succeeded(m: Message)
+     state dead_lettered(m: Message, reason: String)
+     identity Message = m.id          // correlation key
+   }
+   ```
+
+2. **Grounding modules** — per category and environment, mapping each symbol to an
+   observable:
+
+   ```text
+   grounding MessageLifecycle @kafka-prod for 2b {
+     time = event.timestamp
+     accepted(m)         ↦ span "queue.accept"    where attr["msg.id"] = m.id
+     succeeded(m)        ↦ span "handler.complete" where attr["msg.id"] = m.id and status = OK
+     dead_lettered(m, r) ↦ row  "dead_letters"     where msg_id = m.id and r = reason
+     fidelity = observed              // 3-valued: missing span ⇒ unknown, not false
+   }
+
+   grounding MessageLifecycle @tla-model for 2a {
+     accepted(m)  ↦ action Accept(m)
+     succeeded(m) ↦ status[m] = "Succeeded"
+     fidelity = definitional
+   }
+   ```
+
+3. **Adapters** — what each grounding compiles to: **1 (code)** a state predicate at a
+   source location (ACSL/JML/Viper); **2a (model)** a direct model variable/action
+   reference (definitional); **2b (runtime)** a query over an event/telemetry stream
+   (span/log/DB row); **3 (UI)** a probe (selector + assertion via Selenium/Playwright).
+
+Three hard sub-problems the binding must handle: **identity/correlation** (which field is
+the quantified variable's identity — parametric-monitoring trace-slicing); **time source**
+(the named clock for timing bounds); and **partial observability ⇒ three-valued**
+(`unobserved` distinct from `observed-false`, feeding the honest *unknown*).
+
 ## Core layer (working direction)
 
 One **first-order metric temporal logic** with both linear and branching operators
@@ -252,8 +338,8 @@ requirement no_message_lost {
 
 - Precise grammar for the pattern surface and the sugar escape hatch.
 - Formal semantics of the core logic and the exact boundary of each engine fragment.
-- The grounding/vocabulary binding mechanism per category (how predicates/events attach to
-  real observables).
-- Verdict object schema (modality + strength + inferred-routing labels + counterexample /
-  witness format).
+- Concrete syntax for grounding modules and refinement mappings (the mechanism is decided
+  in D4/D5/D6 and *Grounding layer*; the exact adapter syntax per category is still open).
+- Verdict object schema (modality + strength + per-tool epistemic profile + inferred-routing
+  labels + binding-fidelity + three-valued unknown + counterexample/witness format).
 - How the LLM front-end lowers text → patterns, and how round-trip read-back is presented.
