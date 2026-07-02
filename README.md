@@ -585,6 +585,11 @@ drill down; fuller treatment lives in the sections above.
   a general tool likely needs a requirement layer that routes properties to the right
   engine.
 
+## Design Documents
+
+- [docs/requirement-language.md](docs/requirement-language.md) — design of the unified
+  requirement language (PRL). Tracked in issue #2.
+
 ## Status
 
 Brainstorming. No code yet — ideas, notes, and direction come first; implementation
