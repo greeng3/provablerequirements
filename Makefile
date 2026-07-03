@@ -19,7 +19,7 @@ TRACE_REPORT := docs/traceability_report.md
 # are passed explicitly below. The qrusty symlink and generated dirs are always
 # excluded so we never lint/format outside this repo.
 
-.PHONY: help \
+.PHONY: help check-tools \
 	fmt fmt-check lint pre-merge setup-hooks check-requirements \
 	fmt-md fmt-check-md lint-md \
 	fmt-yaml fmt-check-yaml lint-yaml \
@@ -27,6 +27,7 @@ TRACE_REPORT := docs/traceability_report.md
 
 help:
 	@echo "Targets:"
+	@echo "  check-tools         Verify the dev toolchain is present and runnable"
 	@echo "  fmt                 Format Markdown + YAML (prettier --write)"
 	@echo "  fmt-check           Check formatting without writing"
 	@echo "  lint                Lint Markdown (markdownlint) + YAML (yamllint)"
@@ -38,6 +39,10 @@ help:
 	@echo "  setup-hooks         Install git hooks (core.hooksPath -> .githooks)"
 	@echo ""
 	@echo "  Per-language: fmt-md fmt-check-md lint-md  fmt-yaml fmt-check-yaml lint-yaml"
+
+# --- environment ---
+check-tools:
+	@bash scripts/validate_dependencies.sh
 
 # --- aggregates ---
 fmt: fmt-md fmt-yaml
