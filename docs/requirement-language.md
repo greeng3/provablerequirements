@@ -292,6 +292,51 @@ fragments should prevent statically** — ideally a compile-time rejection befor
 runs; the residue (subtle soundness-direction mismatches) is caught at aggregation and
 excluded. (A) is a runtime epistemic gap; (B) is a pipeline type error.
 
+### D11 — Untrusted constrained front-end + mechanical gate
+
+The LLM front-end is an untrusted compiler front-end: fuzzy NL → a candidate PRL
+requirement (vocabulary, pattern-property, `assume`, grounding hints, proposed category).
+Its output never enters the trusted path directly. A **mechanical gate** validates every candidate before
+any human sees it: parse → type/fragment-check (D2/D10, catching `inapplicable`
+misrouting) → rule-based category inference (D3) → **vacuity / triviality / satisfiability
+sanity** (the mechanical guard against "verifies but meaningless"). **Generation strategy:
+generate-then-repair loop** — mechanical errors feed back to the LLM for bounded
+re-translation (`go-ctl2` style). A **grammar-constrained decoder is deferred** — revisit
+if generate-then-repair proves too sloppy in practice.
+
+### D12 — Independent read-back + risk-tiered human gate
+
+- **Read-back is a deterministic renderer over the PRL AST, independent of the forward
+  LLM.** If one LLM did both directions, the read-back would restate its own misreading (a
+  self-consistent but wrong pair — the D2a / `go-ctl2` circularity trap at the human
+  boundary). Forward = LLM (untrusted); back-render = trusted pretty-printer. The human
+  always reviews a faithful surfacing of the *actual formal meaning*.
+- **Human intent gate is risk-tiered (fork b):** mandatory confirmation for high-stakes /
+  low-confidence / grounding-heavy / vacuity-flagged requirements; others auto-admit with
+  the read-back retained for audit. **Non-mandatory requirements remain available for
+  optional human review** at a reviewer's discretion. Each requirement's **review status is
+  indicated** — `review: mandatory | optional`, plus whether it has been reviewed and by
+  whom/when — so "review not required" is never confused with "reviewed."
+- **Ambiguity and missing load-bearing assumptions are surfaced as explicit choices, never
+  defaulted** (e.g. "processed *quickly* → `within T`? what T?"; "no message lost →
+  bounded retries or a fairness assumption?").
+
+### D13 — Grounding proposals dry-run-validated
+
+LLM-proposed groundings are the highest-risk step (D5/D6): presented for the strongest
+review and **dry-run-validated against sample observations** ("here are 5 spans matching
+this binding — right?"), closing part of the grounding gap with real data rather than
+eyeballing.
+
+### D14 — Provenance and faithful read-out
+
+Every admitted requirement records `original NL ↔ confirmed PRL ↔ review status /
+reviewer / time`; if the NL later changes, the PRL is flagged **needs-reconfirmation**
+(mirrors D9). The LLM may also render the verdict evidence-tree (D7–D10) into prose, but
+only as a **faithful rendering of the structured object**, clearly marked, never adding
+claims. In both directions the LLM is a faithful renderer of a formal artifact, never an
+authority.
+
 ## Verdict object
 
 A verdict is a three-valued **evidence tree**, not a boolean:
@@ -396,6 +441,29 @@ the quantified variable's identity — parametric-monitoring trace-slicing); **t
 (the named clock for timing bounds); and **partial observability ⇒ three-valued**
 (`unobserved` distinct from `observed-false`, feeding the honest *unknown*).
 
+## LLM front-end and round-trip read-back
+
+The LLM is the untrusted front-end (see the README workflow); it never enters the trusted
+path. Pipeline:
+
+```text
+NL requirement text
+  → [LLM: untrusted forward translation]
+        → candidate PRL: vocabulary + pattern-property + assume + grounding hints + category
+  → [MECHANICAL GATE] parse → type/fragment-check (D2/D10) → category-infer (D3)
+                       → vacuity / triviality / satisfiability sanity
+        ├─ mechanical error → feed back to LLM, repair (bounded loop)
+        └─ clean ↓
+  → [DETERMINISTIC READ-BACK] render PRL AST → canonical CNL paraphrase    // NOT the LLM
+  → [HUMAN intent gate, risk-tiered] confirm / correct   (optional review available otherwise)
+        ├─ correct → loop
+        └─ confirm / auto-admit → admitted; NL↔PRL provenance + review status recorded
+```
+
+Crux: the read-back must be **independent** of the forward LLM (D12) — otherwise it
+faithfully restates the LLM's misreading and the human rubber-stamps a spec gap. The
+mechanical gate adjudicates *form*; the human adjudicates *meaning*.
+
 ## Core layer (working direction)
 
 One **first-order metric temporal logic** with both linear and branching operators
@@ -452,4 +520,7 @@ requirement no_message_lost {
   in D4/D5/D6 and *Grounding layer*; the exact adapter syntax per category is still open).
 - Concrete serialization + human read-back rendering of the verdict object (the schema and
   rules are decided in D7–D10 and *Verdict object*; the wire format is still open).
-- How the LLM front-end lowers text → patterns, and how round-trip read-back is presented.
+- **Deferred:** grammar-constrained decoder for the LLM front-end — revisit if the
+  generate-then-repair loop (D11) proves too sloppy in practice.
+- Deterministic PRL→CNL read-back renderer and the vacuity/triviality checks (mechanism
+  decided in D11/D12; concrete implementation open).
