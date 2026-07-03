@@ -1,0 +1,7 @@
+# Never format outside this repo or into generated / tool-managed trees.
+qrusty
+requirements-doorstop
+.venv
+node_modules
+.git
+.DS_Store

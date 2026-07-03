@@ -1,0 +1,19 @@
+---
+# yamllint configuration for `make lint-yaml`.
+extends: default
+
+rules:
+  line-length:
+    max: 100
+    level: warning
+  # Doorstop and many tool configs omit the leading `---`.
+  document-start: disable
+  truthy:
+    level: warning
+
+# Never lint outside this repo or into generated / tool-managed trees.
+ignore: |
+  qrusty/
+  requirements-doorstop/
+  .venv/
+  node_modules/
