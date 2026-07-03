@@ -590,6 +590,25 @@ drill down; fuller treatment lives in the sections above.
 - [docs/requirement-language.md](docs/requirement-language.md) — design of the unified
   requirement language (PRL). Tracked in issue #2.
 
+## Development
+
+A [dev container](.devcontainer/README.md) provides the toolchain (git, `glab`, Doorstop,
+`uv`, and the Markdown/YAML linters and formatters). Open the repo in VS Code and
+**"Dev Containers: Reopen in Container"**, then use the Makefile:
+
+```sh
+make check-tools           # verify the toolchain is present
+make fmt                   # format Markdown + YAML (prettier)
+make lint                  # markdownlint + yamllint
+make check-requirements    # validate the Doorstop tree
+make traceability          # requirements-to-code traceability report
+make pre-merge             # full local preflight (there is no CI)
+make setup-hooks           # install the pre-commit gate
+```
+
+Requirements are managed with Doorstop in [`requirements-doorstop/`](requirements-doorstop)
+(there are none yet). See [.devcontainer/README.md](.devcontainer/README.md) for details.
+
 ## Status
 
 Brainstorming. No code yet — ideas, notes, and direction come first; implementation
