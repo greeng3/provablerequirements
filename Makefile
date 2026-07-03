@@ -12,6 +12,8 @@ MARKDOWNLINT := markdownlint-cli2
 PRETTIER     := prettier
 YAMLLINT     := yamllint
 DOORSTOP     := doorstop
+TRACEABILITY := uv run scripts/traceability.py
+TRACE_REPORT := docs/traceability_report.md
 
 # Prettier ignores come from .prettierignore; markdownlint/yamllint exclusions
 # are passed explicitly below. The qrusty symlink and generated dirs are always
@@ -20,7 +22,8 @@ DOORSTOP     := doorstop
 .PHONY: help \
 	fmt fmt-check lint pre-merge setup-hooks check-requirements \
 	fmt-md fmt-check-md lint-md \
-	fmt-yaml fmt-check-yaml lint-yaml
+	fmt-yaml fmt-check-yaml lint-yaml \
+	traceability traceability-report traceability-check
 
 help:
 	@echo "Targets:"
@@ -28,7 +31,10 @@ help:
 	@echo "  fmt-check           Check formatting without writing"
 	@echo "  lint                Lint Markdown (markdownlint) + YAML (yamllint)"
 	@echo "  check-requirements  Validate the Doorstop requirements tree"
-	@echo "  pre-merge           Preflight: fmt, fmt-check, lint, check-requirements"
+	@echo "  traceability        Print a requirements traceability report"
+	@echo "  traceability-report Write the report to $(TRACE_REPORT)"
+	@echo "  traceability-check  Fail if any code tag references an unknown requirement"
+	@echo "  pre-merge           Preflight: traceability, fmt, fmt-check, lint, requirements"
 	@echo "  setup-hooks         Install git hooks (core.hooksPath -> .githooks)"
 	@echo ""
 	@echo "  Per-language: fmt-md fmt-check-md lint-md  fmt-yaml fmt-check-yaml lint-yaml"
@@ -62,22 +68,35 @@ lint-yaml:
 check-requirements:
 	@$(DOORSTOP)
 
+traceability:
+	@$(TRACEABILITY)
+
+traceability-report:
+	@$(TRACEABILITY) --output $(TRACE_REPORT)
+
+traceability-check:
+	@$(TRACEABILITY) --check >/dev/null
+
 # --- Preflight ---
 pre-merge:
 	@echo "=== pre-merge preflight ==="
 	@echo "Manual prerequisite (not automated): update docs and requirements for the changes being merged."
 	@echo ""
-	@echo "[1/4] fmt"
+	@echo "[1/6] traceability-report (regenerate $(TRACE_REPORT))"
+	@$(MAKE) --no-print-directory traceability-report
+	@echo "[2/6] fmt"
 	@$(MAKE) --no-print-directory fmt
-	@echo "[2/4] fmt-check"
+	@echo "[3/6] fmt-check"
 	@$(MAKE) --no-print-directory fmt-check
-	@echo "[3/4] lint"
+	@echo "[4/6] lint"
 	@$(MAKE) --no-print-directory lint
-	@echo "[4/4] check-requirements"
+	@echo "[5/6] check-requirements"
 	@$(MAKE) --no-print-directory check-requirements
+	@echo "[6/6] traceability-check (no orphan tags)"
+	@$(MAKE) --no-print-directory traceability-check
 	@echo ""
 	@echo "=== pre-merge passed ==="
-	@echo "(Rust, Node/React, coverage, and traceability steps to be added as those land.)"
+	@echo "(Rust and Node/React targets to be added as those land.)"
 
 setup-hooks:
 	@git config core.hooksPath .githooks
