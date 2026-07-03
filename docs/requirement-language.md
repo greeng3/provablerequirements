@@ -11,7 +11,7 @@ listed at the end.
 ## Guiding principle
 
 The DSL mirrors the layered-hybrid architecture ("unify the meaning, federate the
-engines"): one stable core *meaning*, with lowering to each engine. Three layers:
+engines"): one stable core _meaning_, with lowering to each engine. Three layers:
 
 - **Surface layer** (human- & LLM-facing) — readable, pattern-based authoring.
 - **Core layer** (formal semantics) — one precise logic that every requirement means.
@@ -45,7 +45,7 @@ operations/events notion; `require` is where temporal logic lives.
 
 Priority: **precision over ambiguity, without writing raw logical notation.** Ranking:
 
-1. **Specification patterns** (Dwyer/Avrunin/Corbett) — *chosen default.* Each pattern
+1. **Specification patterns** (Dwyer/Avrunin/Corbett) — _chosen default._ Each pattern
    (`P leads_to Q within T`, `S precedes P`, `never P between A and B`) is a named
    template with one fixed formal meaning; precision is by construction (ambiguity is
    resolved when the pattern is chosen, not left in prose), yet no `□`/`◇`/`E`/`A` is
@@ -70,7 +70,7 @@ Chosen: **one core semantics**, organized as a family of delimited fragments, ea
 subset of the one meaning and each exactly what one engine checks. (Not federated cores
 glued only by shared vocabulary.)
 
-Why unify: a requirement means one thing; a cross-category property is provably the *same*
+Why unify: a requirement means one thing; a cross-category property is provably the _same_
 claim everywhere; cross-category composition and Event-B-style refinement need one logic;
 one LLM target; uniform verdicts; one spec-gap review.
 
@@ -82,14 +82,14 @@ added on top of — not instead of — the N engine back-ends.
 How the fragment structure controls that cost:
 
 - One semantic domain → single meaning preserved.
-- Profiles: *code fragment* (temporal-free Hoare) → Viper; *linear monitorable fragment*
-  (MFOTL) → MonPoly; *branching fragment* (CTL) → NuSMV; etc.
+- Profiles: _code fragment_ (temporal-free Hoare) → Viper; _linear monitorable fragment_
+  (MFOTL) → MonPoly; _branching fragment_ (CTL) → NuSMV; etc.
 - A requirement's fragment is declared/inferred; using an operator outside the target
   engine's fragment is a **typed error surfaced to the author**, never a silent
   approximation.
 - An **engine-native raw block** is allowed as a clearly-marked escape hatch for the rare
-  property that does not fit the core — flagged as *not covered by the unified
-  semantics*, preserving honesty.
+  property that does not fit the core — flagged as _not covered by the unified
+  semantics_, preserving honesty.
 
 Analogy: SQL / a typed IR — one semantics, target-specific lowerings, engines support
 subsets.
@@ -97,18 +97,18 @@ subsets.
 #### D2a — Differential cross-verification (validation strategy for D2)
 
 Optionally verify a requirement **both** ways — via the unified core's lowering **and** via
-an engine's native encoding — and compare verdicts. This is *differential
-cross-verification* (a cousin of N-version programming / compiler differential testing),
+an engine's native encoding — and compare verdicts. This is _differential
+cross-verification_ (a cousin of N-version programming / compiler differential testing),
 and it is best understood as a **validation strategy for the D2 bet**, not a rival to it.
 
 Separate two things it could check — they differ sharply in cost/benefit:
 
 - **(a) the lowering** — "did core → engine produce the right formula?" (most of the value)
 - **(b) the specification** — "does the formula mean the intent?" (only works if the two
-  encodings are *genuinely independent*)
+  encodings are _genuinely independent_)
 
 Benefits: catches lowering bugs (differential testing of the compiler); corroboration
-across engines with *different* TCBs; the native engine acts as a fidelity oracle for where
+across engines with _different_ TCBs; the native engine acts as a fidelity oracle for where
 the core fragment only approximates; **de-risks D2** during the period the core is not yet
 trusted (dial back to spot-checks once it is); divergent counterexamples localize the fault.
 
@@ -127,13 +127,13 @@ requirements — not a permanent universal double-run. Prefer **translation vali
 the lowering where feasible (rigorous version of (a); sidesteps reconciliation). Divergence
 policy is conservative: **divergence ⇒ unknown / needs-review**, never silently pick a
 winner. Bake two caveats into the verdict model: agreement raises confidence but never
-*proves* correctness (correlated errors); disagreement is not always a bug (logic
+_proves_ correctness (correlated errors); disagreement is not always a bug (logic
 differences).
 
 #### D2b — Per-language tool ensembles and soundness-aware verdicts
 
 Beyond core-vs-native, several languages already have **multiple native tools** with
-*different formalisms*, so an ensemble is cheap-ish to assemble:
+_different formalisms_, so an ensemble is cheap-ish to assemble:
 
 - **C** (richest): Frama-C (WP deductive + EVA abstract-interp), VeriFast (sep. logic),
   CBMC/ESBMC (bounded MC), CPAchecker, Ultimate, SeaHorn, Astrée (abstract-interp), Infer,
@@ -142,12 +142,12 @@ Beyond core-vs-native, several languages already have **multiple native tools** 
   **Python**: Nagini, CrossHair. **Go**: Gobra, Goose, race detector.
 - **Pre-built cross-check infrastructure exists:** **SV-COMP** runs ~40+ C verifiers on
   shared benchmarks and standardized **verification witnesses** (violation / correctness)
-  that a *different* tool can validate — exactly the machinery for locating disagreement.
+  that a _different_ tool can validate — exactly the machinery for locating disagreement.
 
 **The gradient (determines free-upside vs reconciliation cost):**
 
-- **Solver portfolio** (Why3/SPARK/Dafny → many SMT solvers): *pure upside, no
-  reconciliation* — a discharged obligation is a proof regardless of which solver closed
+- **Solver portfolio** (Why3/SPARK/Dafny → many SMT solvers): _pure upside, no
+  reconciliation_ — a discharged obligation is a proof regardless of which solver closed
   it. Always do this.
 - **Same-formalism tools:** mostly upside; disagreement usually means one is unsound/buggy
   or uses a different memory model.
@@ -156,16 +156,16 @@ Beyond core-vs-native, several languages already have **multiple native tools** 
 
 **Interpret every verdict by its soundness direction (the key lens):**
 
-- **Over-approximating & sound** (abstract interpretation): *PASS trustworthy; FAIL may be
-  a false alarm.*
-- **Under-approximating & bug-finding** (bounded MC, symbolic, concolic, dynamic): *FAIL is
-  a real bug; PASS only means "no bug within the bound."*
-- **Deductive & spec-relative** (WP, KeY, Verus): *PASS trustworthy relative to spec +
-  assumptions; may return unknown.*
+- **Over-approximating & sound** (abstract interpretation): _PASS trustworthy; FAIL may be
+  a false alarm._
+- **Under-approximating & bug-finding** (bounded MC, symbolic, concolic, dynamic): _FAIL is
+  a real bug; PASS only means "no bug within the bound."_
+- **Deductive & spec-relative** (WP, KeY, Verus): _PASS trustworthy relative to spec +
+  assumptions; may return unknown._
 
 So a **majority vote is wrong** — "3 PASS, 1 FAIL" is meaningless if the FAIL is a sound
 over-approximator reaching what the under-approximators could not. The ensemble's value is
-as an **epistemic map**: agreement across *diverse* formalisms is strong corroboration;
+as an **epistemic map**: agreement across _diverse_ formalisms is strong corroboration;
 disagreement is diagnostic (often expected, e.g. bounded "no bug to depth 20" vs. deductive
 "no bug ever" is not a contradiction).
 
@@ -178,9 +178,9 @@ requirements.
 Decision: support **per-language tool ensembles** as a first-class option, aggregated as a
 structured epistemic map rather than a boolean or a vote. The verdict model records, **per
 tool**: `{ tool, formalism, soundness_direction (over | under | exact), bounded? + bound,
-assumptions/simplifications, verdict }`. Example aggregate: *"proven unbounded by Verus;
+assumptions/simplifications, verdict }`. Example aggregate: _"proven unbounded by Verus;
 corroborated by CBMC to depth 20; Frama-C EVA raised a likely-false alarm at line X
-(over-approx). Overall: proven, high confidence."* This extends the verdict-strength idea
+(over-approx). Overall: proven, high confidence."_ This extends the verdict-strength idea
 from categories down to individual tools.
 
 ### D3 — Category: declared, with inference as a labeled hint
@@ -205,7 +205,7 @@ silently determines a verdict's strength.
 Chosen: the **vocabulary (signature)** — abstract, typed, category-independent — is a
 **shared, named module** (a domain ontology reused across requirements); **groundings** are
 separate per-(category, environment) adapter modules that bind each symbol to a concrete
-observable. Inline vocabulary is allowed for one-offs. See *Grounding layer*.
+observable. Inline vocabulary is allowed for one-offs. See _Grounding layer_.
 
 ### D5 — Binding fidelity is first-class and feeds verdict strength
 
@@ -237,18 +237,18 @@ weakest binding's fidelity.**
 
 A verdict is an honest evidence record, not a judgment: `status ∈ {holds, fails, unknown}`
 (unknown always carries a reason), machine-object-first with a rendered human read-back
-(D1 round-trip). Structure and strength scale are in *Verdict object*.
+(D1 round-trip). Structure and strength scale are in _Verdict object_.
 
 ### D8 — Aggregation rules and confidence
 
 - **Weakest-link caps effective strength** — a verdict is only as strong as
   `min(binding fidelity, tool soundness, model fidelity, bound coverage)`.
-- **Corroboration raises confidence *within* a strength level but never promotes the
-  *kind* of claim** — empirical corroboration does not turn `model-checked` into `proven`.
+- **Corroboration raises confidence _within_ a strength level but never promotes the
+  _kind_ of claim** — empirical corroboration does not turn `model-checked` into `proven`.
   The kind is set by the strongest **sound** basis that established the result; never a
   majority vote (D2b).
 - **Confidence (fork 1):** qualitative strength is primary; a **statistical** confidence is
-  permitted *only* for empirical verdicts (with explicit coverage caveats) and **never** as
+  permitted _only_ for empirical verdicts (with explicit coverage caveats) and **never** as
   a fabricated number on a proof (false precision).
 - **Mixed evidence (fork 2):** **conservative for `fails`/divergence** (any material
   divergence or unconfirmed failure ⇒ top-level `unknown / needs-review`), **best-sound-
@@ -271,19 +271,19 @@ A verdict is an honest evidence record, not a judgment: `status ∈ {holds, fail
 
 ### D10 — Two kinds of "unknown": inconclusive vs. inapplicable
 
-A *suited tool that could not conclude* and a *tool applied to something it is not suited
-for* are different and must be handled oppositely.
+A _suited tool that could not conclude_ and a _tool applied to something it is not suited
+for_ are different and must be handled oppositely.
 
 - **`inconclusive`** — a tool **inside its competence envelope** did not determine a result
   this run (timeout, resource exhaustion, solver "unknown", non-convergence, bound too
   small, `unobserved` binding). Legitimate, **retryable** evidence; belongs in the map and
   feeds the top-level `unknown` per D8.
 - **`inapplicable` / misapplied** — a tool **outside its competence envelope**:
-  out-of-fragment (cannot *express* the property) or against its **soundness direction**
-  (e.g. a bounded/under-approximating checker asked to *prove* a ∀ claim; a race detector
-  asked to *prove absence*). A **non-result**: **excluded from the evidence map** and
+  out-of-fragment (cannot _express_ the property) or against its **soundness direction**
+  (e.g. a bounded/under-approximating checker asked to _prove_ a ∀ claim; a race detector
+  asked to _prove absence_). A **non-result**: **excluded from the evidence map** and
   raised as a **routing/typing warning**. Any output it produces (including `holds`/`fails`)
-  is discarded — its answer is the wrong *kind* of answer for the claim.
+  is discarded — its answer is the wrong _kind_ of answer for the claim.
 
 A tool's **competence envelope** = `{fragment it can express} × {claim polarities it can
 soundly establish}` (D2 fragments × D2b soundness direction). Inside, no conclusion ⇒
@@ -310,7 +310,7 @@ if generate-then-repair proves too sloppy in practice.
   LLM.** If one LLM did both directions, the read-back would restate its own misreading (a
   self-consistent but wrong pair — the D2a / `go-ctl2` circularity trap at the human
   boundary). Forward = LLM (untrusted); back-render = trusted pretty-printer. The human
-  always reviews a faithful surfacing of the *actual formal meaning*.
+  always reviews a faithful surfacing of the _actual formal meaning_.
 - **Human intent gate is risk-tiered (fork b):** mandatory confirmation for high-stakes /
   low-confidence / grounding-heavy / vacuity-flagged requirements; others auto-admit with
   the read-back retained for audit. **Non-mandatory requirements remain available for
@@ -318,7 +318,7 @@ if generate-then-repair proves too sloppy in practice.
   indicated** — `review: mandatory | optional`, plus whether it has been reviewed and by
   whom/when — so "review not required" is never confused with "reviewed."
 - **Ambiguity and missing load-bearing assumptions are surfaced as explicit choices, never
-  defaulted** (e.g. "processed *quickly* → `within T`? what T?"; "no message lost →
+  defaulted** (e.g. "processed _quickly_ → `within T`? what T?"; "no message lost →
   bounded retries or a fairness assumption?").
 
 ### D13 — Grounding proposals dry-run-validated
@@ -358,13 +358,13 @@ Verdict( requirement@version , subject@version )
 Strength splits **polarity** from **basis**:
 
 - **`holds`** basis, strongest first: `proven` (deductive, ∀ executions) › `model-checked`
-  (∀ over model M; note *bounded?*) › `not-falsified` (empirical: N runs / duration /
+  (∀ over model M; note _bounded?_) › `not-falsified` (empirical: N runs / duration /
   coverage).
 - **`fails`** basis is a **witness**; a valid witness makes `fails` definitive
   (falsification is the robust half), but an empirical `fails` must be confirmed non-flaky
   or downgrade to `unknown` (D9).
 - **`unknown`** reason ∈ `{inconclusive(…) | inapplicable(…) | divergence-needs-review |
-  missing-grounding | assumption-unmet}` (D10).
+missing-grounding | assumption-unmet}` (D10).
 
 Example:
 
@@ -439,7 +439,7 @@ Three parts:
 Three hard sub-problems the binding must handle: **identity/correlation** (which field is
 the quantified variable's identity — parametric-monitoring trace-slicing); **time source**
 (the named clock for timing bounds); and **partial observability ⇒ three-valued**
-(`unobserved` distinct from `observed-false`, feeding the honest *unknown*).
+(`unobserved` distinct from `observed-false`, feeding the honest _unknown_).
 
 ## LLM front-end and round-trip read-back
 
@@ -462,7 +462,7 @@ NL requirement text
 
 Crux: the read-back must be **independent** of the forward LLM (D12) — otherwise it
 faithfully restates the LLM's misreading and the human rubber-stamps a spec gap. The
-mechanical gate adjudicates *form*; the human adjudicates *meaning*.
+mechanical gate adjudicates _form_; the human adjudicates _meaning_.
 
 ## Core layer (working direction)
 
@@ -517,9 +517,9 @@ requirement no_message_lost {
 - Precise grammar for the pattern surface and the sugar escape hatch.
 - Formal semantics of the core logic and the exact boundary of each engine fragment.
 - Concrete syntax for grounding modules and refinement mappings (the mechanism is decided
-  in D4/D5/D6 and *Grounding layer*; the exact adapter syntax per category is still open).
+  in D4/D5/D6 and _Grounding layer_; the exact adapter syntax per category is still open).
 - Concrete serialization + human read-back rendering of the verdict object (the schema and
-  rules are decided in D7–D10 and *Verdict object*; the wire format is still open).
+  rules are decided in D7–D10 and _Verdict object_; the wire format is still open).
 - **Deferred:** grammar-constrained decoder for the LLM front-end — revisit if the
   generate-then-repair loop (D11) proves too sloppy in practice.
 - Deterministic PRL→CNL read-back renderer and the vacuity/triviality checks (mechanism
