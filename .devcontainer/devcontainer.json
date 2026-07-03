@@ -31,8 +31,8 @@
     "forwardPorts": [
         17868
     ],
-    // Install the Markdown linter (needs the Node feature above) and print a
-    // versions summary so a freshly built container is self-verifying.
-    "postCreateCommand": "npm install -g markdownlint-cli2 && echo '--- tool versions ---' && git --version && glab --version && node --version && markdownlint-cli2 --version && doorstop --version",
+    // Install the Node-based linters/formatters (need the Node feature above) and
+    // print a versions summary so a freshly built container is self-verifying.
+    "postCreateCommand": "npm install -g markdownlint-cli2 prettier && echo '--- tool versions ---' && git --version && glab --version && node --version && markdownlint-cli2 --version && prettier --version && yamllint --version && doorstop --version",
     "shutdownAction": "stopContainer"
 }

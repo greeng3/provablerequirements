@@ -40,3 +40,6 @@ RUN apt-get update \
 # the qrusty devcontainer. Relies on the distro python3 installed above.
 RUN curl -LsSf https://astral.sh/uv/install.sh | sh
 ENV PATH="/root/.local/bin:$PATH"
+
+# yamllint — YAML linting for the `make lint-yaml` / `pre-merge` targets.
+RUN uv tool install yamllint
