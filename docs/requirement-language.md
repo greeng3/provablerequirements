@@ -233,6 +233,116 @@ weakest binding's fidelity.**
   grounding, confirm observed events match the 2a model) are opt-in high-assurance,
   mirroring D2a. This is where "2b monitoring closes the design gap" becomes concrete.
 
+### D7 — Verdict is a three-valued evidence tree
+
+A verdict is an honest evidence record, not a judgment: `status ∈ {holds, fails, unknown}`
+(unknown always carries a reason), machine-object-first with a rendered human read-back
+(D1 round-trip). Structure and strength scale are in *Verdict object*.
+
+### D8 — Aggregation rules and confidence
+
+- **Weakest-link caps effective strength** — a verdict is only as strong as
+  `min(binding fidelity, tool soundness, model fidelity, bound coverage)`.
+- **Corroboration raises confidence *within* a strength level but never promotes the
+  *kind* of claim** — empirical corroboration does not turn `model-checked` into `proven`.
+  The kind is set by the strongest **sound** basis that established the result; never a
+  majority vote (D2b).
+- **Confidence (fork 1):** qualitative strength is primary; a **statistical** confidence is
+  permitted *only* for empirical verdicts (with explicit coverage caveats) and **never** as
+  a fabricated number on a proof (false precision).
+- **Mixed evidence (fork 2):** **conservative for `fails`/divergence** (any material
+  divergence or unconfirmed failure ⇒ top-level `unknown / needs-review`), **best-sound-
+  basis for `holds`** (report `holds` at the strongest sound level with the unknowns
+  attached — do not erase a genuine bounded proof because an orthogonal empirical check was
+  incomplete).
+- All **contingencies** (assumptions, bounds, binding & model fidelity) are carried in the
+  verdict object.
+
+### D9 — Witness discipline and provenance
+
+- `fails` requires a **valid, re-checkable witness** (category-specific). An **empirical
+  `fails` (2b/3) must be confirmed non-flaky / witness-valid, else it downgrades to
+  `unknown`**.
+- `holds` may carry an **optional correctness witness / invariant** that another tool can
+  independently validate (SV-COMP-style; ties to D2b).
+- Every verdict pins **provenance**: requirement version/hash, subject version (commit /
+  model version / env), tool versions, seeds — so it is reproducible and staleness against
+  changed artifacts is detectable.
+
+### D10 — Two kinds of "unknown": inconclusive vs. inapplicable
+
+A *suited tool that could not conclude* and a *tool applied to something it is not suited
+for* are different and must be handled oppositely.
+
+- **`inconclusive`** — a tool **inside its competence envelope** did not determine a result
+  this run (timeout, resource exhaustion, solver "unknown", non-convergence, bound too
+  small, `unobserved` binding). Legitimate, **retryable** evidence; belongs in the map and
+  feeds the top-level `unknown` per D8.
+- **`inapplicable` / misapplied** — a tool **outside its competence envelope**:
+  out-of-fragment (cannot *express* the property) or against its **soundness direction**
+  (e.g. a bounded/under-approximating checker asked to *prove* a ∀ claim; a race detector
+  asked to *prove absence*). A **non-result**: **excluded from the evidence map** and
+  raised as a **routing/typing warning**. Any output it produces (including `holds`/`fails`)
+  is discarded — its answer is the wrong *kind* of answer for the claim.
+
+A tool's **competence envelope** = `{fragment it can express} × {claim polarities it can
+soundly establish}` (D2 fragments × D2b soundness direction). Inside, no conclusion ⇒
+`inconclusive`; outside ⇒ `inapplicable`. **`inapplicable` is exactly what D2's typed
+fragments should prevent statically** — ideally a compile-time rejection before anything
+runs; the residue (subtle soundness-direction mismatches) is caught at aggregation and
+excluded. (A) is a runtime epistemic gap; (B) is a pipeline type error.
+
+## Verdict object
+
+A verdict is a three-valued **evidence tree**, not a boolean:
+
+```text
+Verdict( requirement@version , subject@version )
+├── status:    holds | fails | unknown
+├── strength:  <kind of claim>                    // polarity + basis, below
+├── contingencies: assumptions, bounds, binding_fidelity, model_fidelity
+├── per-category results[]                         // a requirement may span 2a + 2b …
+│     ├── category (declared | inferred)           // D3
+│     ├── status + strength (this category)
+│     ├── evidence[]  — per-tool epistemic map      // D2b; excludes inapplicable (D10)
+│     ├── cross_check — core vs native              // D2a
+│     └── witness?
+└── provenance: versions, timestamps, seeds
+```
+
+Strength splits **polarity** from **basis**:
+
+- **`holds`** basis, strongest first: `proven` (deductive, ∀ executions) › `model-checked`
+  (∀ over model M; note *bounded?*) › `not-falsified` (empirical: N runs / duration /
+  coverage).
+- **`fails`** basis is a **witness**; a valid witness makes `fails` definitive
+  (falsification is the robust half), but an empirical `fails` must be confirmed non-flaky
+  or downgrade to `unknown` (D9).
+- **`unknown`** reason ∈ `{inconclusive(…) | inapplicable(…) | divergence-needs-review |
+  missing-grounding | assumption-unmet}` (D10).
+
+Example:
+
+```text
+verdict no_message_lost @ kafka-prod, commit a1b2c3d {
+  status:   holds
+  strength: model-checked (bounded) + empirically-corroborated   // kind = model-checked, NOT proven
+  contingencies {
+    assumptions:      retries_bounded(N=5), fairness = WF
+    bounds:           2a: |Message| ≤ 8;   2b: 1.2M msgs / 24h
+    binding_fidelity: observed (2b)
+    model_fidelity:   over model M; design-gap partially closed by 2b corroboration
+  }
+  category 2a (declared): holds, model-checked ∀ over M (bounded ≤ 8)
+     evidence:   [ TLC — exact, bounded(≤8) → holds; correctness-witness: inv I ]
+     cross_check: core-lowering vs native TLA+ → agree
+  category 2b (declared): holds, not-falsified
+     evidence:   [ MonPoly — monitor, observed → no violation, 1.2M msgs / 24h ]
+     unknown_notes: 3 msgs unobserved (missing spans) ⇒ inconclusive, excluded & flagged
+  provenance: checker v0.x, requirement-hash …, seed …
+}
+```
+
 ## Grounding layer (signature / interpretation)
 
 Grounding binds abstract predicates/events to real observables. It is where the
@@ -340,6 +450,6 @@ requirement no_message_lost {
 - Formal semantics of the core logic and the exact boundary of each engine fragment.
 - Concrete syntax for grounding modules and refinement mappings (the mechanism is decided
   in D4/D5/D6 and *Grounding layer*; the exact adapter syntax per category is still open).
-- Verdict object schema (modality + strength + per-tool epistemic profile + inferred-routing
-  labels + binding-fidelity + three-valued unknown + counterexample/witness format).
+- Concrete serialization + human read-back rendering of the verdict object (the schema and
+  rules are decided in D7–D10 and *Verdict object*; the wire format is still open).
 - How the LLM front-end lowers text → patterns, and how round-trip read-back is presented.
