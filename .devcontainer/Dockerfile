@@ -9,10 +9,13 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 # GitLab CLI (glab) — used constantly in this repo for issues and merge requests.
-# Installed from the official release .deb (apt resolves any dependencies).
+# Installed from the official release .deb (apt resolves any dependencies). The
+# architecture is detected so the image builds on both amd64 and arm64 hosts;
+# `dpkg --print-architecture` yields amd64/arm64, matching glab's .deb naming.
 ARG GLAB_VERSION=1.106.0
-RUN curl -fsSL -o /tmp/glab.deb \
-      "https://gitlab.com/gitlab-org/cli/-/releases/v${GLAB_VERSION}/downloads/glab_${GLAB_VERSION}_linux_amd64.deb" \
+RUN arch="$(dpkg --print-architecture)" \
+    && curl -fsSL -o /tmp/glab.deb \
+      "https://gitlab.com/gitlab-org/cli/-/releases/v${GLAB_VERSION}/downloads/glab_${GLAB_VERSION}_linux_${arch}.deb" \
     && apt-get update \
     && apt-get install -y /tmp/glab.deb \
     && rm -f /tmp/glab.deb \
@@ -30,8 +33,8 @@ RUN apt-get update \
     && python3 -m venv /opt/doorstop \
     && /opt/doorstop/bin/pip install --upgrade pip \
     && /opt/doorstop/bin/pip install doorstop \
-    && ln -s /opt/doorstop/bin/doorstop /usr/local/bin/doorstop \
-    && ln -s /opt/doorstop/bin/doorstop-server /usr/local/bin/doorstop-server \
+    && ln -sf /opt/doorstop/bin/doorstop /usr/local/bin/doorstop \
+    && ln -sf /opt/doorstop/bin/doorstop-server /usr/local/bin/doorstop-server \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
