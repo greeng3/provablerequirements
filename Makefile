@@ -57,7 +57,7 @@ fmt-check-md:
 	@$(PRETTIER) --check --ignore-unknown --ignore-path .prettierignore "**/*.md"
 
 lint-md:
-	@$(MARKDOWNLINT) "**/*.md" "!qrusty/**" "!requirements-doorstop/**" "!**/node_modules/**" "!.venv/**"
+	@$(MARKDOWNLINT) "**/*.md" "!qrusty/**" "!requirements-doorstop/**" "!**/node_modules/**" "!.venv/**" "!.claude/**" "!.claude-home/**"
 
 # --- YAML ---
 fmt-yaml:

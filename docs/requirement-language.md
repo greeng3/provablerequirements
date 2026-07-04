@@ -402,34 +402,34 @@ Three parts:
 
 1. **Vocabulary (signature)** — abstract, typed, category-independent:
 
-   ```text
-   vocabulary MessageLifecycle {
-     sort  Message
-     event accepted(m: Message)
-     state succeeded(m: Message)
-     state dead_lettered(m: Message, reason: String)
-     identity Message = m.id          // correlation key
-   }
-   ```
+    ```text
+    vocabulary MessageLifecycle {
+      sort  Message
+      event accepted(m: Message)
+      state succeeded(m: Message)
+      state dead_lettered(m: Message, reason: String)
+      identity Message = m.id          // correlation key
+    }
+    ```
 
 2. **Grounding modules** — per category and environment, mapping each symbol to an
    observable:
 
-   ```text
-   grounding MessageLifecycle @kafka-prod for 2b {
-     time = event.timestamp
-     accepted(m)         ↦ span "queue.accept"    where attr["msg.id"] = m.id
-     succeeded(m)        ↦ span "handler.complete" where attr["msg.id"] = m.id and status = OK
-     dead_lettered(m, r) ↦ row  "dead_letters"     where msg_id = m.id and r = reason
-     fidelity = observed              // 3-valued: missing span ⇒ unknown, not false
-   }
+    ```text
+    grounding MessageLifecycle @kafka-prod for 2b {
+      time = event.timestamp
+      accepted(m)         ↦ span "queue.accept"    where attr["msg.id"] = m.id
+      succeeded(m)        ↦ span "handler.complete" where attr["msg.id"] = m.id and status = OK
+      dead_lettered(m, r) ↦ row  "dead_letters"     where msg_id = m.id and r = reason
+      fidelity = observed              // 3-valued: missing span ⇒ unknown, not false
+    }
 
-   grounding MessageLifecycle @tla-model for 2a {
-     accepted(m)  ↦ action Accept(m)
-     succeeded(m) ↦ status[m] = "Succeeded"
-     fidelity = definitional
-   }
-   ```
+    grounding MessageLifecycle @tla-model for 2a {
+      accepted(m)  ↦ action Accept(m)
+      succeeded(m) ↦ status[m] = "Succeeded"
+      fidelity = definitional
+    }
+    ```
 
 3. **Adapters** — what each grounding compiles to: **1 (code)** a state predicate at a
    source location (ACSL/JML/Viper); **2a (model)** a direct model variable/action

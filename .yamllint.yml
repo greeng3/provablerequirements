@@ -17,3 +17,5 @@ ignore: |
   requirements-doorstop/
   .venv/
   node_modules/
+  .claude/
+  .claude-home/

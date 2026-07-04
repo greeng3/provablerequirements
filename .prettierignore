@@ -5,3 +5,7 @@ requirements-doorstop
 node_modules
 .git
 .DS_Store
+
+# Claude Code local state, bind-mounted into the workspace (see .gitignore).
+.claude
+.claude-home
