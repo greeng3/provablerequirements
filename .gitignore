@@ -5,3 +5,8 @@
 
 # macOS noise
 .DS_Store
+
+# Claude Code local state (personal; contains credentials) — never commit.
+# .claude-home is bind-mounted to /root/.claude in the dev container.
+.claude/
+.claude-home/
