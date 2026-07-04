@@ -94,7 +94,7 @@ Both are the same interface; only the seam's location (in-process vs. wire) diff
 Starting with B and keeping the executor behind the interface leaves A a deployment change,
 not a rewrite.
 
-## A6 — The UI is the human-gate surface, with code browse + non-invasive annotation
+## A6 — The UI is the human-gate surface; annotation is write-through-review, not read-only
 
 The UI is the concrete realization of the trust boundary's mandatory human touchpoints:
 
@@ -107,13 +107,42 @@ The UI is the concrete realization of the trust boundary's mandatory human touch
 - **Inspect results** — the verdict evidence tree: holds/fails/unknown, per-tool epistemic
   map, witnesses, staleness (D7–D10).
 
-It also provides a **read-only browser over the subject's source, tests, and config** —
-because grounding is authored by pointing at real code (the function, the identity field,
-the span name) and assumptions trace to real config values. Annotations made in that
-service are a **non-invasive overlay stored companion-side** (file+line anchors), _not_
-edits into the subject's source: the tool verifies the code, it does not decorate it. The
-in-code `Implements:` / `Verifies:` tags remain available where the author wants a
-permanent, diff-visible link.
+It also browses the subject's source, tests, and config — because grounding is authored by
+pointing at real code (the function, the identity field, the span name) and assumptions
+trace to real config values. But **browse-only is wrong for annotation**, for a concrete
+reason: **a deductive tool's proof elements are not _about_ the code — they _are_ the
+code.** Verus/Prusti read `requires` / `ensures` / `invariant` / ghost state / spec fns
+straight out of the `.rs` source; the verifier never sees a companion file. So for the
+whole deductive category (2a) — the center of the qrusty case — a companion overlay
+_cannot host the proof at all_. Taken seriously, A3's own principle ("proofs live with the
+code they constrain") argues _for_ in-source proof carriers.
+
+The resolution is not "read-write" — it is **write-through-review: the tool never holds
+commit rights to the subject.** It _proposes a diff_; a human applies it through the
+subject's normal git/MR review. That is the same trust gate as D12 — only the artifact is
+a source patch instead of a confirmation click. It is exactly how a human adds a Verus
+contract by hand, just LLM-drafted and mechanically gate-checked before it lands. The tool
+stays a never-unreviewed writer, and proofs version atomically with the code they guard.
+
+Annotation therefore travels by **channel chosen per artifact**, not one overlay for
+everything:
+
+| What | Lands in | How | Read by |
+| --- | --- | --- | --- |
+| Proof carriers — contracts, invariants, ghost/spec fns | subject source (`.rs`) | tool proposes patch → human applies | the verifier directly (Verus/Prusti) |
+| Traceability marker (`// prl: QRUS042`) beside the carrier | subject source | same patch | humans + `scripts/traceability.py` |
+| Back-link: PRL id + latest verdict | the Doorstop item's YAML (native `links` / custom attr) | tool proposes → human applies | Doorstop, published docs |
+| Runtime/monitor bindings, telemetry field maps, dry-run bindings pre-commitment, transient verdicts | companion tree | tool writes freely | monitors, UI |
+
+The companion overlay does not disappear — it stays correct for artifacts that genuinely
+should not touch source: a binding still being _dry-run_ before you commit to it, transient
+verdicts, telemetry maps. It simply stops being the _only_ channel. The browser gains a
+**"draft annotation → review as patch"** action; applying that patch is the human
+touchpoint, the same gate as every other. The pre-existing in-code `Implements:` /
+`Verifies:` tags are just the traceability-marker channel used by hand.
+
+This sits cleanly on A5-B: proof carriers live in the checked-out subject the executor
+already builds, so nothing new is mounted.
 
 ## Cautions carried into implementation
 
@@ -124,6 +153,10 @@ permanent, diff-visible link.
    source + build. Runtime (2b) monitoring needs the subject's traces/telemetry and UI
    probes (3) need a running system + driver. A mounted repo gives source, not runtime —
    the trace/telemetry data-input path must be designed, not assumed away.
+3. **The tool writes into the subject only as reviewed patches.** Deductive proof carriers
+   live in the subject's source (A6); the tool proposes them and a human applies the diff.
+   It never gets commit rights to the subject and never lands an annotation unreviewed —
+   the source patch passes the same human gate as every other trust touchpoint.
 
 ## Build-order guardrail
 
@@ -138,8 +171,11 @@ the starting point.
   (one prose item → several formal claims; one claim spanning several items)?
 - **Staleness mechanism** — reuse Doorstop's suspect-links, or run an independent
   provenance-hash check (D9/D14) alongside them?
-- **Annotation model** — companion-side overlay vs. in-code tags as the default; how
-  overlays re-anchor when the underlying code moves.
+- **Annotation model** — A6 sets the channel split (in-source proof carriers via
+  reviewed patch; companion overlay for dry-run/runtime/transient). Open within it: the
+  exact patch-review flow (does the tool open the subject MR, or hand the diff back for the
+  human to commit?), and how companion-side overlays re-anchor when the underlying code
+  moves.
 - **Runtime/UI data-input path** — recorded traces mounted in vs. a live-system connection,
   for categories 2b and 3.
 - **Companion tree specifics** — its exact name and on-disk item format (mirror Doorstop's
