@@ -1,0 +1,45 @@
+{
+    "name": "Provable Requirements",
+    "build": {
+        "dockerfile": "Dockerfile",
+        "context": ".."
+    },
+    // Node is only needed for the Markdown linting toolchain (markdownlint-cli2),
+    // which matches the DavidAnson.vscode-markdownlint editor extension's rules.
+    "features": {
+        "ghcr.io/devcontainers/features/node:1": {
+            "version": "lts"
+        }
+    },
+    "customizations": {
+        "vscode": {
+            "extensions": [
+                "DavidAnson.vscode-markdownlint",
+                "yzhang.markdown-all-in-one",
+                "redhat.vscode-yaml",
+                "tamasfe.even-better-toml",
+                "Gruntfuggly.todo-tree",
+                "GitLab.gitlab-workflow",
+                "Anthropic.claude-code"
+            ]
+        }
+    },
+    "workspaceMount": "source=${localWorkspaceFolder},target=/workspace,type=bind",
+    "workspaceFolder": "/workspace",
+    // doorstop-server (requirements web view), started on demand — see .devcontainer/README.md.
+    // Port 17868 chosen to avoid clashing with the qrusty devcontainer (which uses 17867).
+    "forwardPorts": [
+        17868
+    ],
+    // Mount Docker socket for Docker-in-Docker
+    "mounts": [
+        "source=/var/run/docker.sock,target=/var/run/docker.sock,type=bind",
+        "source=/etc/secrets,target=/etc/secrets,type=bind",
+        // Share local .claude-home with container
+        "source=${localWorkspaceFolder}/.claude-home,target=/root/.claude,type=bind"
+    ],
+    // Install the Node-based linters/formatters (need the Node feature above) and
+    // print a versions summary so a freshly built container is self-verifying.
+    "postCreateCommand": "npm install -g markdownlint-cli2 prettier && echo '--- tool versions ---' && git --version && glab --version && node --version && markdownlint-cli2 --version && prettier --version && yamllint --version && doorstop --version",
+    "shutdownAction": "stopContainer"
+}

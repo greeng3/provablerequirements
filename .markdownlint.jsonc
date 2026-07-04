@@ -1,0 +1,8 @@
+{
+  // Shared Markdown lint rules for BOTH the editor extension
+  // (DavidAnson.vscode-markdownlint) and the CLI (markdownlint-cli2, `make lint-md`),
+  // so the editor and command line agree.
+  "default": true,
+  // Prose is wrapped by hand for readability, not to a fixed column width.
+  "MD013": false
+}

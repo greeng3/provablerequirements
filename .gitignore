@@ -1,0 +1,12 @@
+# Local-only symlink to the qrusty repo, used purely as a reference for
+# dev-environment work. It lives in its own git repo and must never be
+# committed from here (it would only store a broken, machine-local link).
+/qrusty
+
+# macOS noise
+.DS_Store
+
+# Claude Code local state (personal; contains credentials) — never commit.
+# .claude-home is bind-mounted to /root/.claude in the dev container.
+.claude/
+.claude-home/

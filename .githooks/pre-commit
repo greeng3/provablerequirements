@@ -1,0 +1,8 @@
+#!/bin/sh
+# Pre-commit gate — same checks as a pre-merge preflight, minus auto-format.
+# Enable with: make setup-hooks
+set -e
+
+make --no-print-directory fmt-check
+make --no-print-directory lint
+make --no-print-directory check-requirements
