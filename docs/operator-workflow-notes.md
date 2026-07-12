@@ -5,18 +5,25 @@
 > journey itself is still being mulled. Nothing here is final. Builds on the merged adoption
 > model in [applying-to-existing-repos.md](applying-to-existing-repos.md).
 >
-> **Two deployment designs are on the table. Both are kept here deliberately:**
+> **Three deployment designs are on the table. All are kept here deliberately:**
 >
-> - **Design A — native install + dev-env agent/socket** — the earlier direction.
+> - **Design A — native install + dev-env agent/socket** — the earliest direction.
 >   **⚠️ SUPERSEDED / kept for reference.** Sections below marked _Design A (old)_.
-> - **Design B — dev-container scope cut + docker-socket seam** — the later direction.
+> - **Design B — dev-container scope cut + docker-socket seam** — the middle direction.
 >   **🔶 UNDER CONSIDERATION, not decided.** Sections below marked _Design B (under consideration)_.
+> - **Design C — seam-free native provisioner, platform-scoped** — the current lean.
+>   **🟢 CURRENT LEAN.** Design A resurrected, but with the seam removed and B folded in as one
+>   build-env strategy. Section below marked _Design C (current lean)_.
 >
-> The operator-journey spine (below) is shared by both and independent of which wins. The open
-> question is still whether either design makes the tool **operationally possible** at all —
-> more noodling needed before committing to one.
+> The operator-journey spine (below) is shared by all three and independent of which wins. Design C
+> is the first framing that makes the tool feel **operationally possible** rather than a non-starter —
+> but it's a lean, not a commitment.
 
 ## Operator-journey spine (proposed skeleton, not yet agreed)
+
+> **📌 PARKED (2026-07-12).** The deployment thread is settled (Design C is the current lean).
+> The spine below is still the unfinished half — proposed skeleton, not agreed, to be worked
+> through with the operator next. Not being drafted solo.
 
 1. **First contact** — point at a subject repo → discover its Doorstop layout → propose the
    companion tree + name → operator confirms.
@@ -183,3 +190,81 @@ moves to image-build time). R-pkg-4 (`serve` + embedded UI) survives, hosted in 
 are unsupported; the derived build inherits the subject Dockerfile's needs (private registries,
 secrets, base images); the **docker socket is a privileged (root-equivalent) seam** — that's the
 trust cost that replaces Design A's "attractive-nuisance listening port".
+
+## Design C — seam-free native provisioner, platform-scoped (current lean)
+
+> **🟢 CURRENT LEAN, not a commitment.** Design A resurrected + the platform-scoping insight, with
+> two moves that A and B both missed: **the seam is removed**, and **B is folded in** as one build-env
+> strategy rather than a competing design. Inherits R-pkg-4 (`serve` + embedded UI) and the engine
+> split as a per-adapter concern (no longer a topology concern).
+
+**The shape:** a **native per-platform executable** the operator runs in their own dev env. It is the
+**front door** — installer, supervisor, and UI host in one. Prebuilt for the platform targets we
+choose to support: Windows / macOS / Linux × x86_64 / arm64 (6 binaries), each shipped only for the
+`(OS, arch, language)` classes we commit to. It **provisions** the tools the operator needs into their
+dev env (consent-gated, version-checked — R-eng-2), **manages running** them plus the non-intrusive
+engines, and hosts the **embedded web server + browser-driven UI** (R-pkg-4, unchanged).
+
+**The key move — no seam.** One native supervisor process, running _in_ the dev env, manages
+**everything as local child processes**: both toolchain-welded verifiers _and_ artifact-fed engines
+(TLC, MonPoly, Z3, CVC5 are language-agnostic binaries — nothing forces them into a separate
+container). Consequences:
+
+- Design A's Unix-socket + dev-env agent → **gone.**
+- Design B's docker socket (root-equivalent, the trust cost) → **gone.**
+- No agent, no socket, no sibling containers, no container-reaches-back. Just processes on the host.
+
+**The engine split survives but stops being topology.** Artifact-fed vs toolchain-welded no longer
+decides _where things run_ (it's all one host now) — it only decides _what the provisioner installs
+and how it invokes it_. The split lives on inside the per-language executor adapter (R-eng-4),
+exactly as in B, but with no image-build step.
+
+**Soundness is cleaner than B.** B derives an image (`FROM subject-image`) and must keep worrying
+about drift and honest-provenance downgrades. Design C runs the verifier in the **literal** dev env
+against the **literal** commit — there is no derived artifact to drift from. Provenance is clean by
+construction: proved on this machine, this toolchain, this commit (A4 preserved, arguably better).
+
+**The narrowing assumption (this is what makes it tractable, not a non-starter):** supported platforms
+are an **explicit input, not auto-discovery**. We do not adapt to the whole diversity of dev
+environments; we ship a provisioner for a **finite committed matrix** of `(OS, arch, language)`
+classes. Rust-on-Linux-x86_64 first. Each supported requirement class = its own installable version.
+This is the "installer, not monolith" reframe made concrete — it turns the "wide wide world" problem
+from infinite to enumerable.
+
+**B folded in, not competing.** The executable **detects** the subject's build-env strategy:
+
+- Subject ships a dev-container (devcontainer spec, A-scope-2)? → **use it as the build env**
+  (Design B's `FROM subject-image` inheritance — best fidelity when the toolchain is exotic/pinned;
+  requires the docker socket _only in this branch_).
+- No dev-container? → **provision the toolchain natively** on the host (the Design C path).
+
+So B stops being a rival topology and becomes the "there's an authoritative Dockerfile, inherit it"
+branch inside C's front door. This resolves the A-vs-B deadlock: **neither wins outright — the
+provisioner picks the build-env strategy based on what the subject offers.**
+
+**Honest cost (what C gives up vs B) — and the stance that resolves it:** when the subject has _no_
+Dockerfile, C must **reproduce/provision** the toolchain on a bare host across the supported platform
+matrix — i.e. C signs up to be a **cross-platform package manager for specialist verification tools**.
+B got the build env _by inheritance_ for free (`FROM their-image` just works, even for exotic pins);
+C's native branch has to construct it, which is genuinely harder for a repo pinning an unusual
+toolchain version. The platform-scoping assumption bounds this — and the **stance makes it a
+non-blocker: provisioning is best-effort with graceful degradation.** C installs what it can; **a tool
+that won't install in a given environment simply removes its own capabilities for that user** — the
+categories that need it report "unavailable — engine absent/incompatible" (this _is_ R-eng-3's
+coverage gating), and everything else still works. The provisioner is **never obligated to succeed
+everywhere**; a failed install **narrows the feature set for that user, it does not fail the tool.**
+There is no all-or-nothing "must be a universal package manager or it's worthless" — each tool's
+install outcome gates only its own capabilities, honestly surfaced.
+
+**Requirements deltas (vs A/B):**
+
+- **R-eng-2 becomes the core, not an afterthought:** detect-presence + version-compat + consent-gated
+  install _is_ the executable's primary job, across the supported platform matrix.
+- **R-pkg-1/3 (native single-binary install) revived** from Design A — but per-platform prebuilt and
+  platform-scoped, not "install into whatever env we find."
+- **A5 build-env seam becomes strategy-selected:** local-process (native branch) vs docker-socket
+  (dev-container-detected branch), chosen per subject, behind one adapter interface.
+
+> Design C supersedes A's socket/agent seam and reframes B as a strategy-select branch; if C holds,
+> A collapses into "the seamless case B never had" and B into "the Dockerfile-present case." Not yet
+> decided — pressure-test the native-provisioning cost first.
