@@ -1,0 +1,13 @@
+active: true
+derived: false
+header: ''
+level: 1.6
+links: []
+normative: true
+ref: ''
+reviewed: BatHKn8ugFdkqjh2F9eBs9zU2Erbr-zyhF8e7NUDWtE=
+text: |
+  The `init` command discovers a subject repository's Doorstop layout from the
+  subject's own Doorstop configuration — the document roots, their item prefix,
+  and the item identifiers — without hardcoding anything specific to any one
+  repository. Discovery does not follow symlinks out of the subject tree.

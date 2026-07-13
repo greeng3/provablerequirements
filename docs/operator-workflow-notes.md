@@ -21,12 +21,18 @@
 
 ## Operator-journey spine (proposed skeleton, not yet agreed)
 
-> **📌 PARKED (2026-07-12).** The deployment thread is settled (Design C is the current lean).
-> The spine below is still the unfinished half — proposed skeleton, not agreed, to be worked
-> through with the operator next. Not being drafted solo.
+> **📌 Step 1 SHIPPED (2026-07-13, issue #8).** The rest of the spine is still the unfinished
+> half — proposed skeleton, not agreed, to be worked through with the operator next. The
+> genuine open design questions live at Steps 2–3 (see below); Step 1 was fully specified by
+> the settled adoption model (A1–A3) and needed none.
 
 1. **First contact** — point at a subject repo → discover its Doorstop layout → propose the
-   companion tree + name → operator confirms.
+   companion tree + name → operator confirms. **✅ Implemented as `provreq init [PATH]`**
+   (`src/doorstop.rs` discovery, `src/adopt.rs` A3 name-derivation + scaffold). Discovers
+   `.doorstop.yml` roots (prefix + item IDs), derives the companion name by swapping the
+   `requirements`/`reqs`/`req` token for `ProvableRequirements`, and on confirmation
+   (`--yes` / `--name` for scripting) writes the peer companion root + a `provreq.yml`
+   manifest. Single-root + no per-item files yet (those arrive at Step 3).
 2. **Triage backlog** — classify each item (formalizable-now / falsifiable-only / stays-prose).
 3. **Formalize one item** — translate → read-back confirm (D12) → validate grounding dry-run (D13).
 4. **Verify** — run one engine → inspect the verdict tree.
