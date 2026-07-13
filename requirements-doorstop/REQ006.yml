@@ -1,0 +1,13 @@
+active: true
+derived: false
+header: ''
+level: 1.5
+links: []
+normative: true
+ref: ''
+reviewed: 5ABcgaN01VSsFiPs69Zg3pycw7yvxyH6-nSh6DSwKLc=
+text: |
+  The web UI is compiled into the executable at build time and served by the local
+  server; no separate web-asset directory is required at runtime. Requests that do not
+  match an API route are served the embedded UI, and unknown client-side paths fall
+  back to `index.html` so the single-page application can route them.

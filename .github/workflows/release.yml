@@ -32,6 +32,20 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
+
+      # Frontend first: the release binary embeds web/dist via rust-embed, so
+      # the UI must be built before cargo on every target.
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Build frontend
+        run: |
+          npm --prefix web ci
+          npm --prefix web run build
+
       - name: Add target
         run: rustup target add ${{ matrix.target }}
       - name: Build

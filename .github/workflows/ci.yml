@@ -10,6 +10,22 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      # Frontend first: `cargo` embeds web/dist via rust-embed, so the real UI
+      # must be built on disk before the Rust build/tests run.
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Install frontend deps
+        run: npm --prefix web ci
+      - name: Frontend tests
+        run: npm --prefix web test
+      - name: Build frontend
+        run: npm --prefix web run build
+
       - name: Add rust components
         run: rustup component add clippy rustfmt
       - name: Format check
