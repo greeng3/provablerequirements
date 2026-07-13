@@ -1,0 +1,13 @@
+active: true
+derived: false
+header: ''
+level: 1.1
+links: []
+normative: true
+ref: ''
+reviewed: fnug5HXTdqqxXDGhlYO3Gbxpt3oFpzdemJFmhqw-5f4=
+text: |
+  Prebuilt executables are provided for the supported platform matrix: Linux, macOS,
+  and Windows, each on x86_64 and aarch64 (arm64) — six targets. The set of supported
+  platforms is explicit and finite, chosen deliberately, not auto-discovered from the
+  operator's environment.

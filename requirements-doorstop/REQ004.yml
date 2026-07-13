@@ -1,0 +1,12 @@
+active: true
+derived: false
+header: ''
+level: 1.3
+links: []
+normative: true
+ref: ''
+reviewed: noaBXI6QP62xnYWMsZ_A8_Pxs3IpcF3cSLQQ8OFiLy4=
+text: |
+  Release artifacts are produced by automated CI triggered on a version tag, building
+  every target in the supported matrix. Each artifact is reproducible from the tagged
+  commit; no release binary is produced by hand.

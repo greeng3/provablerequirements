@@ -1,0 +1,13 @@
+active: true
+derived: false
+header: ''
+level: 1.0
+links: []
+normative: true
+ref: ''
+reviewed: UaxcU1Jaj-2o40A2Hqe4RnhEZrRvuz7RXPW4-vek3dU=
+text: |
+  The PRL tooling is distributed as a native, self-contained executable that the
+  operator runs directly in their own development environment (the Design C native
+  provisioner). The executable hosts a local web server and serves an embedded web
+  UI; it requires no separate language runtime or interpreter to be installed to run.

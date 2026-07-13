@@ -1,0 +1,13 @@
+active: true
+derived: false
+header: ''
+level: 1.2
+links: []
+normative: true
+ref: ''
+reviewed: j_AIFvCYkD6NgU2pERL94j_bGiIVNfRmYdQSHzhIp9o=
+text: |
+  Release builds are published to a location the operator (and the provisioner itself)
+  can fetch executables from without authentication (GitHub Releases). Each release
+  includes a machine-readable manifest describing the available artifacts (target
+  triple, filename, checksum) so the correct asset can be selected per platform.
