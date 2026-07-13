@@ -1,0 +1,16 @@
+active: true
+derived: false
+header: ''
+level: 1.7
+links: []
+normative: true
+ref: ''
+reviewed: vMkv6zncGmFJd8Lu7CDxgweze2zdRT9CDYa2jH_cR6I=
+text: |
+  The `init` command proposes a companion-tree name derived from the subject's
+  requirements directory (replacing the requirements/reqs/req token with
+  `ProvableRequirements`, or prefixing it when no such token is present). The
+  operator can override the proposal. On confirmation, `init` scaffolds the
+  companion root as a peer directory beside the subject's Doorstop root,
+  mirroring its document structure, and writes a manifest that links the
+  companion back to the subject's Doorstop root and prefix.

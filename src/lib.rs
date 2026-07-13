@@ -1,8 +1,12 @@
 //! provreq — PRL native provisioner + backend server.
 //!
 //! The [`server`] module hosts the local HTTP backend and serves the embedded
-//! web UI; [`health_json`] is the payload behind `GET /health`.
+//! web UI; [`health_json`] is the payload behind `GET /health`. The [`doorstop`]
+//! and [`adopt`] modules back the `init` command that discovers a subject repo's
+//! Doorstop layout and scaffolds its companion tree.
 
+pub mod adopt;
+pub mod doorstop;
 pub mod server;
 
 /// The health payload the backend reports (and will later serve at `/health`).
