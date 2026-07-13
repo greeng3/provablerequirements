@@ -12,13 +12,27 @@ RUN apt-get update \
 # Installed from the official release .deb (apt resolves any dependencies). The
 # architecture is detected so the image builds on both amd64 and arm64 hosts;
 # `dpkg --print-architecture` yields amd64/arm64, matching glab's .deb naming.
-ARG GLAB_VERSION=1.106.0
+ARG GLAB_VERSION=1.107.0
 RUN arch="$(dpkg --print-architecture)" \
     && curl -fsSL -o /tmp/glab.deb \
       "https://gitlab.com/gitlab-org/cli/-/releases/v${GLAB_VERSION}/downloads/glab_${GLAB_VERSION}_linux_${arch}.deb" \
     && apt-get update \
     && apt-get install -y /tmp/glab.deb \
     && rm -f /tmp/glab.deb \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+# GitHub CLI (gh) — for the move to a public GitHub repo (issues, PRs, releases).
+# Same pattern as glab above: official release .deb, architecture detected so the
+# image builds on amd64 and arm64 hosts (`dpkg --print-architecture` yields
+# amd64/arm64, matching gh's .deb naming).
+ARG GH_VERSION=2.96.0
+RUN arch="$(dpkg --print-architecture)" \
+    && curl -fsSL -o /tmp/gh.deb \
+      "https://github.com/cli/cli/releases/download/v${GH_VERSION}/gh_${GH_VERSION}_linux_${arch}.deb" \
+    && apt-get update \
+    && apt-get install -y /tmp/gh.deb \
+    && rm -f /tmp/gh.deb \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
