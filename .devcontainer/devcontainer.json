@@ -19,7 +19,8 @@
                 "redhat.vscode-yaml",
                 "tamasfe.even-better-toml",
                 "Gruntfuggly.todo-tree",
-                "GitLab.gitlab-workflow",
+                "GitHub.vscode-pull-request-github",
+                "GitHub.vscode-github-actions",
                 "Anthropic.claude-code"
             ]
         }
