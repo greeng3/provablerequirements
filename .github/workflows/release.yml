@@ -1,0 +1,118 @@
+name: Release
+
+# Tag-triggered: pushing a version tag (e.g. v0.1.0) builds every target in the
+# supported matrix and publishes the artifacts to a GitHub Release. See
+# docs/build-and-release.md for the design and the manifest schema.
+"on":
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: build ${{ matrix.target }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-24.04-arm
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+          - target: aarch64-pc-windows-msvc
+            os: windows-latest
+          - target: x86_64-apple-darwin
+            os: macos-13
+          - target: aarch64-apple-darwin
+            os: macos-14
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Add target
+        run: rustup target add ${{ matrix.target }}
+      - name: Build
+        run: cargo build --release --target ${{ matrix.target }}
+
+      # Package + checksum. sha256sum exists on Linux; macOS has shasum instead.
+      - name: Package (unix)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          set -euo pipefail
+          sha() {
+            if command -v sha256sum >/dev/null; then sha256sum "$1"; else shasum -a 256 "$1"; fi
+          }
+          ver="${GITHUB_REF_NAME#v}"
+          dir="provreq-${ver}-${{ matrix.target }}"
+          mkdir "$dir"
+          cp "target/${{ matrix.target }}/release/provreq" "$dir/"
+          tar czf "${dir}.tar.gz" "$dir"
+          sha "${dir}.tar.gz" > "${dir}.tar.gz.sha256"
+      - name: Package (windows)
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          set -euo pipefail
+          ver="${GITHUB_REF_NAME#v}"
+          dir="provreq-${ver}-${{ matrix.target }}"
+          mkdir "$dir"
+          cp "target/${{ matrix.target }}/release/provreq.exe" "$dir/"
+          7z a "${dir}.zip" "$dir" >/dev/null
+          sha256sum "${dir}.zip" > "${dir}.zip.sha256"
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.target }}
+          path: |
+            provreq-*.tar.gz*
+            provreq-*.zip*
+          if-no-files-found: error
+
+  release:
+    name: publish release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Collect artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Build dist-manifest.json
+        shell: bash
+        run: |
+          set -euo pipefail
+          ver="${GITHUB_REF_NAME#v}"
+          cd dist
+          {
+            echo '{'
+            echo "  \"schema\": 1,"
+            echo "  \"version\": \"${ver}\","
+            echo '  "artifacts": ['
+            first=1
+            for f in *.tar.gz *.zip; do
+              [ -e "$f" ] || continue
+              triple="${f#provreq-${ver}-}"
+              triple="${triple%.tar.gz}"; triple="${triple%.zip}"
+              sha="$(sha256sum "$f" | cut -d' ' -f1)"
+              [ "$first" -eq 0 ] && printf ',\n'
+              first=0
+              printf '    {"target": "%s", "file": "%s", "sha256": "%s"}' "$triple" "$f" "$sha"
+            done
+            printf '\n  ]\n}\n'
+          } > dist-manifest.json
+          echo "--- dist-manifest.json ---"; cat dist-manifest.json
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/*.tar.gz
+            dist/*.zip
+            dist/*.sha256
+            dist/dist-manifest.json
+          fail_on_unmatched_files: true

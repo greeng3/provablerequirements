@@ -3,6 +3,9 @@
 # committed from here (it would only store a broken, machine-local link).
 /qrusty
 
+# Rust build artifacts. Cargo.lock IS committed (this is a binary crate).
+/target
+
 # macOS noise
 .DS_Store
 

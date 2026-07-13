@@ -1,0 +1,18 @@
+[package]
+name = "provreq"
+version = "0.0.1"
+edition = "2021"
+description = "PRL native provisioner and backend server (Design C)"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/greeng3/provablerequirements"
+
+[[bin]]
+name = "provreq"
+path = "src/main.rs"
+
+[lib]
+name = "provreq"
+path = "src/lib.rs"
+
+# cargo-dist / release configuration is expressed in the CI workflow
+# (.github/workflows/release.yml) for this prototype; see docs/build-and-release.md.
