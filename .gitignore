@@ -6,6 +6,14 @@
 # Rust build artifacts. Cargo.lock IS committed (this is a binary crate).
 /target
 
+# Frontend. node_modules and Vite build output are generated; only the
+# placeholder web/dist/index.html is tracked so bare `cargo build` still
+# compiles (rust-embed requires the folder to exist). The real UI is built
+# by the pipeline before cargo and embedded at build time.
+/web/node_modules
+/web/dist/*
+!/web/dist/index.html
+
 # macOS noise
 .DS_Store
 

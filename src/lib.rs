@@ -1,9 +1,9 @@
-//! provreq — PRL native provisioner + backend server (skeleton).
+//! provreq — PRL native provisioner + backend server.
 //!
-//! This crate is intentionally minimal at this stage: just enough of a real
-//! binary for the 6-target release pipeline to have something to build and
-//! publish (issue #2). Real server routes and the embedded web UI arrive in a
-//! follow-up issue.
+//! The [`server`] module hosts the local HTTP backend and serves the embedded
+//! web UI; [`health_json`] is the payload behind `GET /health`.
+
+pub mod server;
 
 /// The health payload the backend reports (and will later serve at `/health`).
 /// Kept as a pure function so it is unit-testable without standing up a server.

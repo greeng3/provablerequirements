@@ -1,0 +1,12 @@
+active: true
+derived: false
+header: ''
+level: 1.4
+links: []
+normative: true
+ref: ''
+reviewed: FrTGYvAm1LFqxRUUEFb-xdK1Z-kTDsbDh9--F5BxXLM=
+text: |
+  The `serve` command starts a local HTTP server, bound to the loopback interface,
+  that exposes the backend API. The first endpoint, `GET /health`, returns the health
+  payload (status and the executable's build version) as JSON.

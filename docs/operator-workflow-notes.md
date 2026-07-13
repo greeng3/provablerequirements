@@ -154,21 +154,21 @@ socket"_).
   no reconstruction. Multi-stage "slim final stage lacks the toolchain" is handled by targeting
   the builder stage — still extension, not merge.
 - **Why NOT a per-run LLM-merged compound Dockerfile:**
-  1. **Fidelity = soundness.** A copy can drift from the real env (base digest, toolchain patch,
-     flag, env var, layer order → different resolved deps). You then verify a slightly-different
-     program and the gap is **invisible** — a green check against a duplicate. Kills "proved
-     against the real code" (A4).
-  2. **Puts the LLM in the trusted build base.** The whole trust boundary keeps the LLM untrusted
-     (D11 gated by read-back + human confirm). LLM-authoring the env the proof runs in makes every
-     verdict's provenance depend on "the LLM merged correctly" — unauditable, in the most
-     safety-critical spot.
-  3. **Non-determinism breaks provenance/staleness (A4):** same commit → possibly different image
-     → unreproducible verdict.
-  4. **Fork that rots:** a duplicate must be re-merged on every upstream Dockerfile change; `FROM`
-     inherits for free.
-  5. **LLM never sees the invocation:** `--build-arg`s, secret mounts, registry auth, build
-     context — a text merge can't reconstruct them; the devcontainer spec hands extension the
-     args/context.
+    1. **Fidelity = soundness.** A copy can drift from the real env (base digest, toolchain patch,
+       flag, env var, layer order → different resolved deps). You then verify a slightly-different
+       program and the gap is **invisible** — a green check against a duplicate. Kills "proved
+       against the real code" (A4).
+    2. **Puts the LLM in the trusted build base.** The whole trust boundary keeps the LLM untrusted
+       (D11 gated by read-back + human confirm). LLM-authoring the env the proof runs in makes every
+       verdict's provenance depend on "the LLM merged correctly" — unauditable, in the most
+       safety-critical spot.
+    3. **Non-determinism breaks provenance/staleness (A4):** same commit → possibly different image
+       → unreproducible verdict.
+    4. **Fork that rots:** a duplicate must be re-merged on every upstream Dockerfile change; `FROM`
+       inherits for free.
+    5. **LLM never sees the invocation:** `--build-arg`s, secret mounts, registry auth, build
+       context — a text merge can't reconstruct them; the devcontainer spec hands extension the
+       args/context.
 - **If a base truly isn't layerable:** the LLM may **draft** a compound Dockerfile, but treat it
   like any other LLM output — human-reviewed, committed, **pinned** artifact in the companion tree
   (A6 write-through-review gate), never a per-run generation.

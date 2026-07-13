@@ -1,13 +1,13 @@
 # Build & Release Pipeline
 
 How the PRL native executable is built and published. Realises requirements
-REQ001–REQ004 and the packaging half of **Design C** (see
-[operator-workflow-notes.md](operator-workflow-notes.md)). Tracked in GitHub
-issue #2.
+REQ001–REQ006 and the packaging half of **Design C** (see
+[operator-workflow-notes.md](operator-workflow-notes.md)).
 
-> **Status: prototype.** The crate is a skeleton (`provreq`, a health/version
-> binary) — just enough for the pipeline to have a real target to build and
-> publish. Real server routes and the embedded web UI are a follow-up.
+> **Status: prototype.** `provreq serve` runs a local axum server (loopback)
+> that exposes `GET /health` (REQ005) and serves a React UI embedded into the
+> binary via `rust-embed` (REQ006). The UI content is still minimal — it renders
+> the backend health — pending the operator-workflow design.
 
 ## Why a native executable
 
@@ -20,28 +20,43 @@ itself — which in turn means CI has to cross-build the full platform matrix.
 
 Six targets — three OSes × two architectures — each pinned to a runner:
 
-| Target triple                | Runner            |
-| ---------------------------- | ----------------- |
-| `x86_64-unknown-linux-gnu`   | `ubuntu-latest`   |
-| `aarch64-unknown-linux-gnu`  | `ubuntu-24.04-arm`|
-| `x86_64-pc-windows-msvc`     | `windows-latest`  |
-| `aarch64-pc-windows-msvc`    | `windows-latest`  |
-| `x86_64-apple-darwin`        | `macos-13`        |
-| `aarch64-apple-darwin`       | `macos-14`        |
+| Target triple               | Runner             |
+| --------------------------- | ------------------ |
+| `x86_64-unknown-linux-gnu`  | `ubuntu-latest`    |
+| `aarch64-unknown-linux-gnu` | `ubuntu-24.04-arm` |
+| `x86_64-pc-windows-msvc`    | `windows-latest`   |
+| `aarch64-pc-windows-msvc`   | `windows-latest`   |
+| `x86_64-apple-darwin`       | `macos-13`         |
+| `aarch64-apple-darwin`      | `macos-14`         |
 
 macOS and Windows need real runners — macOS cannot be built off Apple hardware,
 and MSVC targets are impractical to cross-build. This is the whole reason the
 repo lives on **public GitHub**: unlimited free Actions minutes across all three
 OSes. The supported set is explicit and finite, not auto-discovered (REQ002).
 
+## Frontend build stage (REQ006)
+
+The React UI lives in [`web/`](../web) (Vite + TypeScript). Its build output,
+`web/dist`, is baked into the binary at compile time by `rust-embed`, so the
+frontend **must be built before `cargo`** — every pipeline runs
+`npm --prefix web ci && npm --prefix web run build` first. Locally that is
+`make web` (or `make build` / `make test`, which depend on it).
+
+Only a small placeholder `web/dist/index.html` is committed — enough for a bare
+`cargo build` to compile (rust-embed requires the folder to exist) and to serve
+a "UI not built yet" page. A real `npm run build` overwrites it and adds the
+hashed `assets/` bundle, which is `.gitignore`d and produced fresh by the
+pipeline.
+
 ## Workflows
 
-- **`.github/workflows/ci.yml`** — on push to `main` and every PR: `cargo fmt
-  --check`, `cargo clippy -D warnings`, `cargo test`. Fast, host-only.
-- **`.github/workflows/release.yml`** — on a version tag (`v*`): builds all six
-  targets, packages each (`.tar.gz` on unix, `.zip` on Windows) with a `.sha256`
-  sidecar, then a `release` job assembles the manifest and publishes a GitHub
-  Release with every artifact attached (REQ003, REQ004).
+- **`.github/workflows/ci.yml`** — on push to `main` and every PR: builds the
+  frontend (`npm ci`, `vitest`, `vite build`), then `cargo fmt --check`, `cargo
+clippy -D warnings`, `cargo test`. Fast, host-only.
+- **`.github/workflows/release.yml`** — on a version tag (`v*`): builds the
+  frontend, then all six targets, packages each (`.tar.gz` on unix, `.zip` on
+  Windows) with a `.sha256` sidecar, then a `release` job assembles the manifest
+  and publishes a GitHub Release with every artifact attached (REQ003, REQ004).
 
 ## Release manifest (REQ003)
 
@@ -50,15 +65,15 @@ asset per platform without scraping the releases page:
 
 ```json
 {
-  "schema": 1,
-  "version": "0.1.0",
-  "artifacts": [
-    {
-      "target": "x86_64-unknown-linux-gnu",
-      "file": "provreq-0.1.0-x86_64-unknown-linux-gnu.tar.gz",
-      "sha256": "<hex>"
-    }
-  ]
+    "schema": 1,
+    "version": "0.1.0",
+    "artifacts": [
+        {
+            "target": "x86_64-unknown-linux-gnu",
+            "file": "provreq-0.1.0-x86_64-unknown-linux-gnu.tar.gz",
+            "sha256": "<hex>"
+        }
+    ]
 }
 ```
 
@@ -79,6 +94,6 @@ grows (installers, updaters, signing), revisit cargo-dist.
   unsigned Windows hits SmartScreen. Fine for a prototype (bypassable); real
   distribution needs an Apple Developer cert + notarization and a Windows
   Authenticode cert.
-- **Cross-execution tests** — the release workflow only *builds* the non-host
+- **Cross-execution tests** — the release workflow only _builds_ the non-host
   targets (e.g. `aarch64-pc-windows-msvc` on an x64 runner). Behavioural tests
   run host-only in `ci.yml`.
