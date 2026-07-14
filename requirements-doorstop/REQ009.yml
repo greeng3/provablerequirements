@@ -1,0 +1,16 @@
+active: true
+derived: false
+header: ''
+level: 1.8
+links: []
+normative: true
+ref: ''
+reviewed: CkISRBtWdO5vdD4PS_xuJ5PsBpQZIcURq8is9x2XRSU=
+text: |
+  provreq reads requirement items only through a source-agnostic
+  `RequirementsSource` seam. An item carries an opaque stable id, its prose text,
+  a revision token (the source's native change signal, or a content-hash of the
+  prose when it has none), and optional metadata. Doorstop is the first adapter:
+  it reads each item's prose from the subject's Doorstop tree and supplies a
+  content-hash revision token. The reqforge adapter is a planned second
+  implementation behind the same seam.

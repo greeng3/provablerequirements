@@ -1,0 +1,17 @@
+active: true
+derived: false
+header: ''
+level: 1.9
+links: []
+normative: true
+ref: ''
+reviewed: 9bMlyAi3WNaTOcwpTpckn7U2OIPon9tYNbNmVIff3r0=
+text: |
+  The `triage` command classifies each requirement item into one of
+  formalizable-now, falsifiable-only, or stays-prose, and persists the result as
+  mutable companion state keyed by the source item id. Classification is advisory
+  and freely re-triageable: seeding fills only items that have no entry yet and
+  never overwrites an operator's choice, while an explicit set overrides one
+  item's bucket. The classifier is pluggable; the default seeds from the source's
+  verification hint when present and otherwise defaults to stays-prose, never
+  over-claiming that an item is formalizable.
