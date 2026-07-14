@@ -34,14 +34,124 @@
    (`--yes` / `--name` for scripting) writes the peer companion root + a `provreq.yml`
    manifest. Single-root + no per-item files yet (those arrive at Step 3).
 2. **Triage backlog** — classify each item (formalizable-now / falsifiable-only / stays-prose).
+   **🟢 Designed (2026-07-14, issue #10) — see the "Steps 2–3 design" section below.**
 3. **Formalize one item** — translate → read-back confirm (D12) → validate grounding dry-run (D13).
+   **🟢 Designed (2026-07-14, issue #10) — see the "Steps 2–3 design" section below.**
 4. **Verify** — run one engine → inspect the verdict tree.
 5. **Annotate** — stage the working-tree proof-carrier edit; operator reviews + commits on their own forge.
 6. **Living loop** — re-run on drift, act on stale verdicts.
 
-Emerging questions to chase (→ candidate requirements): triage one-at-a-time vs bulk
-LLM pre-sort + confirm; what state a half-finished formalization must persist; how backlog
-coverage is shown; what happens when grounding finds no match.
+The four emerging questions (triage one-at-a-time vs bulk pre-sort; half-finished-formalization
+state; coverage display; grounding no-match) are **answered** in the Steps 2–3 design below.
+Steps 4–6 remain skeleton (tracked under the umbrella design issue #1).
+
+## Operator journey — Steps 2–3 design (triage + formalize) [SETTLED 2026-07-14]
+
+> **🟢 SETTLED (2026-07-14, issue #10), worked through with the operator.** Covers spine Steps 2
+> (triage) and 3 (formalize) and answers all four emerging questions. Design-level requirements
+> below (`R-src-*`, `R-life-*`, `R-triage-*`, `R-cov-*`, `R-draft-*`, `R-ground-*`) are promoted to
+> Doorstop REQ items when each is implemented, exactly as REQ005–008 were.
+
+### The requirements source is an abstraction; Doorstop is adapter #1
+
+Doorstop is **one** requirements tool, not the model. The operator also builds
+[**reqforge**](https://gitlab.com/greeng3/reqforge) — a broader-scope, faster requirements
+manager (requirements + design docs + use cases + diagrams + roadmaps, one file per artifact in
+git) intended to **eventually supplant Doorstop**. reqforge already ships a Doorstop _importer_
+(`legacy.doorstopUid` on imported artifacts), so subjects migrate Doorstop → reqforge and provreq
+follows by swapping adapters — not by a rewrite. So the requirements source sits behind a seam, the
+same interface-with-one-impl move the codebase already makes for the companion store (A3), the
+engine executor (A5), and the per-language adapter (R-eng-4).
+
+- **R-src-1** — provreq reaches requirements only through a `RequirementsSource` seam. The
+  `src/doorstop.rs` discovery merged in issue #8 is **adapter #1**, not the universe; triage,
+  formalize, grounding, and verdict code key off an abstract `Item`, never off `.doorstop.yml`.
+- **R-src-2** — the abstract `Item` carries an `id`, prose text, a revision token, and optional
+  metadata (title, links, a verification hint). Requirement **content is prose in every source** —
+  reqforge's artifact shapes are `Content | Blob | Url` and a `content` body is markdown prose,
+  exactly like Doorstop's `text:`. So D11's "the item's prose _is_ the untrusted NL input" (A1)
+  holds universally; there is **no "already half-formalized, skip the LLM" branch** to design. The
+  tool's breadth is in artifact _types_ and UX, not in making requirement text machine-structured.
+- **R-src-3** — `id` is an **opaque stable string** the source owns (Doorstop `REQ001`; reqforge a
+  UUIDv7). `derives_from: [id, …]` (A1) already holds either. The adapter also supplies a
+  **revision token** — the source's native change signal (reqforge `modifiedAt`) when it has one,
+  else a content-hash of the prose (Doorstop). All staleness checks use this token, deferring to the
+  source's own change-tracking whenever present.
+- **R-src-4** — the companion **logical model** (keyed by source `id`, `derives_from`, provenance,
+  verdict) is source-agnostic; A3's Doorstop-file-tree mirror is one _rendering_ of it. A3 already
+  separated logical-model from storage-medium, so a source that is not a file tree keeps the model
+  and drops the mirror. Discipline: **draw the seam now, keep Doorstop the only implementation**
+  until reqforge needs the second (the A3 "draw the interface, defer the DB" precedent; the second
+  consumer is real, not speculative).
+- **R-src-5** — the adapter may expose an optional **verification hint** that seeds triage: reqforge
+  carries `expects_code_trace` per artifact, its own prior for "this should be verified against
+  code." `None` for Doorstop. Advisory only (see R-triage-1).
+- **R-src-6** — back-links (PRL id + latest verdict onto the item, A6) are written **through the
+  adapter**: reqforge's native typed `links`, Doorstop's `links`/custom attribute. One seam method,
+  per-adapter rendering.
+
+### Graduated trust: five honest lifecycle states
+
+The D11/D12/D13 human gate exists to catch **formalization** errors, which can produce a false
+verdict. Not every LLM touch carries that stakes. Companion artifacts therefore move through five
+explicitly-labelled states, and the governing rule is that **no state is ever presented as stronger
+than it is**:
+
+```text
+advisory (triage) → draft (in-progress formalization)
+  → admitted-but-ungrounded → admitted + grounded → verdict
+```
+
+- **R-life-1** — every companion artifact carries an explicit lifecycle state from the set above; the
+  full D11/D12/D13 read-back-and-confirm gate applies at **formalization**, not at triage. A triage
+  miss is recoverable and visible downstream; a formalization miss is what the gate is for.
+
+### Step 2 — Triage (bulk pre-sort, advisory; coverage funnel)
+
+- **R-triage-1** — triage classifies each item into **formalizable-now / falsifiable-only /
+  stays-prose** (A2, the README's provable/falsifiable/vague split). The LLM **bulk pre-sorts the
+  whole backlog**; the human reviews the sorted list and confirms/overrides. Classification is
+  **advisory and ungated** (not a D12 artifact) and **freely re-triageable** — a wrong bucket routes
+  work, it never fakes a proof. One-at-a-time is a supported fallback, not the primary flow.
+- **R-triage-2** — triage state is stored as **mutable companion state** (A6 "the tool writes freely"
+  channel), keyed by source id. It is **seeded** from the source's verification hint (R-src-5) when
+  available, still human-confirmable.
+- **R-cov-1** — coverage is reported as a **funnel keyed by item id**: `discovered → triaged →
+formalized → verified`. The honest states are kept distinct — _un-triaged_ ≠ _stays-prose_ ≠
+  _formalizable-but-not-yet-formalized_ ≠ _engine-unavailable_ (the last is R-eng-3's coverage
+  gating). CLI-first (a `provreq status`-style command, mirroring `traceability_report.md`);
+  it **extends** the existing A4 / `scripts/traceability.py` model. The UI wraps it later.
+
+### Step 3 — Formalize (draft persistence; admitted-and-parked grounding)
+
+The pipeline is unchanged: D11 LLM forward-translate → mechanical gate → D12 deterministic
+read-back and human confirm → D13 grounding dry-run → admit. Two questions were open.
+
+- **R-draft-1** — a half-finished formalization persists as a **draft** — a _third_ category beside
+  A3's committed source-of-truth and regenerated-derived, because it holds human keystrokes and LLM
+  proposals that are neither admitted nor regenerable. It carries the source `id`, the **revision
+  token** (R-src-3), the **pipeline stage** marker, the candidate PRL, the mechanical-gate outcome,
+  the read-back text, human edits so far, and any D13 dry-run bindings reached.
+- **R-draft-2** — resuming a draft **re-checks the source revision token**; if the item moved under
+  the draft, it is flagged **stale** for human re-confirmation before continuing (same content-drift
+  instinct as A4's code axis and A6's re-anchor key).
+- **R-ground-1** — a D13 grounding **no-match never yields a verdict** — not even "unknown," because
+  the engine never ran. Provenance records **"not grounded,"** never "engine returned unknown" (the
+  honest-provenance rule, applied at the grounding boundary).
+- **R-ground-2** — a formalized requirement whose grounding finds no match is **admitted-and-parked**
+  (`admitted-but-ungrounded`): the formalization is _done_, only the anchor is missing. Two causes,
+  handled differently — (a) **wrong binding** (the LLM referenced a field/fn that does not exist),
+  re-propose or hand-author the binding; (b) **not yet observable** (the requirement is ahead of the
+  code), park it until the code catches up. The requirement is neither discarded nor faked into a
+  verdict.
+
+### Build sequencing (when these land as code)
+
+CLI-first, per the A5-B / build-order guardrail. Natural next slices, each its own issue+branch:
+draw the `RequirementsSource` seam and refactor `src/doorstop.rs` behind it (`R-src-1..4`) → a triage
+command with companion triage state (`R-triage-*`) → a `status` coverage funnel (`R-cov-1`) → the
+formalize pipeline with draft persistence (`R-draft-*`, `R-ground-*`). The reqforge adapter (the
+`R-src-*` second impl) waits until reqforge's own requirement format stabilises.
 
 ## Packaging — Design A (old, superseded)
 
