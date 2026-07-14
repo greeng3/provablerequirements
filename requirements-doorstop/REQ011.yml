@@ -1,0 +1,14 @@
+active: true
+derived: false
+header: ''
+level: '1.10'
+links: []
+normative: true
+ref: ''
+reviewed: e3P9hZ2DgUU_Q07AYNXRDU64ehFk-nkjdnJJOgLV7m8=
+text: |
+  The `status` command reports requirement coverage as a funnel keyed by item id
+  (discovered, then per-triage-bucket, then formalized, then verified). The honest
+  states are kept distinct: un-triaged is reported separately from stays-prose and
+  from formalizable-but-not-yet-formalized, and stages that are not yet built
+  report a truthful zero rather than being hidden.

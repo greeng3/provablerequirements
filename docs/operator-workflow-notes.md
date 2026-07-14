@@ -34,7 +34,12 @@
    (`--yes` / `--name` for scripting) writes the peer companion root + a `provreq.yml`
    manifest. Single-root + no per-item files yet (those arrive at Step 3).
 2. **Triage backlog** — classify each item (formalizable-now / falsifiable-only / stays-prose).
-   **🟢 Designed (2026-07-14, issue #10) — see the "Steps 2–3 design" section below.**
+   **🟢 Designed (2026-07-14, issue #10); machinery SHIPPED (2026-07-14, issue #12)** —
+   `RequirementsSource` seam + Doorstop adapter (`src/source.rs`, `src/doorstop.rs`
+   `DoorstopSource`), `provreq triage` advisory state (`src/triage.rs`), and the `provreq
+   status` coverage funnel (`src/status.rs`). REQ009–011. The LLM bulk pre-sort classifier
+   (R-triage-1 primary flow) is the deferred next slice; the shipped default is the honest
+   prose-floor seed. See the "Steps 2–3 design" section below.
 3. **Formalize one item** — translate → read-back confirm (D12) → validate grounding dry-run (D13).
    **🟢 Designed (2026-07-14, issue #10) — see the "Steps 2–3 design" section below.**
 4. **Verify** — run one engine → inspect the verdict tree.
@@ -152,6 +157,11 @@ draw the `RequirementsSource` seam and refactor `src/doorstop.rs` behind it (`R-
 command with companion triage state (`R-triage-*`) → a `status` coverage funnel (`R-cov-1`) → the
 formalize pipeline with draft persistence (`R-draft-*`, `R-ground-*`). The reqforge adapter (the
 `R-src-*` second impl) waits until reqforge's own requirement format stabilises.
+
+**Shipped so far (issue #12, 2026-07-14):** the seam (`R-src-1..4`), the triage command +
+companion state (`R-triage-1..2`, prose-floor classifier only), and the `status` funnel
+(`R-cov-1`). **Next slice:** the LLM bulk pre-sort classifier behind the `Classifier` seam
+(R-triage-1's primary flow), then the formalize pipeline (`R-draft-*`, `R-ground-*`).
 
 ## Packaging — Design A (old, superseded)
 

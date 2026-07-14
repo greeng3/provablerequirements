@@ -1,5 +1,9 @@
 use anyhow::{bail, Context, Result};
 use clap::{Parser, Subcommand};
+use provreq::adopt::find_companion;
+use provreq::doorstop::DoorstopSource;
+use provreq::source::{Classification, Item, RequirementsSource};
+use provreq::triage::{self, ProseFloorClassifier, TriageState};
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 
@@ -31,6 +35,21 @@ enum Command {
         #[arg(long)]
         yes: bool,
     },
+    /// Classify requirement items (advisory) and show the triage list.
+    Triage {
+        /// Path to the subject repository (defaults to the current directory).
+        #[arg(default_value = ".")]
+        path: PathBuf,
+        /// Override one item's bucket: `--set REQ001 formalizable-now`.
+        #[arg(long, num_args = 2, value_names = ["ID", "BUCKET"])]
+        set: Option<Vec<String>>,
+    },
+    /// Show the requirement coverage funnel.
+    Status {
+        /// Path to the subject repository (defaults to the current directory).
+        #[arg(default_value = ".")]
+        path: PathBuf,
+    },
 }
 
 #[tokio::main]
@@ -38,7 +57,88 @@ async fn main() -> Result<()> {
     match Cli::parse().command {
         Command::Serve { port } => provreq::server::serve(port).await.map_err(Into::into),
         Command::Init { path, name, yes } => run_init(&path, name.as_deref(), yes),
+        Command::Triage { path, set } => run_triage(&path, set),
+        Command::Status { path } => run_status(&path),
     }
+}
+
+/// Resolve the adopted companion root + source items for a subject, or explain
+/// that `init` must run first.
+fn resolve(subject: &Path) -> Result<(PathBuf, Vec<Item>)> {
+    let companion = find_companion(subject)?.with_context(|| {
+        format!(
+            "no companion tree found under {} — run `provreq init` first",
+            subject.display()
+        )
+    })?;
+    let items = DoorstopSource::new(subject).items()?;
+    Ok((companion, items))
+}
+
+fn run_triage(subject: &Path, set: Option<Vec<String>>) -> Result<()> {
+    let (companion, items) = resolve(subject)?;
+    let state = triage::load(&companion)?;
+
+    let state = match set {
+        Some(args) => {
+            // clap guarantees exactly two values for `--set`.
+            let (id, bucket) = (&args[0], &args[1]);
+            let classification = Classification::parse(bucket).with_context(|| {
+                format!(
+                    "unknown bucket '{bucket}' (formalizable-now | falsifiable-only | stays-prose)"
+                )
+            })?;
+            let item = items
+                .iter()
+                .find(|i| &i.id == id)
+                .with_context(|| format!("no requirement item '{id}' in the subject"))?;
+            let next = triage::set(&state, item, classification);
+            triage::save(&companion, &next)?;
+            println!("Set {id} = {}", classification.as_str());
+            next
+        }
+        None => {
+            let next = triage::seed(&state, &items, &ProseFloorClassifier);
+            triage::save(&companion, &next)?;
+            next
+        }
+    };
+
+    print_triage(&items, &state);
+    Ok(())
+}
+
+fn print_triage(items: &[Item], state: &TriageState) {
+    println!("Triage ({} item(s)):", items.len());
+    for item in items {
+        let bucket = state
+            .items
+            .get(&item.id)
+            .map(|e| e.classification.as_str())
+            .unwrap_or("untriaged");
+        println!("  {:<12} {bucket}", item.id);
+    }
+}
+
+fn run_status(subject: &Path) -> Result<()> {
+    let (companion, items) = resolve(subject)?;
+    let state = triage::load(&companion)?;
+    let cov = provreq::status::coverage(&items, &state);
+    println!("Coverage funnel:");
+    println!("  discovered        {}", cov.discovered);
+    println!("  untriaged         {}", cov.untriaged);
+    println!("  formalizable-now  {}", cov.formalizable_now);
+    println!("  falsifiable-only  {}", cov.falsifiable_only);
+    println!("  stays-prose       {}", cov.stays_prose);
+    println!(
+        "  formalized        {} (Step 3 — not built yet)",
+        cov.formalized
+    );
+    println!(
+        "  verified          {} (Step 4 — not built yet)",
+        cov.verified
+    );
+    Ok(())
 }
 
 fn run_init(subject: &Path, name: Option<&str>, yes: bool) -> Result<()> {

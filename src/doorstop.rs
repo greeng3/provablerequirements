@@ -5,7 +5,9 @@
 //!
 //! Implements: REQ007 (discover the subject's Doorstop layout from its own config)
 
+use crate::source::{Item, RequirementsSource};
 use anyhow::{Context, Result};
+use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
 use walkdir::{DirEntry, WalkDir};
 
@@ -101,6 +103,64 @@ fn item_id(filename: &str, prefix: &str) -> Option<String> {
     }
 }
 
+/// The Doorstop [`RequirementsSource`] adapter (adapter #1): reads item prose
+/// from a subject's Doorstop tree and supplies a content-hash revision token,
+/// since Doorstop has no native change signal we key off (R-src-3).
+///
+/// Implements: REQ009 (Doorstop adapter behind the requirements-source seam)
+pub struct DoorstopSource {
+    root: PathBuf,
+}
+
+impl DoorstopSource {
+    pub fn new(root: impl Into<PathBuf>) -> Self {
+        Self { root: root.into() }
+    }
+}
+
+#[derive(serde::Deserialize)]
+struct DoorstopItem {
+    #[serde(default)]
+    text: String,
+}
+
+impl RequirementsSource for DoorstopSource {
+    fn items(&self) -> Result<Vec<Item>> {
+        let mut items = Vec::new();
+        for doc in discover(&self.root)? {
+            for id in &doc.item_ids {
+                let path = doc.dir.join(format!("{id}.yml"));
+                let raw = std::fs::read_to_string(&path)
+                    .with_context(|| format!("reading {}", path.display()))?;
+                let item: DoorstopItem = serde_yaml::from_str(&raw)
+                    .with_context(|| format!("parsing {}", path.display()))?;
+                let text = item.text.trim().to_string();
+                items.push(Item {
+                    revision: content_hash(&text),
+                    id: id.clone(),
+                    text,
+                    title: None,
+                    verification_hint: None,
+                });
+            }
+        }
+        items.sort_by(|a, b| a.id.cmp(&b.id));
+        Ok(items)
+    }
+}
+
+/// A stable-per-build fingerprint of an item's prose, used as the revision token
+/// when the source has no native one (R-src-3).
+///
+// ponytail: std SipHash — deterministic within a binary, NOT guaranteed stable
+// across Rust releases; swap to a sha2 digest if cross-binary token stability
+// (e.g. surviving a provreq upgrade) ever matters. Advisory use tolerates churn.
+fn content_hash(text: &str) -> String {
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    text.hash(&mut hasher);
+    format!("{:016x}", hasher.finish())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -130,6 +190,28 @@ mod tests {
         assert_eq!(docs.len(), 1);
         assert_eq!(docs[0].prefix, "REQ");
         assert_eq!(docs[0].item_ids, vec!["REQ001", "REQ002"]);
+    }
+
+    // Verifies: REQ009 — the Doorstop adapter yields source-agnostic items
+    // carrying prose + a revision token, sorted by id.
+    #[test]
+    fn doorstop_source_reads_prose_and_revision() {
+        let tmp = tempfile::tempdir().unwrap();
+        let doc = tmp.path().join("reqs");
+        std::fs::create_dir(&doc).unwrap();
+        std::fs::write(doc.join(".doorstop.yml"), "settings:\n  prefix: REQ\n").unwrap();
+        std::fs::write(doc.join("REQ002.yml"), "text: |\n  the second item\n").unwrap();
+        std::fs::write(doc.join("REQ001.yml"), "text: |\n  the first item\n").unwrap();
+
+        let items = DoorstopSource::new(tmp.path()).items().unwrap();
+        assert_eq!(items.len(), 2);
+        assert_eq!(items[0].id, "REQ001");
+        assert_eq!(items[0].text, "the first item");
+        assert_eq!(items[1].id, "REQ002");
+        // Distinct prose → distinct revision tokens.
+        assert_ne!(items[0].revision, items[1].revision);
+        // Same prose → same token (deterministic).
+        assert_eq!(items[0].revision, content_hash("the first item"));
     }
 
     #[test]

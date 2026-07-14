@@ -7,6 +7,7 @@
 use crate::doorstop::DoorstopDoc;
 use anyhow::{bail, Context, Result};
 use std::path::{Path, PathBuf};
+use walkdir::WalkDir;
 
 /// The manifest file written at the companion root, linking it back to the
 /// subject's Doorstop layout.
@@ -156,6 +157,31 @@ pub fn scaffold(plan: &AdoptionPlan) -> Result<PathBuf> {
     Ok(plan.companion_root.clone())
 }
 
+/// Locate the companion tree under `subject_root` by finding its `provreq.yml`
+/// manifest (written by `init`). Returns `None` if the subject has not been
+/// adopted yet. Prunes the same heavy directories discovery does and does not
+/// follow symlinks. Single companion assumption, consistent with `init`.
+pub fn find_companion(subject_root: &Path) -> Result<Option<PathBuf>> {
+    const PRUNE_DIRS: [&str; 4] = [".git", "target", "node_modules", ".venv"];
+    let walker = WalkDir::new(subject_root)
+        .follow_links(false)
+        .into_iter()
+        .filter_entry(|e| {
+            !(e.file_type().is_dir()
+                && e.file_name()
+                    .to_str()
+                    .is_some_and(|n| PRUNE_DIRS.contains(&n)))
+        });
+    for entry in walker {
+        let entry = entry.with_context(|| format!("walking {}", subject_root.display()))?;
+        if entry.file_type().is_file() && entry.file_name() == MANIFEST_FILE {
+            let root = entry.path().parent().unwrap_or(subject_root).to_path_buf();
+            return Ok(Some(root));
+        }
+    }
+    Ok(None)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -235,5 +261,23 @@ mod tests {
 
         // Re-running refuses to clobber.
         assert!(scaffold(&p).is_err());
+    }
+
+    #[test]
+    fn find_companion_locates_scaffolded_manifest() {
+        let tmp = tempfile::tempdir().unwrap();
+        let req_root = tmp.path().join("reqs");
+        std::fs::create_dir(&req_root).unwrap();
+        let docs = [DoorstopDoc {
+            dir: req_root,
+            prefix: "REQ".into(),
+            item_ids: vec![],
+        }];
+        let created = scaffold(&plan(&docs, None).unwrap()).unwrap();
+
+        assert_eq!(find_companion(tmp.path()).unwrap(), Some(created));
+        // A subject with no companion yet.
+        let empty = tempfile::tempdir().unwrap();
+        assert_eq!(find_companion(empty.path()).unwrap(), None);
     }
 }
