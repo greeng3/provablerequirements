@@ -528,6 +528,9 @@ requirement no_message_lost {
 - **Deferred:** grammar-constrained decoder for the LLM front-end — revisit if the
   generate-then-repair loop (D11) proves too sloppy in practice.
 - Deterministic PRL→CNL read-back renderer and the vacuity/triviality checks (mechanism
-  decided in D11/D12; concrete implementation open). **Parser + type/name-check now exist
-  (mechanical gate part 1, REQ016);** the vacuity/triviality sanity checks, the generate-then-repair
-  loop, and the D12 read-back renderer over the AST are the remaining pieces.
+  decided in D11/D12; concrete implementation open). **The full mechanical gate now exists
+  (part 1 REQ016 parse + type/name-check; part 2 REQ017 vacuity sanity + generate-then-repair loop +
+  persisted per-draft gate outcome).** Vacuity is a bounded structural set (self-`leads_to`/`precedes`,
+  immediate `P or not P` / `P and not P`, `occurs at most 0`, unused vocabulary) — not a
+  satisfiability decision procedure, which stays deferred. **Remaining:** the D12 deterministic
+  PRL→CNL read-back renderer over the AST, and D13 grounding.

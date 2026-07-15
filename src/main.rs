@@ -2,7 +2,7 @@ use anyhow::{bail, Context, Result};
 use clap::{Parser, Subcommand};
 use provreq::adopt::find_companion;
 use provreq::doorstop::DoorstopSource;
-use provreq::draft::{self, Draft};
+use provreq::draft::{self, Draft, GateStatus};
 use provreq::formalize::Translator;
 use provreq::llm::{HttpBackend, LlmClassifier};
 use provreq::source::{Classification, Item, RequirementsSource};
@@ -204,7 +204,7 @@ async fn run_draft(
         .with_context(|| format!("no requirement item '{id}' in the subject"))?;
 
     if check {
-        return check_candidate(&state, id);
+        return check_candidate(&companion, &state, id);
     }
     if discard {
         let next = draft::discard(&state, id);
@@ -212,21 +212,31 @@ async fn run_draft(
         println!("Discarded draft for {id}.");
         return Ok(());
     }
-    let candidate = if translate {
-        Some(translate_candidate(&companion, item).await?)
-    } else {
-        set.map(str::to_string)
-    };
-    if let Some(candidate) = candidate {
-        let next = draft::set_candidate(&state, item, &candidate);
+    if translate {
+        // Forward-translate then run the gate, repairing on rejection (the loop
+        // returns the final candidate with its verdict either way).
+        let outcome = translate_gated_candidate(&companion, item).await?;
+        let status = gate_to_status(&outcome.gate);
+        let next = draft::set_candidate(&state, item, &outcome.candidate, status.clone());
+        draft::save(&companion, &next)?;
+        println!(
+            "Translated {id} in {} attempt(s), baselined against {}.",
+            outcome.attempts, item.revision
+        );
+        println!("Candidate PRL:\n{}", outcome.candidate);
+        print_gate(&status);
+        return Ok(());
+    }
+    if let Some(candidate) = set {
+        // A hand-authored candidate is gated once (no repair — the operator owns it).
+        let status = gate_to_status(&provreq::prl::gate(candidate));
+        let next = draft::set_candidate(&state, item, candidate, status.clone());
         draft::save(&companion, &next)?;
         println!(
             "Saved draft candidate for {id} (baselined against {}).",
             item.revision
         );
-        if translate {
-            println!("Ungated LLM proposal — review before formalizing:\n{candidate}");
-        }
+        print_gate(&status);
         return Ok(());
     }
 
@@ -240,10 +250,13 @@ async fn run_draft(
     Ok(())
 }
 
-/// D11: ask the configured LLM to propose a candidate PRL for `item`. Requires an
-/// `llm:` block (translate has no honest offline fallback the way triage does — the
-/// prose floor is not a formalization).
-async fn translate_candidate(companion: &Path, item: &Item) -> Result<String> {
+/// D11: ask the configured LLM to propose a candidate PRL for `item`, then run the
+/// mechanical gate and repair on rejection. Requires an `llm:` block (translate has no
+/// honest offline fallback the way triage does — the prose floor is not a formalization).
+async fn translate_gated_candidate(
+    companion: &Path,
+    item: &Item,
+) -> Result<provreq::formalize::RepairOutcome> {
     let config = provreq::llm::load_config(companion)?.context(
         "no `llm:` block in provreq.yml — configure a provider to use `draft --translate`",
     )?;
@@ -252,13 +265,12 @@ async fn translate_candidate(companion: &Path, item: &Item) -> Result<String> {
         item.id, config.model, config.base_url
     );
     let translator = Translator::new(HttpBackend::from_config(config)?);
-    translator.translate(item).await
+    translator.translate_gated(item).await
 }
 
-/// Run the mechanical gate (D11 part 1) over a draft's stored candidate and report
-/// the outcome. Read-only — it inspects the candidate without changing draft state
-/// (the generate-then-repair loop that stores a gate outcome is a later slice).
-fn check_candidate(state: &draft::DraftState, id: &str) -> Result<()> {
+/// Re-run the mechanical gate over a draft's stored candidate and persist the fresh
+/// outcome (only the gate field changes — a re-check is not an edit).
+fn check_candidate(companion: &Path, state: &draft::DraftState, id: &str) -> Result<()> {
     let draft = state
         .drafts
         .get(id)
@@ -267,26 +279,48 @@ fn check_candidate(state: &draft::DraftState, id: &str) -> Result<()> {
         println!("Draft {id} has no candidate PRL to check yet — write one with `--set` or `--translate`.");
         return Ok(());
     };
-    match provreq::prl::gate(candidate) {
-        Ok(req) => {
-            let n = req.require.len();
+    let status = gate_to_status(&provreq::prl::gate(candidate));
+    let next = draft::set_gate(state, id, status.clone());
+    draft::save(companion, &next)?;
+    print_gate(&status);
+    Ok(())
+}
+
+/// Render a gate result into the persisted [`GateStatus`] (errors/warnings as strings).
+fn gate_to_status(
+    gate: &std::result::Result<provreq::prl::GateOutcome, Vec<provreq::prl::GateError>>,
+) -> GateStatus {
+    match gate {
+        Ok(outcome) => GateStatus::Passed {
+            warnings: outcome.warnings.iter().map(|w| w.to_string()).collect(),
+        },
+        Err(errors) => GateStatus::Failed {
+            errors: errors.iter().map(|e| e.to_string()).collect(),
+        },
+    }
+}
+
+/// Print a gate outcome for the operator.
+fn print_gate(status: &GateStatus) {
+    match status {
+        GateStatus::Ungated => println!("Gate: not run."),
+        GateStatus::Passed { warnings } if warnings.is_empty() => println!("Gate: PASSED (clean)."),
+        GateStatus::Passed { warnings } => {
             println!(
-                "Gate OK — `{}` parsed and type-checked ({n} propert{}).",
-                req.name,
-                if n == 1 { "y" } else { "ies" }
+                "Gate: PASSED with {} vacuity warning(s) — review before admitting:",
+                warnings.len()
             );
+            for w in warnings {
+                println!("  ! {w}");
+            }
         }
-        Err(errors) => {
-            println!(
-                "Gate REJECTED the candidate for {id} ({} error(s)):",
-                errors.len()
-            );
-            for e in &errors {
+        GateStatus::Failed { errors } => {
+            println!("Gate: FAILED ({} error(s)):", errors.len());
+            for e in errors {
                 println!("  - {e}");
             }
         }
     }
-    Ok(())
 }
 
 fn print_draft(d: &Draft, item: &Item) {
@@ -303,8 +337,11 @@ fn print_draft(d: &Draft, item: &Item) {
         );
     }
     match &d.candidate {
-        Some(prl) => println!("Candidate PRL:\n{prl}"),
-        None => println!("No candidate PRL yet — write one with `--set`."),
+        Some(prl) => {
+            println!("Candidate PRL:\n{prl}");
+            print_gate(&d.gate);
+        }
+        None => println!("No candidate PRL yet — write one with `--set` or `--translate`."),
     }
 }
 
@@ -326,7 +363,13 @@ fn list_drafts(state: &draft::DraftState, items: &[Item]) -> Result<()> {
         } else {
             "empty"
         };
-        println!("  {id:<12} {has}{flag}");
+        let gate = match &d.gate {
+            GateStatus::Ungated => "",
+            GateStatus::Passed { warnings } if warnings.is_empty() => " [gate ok]",
+            GateStatus::Passed { .. } => " [gate ok, warnings]",
+            GateStatus::Failed { .. } => " [gate failed]",
+        };
+        println!("  {id:<12} {has}{flag}{gate}");
     }
     Ok(())
 }

@@ -49,9 +49,14 @@ status` coverage funnel (`src/status.rs`). REQ009–011. The LLM bulk pre-sort c
    **Mechanical gate part 1 SHIPPED (2026-07-15, issue #20)** — `src/prl/` parses a candidate PRL
    block into a typed AST and type/name-checks it (predicate name + arity, no-duplicate-decl,
    category well-formedness, non-empty `require`); `provreq draft <ID> --check` runs the gate over a
-   draft's candidate and reports acceptance or structured, line-anchored errors (REQ016). Still
-   deferred: gate part 2 (vacuity/triviality sanity + generate-then-repair loop + a stored draft gate
-   outcome), the D12 read-back renderer, and D13 grounding. See the "Steps 2–3 design" section below.
+   draft's candidate and reports acceptance or structured, line-anchored errors (REQ016).
+   **Mechanical gate part 2 SHIPPED (2026-07-15, issue #22)** — vacuity/triviality sanity (accept the
+   candidate but warn: self-`leads_to`/`precedes`, immediate `P or not P`/`P and not P`, `occurs at
+most 0`, unused vocabulary), the generate-then-repair loop (`src/formalize.rs` feeds gate errors
+   back to the LLM for bounded re-translation; warnings ride to the human, not the loop), and a
+   persisted per-draft gate outcome (`Draft.gate`: ungated / passed-with-warnings / failed), kept
+   truthful across `--set`/`--translate`/`--check` (REQ017). Still deferred: the D12 read-back
+   renderer and D13 grounding. See the "Steps 2–3 design" section below.
 4. **Verify** — run one engine → inspect the verdict tree.
 5. **Annotate** — stage the working-tree proof-carrier edit; operator reviews + commits on their own forge.
 6. **Living loop** — re-run on drift, act on stale verdicts.
