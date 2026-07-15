@@ -37,7 +37,7 @@
    **🟢 Designed (2026-07-14, issue #10); machinery SHIPPED (2026-07-14, issue #12)** —
    `RequirementsSource` seam + Doorstop adapter (`src/source.rs`, `src/doorstop.rs`
    `DoorstopSource`), `provreq triage` advisory state (`src/triage.rs`), and the `provreq
-   status` coverage funnel (`src/status.rs`). REQ009–011. The LLM bulk pre-sort classifier
+status` coverage funnel (`src/status.rs`). REQ009–011. The LLM bulk pre-sort classifier
    (R-triage-1 primary flow) is the deferred next slice; the shipped default is the honest
    prose-floor seed. See the "Steps 2–3 design" section below.
 3. **Formalize one item** — translate → read-back confirm (D12) → validate grounding dry-run (D13).
@@ -158,10 +158,27 @@ command with companion triage state (`R-triage-*`) → a `status` coverage funne
 formalize pipeline with draft persistence (`R-draft-*`, `R-ground-*`). The reqforge adapter (the
 `R-src-*` second impl) waits until reqforge's own requirement format stabilises.
 
-**Shipped so far (issue #12, 2026-07-14):** the seam (`R-src-1..4`), the triage command +
-companion state (`R-triage-1..2`, prose-floor classifier only), and the `status` funnel
-(`R-cov-1`). **Next slice:** the LLM bulk pre-sort classifier behind the `Classifier` seam
-(R-triage-1's primary flow), then the formalize pipeline (`R-draft-*`, `R-ground-*`).
+**Shipped so far:**
+
+- **Issue #12** — the seam (`R-src-1..4`), the triage command + companion state (`R-triage-1..2`),
+  and the `status` funnel (`R-cov-1`).
+- **Issue #14** — the LLM bulk pre-sort classifier (`R-triage-1` primary flow, REQ012). The
+  `Classifier` seam is now bulk + fallible + async; `LlmClassifier` sits behind it, with the
+  prose-floor classifier as the honest fallback. Multi-provider and operator-configurable via an
+  `llm:` block in `provreq.yml`:
+
+    ```yaml
+    llm:
+        provider: openai-compatible # covers Ollama + OpenAI; or `anthropic`
+        base_url: http://localhost:11434/v1 # Ollama; OpenAI = https://api.openai.com/v1
+        model: llama3
+        api_key_env: OPENAI_API_KEY # omit for keyless endpoints like Ollama
+    ```
+
+    The API key is read only from the named env var, never the file. No `llm:` block → triage uses
+    the prose-floor default and says so. Items the model omits/mislabels fall back to stays-prose.
+
+**Next slice:** the formalize pipeline (Step 3 — `R-draft-*`, `R-ground-*`).
 
 ## Packaging — Design A (old, superseded)
 

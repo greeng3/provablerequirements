@@ -3,9 +3,9 @@
 # Validate that the dev toolchain this repo depends on is present and runnable.
 # These tools are provided by the dev container (.devcontainer) — run inside it.
 #
-# Scoped to today's docs/requirements workflow. Rust (rustc/cargo) and Node/React
-# product checks will be added here when that code lands, mirroring how the
-# Makefile grows with the stack.
+# Covers the docs/requirements workflow plus the Rust toolchain the product now
+# uses. Node/React product checks will be added here when that code lands,
+# mirroring how the Makefile grows with the stack.
 
 set -u
 
@@ -36,6 +36,8 @@ check npm               npm           --version
 check markdownlint-cli2 markdownlint  --version   # make lint-md
 check prettier          prettier      --version   # make fmt / fmt-check
 check yamllint          yamllint      --version   # make lint-yaml
+check cargo             cargo         --version   # Rust build / test / clippy
+check cargo-audit       cargo-audit   --version   # make audit (dependency CVEs)
 echo
 
 if [ "$status" -eq 0 ]; then

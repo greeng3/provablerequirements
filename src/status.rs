@@ -61,8 +61,8 @@ mod tests {
 
     // Verifies: REQ011 — untriaged, stays-prose, and formalizable are distinct
     // funnel states, and unbuilt stages report an honest zero.
-    #[test]
-    fn funnel_keeps_states_distinct() {
+    #[tokio::test]
+    async fn funnel_keeps_states_distinct() {
         let items = [item("A"), item("B"), item("C")];
 
         // Nothing triaged yet.
@@ -71,7 +71,9 @@ mod tests {
         assert_eq!(empty.untriaged, 3);
 
         // Seed all to prose, then promote A.
-        let seeded = seed(&TriageState::new(), &items, &ProseFloorClassifier);
+        let seeded = seed(&TriageState::new(), &items, &ProseFloorClassifier)
+            .await
+            .unwrap();
         let promoted = set(&seeded, &items[0], Classification::FormalizableNow);
         let cov = coverage(&items, &promoted);
         assert_eq!(cov.untriaged, 0);

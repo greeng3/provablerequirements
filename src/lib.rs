@@ -7,6 +7,7 @@
 
 pub mod adopt;
 pub mod doorstop;
+pub mod llm;
 pub mod server;
 pub mod source;
 pub mod status;

@@ -26,7 +26,7 @@ NPM          := npm --prefix web
 	fmt-md fmt-check-md lint-md \
 	fmt-yaml fmt-check-yaml lint-yaml \
 	traceability traceability-report traceability-check \
-	web rust-check build test
+	web rust-check audit build test
 
 help:
 	@echo "Targets:"
@@ -40,9 +40,10 @@ help:
 	@echo "  traceability-check  Fail if any code tag references an unknown requirement"
 	@echo "  web                 Build the frontend into web/dist (embedded by cargo)"
 	@echo "  rust-check          cargo fmt --check, clippy -D warnings, and tests"
+	@echo "  audit               cargo audit — scan dependencies for known CVEs"
 	@echo "  build               Build the frontend, then the release binary"
 	@echo "  test                Build the frontend, then run cargo + vitest suites"
-	@echo "  pre-merge           Preflight: traceability, fmt, lint, requirements, frontend, rust"
+	@echo "  pre-merge           Preflight: traceability, fmt, lint, requirements, frontend, rust, audit"
 	@echo "  setup-hooks         Install git hooks (core.hooksPath -> .githooks)"
 	@echo ""
 	@echo "  Per-language: fmt-md fmt-check-md lint-md  fmt-yaml fmt-check-yaml lint-yaml"
@@ -104,6 +105,11 @@ rust-check:
 	@$(CARGO) clippy --all-targets -- -D warnings
 	@$(CARGO) test --all
 
+# Scan the dependency tree for known CVEs (RustSec advisory DB). Justified by the
+# HTTP/TLS stack (reqwest, rustls) pulled in for the LLM classifier.
+audit:
+	@$(CARGO) audit
+
 build: web
 	@$(CARGO) build --release
 
@@ -116,22 +122,24 @@ pre-merge:
 	@echo "=== pre-merge preflight ==="
 	@echo "Manual prerequisite (not automated): update docs and requirements for the changes being merged."
 	@echo ""
-	@echo "[1/8] traceability-report (regenerate $(TRACE_REPORT))"
+	@echo "[1/9] traceability-report (regenerate $(TRACE_REPORT))"
 	@$(MAKE) --no-print-directory traceability-report
-	@echo "[2/8] fmt"
+	@echo "[2/9] fmt"
 	@$(MAKE) --no-print-directory fmt
-	@echo "[3/8] fmt-check"
+	@echo "[3/9] fmt-check"
 	@$(MAKE) --no-print-directory fmt-check
-	@echo "[4/8] lint"
+	@echo "[4/9] lint"
 	@$(MAKE) --no-print-directory lint
-	@echo "[5/8] check-requirements"
+	@echo "[5/9] check-requirements"
 	@$(MAKE) --no-print-directory check-requirements
-	@echo "[6/8] traceability-check (no orphan tags)"
+	@echo "[6/9] traceability-check (no orphan tags)"
 	@$(MAKE) --no-print-directory traceability-check
-	@echo "[7/8] web (build frontend into web/dist)"
+	@echo "[7/9] web (build frontend into web/dist)"
 	@$(MAKE) --no-print-directory web
-	@echo "[8/8] rust-check (fmt-check, clippy -D warnings, cargo test)"
+	@echo "[8/9] rust-check (fmt-check, clippy -D warnings, cargo test)"
 	@$(MAKE) --no-print-directory rust-check
+	@echo "[9/9] audit (cargo audit — dependency CVEs)"
+	@$(MAKE) --no-print-directory audit
 	@echo ""
 	@echo "=== pre-merge passed ==="
 

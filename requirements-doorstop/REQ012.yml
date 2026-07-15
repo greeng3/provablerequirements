@@ -1,0 +1,18 @@
+active: true
+derived: false
+header: ''
+level: 1.11
+links: []
+normative: true
+ref: ''
+reviewed: T93AlwTfI6dyeo9cLWjU5IaYC_LPpvkqt7E04fdZ79c=
+text: |
+  The triage classifier can bulk pre-sort the whole backlog with an LLM. The
+  provider is configurable in the companion manifest (`llm:` block): an
+  OpenAI-compatible endpoint (covering Ollama and OpenAI) or Anthropic, with a
+  base URL and model. Any API key is read only from a named environment variable,
+  never stored in the configuration file, and keyless endpoints (such as a local
+  Ollama) need no key. The classifier's output is advisory: the operator still
+  reviews and confirms or overrides it, any item the model omits or mislabels
+  falls back to stays-prose, and when no LLM is configured (or the endpoint is
+  unreachable) triage reports honestly and uses the prose-floor default.
