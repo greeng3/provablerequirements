@@ -1,0 +1,15 @@
+active: true
+derived: false
+header: ''
+level: 1.13
+links: []
+normative: true
+ref: ''
+reviewed: XHEQcW9L4KID8O_gOqGPbGTQ35kRX1ZZYUU-sg4Jdxw=
+text: |
+  Resuming a draft re-checks the source revision token against the live
+  requirement item. If the item moved underneath the draft (the tokens differ),
+  the draft is flagged stale for human re-confirmation before formalization
+  continues, so the engine never runs off a draft written against a since-changed
+  requirement. Editing the candidate re-baselines the draft against the item's
+  current revision, clearing the stale flag.
