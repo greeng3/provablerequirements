@@ -3,6 +3,7 @@ use clap::{Parser, Subcommand};
 use provreq::adopt::find_companion;
 use provreq::doorstop::DoorstopSource;
 use provreq::draft::{self, Draft};
+use provreq::formalize::Translator;
 use provreq::llm::{HttpBackend, LlmClassifier};
 use provreq::source::{Classification, Item, RequirementsSource};
 use provreq::triage::{self, ProseFloorClassifier, TriageState};
@@ -56,6 +57,9 @@ enum Command {
         /// Write the candidate PRL for this draft (re-baselines against the item).
         #[arg(long, value_name = "PRL")]
         set: Option<String>,
+        /// Propose the candidate PRL with the configured LLM (D11 forward-translate).
+        #[arg(long, conflicts_with_all = ["set", "discard"])]
+        translate: bool,
         /// Discard this draft.
         #[arg(long, conflicts_with = "set")]
         discard: bool,
@@ -78,8 +82,9 @@ async fn main() -> Result<()> {
             id,
             path,
             set,
+            translate,
             discard,
-        } => run_draft(&path, id.as_deref(), set.as_deref(), discard),
+        } => run_draft(&path, id.as_deref(), set.as_deref(), translate, discard).await,
         Command::Status { path } => run_status(&path),
     }
 }
@@ -163,9 +168,15 @@ fn print_triage(items: &[Item], state: &TriageState) {
     }
 }
 
-/// Open/resume, edit, or discard the draft for one item — or list all drafts when
-/// no id is given.
-fn run_draft(subject: &Path, id: Option<&str>, set: Option<&str>, discard: bool) -> Result<()> {
+/// Open/resume, edit, translate, or discard the draft for one item — or list all
+/// drafts when no id is given.
+async fn run_draft(
+    subject: &Path,
+    id: Option<&str>,
+    set: Option<&str>,
+    translate: bool,
+    discard: bool,
+) -> Result<()> {
     let (companion, items) = resolve(subject)?;
     let state = draft::load(&companion)?;
 
@@ -183,13 +194,21 @@ fn run_draft(subject: &Path, id: Option<&str>, set: Option<&str>, discard: bool)
         println!("Discarded draft for {id}.");
         return Ok(());
     }
-    if let Some(candidate) = set {
-        let next = draft::set_candidate(&state, item, candidate);
+    let candidate = if translate {
+        Some(translate_candidate(&companion, item).await?)
+    } else {
+        set.map(str::to_string)
+    };
+    if let Some(candidate) = candidate {
+        let next = draft::set_candidate(&state, item, &candidate);
         draft::save(&companion, &next)?;
         println!(
             "Saved draft candidate for {id} (baselined against {}).",
             item.revision
         );
+        if translate {
+            println!("Ungated LLM proposal — review before formalizing:\n{candidate}");
+        }
         return Ok(());
     }
 
@@ -201,6 +220,21 @@ fn run_draft(subject: &Path, id: Option<&str>, set: Option<&str>, discard: bool)
     }
     print_draft(&next.drafts[id], item);
     Ok(())
+}
+
+/// D11: ask the configured LLM to propose a candidate PRL for `item`. Requires an
+/// `llm:` block (translate has no honest offline fallback the way triage does — the
+/// prose floor is not a formalization).
+async fn translate_candidate(companion: &Path, item: &Item) -> Result<String> {
+    let config = provreq::llm::load_config(companion)?.context(
+        "no `llm:` block in provreq.yml — configure a provider to use `draft --translate`",
+    )?;
+    println!(
+        "Translating {} with {} via {} …",
+        item.id, config.model, config.base_url
+    );
+    let translator = Translator::new(HttpBackend::from_config(config)?);
+    translator.translate(item).await
 }
 
 fn print_draft(d: &Draft, item: &Item) {

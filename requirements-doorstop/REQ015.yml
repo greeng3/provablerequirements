@@ -1,0 +1,19 @@
+active: true
+derived: false
+header: ''
+level: 1.14
+links: []
+normative: true
+ref: ''
+reviewed: h8sampwa6C7U6ZVgRL7CvuzptaZU8NRj1tbyFRvujGg=
+text: |
+  The tool can forward-translate a requirement's prose into a candidate PRL with
+  the configured LLM (the D11 step), reusing the same provider seam and `llm:`
+  configuration as triage. The candidate is written into the item's draft as the
+  hand-authored candidate would be, re-baselining the draft against the item's
+  current revision. The proposal is untrusted and ungated: it is stored and shown
+  for the operator to review and edit, carrying no more trust than a hand-authored
+  draft candidate until the formalization gate (a later slice) runs. Translation
+  requires an `llm:` block — there is no prose-floor fallback, because the honest
+  triage floor is not a formalization; an empty proposal is an error rather than a
+  silently stored blank draft.
