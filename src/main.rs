@@ -60,6 +60,9 @@ enum Command {
         /// Propose the candidate PRL with the configured LLM (D11 forward-translate).
         #[arg(long, conflicts_with_all = ["set", "discard"])]
         translate: bool,
+        /// Run the mechanical gate (parse + type/name-check) over this draft's candidate.
+        #[arg(long, conflicts_with_all = ["set", "translate", "discard"])]
+        check: bool,
         /// Discard this draft.
         #[arg(long, conflicts_with = "set")]
         discard: bool,
@@ -83,8 +86,19 @@ async fn main() -> Result<()> {
             path,
             set,
             translate,
+            check,
             discard,
-        } => run_draft(&path, id.as_deref(), set.as_deref(), translate, discard).await,
+        } => {
+            run_draft(
+                &path,
+                id.as_deref(),
+                set.as_deref(),
+                translate,
+                check,
+                discard,
+            )
+            .await
+        }
         Command::Status { path } => run_status(&path),
     }
 }
@@ -175,6 +189,7 @@ async fn run_draft(
     id: Option<&str>,
     set: Option<&str>,
     translate: bool,
+    check: bool,
     discard: bool,
 ) -> Result<()> {
     let (companion, items) = resolve(subject)?;
@@ -188,6 +203,9 @@ async fn run_draft(
         .find(|i| i.id == id)
         .with_context(|| format!("no requirement item '{id}' in the subject"))?;
 
+    if check {
+        return check_candidate(&state, id);
+    }
     if discard {
         let next = draft::discard(&state, id);
         draft::save(&companion, &next)?;
@@ -235,6 +253,40 @@ async fn translate_candidate(companion: &Path, item: &Item) -> Result<String> {
     );
     let translator = Translator::new(HttpBackend::from_config(config)?);
     translator.translate(item).await
+}
+
+/// Run the mechanical gate (D11 part 1) over a draft's stored candidate and report
+/// the outcome. Read-only — it inspects the candidate without changing draft state
+/// (the generate-then-repair loop that stores a gate outcome is a later slice).
+fn check_candidate(state: &draft::DraftState, id: &str) -> Result<()> {
+    let draft = state
+        .drafts
+        .get(id)
+        .with_context(|| format!("no draft for {id} — open one first with `provreq draft {id}`"))?;
+    let Some(candidate) = &draft.candidate else {
+        println!("Draft {id} has no candidate PRL to check yet — write one with `--set` or `--translate`.");
+        return Ok(());
+    };
+    match provreq::prl::gate(candidate) {
+        Ok(req) => {
+            let n = req.require.len();
+            println!(
+                "Gate OK — `{}` parsed and type-checked ({n} propert{}).",
+                req.name,
+                if n == 1 { "y" } else { "ies" }
+            );
+        }
+        Err(errors) => {
+            println!(
+                "Gate REJECTED the candidate for {id} ({} error(s)):",
+                errors.len()
+            );
+            for e in &errors {
+                println!("  - {e}");
+            }
+        }
+    }
+    Ok(())
 }
 
 fn print_draft(d: &Draft, item: &Item) {

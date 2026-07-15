@@ -10,6 +10,7 @@ pub mod doorstop;
 pub mod draft;
 pub mod formalize;
 pub mod llm;
+pub mod prl;
 pub mod server;
 pub mod source;
 pub mod status;

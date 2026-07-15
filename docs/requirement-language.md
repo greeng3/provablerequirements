@@ -514,7 +514,12 @@ requirement no_message_lost {
 
 ## Open items
 
-- Precise grammar for the pattern surface and the sugar escape hatch.
+- Precise grammar for the pattern surface and the sugar escape hatch. **Partly concrete
+  (REQ016, `src/prl/`):** the working-set pattern grammar (never/always/eventually,
+  `leads_to … within`, precedes, `occurs at most k times`, can_reach; globally/before/after/between
+  scopes; `each x: Sort` quantification; boolean atom expressions) now parses to a typed AST with a
+  name+arity type-check. Still open: the sugar/logic escape hatch, engine-native raw blocks, and the
+  richer set constructs (e.g. `exactly_one_of`) the worked example uses beyond the working set.
 - Formal semantics of the core logic and the exact boundary of each engine fragment.
 - Concrete syntax for grounding modules and refinement mappings (the mechanism is decided
   in D4/D5/D6 and _Grounding layer_; the exact adapter syntax per category is still open).
@@ -523,4 +528,6 @@ requirement no_message_lost {
 - **Deferred:** grammar-constrained decoder for the LLM front-end — revisit if the
   generate-then-repair loop (D11) proves too sloppy in practice.
 - Deterministic PRL→CNL read-back renderer and the vacuity/triviality checks (mechanism
-  decided in D11/D12; concrete implementation open).
+  decided in D11/D12; concrete implementation open). **Parser + type/name-check now exist
+  (mechanical gate part 1, REQ016);** the vacuity/triviality sanity checks, the generate-then-repair
+  loop, and the D12 read-back renderer over the AST are the remaining pieces.
