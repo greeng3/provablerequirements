@@ -41,12 +41,13 @@ status` coverage funnel (`src/status.rs`). REQ009–011. The LLM bulk pre-sort c
    (R-triage-1 primary flow) is the deferred next slice; the shipped default is the honest
    prose-floor seed. See the "Steps 2–3 design" section below.
 3. **Formalize one item** — translate → read-back confirm (D12) → validate grounding dry-run (D13).
-   **🟢 Designed (2026-07-14, issue #10); draft lifecycle SHIPPED (2026-07-15, issue #16)** —
-   `provreq draft` persists a resumable draft (`src/draft.rs`, `drafts.yml`) keyed by source id
-   with revision-token drift detection, and `provreq status` gains a distinct `drafting` count
-   (REQ013–014). The D11 LLM forward-translate, the mechanical gate (PRL parser + type/fragment
-   check + vacuity), the D12 read-back renderer, and D13 grounding are the deferred next slices.
-   See the "Steps 2–3 design" section below.
+   **🟢 Designed (2026-07-14, issue #10); draft lifecycle SHIPPED (#16); D11 translate SHIPPED
+   (2026-07-15, issue #18)** — `provreq draft` persists a resumable draft (`src/draft.rs`,
+   `drafts.yml`) keyed by source id with revision-token drift detection and a distinct `drafting`
+   count in `provreq status` (REQ013–014); `provreq draft <ID> --translate` forward-translates the
+   item's prose into an ungated candidate PRL via the LLM seam (`src/formalize.rs`, REQ015). Still
+   deferred: the mechanical gate (PRL parser + type/fragment-check + vacuity) and generate-then-repair
+   loop, the D12 read-back renderer, and D13 grounding. See the "Steps 2–3 design" section below.
 4. **Verify** — run one engine → inspect the verdict tree.
 5. **Annotate** — stage the working-tree proof-carrier edit; operator reviews + commits on their own forge.
 6. **Living loop** — re-run on drift, act on stale verdicts.

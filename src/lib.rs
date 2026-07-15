@@ -8,6 +8,7 @@
 pub mod adopt;
 pub mod doorstop;
 pub mod draft;
+pub mod formalize;
 pub mod llm;
 pub mod server;
 pub mod source;
