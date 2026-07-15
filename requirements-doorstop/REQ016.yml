@@ -1,0 +1,36 @@
+active: true
+derived: false
+header: ''
+level: 1.15
+links: []
+normative: true
+ref: ''
+reviewed: SnCtdZWW87j0cohhIOwYCMaTYTfkwR7GPP46fwCqKfI=
+text: |
+  The tool provides the first half of the D11 mechanical gate: a parser that turns a
+  candidate PRL block into a typed abstract syntax tree, and a type/name-check over
+  that tree. The parser accepts the PRL surface grammar — the outer
+  `requirement <name> { … }` sections (category, vocabulary, assume, require,
+  strength, evidence), vocabulary declarations (sort/event/state with typed or
+  untyped parameters, and identity), and the `require` pattern language: the working
+  set of specification patterns (never, always, eventually, `leads_to … within`,
+  precedes, `occurs at most k times`, can_reach) under Dwyer scopes (globally, before,
+  after, between) with `each x: Sort` quantification and boolean atom expressions.
+  Predicate arguments, `within` durations, `with` guards, `assume` entries, and the
+  strength/evidence bodies are retained as raw text — the gate needs predicate name
+  and arity here, not a full term grammar; those leaves are parsed when grounding
+  needs them.
+
+  The type/name-check enforces what can be honestly checked without a full sort
+  system: a required `require` section that is present and non-empty, well-formed
+  category values, no duplicate vocabulary declarations, and every predicate applied
+  in `require` (including scope-boundary predicates) resolving to a declared
+  event/state with matching arity. `assume` entries are a distinct environment
+  namespace and are not name-checked against the domain vocabulary. Every rejection is
+  a structured error carrying a best-effort source line, so the later
+  generate-then-repair loop can quote precise feedback back to the LLM. Malformed
+  input is rejected at parse before the checker runs, so a broken tree never produces
+  spurious type errors. The operator can run the gate over a draft's stored candidate
+  with `provreq draft <ID> --check`, which reports acceptance or lists the errors
+  without mutating draft state. Vacuity/triviality sanity, the generate-then-repair
+  loop, and the D12 deterministic read-back are deferred to later slices.
