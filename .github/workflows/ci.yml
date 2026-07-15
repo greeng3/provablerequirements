@@ -34,3 +34,12 @@ jobs:
         run: cargo clippy --all-targets -- -D warnings
       - name: Test
         run: cargo test --all
+
+      # Dependency CVE scan (RustSec). Mirrors `make audit`; kept fast by
+      # installing a prebuilt cargo-audit rather than compiling it.
+      - name: Install cargo-audit
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-audit
+      - name: Audit dependencies
+        run: cargo audit

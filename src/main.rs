@@ -2,6 +2,7 @@ use anyhow::{bail, Context, Result};
 use clap::{Parser, Subcommand};
 use provreq::adopt::find_companion;
 use provreq::doorstop::DoorstopSource;
+use provreq::llm::{HttpBackend, LlmClassifier};
 use provreq::source::{Classification, Item, RequirementsSource};
 use provreq::triage::{self, ProseFloorClassifier, TriageState};
 use std::io::{self, Write};
@@ -57,7 +58,7 @@ async fn main() -> Result<()> {
     match Cli::parse().command {
         Command::Serve { port } => provreq::server::serve(port).await.map_err(Into::into),
         Command::Init { path, name, yes } => run_init(&path, name.as_deref(), yes),
-        Command::Triage { path, set } => run_triage(&path, set),
+        Command::Triage { path, set } => run_triage(&path, set).await,
         Command::Status { path } => run_status(&path),
     }
 }
@@ -75,7 +76,7 @@ fn resolve(subject: &Path) -> Result<(PathBuf, Vec<Item>)> {
     Ok((companion, items))
 }
 
-fn run_triage(subject: &Path, set: Option<Vec<String>>) -> Result<()> {
+async fn run_triage(subject: &Path, set: Option<Vec<String>>) -> Result<()> {
     let (companion, items) = resolve(subject)?;
     let state = triage::load(&companion)?;
 
@@ -97,15 +98,36 @@ fn run_triage(subject: &Path, set: Option<Vec<String>>) -> Result<()> {
             println!("Set {id} = {}", classification.as_str());
             next
         }
-        None => {
-            let next = triage::seed(&state, &items, &ProseFloorClassifier);
-            triage::save(&companion, &next)?;
-            next
-        }
+        None => seed_backlog(&companion, &state, &items).await?,
     };
 
     print_triage(&items, &state);
     Ok(())
+}
+
+/// Seed the pending backlog using the operator's configured LLM classifier, or
+/// the honest prose-floor default when no `llm:` block is present.
+async fn seed_backlog(
+    companion: &Path,
+    state: &TriageState,
+    items: &[Item],
+) -> Result<TriageState> {
+    let next = match provreq::llm::load_config(companion)? {
+        Some(config) => {
+            println!(
+                "Classifying backlog with {} via {} …",
+                config.model, config.base_url
+            );
+            let classifier = LlmClassifier::new(HttpBackend::from_config(config)?);
+            triage::seed(state, items, &classifier).await?
+        }
+        None => {
+            println!("No `llm:` config in provreq.yml — seeding with the prose-floor default.");
+            triage::seed(state, items, &ProseFloorClassifier).await?
+        }
+    };
+    triage::save(companion, &next)?;
+    Ok(next)
 }
 
 fn print_triage(items: &[Item], state: &TriageState) {

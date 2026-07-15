@@ -60,3 +60,8 @@ ENV PATH="/root/.local/bin:$PATH"
 
 # yamllint — YAML linting for the `make lint-yaml` / `pre-merge` targets.
 RUN uv tool install yamllint
+
+# cargo-audit — scans the dependency tree for known CVEs (RustSec) in the
+# `make audit` / `pre-merge` targets. Justified by the HTTP/TLS stack (reqwest,
+# rustls) the LLM classifier pulls in. cargo comes from the base rust-dev image.
+RUN cargo install cargo-audit --locked

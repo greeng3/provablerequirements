@@ -65,42 +65,63 @@ pub fn save(companion_root: &Path, state: &TriageState) -> Result<()> {
     std::fs::write(&path, yaml).with_context(|| format!("writing {}", path.display()))
 }
 
-/// Proposes an advisory bucket for an item (R-triage-1). The LLM bulk pre-sort
-/// is a deferred implementation; every classifier's output is a seed the operator
-/// still confirms.
+/// Bulk pre-sorts a backlog into advisory buckets (R-triage-1). Returns exactly
+/// one bucket per input item, in order. Fallible (an LLM classifier does I/O) and
+/// async; dispatched generically so no trait objects are needed. Every output is
+/// a seed the operator still confirms.
 pub trait Classifier {
-    fn classify(&self, item: &Item) -> Classification;
+    fn classify(
+        &self,
+        items: &[Item],
+    ) -> impl std::future::Future<Output = Result<Vec<Classification>>> + Send;
 }
 
-/// Adapter #0: the honest floor. Seeds an item from its source verification hint
-/// when present (R-triage-2), else `stays-prose` — never over-claiming
-/// formalizability. The operator promotes items with `set`.
-///
-// ponytail: the real bulk pre-sort (an LLM classifier) is the next slice; this
-// keeps the seed truthful rather than guessing from keywords.
+/// Adapter #0: the honest floor. Seeds each item from its source verification
+/// hint when present (R-triage-2), else `stays-prose` — never over-claiming
+/// formalizability. The operator promotes items with `set`, or an LLM classifier
+/// ([`crate::llm::LlmClassifier`]) pre-sorts them.
 pub struct ProseFloorClassifier;
 
 impl Classifier for ProseFloorClassifier {
-    fn classify(&self, item: &Item) -> Classification {
-        item.verification_hint.unwrap_or(Classification::StaysProse)
+    async fn classify(&self, items: &[Item]) -> Result<Vec<Classification>> {
+        Ok(items
+            .iter()
+            .map(|i| i.verification_hint.unwrap_or(Classification::StaysProse))
+            .collect())
     }
 }
 
 /// Seed triage for items that have no entry yet, leaving existing entries
-/// untouched (re-triage is an explicit `set`, never a silent overwrite). Returns
-/// a new state.
-pub fn seed(state: &TriageState, items: &[Item], classifier: &dyn Classifier) -> TriageState {
-    let mut next = state.items.clone();
-    for item in items {
-        next.entry(item.id.clone()).or_insert_with(|| TriageEntry {
-            classification: classifier.classify(item),
-            revision: item.revision.clone(),
-        });
+/// untouched (re-triage is an explicit `set`, never a silent overwrite). Only the
+/// pending items are sent to the classifier. Returns a new state.
+pub async fn seed<C: Classifier>(
+    state: &TriageState,
+    items: &[Item],
+    classifier: &C,
+) -> Result<TriageState> {
+    let pending: Vec<Item> = items
+        .iter()
+        .filter(|i| !state.items.contains_key(&i.id))
+        .cloned()
+        .collect();
+    if pending.is_empty() {
+        return Ok(state.clone());
     }
-    TriageState {
+    let buckets = classifier.classify(&pending).await?;
+    let mut next = state.items.clone();
+    for (item, classification) in pending.iter().zip(buckets) {
+        next.insert(
+            item.id.clone(),
+            TriageEntry {
+                classification,
+                revision: item.revision.clone(),
+            },
+        );
+    }
+    Ok(TriageState {
         schema: state.schema,
         items: next,
-    }
+    })
 }
 
 /// Set (or override) one item's classification against its current revision
@@ -135,21 +156,26 @@ mod tests {
     }
 
     // Verifies: REQ010 — the prose floor never over-claims, but honors a hint.
-    #[test]
-    fn prose_floor_defaults_to_prose_and_honors_hint() {
-        let c = ProseFloorClassifier;
-        assert_eq!(c.classify(&item("A", None)), Classification::StaysProse);
+    #[tokio::test]
+    async fn prose_floor_defaults_to_prose_and_honors_hint() {
+        let items = [
+            item("A", None),
+            item("B", Some(Classification::FormalizableNow)),
+        ];
+        let buckets = ProseFloorClassifier.classify(&items).await.unwrap();
         assert_eq!(
-            c.classify(&item("B", Some(Classification::FormalizableNow))),
-            Classification::FormalizableNow
+            buckets,
+            vec![Classification::StaysProse, Classification::FormalizableNow]
         );
     }
 
     // Verifies: REQ010 — seeding fills only unclassified items; set overrides.
-    #[test]
-    fn seed_is_additive_and_set_overrides() {
+    #[tokio::test]
+    async fn seed_is_additive_and_set_overrides() {
         let items = [item("A", None), item("B", None)];
-        let seeded = seed(&TriageState::new(), &items, &ProseFloorClassifier);
+        let seeded = seed(&TriageState::new(), &items, &ProseFloorClassifier)
+            .await
+            .unwrap();
         assert_eq!(seeded.items.len(), 2);
 
         // Operator promotes A.
@@ -160,7 +186,9 @@ mod tests {
         );
 
         // Re-seeding does NOT clobber the operator's override.
-        let reseeded = seed(&promoted, &items, &ProseFloorClassifier);
+        let reseeded = seed(&promoted, &items, &ProseFloorClassifier)
+            .await
+            .unwrap();
         assert_eq!(
             reseeded.items["A"].classification,
             Classification::FormalizableNow
@@ -168,11 +196,13 @@ mod tests {
     }
 
     // Verifies: REQ010 — triage state round-trips through the companion file.
-    #[test]
-    fn state_persists_and_reloads() {
+    #[tokio::test]
+    async fn state_persists_and_reloads() {
         let tmp = tempfile::tempdir().unwrap();
         let items = [item("A", Some(Classification::FalsifiableOnly))];
-        let state = seed(&TriageState::new(), &items, &ProseFloorClassifier);
+        let state = seed(&TriageState::new(), &items, &ProseFloorClassifier)
+            .await
+            .unwrap();
         save(tmp.path(), &state).unwrap();
 
         let loaded = load(tmp.path()).unwrap();
