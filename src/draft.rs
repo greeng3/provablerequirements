@@ -20,16 +20,39 @@ use std::path::Path;
 /// keyed by source id) — the draft peer of `triage.yml`.
 pub const DRAFT_FILE: &str = "drafts.yml";
 
+/// The mechanical-gate outcome recorded on a draft (R-draft-1). Rendered to strings
+/// because a draft is a snapshot for the human, not something re-processed — the
+/// structured [`crate::prl::GateError`]/`GateWarning` don't need to round-trip YAML.
+#[derive(Debug, Clone, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
+#[serde(tag = "status", rename_all = "snake_case")]
+pub enum GateStatus {
+    /// A candidate exists but the gate has not been run over it.
+    #[default]
+    Ungated,
+    /// The candidate cleared the gate; `warnings` are vacuity/triviality flags for
+    /// the human (empty = clean).
+    Passed {
+        #[serde(default)]
+        warnings: Vec<String>,
+    },
+    /// The gate rejected the candidate; `errors` are the rendered reasons.
+    Failed { errors: Vec<String> },
+}
+
 /// One item's in-progress formalization draft.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Draft {
     /// The source revision this draft was last touched against (R-src-3).
     /// Staleness (R-draft-2) is `revision != item.revision`.
     pub revision: String,
-    /// The operator's hand-authored candidate PRL; `None` until they write one.
-    /// A later slice fills this from the D11 forward-translate.
+    /// The candidate PRL — hand-authored (`--set`) or LLM-proposed (`--translate`);
+    /// `None` until one is written.
     #[serde(default)]
     pub candidate: Option<String>,
+    /// The last mechanical-gate outcome for `candidate` (R-draft-1). Defaults to
+    /// `Ungated` so drafts written before this field existed load cleanly.
+    #[serde(default)]
+    pub gate: GateStatus,
 }
 
 /// Persisted draft state, keyed by source id.
@@ -87,6 +110,7 @@ pub fn open(state: &DraftState, item: &Item) -> DraftState {
         Draft {
             revision: item.revision.clone(),
             candidate: None,
+            gate: GateStatus::Ungated,
         },
     );
     DraftState {
@@ -95,18 +119,44 @@ pub fn open(state: &DraftState, item: &Item) -> DraftState {
     }
 }
 
-/// Write the operator's candidate PRL and re-baseline the draft against the item's
-/// current revision — editing the candidate is confirming it against the current
+/// Write a candidate PRL with its gate outcome and re-baseline the draft against the
+/// item's current revision — writing the candidate is confirming it against the current
 /// source, clearing any prior staleness (R-draft-2). Returns a new state.
-pub fn set_candidate(state: &DraftState, item: &Item, candidate: impl Into<String>) -> DraftState {
+pub fn set_candidate(
+    state: &DraftState,
+    item: &Item,
+    candidate: impl Into<String>,
+    gate: GateStatus,
+) -> DraftState {
     let mut drafts = state.drafts.clone();
     drafts.insert(
         item.id.clone(),
         Draft {
             revision: item.revision.clone(),
             candidate: Some(candidate.into()),
+            gate,
         },
     );
+    DraftState {
+        schema: state.schema,
+        drafts,
+    }
+}
+
+/// Update only the recorded gate outcome for an existing draft, leaving its candidate
+/// and revision baseline untouched (a re-check is not an edit). No-op if the draft is
+/// absent. Returns a new state.
+pub fn set_gate(state: &DraftState, id: &str, gate: GateStatus) -> DraftState {
+    let mut drafts = state.drafts.clone();
+    if let Some(existing) = drafts.get(id) {
+        drafts.insert(
+            id.to_string(),
+            Draft {
+                gate,
+                ..existing.clone()
+            },
+        );
+    }
     DraftState {
         schema: state.schema,
         drafts,
@@ -153,7 +203,7 @@ mod tests {
         assert_eq!(opened.drafts["REQ001"].revision, "rev-1");
         assert_eq!(opened.drafts["REQ001"].candidate, None);
 
-        let edited = set_candidate(&opened, &it, "requirement foo { }");
+        let edited = set_candidate(&opened, &it, "requirement foo { }", GateStatus::Ungated);
         // Re-opening the same id leaves the operator's work untouched.
         let reopened = open(&edited, &it);
         assert_eq!(
@@ -167,7 +217,12 @@ mod tests {
     #[test]
     fn stale_when_source_revision_moves() {
         let v1 = item("REQ001", "rev-1");
-        let draft_state = set_candidate(&DraftState::new(), &v1, "requirement foo { }");
+        let draft_state = set_candidate(
+            &DraftState::new(),
+            &v1,
+            "requirement foo { }",
+            GateStatus::Ungated,
+        );
         let draft = &draft_state.drafts["REQ001"];
 
         // Same revision → fresh.
@@ -178,17 +233,29 @@ mod tests {
         assert!(is_stale(draft, &v2));
 
         // Editing against the new revision re-baselines it back to fresh.
-        let rebaselined = set_candidate(&draft_state, &v2, "requirement foo { edited }");
+        let rebaselined = set_candidate(
+            &draft_state,
+            &v2,
+            "requirement foo { edited }",
+            GateStatus::Ungated,
+        );
         assert!(!is_stale(&rebaselined.drafts["REQ001"], &v2));
     }
 
-    // Verifies: REQ013 — draft state round-trips through the companion file, and
-    // discard removes it.
+    // Verifies: REQ013/REQ017 — draft state (including the gate outcome) round-trips
+    // through the companion file, and discard removes it.
     #[test]
     fn state_persists_reloads_and_discards() {
         let tmp = tempfile::tempdir().unwrap();
         let it = item("REQ001", "rev-1");
-        let state = set_candidate(&DraftState::new(), &it, "requirement foo { }");
+        let state = set_candidate(
+            &DraftState::new(),
+            &it,
+            "requirement foo { }",
+            GateStatus::Passed {
+                warnings: vec!["line 1: something suspicious".into()],
+            },
+        );
         save(tmp.path(), &state).unwrap();
 
         let loaded = load(tmp.path()).unwrap();
@@ -197,8 +264,43 @@ mod tests {
             loaded.drafts["REQ001"].candidate.as_deref(),
             Some("requirement foo { }")
         );
+        assert!(matches!(
+            loaded.drafts["REQ001"].gate,
+            GateStatus::Passed { .. }
+        ));
 
         let after = discard(&loaded, "REQ001");
+        assert!(after.drafts.is_empty());
+    }
+
+    // Verifies: REQ017 — a re-check updates only the gate outcome, leaving the
+    // candidate and revision baseline intact.
+    #[test]
+    fn set_gate_updates_outcome_only() {
+        let it = item("REQ001", "rev-1");
+        let state = set_candidate(
+            &DraftState::new(),
+            &it,
+            "requirement foo { }",
+            GateStatus::Ungated,
+        );
+        let rechecked = set_gate(
+            &state,
+            "REQ001",
+            GateStatus::Failed {
+                errors: vec!["line 2: boom".into()],
+            },
+        );
+        let d = &rechecked.drafts["REQ001"];
+        assert_eq!(d.candidate.as_deref(), Some("requirement foo { }"));
+        assert_eq!(d.revision, "rev-1");
+        assert!(matches!(d.gate, GateStatus::Failed { .. }));
+    }
+
+    #[test]
+    fn set_gate_is_a_noop_for_absent_draft() {
+        let state = DraftState::new();
+        let after = set_gate(&state, "REQ404", GateStatus::Ungated);
         assert!(after.drafts.is_empty());
     }
 

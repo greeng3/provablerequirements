@@ -1,0 +1,38 @@
+active: true
+derived: false
+header: ''
+level: 1.16
+links: []
+normative: true
+ref: ''
+reviewed: t_pXRtlVOwPmykd5smPhU9TxRKMF_EujruW0I6dYBy0=
+text: |
+  The tool completes the D11 mechanical gate with vacuity/triviality sanity, a
+  generate-then-repair loop, and a persisted per-draft gate outcome. The gate now
+  reports two verdicts: it rejects malformed or ill-typed candidates with structured
+  errors (REQ016), and it accepts well-formed, well-typed candidates while surfacing
+  vacuity/triviality warnings — the candidate is valid but suspicious, so the warnings
+  flag it for the human gate rather than blocking it.
+
+  Vacuity sanity is a bounded, precise set of structural anti-patterns run only after
+  a clean type-check: a self-referential `leads_to` or `precedes` (`P leads_to P`), an
+  immediate tautology or contradiction in a pattern operand (`P or not P` / `P and not
+  P`), `occurs at most 0 times` (which means the event never occurs), and a vocabulary
+  predicate never used in `require`. It is not a satisfiability decision procedure —
+  the tautology/contradiction checks catch the surface forms only; full satisfiability
+  stays deferred.
+
+  The generate-then-repair loop feeds the gate's structured errors back to the LLM for
+  bounded re-translation (a fixed maximum number of attempts). Hard errors drive
+  repair — the gate adjudicates form — while vacuity warnings do not trigger repair and
+  ride through to the human, who adjudicates meaning. When the repair budget is spent,
+  the final still-failing candidate is returned with its errors visible rather than
+  looping, so the operator can hand-edit and re-check.
+
+  Each draft records the last mechanical-gate outcome (ungated, passed with any
+  warnings, or failed with errors), kept truthful as the candidate changes: `provreq
+  draft <ID> --set` and `--translate` gate the candidate and store the outcome, and
+  `--check` re-runs the gate and updates only the recorded outcome without editing the
+  candidate or its revision baseline. The stored outcome defaults to ungated so drafts
+  written before the field existed load cleanly. The D12 deterministic read-back and
+  D13 grounding remain later slices.
