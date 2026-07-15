@@ -1,0 +1,17 @@
+active: true
+derived: false
+header: ''
+level: 1.12
+links: []
+normative: true
+ref: ''
+reviewed: ur12jVybA7wBAoIxDRJ_DXyqcbTObouzGQkxeYHTzS8=
+text: |
+  A formalization in progress persists as a resumable draft, stored as mutable
+  companion state keyed by the source item id (a `drafts.yml` peer of the triage
+  state). A draft records the source revision it was last touched against and an
+  optional candidate PRL, which the operator hand-authors for now and a later
+  slice fills from the LLM forward-translate. Opening a draft is additive: it
+  never clobbers an existing candidate or resets its revision baseline. The draft
+  is a distinct lifecycle state, counted separately in the coverage funnel as
+  drafting and never reported as the admitted formalized state.

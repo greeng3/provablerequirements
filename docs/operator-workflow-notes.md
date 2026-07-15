@@ -41,7 +41,12 @@ status` coverage funnel (`src/status.rs`). REQ009–011. The LLM bulk pre-sort c
    (R-triage-1 primary flow) is the deferred next slice; the shipped default is the honest
    prose-floor seed. See the "Steps 2–3 design" section below.
 3. **Formalize one item** — translate → read-back confirm (D12) → validate grounding dry-run (D13).
-   **🟢 Designed (2026-07-14, issue #10) — see the "Steps 2–3 design" section below.**
+   **🟢 Designed (2026-07-14, issue #10); draft lifecycle SHIPPED (2026-07-15, issue #16)** —
+   `provreq draft` persists a resumable draft (`src/draft.rs`, `drafts.yml`) keyed by source id
+   with revision-token drift detection, and `provreq status` gains a distinct `drafting` count
+   (REQ013–014). The D11 LLM forward-translate, the mechanical gate (PRL parser + type/fragment
+   check + vacuity), the D12 read-back renderer, and D13 grounding are the deferred next slices.
+   See the "Steps 2–3 design" section below.
 4. **Verify** — run one engine → inspect the verdict tree.
 5. **Annotate** — stage the working-tree proof-carrier edit; operator reviews + commits on their own forge.
 6. **Living loop** — re-run on drift, act on stale verdicts.
@@ -132,14 +137,18 @@ formalized → verified`. The honest states are kept distinct — _un-triaged_ �
 The pipeline is unchanged: D11 LLM forward-translate → mechanical gate → D12 deterministic
 read-back and human confirm → D13 grounding dry-run → admit. Two questions were open.
 
-- **R-draft-1** — a half-finished formalization persists as a **draft** — a _third_ category beside
-  A3's committed source-of-truth and regenerated-derived, because it holds human keystrokes and LLM
-  proposals that are neither admitted nor regenerable. It carries the source `id`, the **revision
-  token** (R-src-3), the **pipeline stage** marker, the candidate PRL, the mechanical-gate outcome,
-  the read-back text, human edits so far, and any D13 dry-run bindings reached.
-- **R-draft-2** — resuming a draft **re-checks the source revision token**; if the item moved under
-  the draft, it is flagged **stale** for human re-confirmation before continuing (same content-drift
-  instinct as A4's code axis and A6's re-anchor key).
+- **R-draft-1** _(shipped as REQ013, issue #16)_ — a half-finished formalization persists as a
+  **draft** — a _third_ category beside A3's committed source-of-truth and regenerated-derived,
+  because it holds human keystrokes and LLM proposals that are neither admitted nor regenerable. It
+  carries the source `id`, the **revision token** (R-src-3), the candidate PRL, and — as later slices
+  land — the pipeline-stage marker, mechanical-gate outcome, read-back text, and any D13 dry-run
+  bindings. The shipped `src/draft.rs` slice persists the `id` + revision token + hand-authored
+  candidate; the stage/gate/read-back/binding fields are added by the D11–D13 slices that produce
+  them.
+- **R-draft-2** _(shipped as REQ014, issue #16)_ — resuming a draft **re-checks the source revision
+  token**; if the item moved under the draft, it is flagged **stale** for human re-confirmation
+  before continuing (same content-drift instinct as A4's code axis and A6's re-anchor key). Editing
+  the candidate re-baselines the draft against the current revision.
 - **R-ground-1** — a D13 grounding **no-match never yields a verdict** — not even "unknown," because
   the engine never ran. Provenance records **"not grounded,"** never "engine returned unknown" (the
   honest-provenance rule, applied at the grounding boundary).
