@@ -241,20 +241,46 @@ formalize pipeline with draft persistence (`R-draft-*`, `R-ground-*`). The reqfo
   runs in this slice, so every verdict is `unknown`** with a mandatory reason (D10): `missing-grounding`
   when the requirement is parked (R-ground-1 — carries the parked reasons as detail) or `no-engine`
   when it is grounded but nothing executed the property. The split was deliberate: a sound `holds`
-  needs a prover to check the temporal property, and grounding only confirms the binding *resolves* —
+  needs a prover to check the temporal property, and grounding only confirms the binding _resolves_ —
   a precondition, never a substitute. `provreq verify <ID>` re-gates the admitted candidate, re-runs
   the live cat-1 grounding dry-run (via the shared `code_matches` helper, so `verify` and
   `ground --dry-run` can never disagree), pins provenance (`subject_commit` best-effort, `None` when
   the subject is not a git repo — never fabricated), and renders the verdict; a stale-prose admission
   is flagged alongside it. Strength/basis scale + per-engine evidence tree land with real engines.
 
+- **Fragment check: issue #38 / PR #TBD (2026-07-16).** Found while smoke-testing #36 — and it
+  reframed the engine slice. **Category 1 is the temporal-free fragment** ("1 → the temporal-free
+  fragment (pre/post/invariants) → Viper/deductive"), but the gate never compared `category` against
+  the patterns used, so `category: 1` + `leads_to` gated **clean** and earned an
+  `unknown / no-engine` verdict — false hope, since no cat-1 engine can _ever_ express liveness. The
+  #30 grounding fixture had the same bug (`CODE_REQ` was cat-1 + `leads_to`), so the misconception
+  was baked into the codebase, not just one smoke test. `src/prl/fragment.rs` enforces the two rules
+  the design states outright: (1) cat 1 is temporal-free — `always`/`never` are invariants and pass,
+  everything else is rejected; (2) `can_reach` is branching (CTL `EF`) → 2a only. Every declared
+  category must express every pattern. `GateError::OutOfFragment` names the token, the category, why,
+  and a remedy; fragment + name/arity errors report together so the D11 repair loop sees both at once.
+  **No `inapplicable` verdict reason** — a rejected candidate is never admitted, so it never reaches
+  a verdict; D10 reserves `inapplicable` for the residue (soundness-direction mismatch at
+  aggregation), which needs real engines. Also fixed the **cat-1 readiness overclaim**:
+  `ToolchainWelded → is_ready() == true` (reasoning: "the operator runs provreq in the subject's own
+  build env") conflated _having cargo_ with _having a verifier_, reporting every cat-1 requirement
+  engine-ready when none existed. Now `EngineStatus::NotWired` (ours to fix by wiring; distinct from
+  `Missing`, the operator's to fix by installing) and never ready; the cat-1 engine is renamed to what
+  it is, a **deductive verifier**. REQ024 (1.23).
+
 **Next slice:** wire the **first real engine** so `verify` can produce a real `holds`/`fails` instead of
-only `unknown / no-engine`. The lightest is **category 1 (code)**: it is already groundable against real
-source (#30), its engine is toolchain-welded + reported ready (#34), and the verdict object + provenance
-now exist to receive the result (#36). That means deciding what a cat-1 engine actually *executes* to
-check a temporal property against code (the open question this slice deliberately did not answer) —
-2a/2b/3 stay honestly `unknown / no-engine` until those engines are wired (the Design-C provisioning
-axis).
+only `unknown / no-engine`. Category 1 is still the lightest — groundable against real source (#30),
+verdict object ready to receive the result (#36), and now, post-#38, a gate-passing cat-1 requirement is
+**guaranteed temporal-free pre/post**, which is exactly what a deductive verifier consumes. Note the
+premise has changed: cat-1's engine is _not_ "already ready" — #34 said so only because of the
+overclaim #38 fixed. It is `NotWired`, and there is real integration work. The open design question is **which
+verifier and what it consumes**: Prusti / Verus / Creusot / Kani (bounded) are the Rust candidates
+(D2b), and their soundness directions differ sharply — Kani is under-approximating (a `fails` is a real
+bug; a `pass` only means "no bug within the bound"), while Verus/Prusti are deductive and spec-relative.
+D8's basis scale already encodes that difference (`proven` › `model-checked` › `not-falsified`), so the
+choice determines what strength a cat-1 `holds` may honestly claim. Also open and worth folding in:
+`ready` still means "the engine binary is present", not "provreq can run it" — that gap closes when the
+first engine is wired.
 
 ## Packaging — Design A (old, superseded)
 

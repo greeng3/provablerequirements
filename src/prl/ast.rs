@@ -33,6 +33,19 @@ pub enum Category {
     Ui,
 }
 
+impl Category {
+    /// The surface label the author writes (`1`, `2a`, `2b`, `3`) — so a message quotes
+    /// the category as it appears in the source, not an internal variant name.
+    pub fn as_label(&self) -> &'static str {
+        match self {
+            Category::Code => "1",
+            Category::Model => "2a",
+            Category::Runtime => "2b",
+            Category::Ui => "3",
+        }
+    }
+}
+
 /// One `vocabulary` declaration. `Identity` is kept raw (`identity Message = m.id`);
 /// only events and states contribute name-checkable predicates.
 #[derive(Debug, Clone, PartialEq, Eq)]
