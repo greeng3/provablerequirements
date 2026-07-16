@@ -3,6 +3,7 @@ use clap::{Parser, Subcommand};
 use provreq::adopt::find_companion;
 use provreq::doorstop::DoorstopSource;
 use provreq::draft::{self, Draft, GateStatus};
+use provreq::engine;
 use provreq::formalize::Translator;
 use provreq::grounding::{self, Binding, Grounding};
 use provreq::llm::{HttpBackend, LlmClassifier};
@@ -102,6 +103,13 @@ enum Command {
         #[arg(default_value = ".")]
         path: PathBuf,
     },
+    /// Report which verification engines are installed and which formalized
+    /// requirements are therefore checkable (R-eng-2/3). Never installs anything.
+    Engines {
+        /// Path to the subject repository (defaults to the current directory).
+        #[arg(default_value = ".")]
+        path: PathBuf,
+    },
 }
 
 #[tokio::main]
@@ -147,6 +155,7 @@ async fn main() -> Result<()> {
             .await
         }
         Command::Status { path } => run_status(&path),
+        Command::Engines { path } => run_engines(&path),
     }
 }
 
@@ -835,6 +844,95 @@ fn run_status(subject: &Path) -> Result<()> {
     println!(
         "  verified          {} (Step 4 — not built yet)",
         cov.verified
+    );
+    Ok(())
+}
+
+/// R-eng-2/3: probe the verification engines and report which formalized requirements are
+/// checkable given what is installed. Read-only; never installs an engine.
+fn run_engines(subject: &Path) -> Result<()> {
+    let (companion, items) = resolve(subject)?;
+    let draft_state = draft::load(&companion)?;
+
+    // Probe each engine once (R-eng-2) and keep the per-category status for coverage.
+    let mut status_by_category = std::collections::BTreeMap::new();
+    println!("Verification engines:");
+    for e in engine::registry() {
+        let status = engine::detect(&e);
+        println!(
+            "  category {:<3} {:<32} {}",
+            e.category.as_label(),
+            e.name,
+            status.describe()
+        );
+        status_by_category.insert(e.category, status);
+    }
+
+    // Coverage of formalized (admitted) requirements (R-eng-3).
+    let admitted: Vec<&Item> = items
+        .iter()
+        .filter(|i| {
+            draft_state
+                .drafts
+                .get(&i.id)
+                .map(Draft::is_admitted)
+                .unwrap_or(false)
+        })
+        .collect();
+
+    if admitted.is_empty() {
+        println!("\nNo formalized (admitted) requirements yet — nothing to route.");
+        return Ok(());
+    }
+
+    println!(
+        "\nFormalized requirement coverage ({} admitted):",
+        admitted.len()
+    );
+    let mut ready_count = 0usize;
+    for item in &admitted {
+        let draft = &draft_state.drafts[&item.id];
+        // An admitted draft's candidate should gate; if it no longer does, it is reported
+        // unroutable rather than silently skipped.
+        let categories: Vec<grounding::BindCategory> = draft
+            .candidate
+            .as_deref()
+            .and_then(|c| provreq::prl::gate(c).ok())
+            .map(|o| {
+                o.requirement
+                    .category
+                    .iter()
+                    .copied()
+                    .map(grounding::BindCategory::from)
+                    .collect()
+            })
+            .unwrap_or_default();
+        let r = engine::readiness(&item.id, &categories, &status_by_category);
+        if r.ready {
+            ready_count += 1;
+        }
+        let cats = if r.categories.is_empty() {
+            "(none)".to_string()
+        } else {
+            r.categories
+                .iter()
+                .map(|c| c.as_label())
+                .collect::<Vec<_>>()
+                .join(" + ")
+        };
+        if r.ready {
+            println!("  {:<12} category {cats:<10} engine-ready", item.id);
+        } else {
+            println!(
+                "  {:<12} category {cats:<10} engine-blocked ({})",
+                item.id,
+                r.blockers.join("; ")
+            );
+        }
+    }
+    println!(
+        "\nSummary: {ready_count} engine-ready, {} blocked.",
+        admitted.len() - ready_count
     );
     Ok(())
 }

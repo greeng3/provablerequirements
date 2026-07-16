@@ -1,0 +1,32 @@
+active: true
+derived: false
+header: ''
+level: 1.21
+links: []
+normative: true
+ref: ''
+reviewed: kYoPoKZfAYqo2NRX7hQKLd---Z5udfbNyyinnVyFj5A=
+text: |
+  The tool reports which verification engines are installed and version-compatible on
+  the operator's machine, and which formalized requirements are therefore checkable —
+  the R-eng-2/3 engine-coverage report. It detects engine presence and compatibility but
+  never installs anything, and it runs no engine (that is Step 4). Coverage is reported
+  first-class so that formalizable-but-no-engine stays distinct from not-formalized.
+
+  Each PRL category routes to one engine (R-eng-1 split): category 1 (code) is
+  toolchain-welded — its engine is the subject's own per-language build toolchain
+  (R-eng-4), confirmed per-subject rather than by probing a portable binary; categories
+  2a (model), 2b (runtime), and 3 (UI) are artifact-fed portable engines (TLA+/TLC,
+  MonPoly, and a Selenium/Playwright driver) detected on PATH. Detection reports each
+  engine as toolchain-welded, available (with a best-effort version), missing, or
+  incompatible with a required minimum. Version minimums ship as presence-only for now;
+  the compatibility check is real and tested but no thresholds are asserted until a real
+  engine is available to calibrate against.
+
+  The operator runs `provreq engines`, which lists each engine's detected status and then,
+  for every admitted (formalized) requirement, whether its declared category's engine is
+  ready — a requirement is engine-ready only when every declared category's engine is
+  ready, and a multi-category requirement names each missing engine as a blocker. An
+  admitted draft whose candidate no longer parses, or which declares no category, is
+  reported as unroutable rather than silently treated as ready. Actually running an engine
+  to produce a verdict remains a later slice.

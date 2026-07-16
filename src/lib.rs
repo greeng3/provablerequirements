@@ -8,6 +8,7 @@
 pub mod adopt;
 pub mod doorstop;
 pub mod draft;
+pub mod engine;
 pub mod formalize;
 pub mod grounding;
 pub mod llm;
