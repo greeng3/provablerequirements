@@ -55,8 +55,13 @@ status` coverage funnel (`src/status.rs`). REQ009–011. The LLM bulk pre-sort c
 most 0`, unused vocabulary), the generate-then-repair loop (`src/formalize.rs` feeds gate errors
    back to the LLM for bounded re-translation; warnings ride to the human, not the loop), and a
    persisted per-draft gate outcome (`Draft.gate`: ungated / passed-with-warnings / failed), kept
-   truthful across `--set`/`--translate`/`--check` (REQ017). Still deferred: the D12 read-back
-   renderer and D13 grounding. See the "Steps 2–3 design" section below.
+   truthful across `--set`/`--translate`/`--check` (REQ017).
+   **D12 read-back renderer SHIPPED (2026-07-16, issue #24)** — `src/prl/readback.rs` renders a
+   gate-passed candidate's AST to deterministic CNL (pure fn, NOT an LLM — the independence is the
+   point); `provreq draft <ID> --readback` surfaces the formal meaning for the operator to confirm
+   intent (read-only, requires a gate pass, shows vacuity warnings) (REQ018). Still deferred: the
+   risk-tiered human confirm gate + draft→admitted transition, then D13 grounding. See the
+   "Steps 2–3 design" section below.
 4. **Verify** — run one engine → inspect the verdict tree.
 5. **Annotate** — stage the working-tree proof-carrier edit; operator reviews + commits on their own forge.
 6. **Living loop** — re-run on drift, act on stale verdicts.

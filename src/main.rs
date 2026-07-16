@@ -63,6 +63,10 @@ enum Command {
         /// Run the mechanical gate (parse + type/name-check) over this draft's candidate.
         #[arg(long, conflicts_with_all = ["set", "translate", "discard"])]
         check: bool,
+        /// Render the D12 read-back — the deterministic CNL surfacing of the candidate's
+        /// formal meaning — for the operator to confirm intent (requires a gate pass).
+        #[arg(long, conflicts_with_all = ["set", "translate", "check", "discard"])]
+        readback: bool,
         /// Discard this draft.
         #[arg(long, conflicts_with = "set")]
         discard: bool,
@@ -87,6 +91,7 @@ async fn main() -> Result<()> {
             set,
             translate,
             check,
+            readback,
             discard,
         } => {
             run_draft(
@@ -95,6 +100,7 @@ async fn main() -> Result<()> {
                 set.as_deref(),
                 translate,
                 check,
+                readback,
                 discard,
             )
             .await
@@ -190,6 +196,7 @@ async fn run_draft(
     set: Option<&str>,
     translate: bool,
     check: bool,
+    readback: bool,
     discard: bool,
 ) -> Result<()> {
     let (companion, items) = resolve(subject)?;
@@ -205,6 +212,9 @@ async fn run_draft(
 
     if check {
         return check_candidate(&companion, &state, id);
+    }
+    if readback {
+        return readback_candidate(&state, id);
     }
     if discard {
         let next = draft::discard(&state, id);
@@ -283,6 +293,45 @@ fn check_candidate(companion: &Path, state: &draft::DraftState, id: &str) -> Res
     let next = draft::set_gate(state, id, status.clone());
     draft::save(companion, &next)?;
     print_gate(&status);
+    Ok(())
+}
+
+/// D12: render the deterministic CNL read-back of a draft's candidate for the operator
+/// to confirm intent. Read-only. Requires a gate pass — the read-back surfaces the
+/// *formal meaning*, so a candidate the gate rejects has no settled meaning to render.
+fn readback_candidate(state: &draft::DraftState, id: &str) -> Result<()> {
+    let draft = state
+        .drafts
+        .get(id)
+        .with_context(|| format!("no draft for {id} — open one first with `provreq draft {id}`"))?;
+    let Some(candidate) = &draft.candidate else {
+        println!("Draft {id} has no candidate PRL to read back yet — write one with `--set` or `--translate`.");
+        return Ok(());
+    };
+    match provreq::prl::gate(candidate) {
+        Ok(outcome) => {
+            println!("Read-back for {id} — confirm this matches your intent:\n");
+            println!("{}", provreq::prl::render(&outcome.requirement));
+            if !outcome.warnings.is_empty() {
+                println!(
+                    "\nWeigh {} vacuity warning(s) while confirming:",
+                    outcome.warnings.len()
+                );
+                for w in &outcome.warnings {
+                    println!("  ! {w}");
+                }
+            }
+        }
+        Err(errors) => {
+            println!(
+                "Cannot read back {id} — the candidate has {} gate error(s); fix them first (run `--check`):",
+                errors.len()
+            );
+            for e in &errors {
+                println!("  - {e}");
+            }
+        }
+    }
     Ok(())
 }
 

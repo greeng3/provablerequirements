@@ -17,10 +17,12 @@ mod check;
 pub mod error;
 mod lexer;
 mod parser;
+mod readback;
 mod vacuity;
 
 pub use ast::Requirement;
 pub use error::{GateError, GateWarning};
+pub use readback::render;
 
 /// A candidate that cleared the gate: the checked AST plus any vacuity/triviality
 /// warnings (empty = clean). The warnings do not block admission — they are surfaced
