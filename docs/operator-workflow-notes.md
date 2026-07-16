@@ -235,12 +235,26 @@ formalize pipeline with draft persistence (`R-draft-*`, `R-ground-*`). The reqfo
   presence-only (machinery typed+tested; thresholds → provreq.yml config when a real engine lands).
   No engine execution / verdicts — that is Step 4.
 
-**Next slice:** Step 4 — the **verdict** object (D7 three-valued evidence tree + D9 provenance) with a
-first real engine path. The lightest is **category 1 (code)**: it is already groundable against real
-source (#30) and its engine is toolchain-welded + reported ready (#34), so a `provreq verify` can
-produce a real `holds/fails/unknown` for a cat-1-grounded requirement while 2a/2b/3 stay honestly
-`unknown / no-engine`. Real 2a/2b/3 grounding dry-run + execution follow once those engines are wired
-(the Design-C provisioning axis).
+- **Issue #36** — Step 4, the verdict object (REQ023, D7/D9). `src/verdict.rs` carries a three-valued
+  `Status{holds,fails,unknown}` + `Provenance{requirement_revision, subject_commit, tool_version}`,
+  and a pure `from_grounding` that turns a live grounding result into the honest verdict. **No engine
+  runs in this slice, so every verdict is `unknown`** with a mandatory reason (D10): `missing-grounding`
+  when the requirement is parked (R-ground-1 — carries the parked reasons as detail) or `no-engine`
+  when it is grounded but nothing executed the property. The split was deliberate: a sound `holds`
+  needs a prover to check the temporal property, and grounding only confirms the binding *resolves* —
+  a precondition, never a substitute. `provreq verify <ID>` re-gates the admitted candidate, re-runs
+  the live cat-1 grounding dry-run (via the shared `code_matches` helper, so `verify` and
+  `ground --dry-run` can never disagree), pins provenance (`subject_commit` best-effort, `None` when
+  the subject is not a git repo — never fabricated), and renders the verdict; a stale-prose admission
+  is flagged alongside it. Strength/basis scale + per-engine evidence tree land with real engines.
+
+**Next slice:** wire the **first real engine** so `verify` can produce a real `holds`/`fails` instead of
+only `unknown / no-engine`. The lightest is **category 1 (code)**: it is already groundable against real
+source (#30), its engine is toolchain-welded + reported ready (#34), and the verdict object + provenance
+now exist to receive the result (#36). That means deciding what a cat-1 engine actually *executes* to
+check a temporal property against code (the open question this slice deliberately did not answer) —
+2a/2b/3 stay honestly `unknown / no-engine` until those engines are wired (the Design-C provisioning
+axis).
 
 ## Packaging — Design A (old, superseded)
 

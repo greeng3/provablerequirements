@@ -17,6 +17,7 @@ pub mod server;
 pub mod source;
 pub mod status;
 pub mod triage;
+pub mod verdict;
 
 /// The health payload the backend reports (and will later serve at `/health`).
 /// Kept as a pure function so it is unit-testable without standing up a server.

@@ -9,6 +9,7 @@ use provreq::grounding::{self, Binding, Grounding};
 use provreq::llm::{HttpBackend, LlmClassifier};
 use provreq::source::{Classification, Item, RequirementsSource};
 use provreq::triage::{self, ProseFloorClassifier, TriageState};
+use std::collections::BTreeMap;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 
@@ -110,6 +111,15 @@ enum Command {
         #[arg(default_value = ".")]
         path: PathBuf,
     },
+    /// Produce the verdict for an admitted requirement (Step 4). Runs no engine yet —
+    /// reports the honest three-valued verdict (always `unknown`) with provenance.
+    Verify {
+        /// Requirement item id (e.g. REQ001).
+        id: String,
+        /// Path to the subject repository (defaults to the current directory).
+        #[arg(long, default_value = ".")]
+        path: PathBuf,
+    },
 }
 
 #[tokio::main]
@@ -156,6 +166,7 @@ async fn main() -> Result<()> {
         }
         Command::Status { path } => run_status(&path),
         Command::Engines { path } => run_engines(&path),
+        Command::Verify { id, path } => run_verify(&path, &id),
     }
 }
 
@@ -615,6 +626,35 @@ fn ground_candidate(
     Ok(())
 }
 
+/// Live category-1 match lookup for a draft's bindings, keyed by symbol. The single place
+/// the observable world is consulted, so `ground --dry-run` and `verify` can never disagree
+/// about what grounds. Only category 1 (code) has a real observable world in this slice;
+/// other categories are absent from the map and park in [`grounding::verdict`].
+fn code_matches(
+    subject: &Path,
+    companion: &Path,
+    bindings: &[Binding],
+) -> BTreeMap<String, Vec<grounding::CodeMatch>> {
+    bindings
+        .iter()
+        .filter(|b| b.category == grounding::BindCategory::Code)
+        .map(|b| {
+            (
+                b.symbol.clone(),
+                grounding::dry_run_code(subject, companion, &b.observable),
+            )
+        })
+        .collect()
+}
+
+/// Collapse live matches to the per-symbol counts [`grounding::verdict`] consumes.
+fn match_counts(matches: &BTreeMap<String, Vec<grounding::CodeMatch>>) -> BTreeMap<String, usize> {
+    matches
+        .iter()
+        .map(|(symbol, ms)| (symbol.clone(), ms.len()))
+        .collect()
+}
+
 /// D13: dry-run a draft's category-1 bindings against the subject's real source and
 /// report whether the requirement grounds or stays parked. Read-only over the subject
 /// (matches are recomputed live, never stored). Requires a gate pass — the bindings are
@@ -655,13 +695,11 @@ fn dry_run_candidate(
     }
 
     // Live dry-run: only category 1 has a real observable world in this slice.
-    let mut counts = std::collections::BTreeMap::new();
+    let matches_by_symbol = code_matches(subject, companion, &draft.bindings);
     for b in &draft.bindings {
-        if b.category != grounding::BindCategory::Code {
+        let Some(matches) = matches_by_symbol.get(&b.symbol) else {
             continue;
-        }
-        let matches = grounding::dry_run_code(subject, companion, &b.observable);
-        counts.insert(b.symbol.clone(), matches.len());
+        };
         println!(
             "{} → `{}` (category {}): {} match(es){}",
             b.symbol,
@@ -674,10 +712,11 @@ fn dry_run_candidate(
                 ""
             }
         );
-        for m in &matches {
+        for m in matches {
             println!("    {}:{}  {}", m.file, m.line, m.text);
         }
     }
+    let counts = match_counts(&matches_by_symbol);
 
     match grounding::verdict(&requirement, &draft.bindings, &counts) {
         Grounding::Grounded => {
@@ -842,7 +881,8 @@ fn run_status(subject: &Path) -> Result<()> {
     println!("  drafting          {}", cov.drafting);
     println!("  formalized        {}", cov.formalized);
     println!(
-        "  verified          {} (Step 4 — not built yet)",
+        "  verified          {} (Step 4 — no engine wired yet, so every verdict is \
+         `unknown`; see `provreq verify <ID>`)",
         cov.verified
     );
     Ok(())
@@ -935,6 +975,79 @@ fn run_engines(subject: &Path) -> Result<()> {
         admitted.len() - ready_count
     );
     Ok(())
+}
+
+/// Step 4: produce the honest verdict for an admitted requirement. Re-gates, re-runs the
+/// live category-1 grounding dry-run, pins provenance, and renders the verdict. Runs no
+/// engine yet, so the verdict is always `unknown` (no-engine when grounded,
+/// missing-grounding when not).
+fn run_verify(subject: &Path, id: &str) -> Result<()> {
+    let (companion, items) = resolve(subject)?;
+    let state = draft::load(&companion)?;
+    let item = items
+        .iter()
+        .find(|i| i.id == id)
+        .with_context(|| format!("no requirement item '{id}' in the subject"))?;
+
+    let draft = state.drafts.get(id).with_context(|| {
+        format!("no draft for {id} — formalize it first with `provreq draft {id}`")
+    })?;
+    if !draft.is_admitted() {
+        println!("Draft {id} is not admitted yet — admit the formalization first with `--admit`.");
+        return Ok(());
+    }
+    let Some(candidate) = &draft.candidate else {
+        println!("Draft {id} has no candidate PRL to verify.");
+        return Ok(());
+    };
+    let requirement = match provreq::prl::gate(candidate) {
+        Ok(outcome) => outcome.requirement,
+        Err(errors) => {
+            println!(
+                "Cannot verify {id} — the admitted candidate no longer gates ({} error(s)); re-check it:",
+                errors.len()
+            );
+            for e in &errors {
+                println!("  - {e}");
+            }
+            return Ok(());
+        }
+    };
+
+    // Live category-1 grounding dry-run (the only observable world wired) → grounding verdict.
+    let counts = match_counts(&code_matches(subject, &companion, &draft.bindings));
+    let grounding_result = grounding::verdict(&requirement, &draft.bindings, &counts);
+
+    let provenance = provreq::verdict::Provenance {
+        requirement_revision: draft.revision.clone(),
+        subject_commit: subject_head_commit(subject),
+        tool_version: env!("CARGO_PKG_VERSION").to_string(),
+    };
+    let verdict = provreq::verdict::from_grounding(id, &grounding_result, provenance);
+    println!("{}", provreq::verdict::render(&verdict));
+    // An admitted draft whose source prose moved is worth flagging alongside the verdict.
+    if draft::is_stale(draft, item) {
+        println!(
+            "  ! the requirement prose moved since admission — re-admit before trusting this verdict"
+        );
+    }
+    Ok(())
+}
+
+/// Best-effort subject git HEAD for verdict provenance (D9). `None` when the subject is not
+/// a git repo — never fabricated.
+fn subject_head_commit(subject: &Path) -> Option<String> {
+    let output = std::process::Command::new("git")
+        .arg("-C")
+        .arg(subject)
+        .args(["rev-parse", "HEAD"])
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let commit = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    (!commit.is_empty()).then_some(commit)
 }
 
 fn run_init(subject: &Path, name: Option<&str>, yes: bool) -> Result<()> {
