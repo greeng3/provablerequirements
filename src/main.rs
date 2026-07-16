@@ -47,7 +47,7 @@ enum Command {
         #[arg(long, num_args = 2, value_names = ["ID", "BUCKET"])]
         set: Option<Vec<String>>,
     },
-    /// Open, resume, edit, or discard an item's formalization draft.
+    /// Open, resume, edit, gate, read back, admit, or discard a formalization draft.
     Draft {
         /// Requirement item id (e.g. REQ001). Omit to list all drafts.
         id: Option<String>,
@@ -67,6 +67,15 @@ enum Command {
         /// formal meaning — for the operator to confirm intent (requires a gate pass).
         #[arg(long, conflicts_with_all = ["set", "translate", "check", "discard"])]
         readback: bool,
+        /// Admit this draft's formalization after confirming the read-back (D12).
+        #[arg(long, conflicts_with_all = ["set", "translate", "check", "readback", "discard"])]
+        admit: bool,
+        /// Reviewer name recorded on admission (defaults to $USER).
+        #[arg(long, value_name = "NAME")]
+        reviewer: Option<String>,
+        /// Skip the confirmation prompt for a mandatory-review admit (for scripting).
+        #[arg(long)]
+        yes: bool,
         /// Discard this draft.
         #[arg(long, conflicts_with = "set")]
         discard: bool,
@@ -92,16 +101,24 @@ async fn main() -> Result<()> {
             translate,
             check,
             readback,
+            admit,
+            reviewer,
+            yes,
             discard,
         } => {
             run_draft(
                 &path,
                 id.as_deref(),
                 set.as_deref(),
-                translate,
-                check,
-                readback,
-                discard,
+                DraftActions {
+                    translate,
+                    check,
+                    readback,
+                    admit,
+                    reviewer,
+                    yes,
+                    discard,
+                },
             )
             .await
         }
@@ -188,16 +205,25 @@ fn print_triage(items: &[Item], state: &TriageState) {
     }
 }
 
-/// Open/resume, edit, translate, or discard the draft for one item — or list all
-/// drafts when no id is given.
+/// The one-shot actions `provreq draft` can take on a draft (mutually exclusive at the
+/// CLI). Bundled so `run_draft` stays a small signature.
+struct DraftActions {
+    translate: bool,
+    check: bool,
+    readback: bool,
+    admit: bool,
+    reviewer: Option<String>,
+    yes: bool,
+    discard: bool,
+}
+
+/// Open/resume, edit, translate, check, read back, admit, or discard the draft for one
+/// item — or list all drafts when no id is given.
 async fn run_draft(
     subject: &Path,
     id: Option<&str>,
     set: Option<&str>,
-    translate: bool,
-    check: bool,
-    readback: bool,
-    discard: bool,
+    actions: DraftActions,
 ) -> Result<()> {
     let (companion, items) = resolve(subject)?;
     let state = draft::load(&companion)?;
@@ -210,11 +236,24 @@ async fn run_draft(
         .find(|i| i.id == id)
         .with_context(|| format!("no requirement item '{id}' in the subject"))?;
 
+    let DraftActions {
+        translate,
+        check,
+        readback,
+        admit,
+        reviewer,
+        yes,
+        discard,
+    } = actions;
+
     if check {
         return check_candidate(&companion, &state, id);
     }
     if readback {
         return readback_candidate(&state, id);
+    }
+    if admit {
+        return admit_candidate(&companion, &state, id, reviewer.as_deref(), yes);
     }
     if discard {
         let next = draft::discard(&state, id);
@@ -335,6 +374,89 @@ fn readback_candidate(state: &draft::DraftState, id: &str) -> Result<()> {
     Ok(())
 }
 
+/// D12: admit a draft's formalization after human confirmation. Requires a gate pass
+/// (re-gated as the source of truth). Vacuity-flagged candidates are mandatory-review —
+/// the read-back is shown and confirmation required (or `--yes` to script); a clean
+/// candidate is optional-review and admits directly. Moves the draft to
+/// `admitted-but-ungrounded`.
+fn admit_candidate(
+    companion: &Path,
+    state: &draft::DraftState,
+    id: &str,
+    reviewer: Option<&str>,
+    yes: bool,
+) -> Result<()> {
+    let draft = state
+        .drafts
+        .get(id)
+        .with_context(|| format!("no draft for {id} — open one first with `provreq draft {id}`"))?;
+    let Some(candidate) = &draft.candidate else {
+        println!("Draft {id} has no candidate PRL to admit yet — write one with `--set` or `--translate`.");
+        return Ok(());
+    };
+
+    let outcome = match provreq::prl::gate(candidate) {
+        Ok(outcome) => outcome,
+        Err(errors) => {
+            println!(
+                "Cannot admit {id} — the candidate has {} gate error(s); fix them first (run `--check`):",
+                errors.len()
+            );
+            for e in &errors {
+                println!("  - {e}");
+            }
+            return Ok(());
+        }
+    };
+
+    // Vacuity warnings raise the review tier: those admissions are mandatory.
+    let tier = if outcome.warnings.is_empty() {
+        draft::ReviewTier::Optional
+    } else {
+        draft::ReviewTier::Mandatory
+    };
+
+    if tier == draft::ReviewTier::Mandatory {
+        println!("Read-back for {id} — mandatory review (vacuity-flagged):\n");
+        println!("{}", provreq::prl::render(&outcome.requirement));
+        println!("\n{} vacuity warning(s) to weigh:", outcome.warnings.len());
+        for w in &outcome.warnings {
+            println!("  ! {w}");
+        }
+        if !yes && !confirm("\nAdmit this formalization?")? {
+            println!("Not admitted.");
+            return Ok(());
+        }
+    }
+
+    let reviewer = reviewer
+        .map(str::to_string)
+        .unwrap_or_else(default_reviewer);
+    let next = draft::admit(state, id, tier, &reviewer, now_unix());
+    draft::save(companion, &next)?;
+    println!(
+        "Admitted {id} (review: {}, by {reviewer}) — admitted-but-ungrounded.",
+        tier.as_str()
+    );
+    Ok(())
+}
+
+/// The reviewer name recorded on an admission when `--reviewer` is not given: the
+/// `$USER`/`$USERNAME` environment value, or `"unknown"`.
+fn default_reviewer() -> String {
+    std::env::var("USER")
+        .or_else(|_| std::env::var("USERNAME"))
+        .unwrap_or_else(|_| "unknown".to_string())
+}
+
+/// Current wall-clock time as Unix seconds (0 if the clock is before the epoch).
+fn now_unix() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0)
+}
+
 /// Render a gate result into the persisted [`GateStatus`] (errors/warnings as strings).
 fn gate_to_status(
     gate: &std::result::Result<provreq::prl::GateOutcome, Vec<provreq::prl::GateError>>,
@@ -392,6 +514,12 @@ fn print_draft(d: &Draft, item: &Item) {
         }
         None => println!("No candidate PRL yet — write one with `--set` or `--translate`."),
     }
+    if let draft::Admission::Admitted { review, by, .. } = &d.admission {
+        println!(
+            "Admitted (review: {}, by {by}) — admitted-but-ungrounded.",
+            review.as_str()
+        );
+    }
 }
 
 fn list_drafts(state: &draft::DraftState, items: &[Item]) -> Result<()> {
@@ -418,7 +546,8 @@ fn list_drafts(state: &draft::DraftState, items: &[Item]) -> Result<()> {
             GateStatus::Passed { .. } => " [gate ok, warnings]",
             GateStatus::Failed { .. } => " [gate failed]",
         };
-        println!("  {id:<12} {has}{flag}{gate}");
+        let admitted = if d.is_admitted() { " [admitted]" } else { "" };
+        println!("  {id:<12} {has}{flag}{gate}{admitted}");
     }
     Ok(())
 }
@@ -435,10 +564,7 @@ fn run_status(subject: &Path) -> Result<()> {
     println!("  falsifiable-only  {}", cov.falsifiable_only);
     println!("  stays-prose       {}", cov.stays_prose);
     println!("  drafting          {}", cov.drafting);
-    println!(
-        "  formalized        {} (Step 3 — not built yet)",
-        cov.formalized
-    );
+    println!("  formalized        {}", cov.formalized);
     println!(
         "  verified          {} (Step 4 — not built yet)",
         cov.verified

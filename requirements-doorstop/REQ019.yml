@@ -1,0 +1,33 @@
+active: true
+derived: false
+header: ''
+level: 1.18
+links: []
+normative: true
+ref: ''
+reviewed: ktpYZ53fB4KSy52nRWEC50652q4a4yrFfnpzD6-ASvg=
+text: |
+  The tool provides the D12 human confirmation gate and the draft-to-admitted
+  transition. After reviewing the read-back, the operator admits a draft's
+  formalization with `provreq draft <ID> --admit`, which moves it to the
+  admitted-but-ungrounded lifecycle state — the formalization is done, only the
+  grounding anchor is still missing. Admission requires a gate pass (the candidate is
+  re-gated as the source of truth); a candidate with gate errors cannot be admitted and
+  the tool reports the errors to fix first.
+
+  Admission is risk-tiered. The mechanical signal available now is vacuity: a
+  candidate that clears the gate with vacuity warnings is mandatory-review, and a clean
+  candidate is optional-review. A mandatory admission shows the read-back and the
+  warnings and requires confirmation before proceeding (an interactive prompt, or
+  `--yes` to script it); an optional admission proceeds directly. Grounding-heavy and
+  high-stakes signals are future inputs to the same tier. Every admission records its
+  review tier, the reviewer (defaulting to the environment user, overridable with
+  `--reviewer`), and the admission time, so "review not required" is never confused
+  with "reviewed".
+
+  Editing a draft's candidate after admission — via `--set` or `--translate` — resets
+  it to pending: changing the formal claim invalidates any prior human confirmation.
+  The coverage funnel reflects admission: an in-progress draft counts as drafting, and
+  once admitted it moves to the formalized count (previously an honest zero) and out of
+  drafting. Writing the confirmed PRL back onto the subject's requirements item and D13
+  grounding remain later slices.
