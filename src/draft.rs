@@ -11,6 +11,7 @@
 //!
 //! Implements: REQ013 (persist resumable draft state), REQ014 (resume drift-check)
 
+use crate::grounding::Binding;
 use crate::source::Item;
 use anyhow::{Context, Result};
 use std::collections::BTreeMap;
@@ -93,6 +94,12 @@ pub struct Draft {
     /// `Pending` so drafts written before this field existed load cleanly.
     #[serde(default)]
     pub admission: Admission,
+    /// D13 grounding bindings — each PRL vocabulary symbol bound to a concrete
+    /// observable. Defaults to empty so drafts written before this field existed load
+    /// cleanly. Dry-run *matches* are never stored here (they drift with the code);
+    /// only the bindings persist.
+    #[serde(default)]
+    pub bindings: Vec<Binding>,
 }
 
 impl Draft {
@@ -159,6 +166,7 @@ pub fn open(state: &DraftState, item: &Item) -> DraftState {
             candidate: None,
             gate: GateStatus::Ungated,
             admission: Admission::Pending,
+            bindings: Vec::new(),
         },
     );
     DraftState {
@@ -171,7 +179,9 @@ pub fn open(state: &DraftState, item: &Item) -> DraftState {
 /// item's current revision — writing the candidate is confirming it against the current
 /// source, clearing any prior staleness (R-draft-2). A new candidate resets admission
 /// to `Pending`: changing the formal claim invalidates any prior human confirmation.
-/// Returns a new state.
+/// A new candidate also **clears any grounding bindings**: the vocabulary may have
+/// changed, so bindings to the old symbols are no longer trustworthy — re-ground after
+/// editing. Returns a new state.
 pub fn set_candidate(
     state: &DraftState,
     item: &Item,
@@ -186,6 +196,7 @@ pub fn set_candidate(
             candidate: Some(candidate.into()),
             gate,
             admission: Admission::Pending,
+            bindings: Vec::new(),
         },
     );
     DraftState {
@@ -204,6 +215,34 @@ pub fn set_gate(state: &DraftState, id: &str, gate: GateStatus) -> DraftState {
             id.to_string(),
             Draft {
                 gate,
+                ..existing.clone()
+            },
+        );
+    }
+    DraftState {
+        schema: state.schema,
+        drafts,
+    }
+}
+
+/// Attach (or overwrite, by symbol) a D13 grounding binding on an existing draft,
+/// leaving the candidate, gate, and revision baseline intact — grounding a symbol is not
+/// an edit to the formal claim, so it does not revoke admission. No-op if the draft is
+/// absent. Returns a new state.
+pub fn set_binding(state: &DraftState, id: &str, binding: Binding) -> DraftState {
+    let mut drafts = state.drafts.clone();
+    if let Some(existing) = drafts.get(id) {
+        let mut bindings: Vec<Binding> = existing
+            .bindings
+            .iter()
+            .filter(|b| b.symbol != binding.symbol)
+            .cloned()
+            .collect();
+        bindings.push(binding);
+        drafts.insert(
+            id.to_string(),
+            Draft {
+                bindings,
                 ..existing.clone()
             },
         );
@@ -445,5 +484,58 @@ mod tests {
     fn admit_is_a_noop_for_absent_draft() {
         let after = admit(&DraftState::new(), "REQ404", ReviewTier::Optional, "gg", 1);
         assert!(after.drafts.is_empty());
+    }
+
+    fn binding(symbol: &str, observable: &str) -> Binding {
+        Binding {
+            symbol: symbol.into(),
+            category: crate::grounding::BindCategory::Code,
+            observable: observable.into(),
+            fidelity: crate::grounding::Fidelity::Definitional,
+        }
+    }
+
+    // Verifies: REQ021 — a grounding binding attaches to a draft and overwrites the
+    // prior binding for the same symbol (one observable per symbol), without touching
+    // the candidate or admission.
+    #[test]
+    fn set_binding_attaches_and_overwrites_by_symbol() {
+        let it = item("REQ001", "rev-1");
+        let state = set_candidate(
+            &DraftState::new(),
+            &it,
+            "requirement foo { }",
+            GateStatus::Ungated,
+        );
+
+        let one = set_binding(&state, "REQ001", binding("logged_in", "fn log_in"));
+        assert_eq!(one.drafts["REQ001"].bindings.len(), 1);
+
+        // Re-binding the same symbol replaces, does not duplicate.
+        let two = set_binding(&one, "REQ001", binding("logged_in", "fn login"));
+        assert_eq!(two.drafts["REQ001"].bindings.len(), 1);
+        assert_eq!(two.drafts["REQ001"].bindings[0].observable, "fn login");
+
+        // A different symbol adds.
+        let three = set_binding(&two, "REQ001", binding("has_session", "struct Session"));
+        assert_eq!(three.drafts["REQ001"].bindings.len(), 2);
+    }
+
+    // Verifies: REQ021 — editing the candidate clears grounding bindings (the vocabulary
+    // may have changed; stale bindings must not survive an edit).
+    #[test]
+    fn editing_candidate_clears_bindings() {
+        let it = item("REQ001", "rev-1");
+        let state = set_candidate(
+            &DraftState::new(),
+            &it,
+            "requirement foo { }",
+            GateStatus::Ungated,
+        );
+        let bound = set_binding(&state, "REQ001", binding("logged_in", "fn log_in"));
+        assert_eq!(bound.drafts["REQ001"].bindings.len(), 1);
+
+        let edited = set_candidate(&bound, &it, "requirement bar { }", GateStatus::Ungated);
+        assert!(edited.drafts["REQ001"].bindings.is_empty());
     }
 }

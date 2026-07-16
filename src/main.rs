@@ -4,6 +4,7 @@ use provreq::adopt::find_companion;
 use provreq::doorstop::DoorstopSource;
 use provreq::draft::{self, Draft, GateStatus};
 use provreq::formalize::Translator;
+use provreq::grounding::{self, Binding, Grounding};
 use provreq::llm::{HttpBackend, LlmClassifier};
 use provreq::source::{Classification, Item, RequirementsSource};
 use provreq::triage::{self, ProseFloorClassifier, TriageState};
@@ -73,6 +74,18 @@ enum Command {
         /// Write the admitted formalization's provenance back onto the subject item (D14).
         #[arg(long, conflicts_with_all = ["set", "translate", "check", "readback", "admit", "discard"])]
         writeback: bool,
+        /// Bind a vocabulary symbol to an observable (D13 grounding), as `SYMBOL=OBSERVABLE`
+        /// (for category 1, the observable is a code search term).
+        #[arg(long, value_name = "SYMBOL=OBSERVABLE", conflicts_with_all = ["set", "translate", "check", "readback", "admit", "writeback", "discard"])]
+        ground: Option<String>,
+        /// Fidelity for a `--ground` binding (definitional | observed | probed);
+        /// defaults from the requirement's category.
+        #[arg(long, value_name = "FIDELITY", requires = "ground")]
+        fidelity: Option<String>,
+        /// Dry-run the category-1 grounding bindings against the subject's real source
+        /// (D13) and report whether the requirement grounds or stays parked.
+        #[arg(long, conflicts_with_all = ["set", "translate", "check", "readback", "admit", "writeback", "ground", "discard"])]
+        dry_run: bool,
         /// Reviewer name recorded on admission (defaults to $USER).
         #[arg(long, value_name = "NAME")]
         reviewer: Option<String>,
@@ -106,6 +119,9 @@ async fn main() -> Result<()> {
             readback,
             admit,
             writeback,
+            ground,
+            fidelity,
+            dry_run,
             reviewer,
             yes,
             discard,
@@ -120,6 +136,9 @@ async fn main() -> Result<()> {
                     readback,
                     admit,
                     writeback,
+                    ground,
+                    fidelity,
+                    dry_run,
                     reviewer,
                     yes,
                     discard,
@@ -218,6 +237,9 @@ struct DraftActions {
     readback: bool,
     admit: bool,
     writeback: bool,
+    ground: Option<String>,
+    fidelity: Option<String>,
+    dry_run: bool,
     reviewer: Option<String>,
     yes: bool,
     discard: bool,
@@ -248,6 +270,9 @@ async fn run_draft(
         readback,
         admit,
         writeback,
+        ground,
+        fidelity,
+        dry_run,
         reviewer,
         yes,
         discard,
@@ -255,6 +280,12 @@ async fn run_draft(
 
     if check {
         return check_candidate(&companion, &state, id);
+    }
+    if let Some(spec) = ground.as_deref() {
+        return ground_candidate(&companion, &state, id, spec, fidelity.as_deref());
+    }
+    if dry_run {
+        return dry_run_candidate(subject, &companion, &state, id);
     }
     if readback {
         return readback_candidate(&state, id);
@@ -496,6 +527,166 @@ fn writeback_candidate(subject: &Path, state: &draft::DraftState, item: &Item) -
     Ok(())
 }
 
+/// D13: attach a grounding binding (`SYMBOL=OBSERVABLE`) to a draft. The candidate is
+/// gated so the symbol is validated against the *declared* vocabulary — you cannot ground
+/// a symbol the requirement does not speak of. Category and default fidelity come from the
+/// requirement; `--fidelity` overrides. Grounding does not revoke admission.
+fn ground_candidate(
+    companion: &Path,
+    state: &draft::DraftState,
+    id: &str,
+    spec: &str,
+    fidelity: Option<&str>,
+) -> Result<()> {
+    let draft = state
+        .drafts
+        .get(id)
+        .with_context(|| format!("no draft for {id} — open one first with `provreq draft {id}`"))?;
+    let Some(candidate) = &draft.candidate else {
+        println!("Draft {id} has no candidate PRL to ground yet — write one with `--set` or `--translate`.");
+        return Ok(());
+    };
+    let (symbol, observable) = spec
+        .split_once('=')
+        .with_context(|| format!("--ground expects SYMBOL=OBSERVABLE, got `{spec}`"))?;
+    let (symbol, observable) = (symbol.trim(), observable.trim());
+    if symbol.is_empty() || observable.is_empty() {
+        bail!("--ground expects a non-empty SYMBOL and OBSERVABLE, got `{spec}`");
+    }
+
+    let requirement = match provreq::prl::gate(candidate) {
+        Ok(outcome) => outcome.requirement,
+        Err(errors) => {
+            println!(
+                "Cannot ground {id} — the candidate has {} gate error(s); fix them first (run `--check`):",
+                errors.len()
+            );
+            for e in &errors {
+                println!("  - {e}");
+            }
+            return Ok(());
+        }
+    };
+
+    if !grounding::is_bindable(&requirement, symbol) {
+        let symbols = grounding::bindable_symbols(&requirement);
+        bail!(
+            "'{symbol}' is not a declared vocabulary symbol of {id}; \
+             bindable symbols: {}",
+            if symbols.is_empty() {
+                "(none)".to_string()
+            } else {
+                symbols.join(", ")
+            }
+        );
+    }
+
+    let category = grounding::default_category(&requirement);
+    let fidelity = match fidelity {
+        Some(f) => grounding::Fidelity::parse(f).with_context(|| {
+            format!("unknown fidelity '{f}' (definitional | observed | probed)")
+        })?,
+        None => category.default_fidelity(),
+    };
+
+    let binding = Binding {
+        symbol: symbol.to_string(),
+        category,
+        observable: observable.to_string(),
+        fidelity,
+    };
+    let next = draft::set_binding(state, id, binding);
+    draft::save(companion, &next)?;
+    println!(
+        "Grounded {symbol} → `{observable}` (category {}, {} fidelity). \
+         Dry-run it with `provreq draft {id} --dry-run`.",
+        category.as_label(),
+        fidelity.as_str()
+    );
+    Ok(())
+}
+
+/// D13: dry-run a draft's category-1 bindings against the subject's real source and
+/// report whether the requirement grounds or stays parked. Read-only over the subject
+/// (matches are recomputed live, never stored). Requires a gate pass — the bindings are
+/// checked against the current formal meaning.
+fn dry_run_candidate(
+    subject: &Path,
+    companion: &Path,
+    state: &draft::DraftState,
+    id: &str,
+) -> Result<()> {
+    let draft = state
+        .drafts
+        .get(id)
+        .with_context(|| format!("no draft for {id} — open one first with `provreq draft {id}`"))?;
+    let Some(candidate) = &draft.candidate else {
+        println!("Draft {id} has no candidate PRL to dry-run yet — write one with `--set` or `--translate`.");
+        return Ok(());
+    };
+    let requirement = match provreq::prl::gate(candidate) {
+        Ok(outcome) => outcome.requirement,
+        Err(errors) => {
+            println!(
+                "Cannot dry-run {id} — the candidate has {} gate error(s); fix them first (run `--check`):",
+                errors.len()
+            );
+            for e in &errors {
+                println!("  - {e}");
+            }
+            return Ok(());
+        }
+    };
+    if draft.bindings.is_empty() {
+        println!(
+            "Draft {id} has no grounding bindings yet — attach one with \
+             `provreq draft {id} --ground SYMBOL=OBSERVABLE`."
+        );
+        return Ok(());
+    }
+
+    // Live dry-run: only category 1 has a real observable world in this slice.
+    let mut counts = std::collections::BTreeMap::new();
+    for b in &draft.bindings {
+        if b.category != grounding::BindCategory::Code {
+            continue;
+        }
+        let matches = grounding::dry_run_code(subject, companion, &b.observable);
+        counts.insert(b.symbol.clone(), matches.len());
+        println!(
+            "{} → `{}` (category {}): {} match(es){}",
+            b.symbol,
+            b.observable,
+            b.category.as_label(),
+            matches.len(),
+            if matches.len() >= grounding::DRY_RUN_MATCH_CAP {
+                " (capped)"
+            } else {
+                ""
+            }
+        );
+        for m in &matches {
+            println!("    {}:{}  {}", m.file, m.line, m.text);
+        }
+    }
+
+    match grounding::verdict(&requirement, &draft.bindings, &counts) {
+        Grounding::Grounded => {
+            println!("\n{id}: GROUNDED — every symbol binds to a confirmed observable.");
+        }
+        Grounding::Parked { reasons } => {
+            println!(
+                "\n{id}: admitted-but-ungrounded (parked) — {} reason(s):",
+                reasons.len()
+            );
+            for r in &reasons {
+                println!("  - {r}");
+            }
+        }
+    }
+    Ok(())
+}
+
 /// The reviewer name recorded on an admission when `--reviewer` is not given: the
 /// `$USER`/`$USERNAME` environment value, or `"unknown"`.
 fn default_reviewer() -> String {
@@ -568,6 +759,12 @@ fn print_draft(d: &Draft, item: &Item) {
             print_gate(&d.gate);
         }
         None => println!("No candidate PRL yet — write one with `--set` or `--translate`."),
+    }
+    if !d.bindings.is_empty() {
+        println!(
+            "Grounding: {} binding(s) — dry-run with `--dry-run`.",
+            d.bindings.len()
+        );
     }
     if let draft::Admission::Admitted { review, by, .. } = &d.admission {
         if draft::needs_reconfirmation(d, item) {
