@@ -1,0 +1,38 @@
+active: true
+derived: false
+header: ''
+level: 1.22
+links: []
+normative: true
+ref: ''
+reviewed: Tmp2xhr8K4Z7aXG_F32ij3LXfDmpZFXeGcTVHjU0_hA=
+text: |
+  The tool records the outcome of verifying a formalized requirement as a first-class
+  verdict object (D7): a three-valued status — holds, fails, or unknown — carried with the
+  provenance (D9) needed to reproduce it and to detect when it has gone stale. This slice
+  ships the verdict object, its provenance, and the honest unknown; it runs no engine, so
+  every verdict it produces is unknown. Producing a real holds or fails is the next slice
+  (wiring the first engine).
+
+  An unknown always carries a reason (D10) — the tool never reports a bare unknown and
+  never fabricates a verdict it did not earn. Two reasons are producible here:
+  missing-grounding, when the requirement is not grounded and therefore no engine could
+  run (R-ground-1), which carries the grounding's parked reasons as detail; and no-engine,
+  when the requirement is grounded but nothing has executed the property. A sound holds
+  requires a prover to check the temporal property against the code — grounding only
+  confirms that every symbol binds to a confirmed observable, which is a precondition for
+  verification and never a substitute for it. The richer unknown reasons (inconclusive,
+  inapplicable, divergence-needs-review, assumption-unmet) and the strength/basis scale
+  with a per-engine evidence tree arrive with real engines.
+
+  Provenance pins what the verdict was produced against: the requirement revision, the
+  subject's git commit, and the tool version. The subject commit is best-effort and is
+  recorded as absent — never fabricated — when the subject is not a git repository.
+
+  The operator runs `provreq verify <ID>`, which re-gates the admitted candidate against
+  the current formal meaning, re-runs the live category-1 grounding dry-run, pins
+  provenance, and renders the verdict with its reason and any parked detail. A requirement
+  that is not yet admitted, whose admitted candidate no longer gates, or which has no
+  candidate is reported as such rather than verified. An admitted draft whose source prose
+  has moved since admission is flagged alongside the verdict, since the verdict is against
+  the admitted meaning rather than the current prose.

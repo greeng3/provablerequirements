@@ -22,7 +22,9 @@ pub struct Coverage {
     pub drafting: usize,
     /// Step 3 — admitted formalizations (D12): a draft the operator has confirmed.
     pub formalized: usize,
-    /// Step 4 — not built yet, honestly reported as 0.
+    /// Step 4 — requirements whose verdict is `holds`. Stays 0 until an engine is wired:
+    /// the verdict object exists (REQ023) but nothing executes the property yet, so every
+    /// verdict is honestly `unknown`. Never counts a grounded-but-unverified requirement.
     pub verified: usize,
 }
 
