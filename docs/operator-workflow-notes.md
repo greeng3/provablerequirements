@@ -224,8 +224,23 @@ formalize pipeline with draft persistence (`R-draft-*`, `R-ground-*`). The reqfo
   are wired. Real 2a/2b/3 dry-run, D6 cross-category refinement mappings, and regex/AST-precise
   queries are later slices.
 
-**Next slice:** real category 2a/2b/3 grounding dry-run (needs the model/runtime/UI observation
-engines wired — the R-eng-* / Design-C provisioning axis), then Step 4 (verdict).
+- **Issue #34** — engine coverage report (REQ022, R-eng-2/3). `src/engine.rs` maps each PRL category
+  to one engine (R-eng-1 split: cat 1 code = toolchain-welded per-language build toolchain, R-eng-4;
+  2a = TLA+/TLC, 2b = MonPoly, 3 = Selenium/Playwright driver), `detect`s presence + best-effort
+  version on `PATH` **without ever installing** (R-eng-2 — reports welded / available / missing /
+  incompatible), and computes per-requirement `readiness` (pure). `provreq engines` lists engine
+  status then, for every admitted requirement, whether its declared category's engine is ready —
+  ready only when **every** declared category's engine is (multi-category names each blocker); an
+  unparseable or category-less candidate is unroutable, never silently ready. Version minimums ship
+  presence-only (machinery typed+tested; thresholds → provreq.yml config when a real engine lands).
+  No engine execution / verdicts — that is Step 4.
+
+**Next slice:** Step 4 — the **verdict** object (D7 three-valued evidence tree + D9 provenance) with a
+first real engine path. The lightest is **category 1 (code)**: it is already groundable against real
+source (#30) and its engine is toolchain-welded + reported ready (#34), so a `provreq verify` can
+produce a real `holds/fails/unknown` for a cat-1-grounded requirement while 2a/2b/3 stay honestly
+`unknown / no-engine`. Real 2a/2b/3 grounding dry-run + execution follow once those engines are wired
+(the Design-C provisioning axis).
 
 ## Packaging — Design A (old, superseded)
 

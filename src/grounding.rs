@@ -55,7 +55,9 @@ impl Fidelity {
 /// Which observable world a binding lives in (D4). Only [`BindCategory::Code`] has a
 /// real dry-run in this slice. Serializable peer of the parse-only [`Category`], so the
 /// AST stays a pure parse artifact with no serde.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
+)]
 #[serde(rename_all = "snake_case")]
 pub enum BindCategory {
     Code,
