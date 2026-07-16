@@ -1,0 +1,28 @@
+active: true
+derived: false
+header: ''
+level: 1.19
+links: []
+normative: true
+ref: ''
+reviewed: uZNEtKUwlusPfEKWgyY0nk6Bu5T3LVthQKo4-W3nEQk=
+text: |
+  The tool writes an admitted formalization's provenance back onto the subject's
+  requirement item, through the requirements-source seam (the A6/D14 back-write). The
+  seam gains an `annotate` operation; the Doorstop adapter implements it by stamping a
+  `provreq:` attribute onto the item's YAML file, preserving the item's existing fields.
+  The stamped block records the lifecycle status (admitted-but-ungrounded), the
+  confirmed PRL, the review tier, the reviewer, the admission time, and the source
+  revision the PRL was confirmed against — so a reader of the requirement can see it is
+  formalized and detect later drift without consulting provreq's companion state.
+
+  The operator triggers the back-write with `provreq draft <ID> --writeback`. It is a
+  deliberate, explicit action because it mutates the subject's working tree, which the
+  operator then reviews and commits. It requires an admitted draft — an un-admitted
+  draft is redirected to `--admit` first — and it refuses a drifted admission: when the
+  requirement prose has moved since admission, the confirmed PRL no longer matches the
+  requirement and must be re-admitted against the current text before it can be written
+  back. This needs-reconfirmation state (an admitted draft whose source revision has
+  moved) is surfaced distinctly in the draft display and listing, reusing the existing
+  revision-token staleness check. Verdict back-links and D13 grounding remain later
+  slices.

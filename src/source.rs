@@ -57,12 +57,35 @@ pub struct Item {
     pub verification_hint: Option<Classification>,
 }
 
+/// The formalization provenance provreq stamps back onto a source item once a
+/// formalization is admitted (D14, R-src-6): the confirmed PRL and who/when/which-tier
+/// confirmed it, plus the source revision it was confirmed against so later NL drift is
+/// detectable by anyone reading the item — not only via provreq's companion state.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct Annotation {
+    /// Lifecycle marker — `admitted-but-ungrounded` for now (grounding is D13).
+    pub status: String,
+    /// The confirmed PRL requirement block.
+    pub prl: String,
+    /// Review tier at admission (`mandatory` | `optional`).
+    pub review: String,
+    pub reviewer: String,
+    pub reviewed_at_unix: i64,
+    /// The source revision token the PRL was confirmed against (drift baseline).
+    pub source_revision: String,
+}
+
 /// The requirements-source seam (R-src-1). One implementation for now
 /// ([`crate::doorstop::DoorstopSource`]); the reqforge adapter is a real,
 /// not-speculative second consumer that lands when its format stabilises.
 pub trait RequirementsSource {
     /// Every requirement item in the source, sorted by `id`.
     fn items(&self) -> Result<Vec<Item>>;
+
+    /// Write a formalization back-link onto item `id`, rendered in the source's native
+    /// way (R-src-6) — for Doorstop, a `provreq:` attribute on the item file. Replaces
+    /// any prior annotation. Mutates the subject working tree; the operator commits it.
+    fn annotate(&self, id: &str, annotation: &Annotation) -> Result<()>;
 }
 
 #[cfg(test)]

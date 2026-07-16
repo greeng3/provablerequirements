@@ -262,6 +262,13 @@ pub fn is_stale(draft: &Draft, item: &Item) -> bool {
     draft.revision != item.revision
 }
 
+/// Whether an admitted formalization needs re-confirmation (D14): it was admitted, but
+/// the source prose has since moved, so the confirmed PRL no longer matches the
+/// requirement and must not be trusted or written back until re-admitted.
+pub fn needs_reconfirmation(draft: &Draft, item: &Item) -> bool {
+    draft.is_admitted() && is_stale(draft, item)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

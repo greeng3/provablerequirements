@@ -70,6 +70,9 @@ enum Command {
         /// Admit this draft's formalization after confirming the read-back (D12).
         #[arg(long, conflicts_with_all = ["set", "translate", "check", "readback", "discard"])]
         admit: bool,
+        /// Write the admitted formalization's provenance back onto the subject item (D14).
+        #[arg(long, conflicts_with_all = ["set", "translate", "check", "readback", "admit", "discard"])]
+        writeback: bool,
         /// Reviewer name recorded on admission (defaults to $USER).
         #[arg(long, value_name = "NAME")]
         reviewer: Option<String>,
@@ -102,6 +105,7 @@ async fn main() -> Result<()> {
             check,
             readback,
             admit,
+            writeback,
             reviewer,
             yes,
             discard,
@@ -115,6 +119,7 @@ async fn main() -> Result<()> {
                     check,
                     readback,
                     admit,
+                    writeback,
                     reviewer,
                     yes,
                     discard,
@@ -212,6 +217,7 @@ struct DraftActions {
     check: bool,
     readback: bool,
     admit: bool,
+    writeback: bool,
     reviewer: Option<String>,
     yes: bool,
     discard: bool,
@@ -241,6 +247,7 @@ async fn run_draft(
         check,
         readback,
         admit,
+        writeback,
         reviewer,
         yes,
         discard,
@@ -254,6 +261,9 @@ async fn run_draft(
     }
     if admit {
         return admit_candidate(&companion, &state, id, reviewer.as_deref(), yes);
+    }
+    if writeback {
+        return writeback_candidate(subject, &state, item);
     }
     if discard {
         let next = draft::discard(&state, id);
@@ -441,6 +451,51 @@ fn admit_candidate(
     Ok(())
 }
 
+/// D14: write an admitted formalization's provenance back onto the subject item
+/// (through the source adapter). Requires an admitted draft, and refuses a drifted one
+/// — an admission against since-changed prose must be re-confirmed first. Mutates the
+/// subject working tree; the operator reviews and commits the change.
+fn writeback_candidate(subject: &Path, state: &draft::DraftState, item: &Item) -> Result<()> {
+    let draft = state
+        .drafts
+        .get(&item.id)
+        .with_context(|| format!("no draft for {} — nothing to write back", item.id))?;
+    let draft::Admission::Admitted {
+        review,
+        by,
+        at_unix,
+    } = &draft.admission
+    else {
+        println!(
+            "Draft {} is not admitted yet — admit it first with `--admit`.",
+            item.id
+        );
+        return Ok(());
+    };
+    if draft::is_stale(draft, item) {
+        println!(
+            "Draft {} needs reconfirmation — the requirement prose moved since admission; \
+             re-admit against the current text before writing back.",
+            item.id
+        );
+        return Ok(());
+    }
+    let annotation = provreq::source::Annotation {
+        status: "admitted-but-ungrounded".into(),
+        prl: draft.candidate.clone().unwrap_or_default(),
+        review: review.as_str().into(),
+        reviewer: by.clone(),
+        reviewed_at_unix: *at_unix,
+        source_revision: draft.revision.clone(),
+    };
+    DoorstopSource::new(subject).annotate(&item.id, &annotation)?;
+    println!(
+        "Wrote formalization provenance onto {} — review the working-tree change and commit it.",
+        item.id
+    );
+    Ok(())
+}
+
 /// The reviewer name recorded on an admission when `--reviewer` is not given: the
 /// `$USER`/`$USERNAME` environment value, or `"unknown"`.
 fn default_reviewer() -> String {
@@ -515,10 +570,17 @@ fn print_draft(d: &Draft, item: &Item) {
         None => println!("No candidate PRL yet — write one with `--set` or `--translate`."),
     }
     if let draft::Admission::Admitted { review, by, .. } = &d.admission {
-        println!(
-            "Admitted (review: {}, by {by}) — admitted-but-ungrounded.",
-            review.as_str()
-        );
+        if draft::needs_reconfirmation(d, item) {
+            println!(
+                "Admitted (review: {}, by {by}) but NEEDS RECONFIRMATION — prose moved since admission; re-admit before writing back.",
+                review.as_str()
+            );
+        } else {
+            println!(
+                "Admitted (review: {}, by {by}) — admitted-but-ungrounded.",
+                review.as_str()
+            );
+        }
     }
 }
 
@@ -546,7 +608,15 @@ fn list_drafts(state: &draft::DraftState, items: &[Item]) -> Result<()> {
             GateStatus::Passed { .. } => " [gate ok, warnings]",
             GateStatus::Failed { .. } => " [gate failed]",
         };
-        let admitted = if d.is_admitted() { " [admitted]" } else { "" };
+        let admitted = if d.is_admitted() {
+            if stale {
+                " [admitted, needs-reconfirm]"
+            } else {
+                " [admitted]"
+            }
+        } else {
+            ""
+        };
         println!("  {id:<12} {has}{flag}{gate}{admitted}");
     }
     Ok(())
