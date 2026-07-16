@@ -65,8 +65,13 @@ most 0`, unused vocabulary), the generate-then-repair loop (`src/formalize.rs` f
    in `src/draft.rs`); risk-tiered (vacuity-flagged → mandatory-review, shown + confirmed; clean →
    optional, direct); records tier/reviewer/time; editing the candidate revokes admission; the
    `status.rs` `formalized` funnel count (honest 0 since Step 2) now counts admitted drafts, with
-   `drafting` = in-progress-not-yet-admitted (REQ019). Still deferred: writing the confirmed PRL back
-   onto the subject's item (A6/D14), then D13 grounding. See the "Steps 2–3 design" section below.
+   `drafting` = in-progress-not-yet-admitted (REQ019).
+   **A6/D14 back-write SHIPPED (2026-07-16, issue #28)** — `RequirementsSource::annotate` seam method
+   (`src/source.rs`) + Doorstop impl (`src/doorstop.rs`) stamps a `provreq:` block (status, confirmed
+   PRL, review/reviewer/time, source revision) onto the subject item, preserving existing fields;
+   `provreq draft <ID> --writeback` writes it (requires an admitted, non-drifted draft; a drifted
+   admission → needs-reconfirmation, surfaced in draft display/list). REQ020. Still deferred: D13
+   grounding (the axis after this). See the "Steps 2–3 design" section below.
 4. **Verify** — run one engine → inspect the verdict tree.
 5. **Annotate** — stage the working-tree proof-carrier edit; operator reviews + commits on their own forge.
 6. **Living loop** — re-run on drift, act on stale verdicts.

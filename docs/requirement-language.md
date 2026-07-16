@@ -537,4 +537,6 @@ requirement no_message_lost {
   the forward LLM. **The risk-tiered human confirm gate (D12's second half) now exists as well
   (REQ019):** `provreq draft <ID> --admit` moves a gate-passed draft to `admitted-but-ungrounded`,
   mandatory-review for vacuity-flagged candidates and optional otherwise, recording tier/reviewer/time.
-  **Remaining:** writing the confirmed PRL back onto the subject's item (A6/D14), and D13 grounding.
+  **The A6/D14 back-write now exists too (REQ020):** `provreq draft <ID> --writeback` stamps the
+  confirmed PRL + review provenance onto the subject item via the source adapter's `annotate` seam,
+  refusing a drifted admission (needs-reconfirmation). **Remaining:** D13 grounding.

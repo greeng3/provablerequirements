@@ -5,8 +5,8 @@
 //!
 //! Implements: REQ007 (discover the subject's Doorstop layout from its own config)
 
-use crate::source::{Item, RequirementsSource};
-use anyhow::{Context, Result};
+use crate::source::{Annotation, Item, RequirementsSource};
+use anyhow::{bail, Context, Result};
 use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
 use walkdir::{DirEntry, WalkDir};
@@ -116,6 +116,16 @@ impl DoorstopSource {
     pub fn new(root: impl Into<PathBuf>) -> Self {
         Self { root: root.into() }
     }
+
+    /// Locate the YAML file backing item `id` among the discovered docs.
+    fn item_path(&self, id: &str) -> Result<PathBuf> {
+        for doc in discover(&self.root)? {
+            if doc.item_ids.iter().any(|i| i == id) {
+                return Ok(doc.dir.join(format!("{id}.yml")));
+            }
+        }
+        bail!("no requirement item '{id}' in the subject")
+    }
 }
 
 #[derive(serde::Deserialize)]
@@ -146,6 +156,28 @@ impl RequirementsSource for DoorstopSource {
         }
         items.sort_by(|a, b| a.id.cmp(&b.id));
         Ok(items)
+    }
+
+    /// Stamp the annotation onto the item file as a `provreq:` attribute (R-src-6).
+    ///
+    // ponytail: round-trips the whole item through serde_yaml, which preserves keys
+    // and order but may reformat scalars (e.g. block style) — acceptable churn, the
+    // operator reviews the working-tree diff before committing.
+    fn annotate(&self, id: &str, annotation: &Annotation) -> Result<()> {
+        let path = self.item_path(id)?;
+        let raw = std::fs::read_to_string(&path)
+            .with_context(|| format!("reading {}", path.display()))?;
+        let mut doc: serde_yaml::Value =
+            serde_yaml::from_str(&raw).with_context(|| format!("parsing {}", path.display()))?;
+        let map = doc
+            .as_mapping_mut()
+            .with_context(|| format!("{} is not a YAML mapping", path.display()))?;
+        map.insert(
+            serde_yaml::Value::String("provreq".into()),
+            serde_yaml::to_value(annotation).context("serializing annotation")?,
+        );
+        let out = serde_yaml::to_string(&doc).context("serializing item")?;
+        std::fs::write(&path, out).with_context(|| format!("writing {}", path.display()))
     }
 }
 
@@ -212,6 +244,74 @@ mod tests {
         assert_ne!(items[0].revision, items[1].revision);
         // Same prose → same token (deterministic).
         assert_eq!(items[0].revision, content_hash("the first item"));
+    }
+
+    // Verifies: REQ020 — annotate stamps a `provreq:` block onto the item file while
+    // preserving existing fields, and re-annotating replaces it.
+    #[test]
+    fn annotate_stamps_and_replaces_provreq_block() {
+        let tmp = tempfile::tempdir().unwrap();
+        let doc = tmp.path().join("reqs");
+        std::fs::create_dir(&doc).unwrap();
+        std::fs::write(doc.join(".doorstop.yml"), "settings:\n  prefix: REQ\n").unwrap();
+        std::fs::write(doc.join("REQ001.yml"), "level: 1.0\ntext: |\n  the item\n").unwrap();
+
+        let src = DoorstopSource::new(tmp.path());
+        let ann = Annotation {
+            status: "admitted".into(),
+            prl: "requirement r { require { always ok } }".into(),
+            review: "optional".into(),
+            reviewer: "alice".into(),
+            reviewed_at_unix: 42,
+            source_revision: "rev-1".into(),
+        };
+        src.annotate("REQ001", &ann).unwrap();
+
+        let written = std::fs::read_to_string(doc.join("REQ001.yml")).unwrap();
+        let parsed: serde_yaml::Value = serde_yaml::from_str(&written).unwrap();
+        // Existing fields survive.
+        assert!(parsed.get("text").is_some());
+        assert!(parsed.get("level").is_some());
+        // The provreq block round-trips.
+        let back: Annotation =
+            serde_yaml::from_value(parsed.get("provreq").unwrap().clone()).unwrap();
+        assert_eq!(back, ann);
+
+        // Re-annotating replaces, not duplicates.
+        let ann2 = Annotation {
+            reviewer: "bob".into(),
+            ..ann.clone()
+        };
+        src.annotate("REQ001", &ann2).unwrap();
+        let reparsed: serde_yaml::Value =
+            serde_yaml::from_str(&std::fs::read_to_string(doc.join("REQ001.yml")).unwrap())
+                .unwrap();
+        let back2: Annotation =
+            serde_yaml::from_value(reparsed.get("provreq").unwrap().clone()).unwrap();
+        assert_eq!(back2.reviewer, "bob");
+    }
+
+    #[test]
+    fn annotate_rejects_unknown_item() {
+        let tmp = tempfile::tempdir().unwrap();
+        let doc = tmp.path().join("reqs");
+        std::fs::create_dir(&doc).unwrap();
+        std::fs::write(doc.join(".doorstop.yml"), "settings:\n  prefix: REQ\n").unwrap();
+        let err = DoorstopSource::new(tmp.path())
+            .annotate("REQ999", &sample_annotation())
+            .unwrap_err();
+        assert!(err.to_string().contains("REQ999"));
+    }
+
+    fn sample_annotation() -> Annotation {
+        Annotation {
+            status: "admitted".into(),
+            prl: "requirement r { require { always ok } }".into(),
+            review: "optional".into(),
+            reviewer: "x".into(),
+            reviewed_at_unix: 1,
+            source_revision: "r".into(),
+        }
     }
 
     #[test]
