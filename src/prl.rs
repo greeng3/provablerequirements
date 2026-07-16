@@ -15,6 +15,7 @@
 pub mod ast;
 mod check;
 pub mod error;
+mod fragment;
 mod lexer;
 mod parser;
 mod readback;
@@ -34,12 +35,21 @@ pub struct GateOutcome {
 }
 
 /// Run the mechanical gate over a candidate PRL block: parse it, type/name-check the
-/// AST, then run vacuity/triviality sanity. Returns the accepted [`GateOutcome`], or
-/// every gate error found. Parse failures short-circuit the checker, and vacuity runs
-/// only on a clean type-check — vacuity findings on an ill-typed tree would be noise.
+/// AST, fragment-check every declared category against the patterns used (D2/D10), then
+/// run vacuity/triviality sanity. Returns the accepted [`GateOutcome`], or every gate
+/// error found. Parse failures short-circuit the checker, and vacuity runs only on a
+/// clean type-check — vacuity findings on an ill-typed tree would be noise.
+///
+/// Name/arity and fragment errors are reported **together**: both are typed errors about
+/// the same candidate, and the D11 generate-then-repair loop should see every one of them
+/// in a single pass rather than fixing names, re-running, and only then learning the
+/// category cannot express the claim.
 pub fn gate(src: &str) -> Result<GateOutcome, Vec<GateError>> {
     let requirement = parser::parse(src)?;
-    let errors = check::check(&requirement);
+    let errors: Vec<GateError> = check::check(&requirement)
+        .into_iter()
+        .chain(fragment::check(&requirement))
+        .collect();
     if !errors.is_empty() {
         return Err(errors);
     }
@@ -79,6 +89,27 @@ mod tests {
             outcome.warnings.is_empty(),
             "clean candidate should not warn"
         );
+    }
+
+    // Verifies: REQ024 (D2/D10) — a liveness pattern declared at category 1 is a typed
+    // gate error, not a silent pass. The code fragment is temporal-free, so no code
+    // engine can ever express `leads_to` — the rejection must happen before anything runs.
+    #[test]
+    fn gate_rejects_liveness_at_category_one() {
+        let src = "requirement logged_in_has_session {
+            category: 1
+            vocabulary { state logged_in state has_session }
+            require { logged_in leads_to has_session }
+        }";
+        let errors = gate(src).expect_err("cat-1 liveness is out of fragment");
+        assert!(errors.iter().any(|e| matches!(
+            e,
+            GateError::OutOfFragment {
+                pattern: "leads_to",
+                category: ast::Category::Code,
+                ..
+            }
+        )));
     }
 
     // Verifies: REQ017 — a valid but vacuous candidate is accepted (not rejected) and

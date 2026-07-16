@@ -1,0 +1,40 @@
+active: true
+derived: false
+header: ''
+level: 1.23
+links: []
+normative: true
+ref: ''
+reviewed: IG-RxZlwslx8E22TfvUyE8CLYTIWAAquE3zOX5h0qqI=
+text: |
+  The mechanical gate checks a requirement's declared category against the patterns it
+  uses, and rejects any category whose engine cannot express the claim (D2's typed
+  fragments, D10's `inapplicable`). Using an operator outside the target engine's fragment
+  is a typed error surfaced to the author, never a silent approximation — and it is caught
+  statically, before anything runs, because no engine can later rescue a property its
+  fragment cannot express.
+
+  Every declared category must be able to express every pattern: a requirement may span
+  categories, and each declared category is a target engine that will be asked the same
+  claim. A requirement that declares no category is not fragment-checked — the gate does
+  not guess a category, and an undeclared category is reported as unroutable instead.
+
+  Two fragment rules are enforced. First, category 1 (code) is the temporal-free fragment:
+  a deductive verifier checks a state predicate, so `always` and `never` are expressible as
+  invariants, while `eventually`, `leads_to`, `precedes`, `occurs at most`, and `can_reach`
+  are not. Second, `can_reach` is a branching-time claim requiring a model's state graph,
+  so it is expressible only at category 2a. The error names the offending pattern, the
+  category that cannot express it, why, and a remedy, so it is actionable for both the
+  human author and the generate-then-repair loop. Fragment errors are reported together
+  with name and arity errors, since both are typed errors about the same candidate.
+
+  The exact boundary of each engine's fragment is not yet settled, so no further rule is
+  asserted: in particular, whether unbounded liveness is monitorable at category 2b or 3
+  remains open, and those categories stay permissive rather than narrowed by guess.
+
+  An engine that provreq has no integration for never reports itself ready, whatever the
+  operator has installed. This is distinct from an engine that is merely missing from the
+  operator's machine: a missing engine is resolved by installing it, an unwired engine only
+  by wiring it, and reporting the second as ready overclaims what the tool can check. The
+  category-1 engine is a deductive verifier needing the subject's own compiler; being
+  welded to that toolchain describes how it is deployed, never that it is present.

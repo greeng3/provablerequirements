@@ -7,6 +7,7 @@
 //! Implements: REQ016 (gate part 1 — parse + type/name-check), REQ017 (gate part 2 —
 //! vacuity warnings).
 
+use super::ast::Category;
 use std::fmt;
 
 /// A single reason a candidate PRL was rejected by the gate.
@@ -29,6 +30,17 @@ pub enum GateError {
         name: String,
         expected: usize,
         found: usize,
+        line: usize,
+    },
+    /// A declared category's engine cannot *express* a pattern the requirement uses
+    /// (D2 typed fragments / D10 `inapplicable`). `why` and `remedy` are supplied by the
+    /// fragment rule that rejected it, so the explanation has one source of truth.
+    OutOfFragment {
+        category: Category,
+        /// The surface verb the author wrote, e.g. `leads_to`.
+        pattern: &'static str,
+        why: &'static str,
+        remedy: &'static str,
         line: usize,
     },
 }
@@ -65,6 +77,17 @@ impl fmt::Display for GateError {
             } => write!(
                 f,
                 "line {line}: `{name}` takes {expected} argument(s) but was given {found}"
+            ),
+            GateError::OutOfFragment {
+                category,
+                pattern,
+                why,
+                remedy,
+                line,
+            } => write!(
+                f,
+                "line {line}: `{pattern}` cannot be expressed at category {} — {why}; {remedy}",
+                category.as_label()
             ),
         }
     }

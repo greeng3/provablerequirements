@@ -293,10 +293,16 @@ mod tests {
             .requirement
     }
 
+    // The CODE-fragment reading of "a logged-in user always has a session": an INVARIANT
+    // (`always`, i.e. `logged_in ⇒ has_session` at every state), NOT the liveness
+    // `leads_to` this fixture used before REQ024. Category 1 is temporal-free, so a
+    // deductive prover can check the implication as a state predicate but has nothing to
+    // say about a future-time obligation. The same prose has both readings — the declared
+    // category is what picks one, which is exactly what the fragment check now enforces.
     const CODE_REQ: &str = "requirement r {
         category: 1
         vocabulary { state logged_in(u), has_session(u) }
-        require { each u: User . logged_in(u) leads_to has_session(u) }
+        require { each u: User . always (not logged_in(u) or has_session(u)) }
     }";
 
     // Verifies: REQ021 — the bindable symbols are exactly the declared event/state

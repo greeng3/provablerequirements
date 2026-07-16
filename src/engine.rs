@@ -5,12 +5,24 @@
 //! reported first-class (R-eng-3), keeping *formalizable-but-no-engine* distinct from
 //! *not formalized*.
 //!
-//! The R-eng-1 split: category 1 (code) is **toolchain-welded** — its engine is the
-//! subject's own per-language build toolchain (R-eng-4), not a portable binary this
-//! module probes. Categories 2a/2b/3 are **artifact-fed** portable engines (TLC, MonPoly,
+//! The R-eng-1 split: category 1 (code) is **toolchain-welded** — its engine needs the
+//! subject's own compiler (R-eng-4), so it is not a shared portable binary this module can
+//! probe by name. Categories 2a/2b/3 are **artifact-fed** portable engines (TLC, MonPoly,
 //! a UI driver) detected on `PATH`.
 //!
-//! Implements: REQ022 (engine coverage — detect installed engines, report readiness).
+//! "Toolchain-welded" classifies *how an engine is deployed*, never *whether it is
+//! present*: R-eng-2 requires welded engines to be provisioned into the dev env and
+//! detected like any other. Reading the class as readiness is what REQ024 fixed — see
+//! [`EngineStatus::is_ready`].
+//!
+//! `// ponytail:` readiness here still means "the engine binary is present", not "provreq
+//! can run it" — no engine is wired yet, so no `Available` engine can actually back a
+//! verdict either. That gap closes when the first engine is wired and `ready` earns its
+//! full meaning; category 1 is fixed now because it claimed readiness with no detection at
+//! all, which is strictly worse.
+//!
+//! Implements: REQ022 (engine coverage — detect installed engines, report readiness),
+//! REQ024 (a category-1 engine that is not wired never reports ready).
 
 use crate::grounding::BindCategory;
 use std::process::Command;
@@ -28,9 +40,9 @@ pub struct EngineProbe {
     pub min_version: Option<&'static str>,
 }
 
-/// A verification engine a PRL category routes to. `probe` is `None` for the
-/// toolchain-welded category-1 engine (checked per-subject at verify time, not a single
-/// portable binary).
+/// A verification engine a PRL category routes to. `probe` is `None` when no integration
+/// exists yet, which today is the toolchain-welded category-1 engine — it cannot be
+/// probed as one portable binary, and nothing is wired to run it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Engine {
     pub category: BindCategory,
@@ -41,9 +53,10 @@ pub struct Engine {
 /// The detected state of an engine (R-eng-2: presence *and* compatibility).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum EngineStatus {
-    /// Category 1 — welded to the subject's build toolchain; readiness is confirmed
-    /// per-subject when a verdict is actually produced, not by a portable probe here.
-    ToolchainWelded,
+    /// No integration exists for this engine yet — provreq cannot run it whatever the
+    /// operator installs. Distinct from [`EngineStatus::Missing`], which is the operator's
+    /// to fix by installing a binary; this one is ours to fix by wiring the engine.
+    NotWired,
     /// On `PATH` and (if a minimum is set) new enough. `version` is best-effort —
     /// `"unknown"` when the probe ran but printed nothing parseable.
     Available { version: String },
@@ -54,18 +67,24 @@ pub enum EngineStatus {
 }
 
 impl EngineStatus {
-    /// Whether an engine in this state can back a verdict (R-eng-3 gate). Toolchain-welded
-    /// counts as ready — the operator runs provreq in the subject's own build env.
+    /// Whether an engine in this state can back a verdict (R-eng-3 gate).
+    ///
+    /// `NotWired` is **not** ready. Before REQ024 the category-1 engine reported
+    /// `ToolchainWelded` → ready unconditionally, on the reasoning that "the operator runs
+    /// provreq in the subject's own build env". That conflated *having a build toolchain*
+    /// with *having a verifier*: `cargo build` cannot discharge a pre/post obligation, and
+    /// the category-1 engine is a deductive verifier (Viper lineage). The result was that
+    /// `provreq engines` reported every category-1 requirement engine-ready when no
+    /// verifier existed at all. R-eng-1's "toolchain-welded" is a statement about the
+    /// engine's *class* (a Rust verifier needs the subject's `rustc`, so it cannot be a
+    /// shared portable binary) — R-eng-2 still requires it to be provisioned and detected.
     pub fn is_ready(&self) -> bool {
-        matches!(
-            self,
-            EngineStatus::ToolchainWelded | EngineStatus::Available { .. }
-        )
+        matches!(self, EngineStatus::Available { .. })
     }
 
     pub fn describe(&self) -> String {
         match self {
-            EngineStatus::ToolchainWelded => "welded, checked per subject".to_string(),
+            EngineStatus::NotWired => "NOT WIRED (no integration yet)".to_string(),
             EngineStatus::Available { version } => format!("available ({version})"),
             EngineStatus::Missing => "MISSING".to_string(),
             EngineStatus::Incompatible { found, required } => {
@@ -82,8 +101,15 @@ impl EngineStatus {
 pub fn registry() -> Vec<Engine> {
     vec![
         Engine {
+            // The category-1 engine is a deductive verifier over the temporal-free
+            // fragment (docs/requirement-language.md, Core layer: "1 → the temporal-free
+            // fragment (pre/post/invariants) → Viper/deductive"); for Rust the candidates
+            // are Prusti/Verus/Creusot/Kani (D2b). It is toolchain-welded (R-eng-1/R-eng-4)
+            // because it needs the subject's own compiler, so it is not a shared portable
+            // binary this module can probe by name — `probe: None` says "no integration
+            // yet", NOT "assume ready". Picking and wiring the verifier is the next slice.
             category: BindCategory::Code,
-            name: "build toolchain (per-language)",
+            name: "deductive verifier",
             probe: None,
         },
         Engine {
@@ -124,11 +150,12 @@ pub fn engine_for(category: BindCategory) -> Engine {
         .expect("registry covers every BindCategory")
 }
 
-/// Detect an engine's status (R-eng-2). Toolchain-welded engines report as such without
-/// a probe; portable engines are looked up on `PATH` and version-checked. Never installs.
+/// Detect an engine's status (R-eng-2). An engine with no probe has no integration yet and
+/// reports [`EngineStatus::NotWired`]; portable engines are looked up on `PATH` and
+/// version-checked. Never installs.
 pub fn detect(engine: &Engine) -> EngineStatus {
     match &engine.probe {
-        None => EngineStatus::ToolchainWelded,
+        None => EngineStatus::NotWired,
         Some(probe) => detect_probe(probe),
     }
 }
@@ -261,14 +288,30 @@ mod tests {
         assert!(engine_for(BindCategory::Model).probe.is_some());
     }
 
-    // Verifies: REQ022 (R-eng-2) — the toolchain-welded engine reports without a probe.
+    // Verifies: REQ024 (R-eng-2) — the category-1 engine has no integration yet, so it
+    // reports NotWired and is NOT ready. It previously claimed readiness unconditionally
+    // from being toolchain-welded, which reported every category-1 requirement as
+    // engine-ready when no verifier existed at all.
     #[test]
-    fn code_engine_is_toolchain_welded() {
+    fn code_engine_is_not_wired_and_not_ready() {
         assert_eq!(
             detect(&engine_for(BindCategory::Code)),
-            EngineStatus::ToolchainWelded
+            EngineStatus::NotWired
         );
-        assert!(EngineStatus::ToolchainWelded.is_ready());
+        assert!(
+            !EngineStatus::NotWired.is_ready(),
+            "an unwired engine can never back a verdict"
+        );
+    }
+
+    // Verifies: REQ024 — `NotWired` (ours to fix by wiring an engine) stays distinct from
+    // `Missing` (the operator's to fix by installing a binary); both block readiness, but
+    // they ask different people to act.
+    #[test]
+    fn not_wired_is_distinct_from_missing() {
+        assert_ne!(EngineStatus::NotWired, EngineStatus::Missing);
+        assert!(!EngineStatus::Missing.is_ready());
+        assert!(EngineStatus::NotWired.describe().contains("NOT WIRED"));
     }
 
     // Verifies: REQ022 (R-eng-2) — a binary that is not on PATH is reported Missing, never
@@ -323,16 +366,35 @@ mod tests {
     #[test]
     fn readiness_needs_every_category_engine() {
         let mut status = BTreeMap::new();
-        status.insert(BindCategory::Code, EngineStatus::ToolchainWelded);
+        status.insert(
+            BindCategory::Runtime,
+            EngineStatus::Available {
+                version: "1.0".into(),
+            },
+        );
         status.insert(BindCategory::Model, EngineStatus::Missing);
 
-        let ready_one = readiness("SR001", &[BindCategory::Code], &status);
+        let ready_one = readiness("SR001", &[BindCategory::Runtime], &status);
         assert!(ready_one.ready);
         assert!(ready_one.blockers.is_empty());
 
-        let blocked = readiness("SR002", &[BindCategory::Code, BindCategory::Model], &status);
+        let blocked = readiness(
+            "SR002",
+            &[BindCategory::Runtime, BindCategory::Model],
+            &status,
+        );
         assert!(!blocked.ready);
         assert!(blocked.blockers.iter().any(|b| b.contains("2a")));
+    }
+
+    // Verifies: REQ024 (R-eng-3) — a category whose engine is not wired blocks readiness
+    // and is named as a blocker, rather than being waved through as ready.
+    #[test]
+    fn unwired_engine_blocks_readiness() {
+        let status = BTreeMap::from([(BindCategory::Code, EngineStatus::NotWired)]);
+        let r = readiness("SR004", &[BindCategory::Code], &status);
+        assert!(!r.ready, "an unwired category-1 engine is not readiness");
+        assert!(r.blockers.iter().any(|b| b.contains('1')));
     }
 
     // Verifies: REQ022 — a requirement with no declared category is blocked (unroutable),

@@ -521,6 +521,18 @@ requirement no_message_lost {
   name+arity type-check. Still open: the sugar/logic escape hatch, engine-native raw blocks, and the
   richer set constructs (e.g. `exactly_one_of`) the worked example uses beyond the working set.
 - Formal semantics of the core logic and the exact boundary of each engine fragment.
+  **Partly concrete (REQ024, `src/prl/fragment.rs`):** the gate now enforces the two boundaries this
+  document states outright, as D2 typed errors rather than silent approximations — (1) category 1 is
+  the temporal-free fragment, so `always`/`never` land as invariants while `eventually`, `leads_to`,
+  `precedes`, `occurs at most` and `can_reach` are rejected; (2) `can_reach` is branching-time (CTL
+  `EF`) and needs a model's state graph, so it is expressible only at 2a. Every declared category must
+  express every pattern (a `2a + 2b` requirement using `can_reach` is an error for 2b). This is the
+  static half of D10 — expressibility is a pipeline type error, caught before anything runs, so no
+  `inapplicable` verdict reason is needed for it; D10's residue (soundness-direction mismatch, caught
+  at aggregation) still waits on real engines. **Still open:** whether unbounded liveness is
+  monitorable at 2b/3. A finite trace can neither confirm nor refute `eventually P`, which suggests
+  only the metric form (`leads_to … within T`) is decidable there — 2b/3 stay permissive rather than
+  narrowed by guess until this is settled.
 - Concrete syntax for grounding modules and refinement mappings (the mechanism is decided
   in D4/D5/D6 and _Grounding layer_; the exact adapter syntax per category is still open).
 - Concrete serialization + human read-back rendering of the verdict object (the schema and
