@@ -191,9 +191,7 @@ pub fn verdict(
 
     for b in bindings {
         match b.category {
-            BindCategory::Code
-                if code_match_counts.get(&b.symbol).copied().unwrap_or(0) == 0 =>
-            {
+            BindCategory::Code if code_match_counts.get(&b.symbol).copied().unwrap_or(0) == 0 => {
                 reasons.push(format!(
                     "{}: no code span matches `{}` — wrong binding, or the requirement is \
                      ahead of the code (parked)",
