@@ -534,5 +534,7 @@ requirement no_message_lost {
   immediate `P or not P` / `P and not P`, `occurs at most 0`, unused vocabulary) — not a
   satisfiability decision procedure, which stays deferred. **The D12 deterministic PRL→CNL read-back
   renderer now exists too (REQ018, `src/prl/readback.rs`)** — a pure AST→CNL function, independent of
-  the forward LLM. **Remaining:** the risk-tiered human confirm gate (D12's second half) and D13
-  grounding.
+  the forward LLM. **The risk-tiered human confirm gate (D12's second half) now exists as well
+  (REQ019):** `provreq draft <ID> --admit` moves a gate-passed draft to `admitted-but-ungrounded`,
+  mandatory-review for vacuity-flagged candidates and optional otherwise, recording tier/reviewer/time.
+  **Remaining:** writing the confirmed PRL back onto the subject's item (A6/D14), and D13 grounding.

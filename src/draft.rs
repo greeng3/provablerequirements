@@ -39,6 +39,42 @@ pub enum GateStatus {
     Failed { errors: Vec<String> },
 }
 
+/// The D12 risk tier of a human confirmation. Vacuity-flagged (and later
+/// grounding-heavy / high-stakes) candidates are `Mandatory`; a clean candidate is
+/// `Optional`. Recorded so "review not required" is never confused with "reviewed".
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ReviewTier {
+    Mandatory,
+    Optional,
+}
+
+impl ReviewTier {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            ReviewTier::Mandatory => "mandatory",
+            ReviewTier::Optional => "optional",
+        }
+    }
+}
+
+/// The formalization-admission state of a draft (D12). `Pending` is the in-progress
+/// draft; `Admitted` is the `admitted-but-ungrounded` lifecycle state — formalization
+/// is done, only the grounding anchor is missing — with its review provenance.
+#[derive(Debug, Clone, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
+#[serde(tag = "state", rename_all = "snake_case")]
+pub enum Admission {
+    #[default]
+    Pending,
+    Admitted {
+        review: ReviewTier,
+        by: String,
+        /// Wall-clock admission time as Unix seconds (the caller supplies the clock,
+        /// keeping this module pure and testable).
+        at_unix: i64,
+    },
+}
+
 /// One item's in-progress formalization draft.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Draft {
@@ -53,6 +89,17 @@ pub struct Draft {
     /// `Ungated` so drafts written before this field existed load cleanly.
     #[serde(default)]
     pub gate: GateStatus,
+    /// Whether the operator has admitted this formalization (D12). Defaults to
+    /// `Pending` so drafts written before this field existed load cleanly.
+    #[serde(default)]
+    pub admission: Admission,
+}
+
+impl Draft {
+    /// Whether this draft has been admitted (formalization confirmed by a human).
+    pub fn is_admitted(&self) -> bool {
+        matches!(self.admission, Admission::Admitted { .. })
+    }
 }
 
 /// Persisted draft state, keyed by source id.
@@ -111,6 +158,7 @@ pub fn open(state: &DraftState, item: &Item) -> DraftState {
             revision: item.revision.clone(),
             candidate: None,
             gate: GateStatus::Ungated,
+            admission: Admission::Pending,
         },
     );
     DraftState {
@@ -121,7 +169,9 @@ pub fn open(state: &DraftState, item: &Item) -> DraftState {
 
 /// Write a candidate PRL with its gate outcome and re-baseline the draft against the
 /// item's current revision — writing the candidate is confirming it against the current
-/// source, clearing any prior staleness (R-draft-2). Returns a new state.
+/// source, clearing any prior staleness (R-draft-2). A new candidate resets admission
+/// to `Pending`: changing the formal claim invalidates any prior human confirmation.
+/// Returns a new state.
 pub fn set_candidate(
     state: &DraftState,
     item: &Item,
@@ -135,6 +185,7 @@ pub fn set_candidate(
             revision: item.revision.clone(),
             candidate: Some(candidate.into()),
             gate,
+            admission: Admission::Pending,
         },
     );
     DraftState {
@@ -153,6 +204,37 @@ pub fn set_gate(state: &DraftState, id: &str, gate: GateStatus) -> DraftState {
             id.to_string(),
             Draft {
                 gate,
+                ..existing.clone()
+            },
+        );
+    }
+    DraftState {
+        schema: state.schema,
+        drafts,
+    }
+}
+
+/// Admit an existing draft's formalization (D12), recording the review tier and
+/// provenance. Leaves the candidate, gate outcome, and revision baseline intact —
+/// admission is a confirmation, not an edit. No-op if the draft is absent. The caller
+/// supplies `at_unix` so this stays a pure function. Returns a new state.
+pub fn admit(
+    state: &DraftState,
+    id: &str,
+    review: ReviewTier,
+    by: impl Into<String>,
+    at_unix: i64,
+) -> DraftState {
+    let mut drafts = state.drafts.clone();
+    if let Some(existing) = drafts.get(id) {
+        drafts.insert(
+            id.to_string(),
+            Draft {
+                admission: Admission::Admitted {
+                    review,
+                    by: by.into(),
+                    at_unix,
+                },
                 ..existing.clone()
             },
         );
@@ -308,5 +390,53 @@ mod tests {
     fn load_absent_state_is_empty() {
         let tmp = tempfile::tempdir().unwrap();
         assert!(load(tmp.path()).unwrap().drafts.is_empty());
+    }
+
+    // Verifies: REQ019 — admitting records the review tier and provenance while
+    // leaving the candidate and gate intact.
+    #[test]
+    fn admit_records_review_and_provenance() {
+        let it = item("REQ001", "rev-1");
+        let state = set_candidate(
+            &DraftState::new(),
+            &it,
+            "requirement foo { }",
+            GateStatus::Ungated,
+        );
+        assert!(!state.drafts["REQ001"].is_admitted());
+
+        let admitted = admit(&state, "REQ001", ReviewTier::Mandatory, "gg", 1_700_000_000);
+        let d = &admitted.drafts["REQ001"];
+        assert!(d.is_admitted());
+        assert_eq!(d.candidate.as_deref(), Some("requirement foo { }"));
+        assert!(matches!(
+            &d.admission,
+            Admission::Admitted { review: ReviewTier::Mandatory, by, at_unix }
+                if by == "gg" && *at_unix == 1_700_000_000
+        ));
+    }
+
+    // Verifies: REQ019 — editing the candidate after admission resets it to Pending;
+    // a changed formal claim is no longer the confirmed one.
+    #[test]
+    fn editing_candidate_revokes_admission() {
+        let it = item("REQ001", "rev-1");
+        let state = set_candidate(
+            &DraftState::new(),
+            &it,
+            "requirement foo { }",
+            GateStatus::Ungated,
+        );
+        let admitted = admit(&state, "REQ001", ReviewTier::Optional, "gg", 1);
+        assert!(admitted.drafts["REQ001"].is_admitted());
+
+        let edited = set_candidate(&admitted, &it, "requirement bar { }", GateStatus::Ungated);
+        assert!(!edited.drafts["REQ001"].is_admitted());
+    }
+
+    #[test]
+    fn admit_is_a_noop_for_absent_draft() {
+        let after = admit(&DraftState::new(), "REQ404", ReviewTier::Optional, "gg", 1);
+        assert!(after.drafts.is_empty());
     }
 }

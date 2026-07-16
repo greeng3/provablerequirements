@@ -59,9 +59,14 @@ most 0`, unused vocabulary), the generate-then-repair loop (`src/formalize.rs` f
    **D12 read-back renderer SHIPPED (2026-07-16, issue #24)** — `src/prl/readback.rs` renders a
    gate-passed candidate's AST to deterministic CNL (pure fn, NOT an LLM — the independence is the
    point); `provreq draft <ID> --readback` surfaces the formal meaning for the operator to confirm
-   intent (read-only, requires a gate pass, shows vacuity warnings) (REQ018). Still deferred: the
-   risk-tiered human confirm gate + draft→admitted transition, then D13 grounding. See the
-   "Steps 2–3 design" section below.
+   intent (read-only, requires a gate pass, shows vacuity warnings) (REQ018).
+   **D12 human confirm gate SHIPPED (2026-07-16, issue #26)** — `provreq draft <ID> --admit
+[--reviewer NAME] [--yes]` moves a gate-passed draft to `admitted-but-ungrounded` (`Draft.admission`
+   in `src/draft.rs`); risk-tiered (vacuity-flagged → mandatory-review, shown + confirmed; clean →
+   optional, direct); records tier/reviewer/time; editing the candidate revokes admission; the
+   `status.rs` `formalized` funnel count (honest 0 since Step 2) now counts admitted drafts, with
+   `drafting` = in-progress-not-yet-admitted (REQ019). Still deferred: writing the confirmed PRL back
+   onto the subject's item (A6/D14), then D13 grounding. See the "Steps 2–3 design" section below.
 4. **Verify** — run one engine → inspect the verdict tree.
 5. **Annotate** — stage the working-tree proof-carrier edit; operator reviews + commits on their own forge.
 6. **Living loop** — re-run on drift, act on stale verdicts.

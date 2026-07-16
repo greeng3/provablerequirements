@@ -17,10 +17,10 @@ pub struct Coverage {
     pub formalizable_now: usize,
     pub falsifiable_only: usize,
     pub stays_prose: usize,
-    /// Step 3 — items with an in-progress formalization draft. An overlay on the
-    /// formalizable subset, kept distinct from `formalized` (drafting is not done).
+    /// Step 3 — items with an in-progress formalization draft that is not yet admitted.
+    /// An overlay on the formalizable subset, kept distinct from `formalized`.
     pub drafting: usize,
-    /// Step 3 — admitted formalizations; not built yet, honestly reported as 0.
+    /// Step 3 — admitted formalizations (D12): a draft the operator has confirmed.
     pub formalized: usize,
     /// Step 4 — not built yet, honestly reported as 0.
     pub verified: usize,
@@ -45,8 +45,10 @@ pub fn coverage(items: &[Item], triage: &TriageState, drafts: &DraftState) -> Co
             Some(Classification::FalsifiableOnly) => cov.falsifiable_only += 1,
             Some(Classification::StaysProse) => cov.stays_prose += 1,
         }
-        if drafts.drafts.contains_key(&item.id) {
-            cov.drafting += 1;
+        match drafts.drafts.get(&item.id) {
+            Some(d) if d.is_admitted() => cov.formalized += 1,
+            Some(_) => cov.drafting += 1,
+            None => {}
         }
     }
     cov
@@ -94,14 +96,19 @@ mod tests {
         assert_eq!(cov.verified, 0);
     }
 
-    // Verifies: REQ013/REQ011 — drafting is a distinct overlay count, never
-    // conflated with the admitted `formalized` state.
+    // Verifies: REQ013/REQ011/REQ019 — an in-progress draft counts as `drafting`;
+    // once admitted it moves to `formalized` and out of `drafting`.
     #[test]
-    fn drafting_is_distinct_from_formalized() {
+    fn admitted_draft_moves_from_drafting_to_formalized() {
         let items = [item("A"), item("B")];
         let drafts = draft::open(&DraftState::new(), &items[0]);
         let cov = coverage(&items, &TriageState::new(), &drafts);
         assert_eq!(cov.drafting, 1);
         assert_eq!(cov.formalized, 0);
+
+        let admitted = draft::admit(&drafts, "A", draft::ReviewTier::Optional, "gg", 1);
+        let cov = coverage(&items, &TriageState::new(), &admitted);
+        assert_eq!(cov.drafting, 0);
+        assert_eq!(cov.formalized, 1);
     }
 }
