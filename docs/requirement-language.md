@@ -532,5 +532,7 @@ requirement no_message_lost {
   (part 1 REQ016 parse + type/name-check; part 2 REQ017 vacuity sanity + generate-then-repair loop +
   persisted per-draft gate outcome).** Vacuity is a bounded structural set (self-`leads_to`/`precedes`,
   immediate `P or not P` / `P and not P`, `occurs at most 0`, unused vocabulary) — not a
-  satisfiability decision procedure, which stays deferred. **Remaining:** the D12 deterministic
-  PRL→CNL read-back renderer over the AST, and D13 grounding.
+  satisfiability decision procedure, which stays deferred. **The D12 deterministic PRL→CNL read-back
+  renderer now exists too (REQ018, `src/prl/readback.rs`)** — a pure AST→CNL function, independent of
+  the forward LLM. **Remaining:** the risk-tiered human confirm gate (D12's second half) and D13
+  grounding.

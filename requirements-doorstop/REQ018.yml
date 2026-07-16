@@ -1,0 +1,33 @@
+active: true
+derived: false
+header: ''
+level: 1.17
+links: []
+normative: true
+ref: ''
+reviewed: TaiObreHs4GYm67_N0RqYDrb8mAjDMBbyKw-hPtDSb8=
+text: |
+  The tool renders a deterministic controlled-natural-language read-back of a
+  candidate PRL (the D12 read-back), computed as a pure function over the parsed
+  abstract syntax tree — never an LLM call. This independence is the point: the
+  forward translation is the untrusted LLM, so a read-back produced by the same model
+  would faithfully restate its own misreading and the human would confirm a spec gap.
+  A trusted renderer instead surfaces the actual formal meaning of what the gate
+  accepted, so the human confirms intent against the real artifact.
+
+  The read-back covers the working-set grammar: the requirement name and category
+  (as words), `each x: Sort` quantification, the specification patterns (never,
+  always, eventually, `leads_to` with an optional `within`, precedes rendered in its
+  faithful direction — every consequent is preceded by its antecedent — `occurs at
+  most k times` with correct pluralization, and can_reach as reachability), the Dwyer
+  scopes, and boolean atom expressions with compound operands parenthesized so the
+  grouping is never ambiguous. Predicate applications, `within` durations, `with`
+  guards, and the assume/strength/evidence bodies are shown as-is.
+
+  The operator runs `provreq draft <ID> --readback`, which is read-only and requires a
+  gate pass: the read-back surfaces formal meaning, so a candidate the gate rejects has
+  no settled meaning to render and the tool reports the gate errors to fix first. When
+  the candidate passes with vacuity warnings, the read-back is shown with those
+  warnings noted for the operator to weigh while confirming. The risk-tiered human
+  confirm gate and the draft-to-admitted lifecycle transition are a later slice, and
+  D13 grounding is later still.

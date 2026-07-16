@@ -60,6 +60,15 @@ fn is_stop_kw(w: &str) -> bool {
     )
 }
 
+/// The section keywords of a `requirement { … }` block — boundaries a structured
+/// section value (`category`) must not read past.
+fn is_section_kw(w: &str) -> bool {
+    matches!(
+        w,
+        "category" | "vocabulary" | "assume" | "require" | "strength" | "evidence"
+    )
+}
+
 struct Parser<'a> {
     src: &'a str,
     toks: Vec<Token>,
@@ -155,10 +164,33 @@ impl<'a> Parser<'a> {
     // --- raw-source recovery ------------------------------------------------
 
     /// Raw text from `from` byte offset to the end of that source line, advancing the
-    /// cursor past every token it covers. Used for `category`/`strength`/`evidence`.
+    /// cursor past every token it covers. Used for the free-text `strength`/`evidence`.
     fn raw_line(&mut self, from: usize) -> String {
         let rest = &self.src[from..];
         let stop = from + rest.find('\n').unwrap_or(rest.len());
+        while self.pos < self.toks.len() && self.toks[self.pos].start < stop {
+            self.pos += 1;
+        }
+        self.src[from..stop].trim().to_string()
+    }
+
+    /// Raw `category:` value — like [`Self::raw_line`], but also stops at the next
+    /// section keyword or a closing `}`. Category is a structured token list, so on a
+    /// single-line block it must not swallow the sections that follow it.
+    fn raw_category(&mut self, from: usize) -> String {
+        let rest = &self.src[from..];
+        let mut stop = from + rest.find('\n').unwrap_or(rest.len());
+        for t in &self.toks[self.pos..] {
+            if t.start >= stop {
+                break;
+            }
+            let boundary = matches!(&t.kind, Tok::Punct('}'))
+                || matches!(&t.kind, Tok::Ident(w) if is_section_kw(w));
+            if boundary {
+                stop = t.start;
+                break;
+            }
+        }
         while self.pos < self.toks.len() && self.toks[self.pos].start < stop {
             self.pos += 1;
         }
@@ -246,7 +278,7 @@ impl<'a> Parser<'a> {
                     self.pos += 1;
                     let colon_end = self.colon_end();
                     let line = self.line();
-                    let raw = self.raw_line(colon_end);
+                    let raw = self.raw_category(colon_end);
                     req.category = self.parse_categories(&raw, line);
                 }
                 Some("vocabulary") => {
@@ -728,6 +760,19 @@ mod tests {
     fn parses_category_list() {
         let r = parse("requirement r { category: 2a + 2b\n require { always ok } }").unwrap();
         assert_eq!(r.category, vec![Category::Model, Category::Runtime]);
+    }
+
+    // A single-line block must not let `category` swallow the sections that follow it
+    // (it stops at the next section keyword, not just the newline).
+    #[test]
+    fn category_stops_at_next_section_on_one_line() {
+        let r = parse(
+            "requirement r { category: 2b vocabulary { state ok(x) } require { always ok(x) } }",
+        )
+        .unwrap();
+        assert_eq!(r.category, vec![Category::Runtime]);
+        assert_eq!(r.vocabulary.len(), 1);
+        assert_eq!(r.require.len(), 1);
     }
 
     #[test]
