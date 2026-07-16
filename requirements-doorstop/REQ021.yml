@@ -1,0 +1,36 @@
+active: true
+derived: false
+header: ''
+level: '1.20'
+links: []
+normative: true
+ref: ''
+reviewed: kUH7Mji2pmCtu-CrsY4T8WvuXiEYgCVw2lrxijQbR9U=
+text: |
+  The tool grounds a formalization by binding each PRL vocabulary symbol (its declared
+  event/state predicates) to a concrete observable, and validates the category-1
+  (code-state) bindings by a dry-run against the subject's real source — the D13
+  grounding step, first slice. A binding records the symbol, its observable, the
+  observation category (1 code / 2a model / 2b runtime / 3 UI), and its fidelity
+  (definitional | observed | probed), which caps the strength any future verdict can
+  claim. Bindings persist on the draft and are cleared when the candidate is edited,
+  because a changed formal claim may no longer speak of the same symbols. A binding may
+  only name a symbol the requirement actually declares; grounding an undeclared symbol
+  is rejected.
+
+  The operator attaches a binding with `provreq draft <ID> --ground SYMBOL=OBSERVABLE`
+  (fidelity defaults from the category; `--fidelity` overrides) and validates with
+  `provreq draft <ID> --dry-run`. The dry-run walks the subject tree — skipping the
+  companion tree and version-control metadata — and reports the real source spans each
+  category-1 observable matches, so the operator confirms the binding points where they
+  intended. Matches are recomputed live and never stored, because code drifts under a
+  binding exactly as prose drifts under a draft.
+
+  A requirement grounds only when every declared symbol is bound in category 1 and each
+  such binding matches at least one real span. Any unbound symbol, any no-match code
+  binding, or any non-category-1 binding leaves the requirement admitted-but-ungrounded
+  (parked), never a verdict: a no-match never yields "unknown" because no engine ran
+  (honest provenance), and a non-code binding is honestly reported as deferred because
+  its observation engine is not wired yet. This keeps the first grounding slice truthful
+  while the model, runtime, and UI dry-runs — and cross-category refinement mappings —
+  remain later slices.

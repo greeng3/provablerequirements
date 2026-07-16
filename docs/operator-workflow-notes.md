@@ -212,7 +212,20 @@ formalize pipeline with draft persistence (`R-draft-*`, `R-ground-*`). The reqfo
     The API key is read only from the named env var, never the file. No `llm:` block → triage uses
     the prose-floor default and says so. Items the model omits/mislabels fall back to stays-prose.
 
-**Next slice:** the formalize pipeline (Step 3 — `R-draft-*`, `R-ground-*`).
+- **Issue #30** — D13 grounding, first slice (REQ021). `src/grounding.rs` binds each PRL vocabulary
+  symbol to a concrete observable (`Binding { symbol, category, observable, fidelity }`, D4/D5) and
+  dry-runs the **category-1 (code-state)** bindings against the subject's real source
+  (`dry_run_code` walks the tree, skips the companion tree + `.git`, substring-matches, capped).
+  Bindings persist on the `Draft` (`--ground SYMBOL=OBSERVABLE`), cleared on candidate edit; matches
+  are recomputed live, never stored. A requirement grounds only when every symbol is bound in
+  category 1 and each binding matches ≥1 span (`--dry-run`); any unbound symbol, no-match code
+  binding, or non-code binding leaves it **parked** (`admitted-but-ungrounded`), honestly reported —
+  no-match never fakes a verdict (R-ground-1), non-code categories are deferred until their engines
+  are wired. Real 2a/2b/3 dry-run, D6 cross-category refinement mappings, and regex/AST-precise
+  queries are later slices.
+
+**Next slice:** real category 2a/2b/3 grounding dry-run (needs the model/runtime/UI observation
+engines wired — the R-eng-* / Design-C provisioning axis), then Step 4 (verdict).
 
 ## Packaging — Design A (old, superseded)
 

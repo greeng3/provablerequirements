@@ -9,6 +9,7 @@ pub mod adopt;
 pub mod doorstop;
 pub mod draft;
 pub mod formalize;
+pub mod grounding;
 pub mod llm;
 pub mod prl;
 pub mod server;
