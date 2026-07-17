@@ -1,0 +1,29 @@
+active: true
+derived: false
+header: ''
+level: 1.27
+links: []
+normative: true
+ref: ''
+reviewed: U4e9gp0zVgd6VkjLOvzhHJuEX7dMf66H-PtvH7N16Xc=
+text: |
+  A category-2a grounding binds a requirement's vocabulary to a model, not to the subject's
+  own code. The model is a TLA+ specification the operator wrote, and a 2a binding names a
+  definition in it: an operator definition, a declared variable, or a declared constant. The
+  binding resolves when exactly one definition of that name exists in the subject's TLA+.
+
+  Predicates and sorts alike resolve through one model resolver, because TLA+ does not
+  distinguish an action from a state operator from a data set at the name level; every one is
+  a named definition. This is unlike the code world, where a predicate binds to a function
+  and a sort to a type and the two must never cross-resolve.
+
+  A symbol that resolves to no definition, or to several, does not ground: an unresolved
+  binding parks the requirement exactly as in the code world, and an ambiguous name is never
+  silently resolved to one of its candidates. A category-2a requirement grounds only when
+  every symbol it speaks of resolves to a definition in the model.
+
+  A model binding establishes that the definition exists, and no more. Whether it has the
+  right arity or the right shape is a question for the engine that checks the model, and is
+  deferred. The resolution is a structural read of the specification, not a full parse, so a
+  name introduced only by a local binding or an imported module is not seen; a resolved
+  binding reports this limit rather than implying more was checked.

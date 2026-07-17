@@ -4,5 +4,10 @@
   // so the editor and command line agree.
   "default": true,
   // Prose is wrapped by hand for readability, not to a fixed column width.
-  "MD013": false
+  "MD013": false,
+  // Match Prettier's nested-list indent (4 spaces under a `- ` item). Prettier runs first
+  // in `make fmt`, so MD007's default of 2 contradicted the formatter and made pre-merge
+  // fail on exactly what step 2 had just written. Aligning the linter with the formatter is
+  // this file's stated purpose.
+  "MD007": { "indent": 4 }
 }
