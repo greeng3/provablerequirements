@@ -311,34 +311,63 @@ only; sort/type existence when cat-1 needs it`). Cat-1 now needs it: a harness c
   forbids. REQ026 (1.25). Deferred: cross-checking a typed parameter's sort against the quantifier's,
   generics, path-qualified types.
 
-**Next slice:** wire the **first real engine** so `verify` can produce a real `holds`/`fails` instead of
-only `unknown / no-engine`. **Kani is engine #1 — first, not only** (settled 2026-07-17): D2b wants a
-per-language **ensemble**, and the verdict object already reserves a per-tool evidence map for tools
-with differing soundness directions. Kani goes first because it takes **additive proof harnesses** (a
-generated file), so it never forces the "does provreq write annotations into the subject's own code?"
-decision — Prusti/Creusot would force it immediately, and Verus needs the subject _written in_ its Rust
-subset (a rewrite, against the adopt-existing-repos premise). That call stays open, to be made
-deliberately when `proven` is worth it. The binding is **core-owned**; Kani is **lowering #1**, not the
-definition (D2 "one meaning, lowering to each engine"). Honest under D8/D9: bounded → a pass is
-`model-checked (bounded)`, **never** `proven`; a failure is a real counterexample = D9's re-checkable
-witness. The sort gap is **closed** (#42), so `let u: User = kani::any()` now has a real type behind
-it. **Install/CI decisions (settled 2026-07-17):** Kani goes in `.devcontainer/Dockerfile`, not just
-the running container — the repo bakes in every workflow tool (`cargo install cargo-audit --locked` is
-the precedent), a runtime-only install evaporates on rebuild, and `engines` then reports Missing,
-indistinguishable from a real bug in our own code; add it to the `postCreateCommand` versions summary
-too. `cargo kani setup` must run in the image as well (`cargo install kani-verifier` only lays down the
-driver; `setup` fetches CBMC + solvers — and that is what grows the image). CI's main `test` job stays
-**Kani-free by design** (R-eng-2: the common user state is _engine absent_, and that path is the one
-most worth proving continuously); real-run tests get `#[ignore]`, plus a **separate parallel `kani`
-job** running `cargo test -- --ignored` so the real-engine path is covered without slowing the main
-job. Everything else cat-1 needs is in place: groundable against real source (#30), a
-gate-passing cat-1 requirement is **guaranteed temporal-free pre/post** (#38) — exactly what a verifier
-consumes — the binding now resolves to a real predicate at a real location (#40), and the verdict object
-is ready to receive the result (#36). The remaining work is integration, not design: cat-1's engine is
-`NotWired` (#34 called it ready only because of the overclaim #38 fixed), and Kani is not installed here
-(`cargo install --locked kani-verifier` + `cargo kani setup` is heavy — it pulls CBMC; check disk first).
-Also worth folding in: `ready` still means "the engine binary is present", not "provreq can run it" —
-that gap closes when the first engine is wired and `ready` earns its full meaning.
+- **Kani wired as cat-1 engine #1: issue #44 / PR #TBD (2026-07-17).** `verify` now produces a real
+  `holds`/`fails` for a grounded cat-1 requirement instead of only `unknown / no-engine`. **Kani is
+  engine #1 — first, not only:** D2b wants a per-language **ensemble**, and the verdict object reserves a
+  per-tool evidence map for tools with differing soundness directions. Kani goes first because it takes
+  **additive proof harnesses** (a generated file under the subject's `tests/`, importing its public API),
+  so it never forces the "does provreq write annotations into the subject's own code?" decision —
+  Prusti/Creusot would force it immediately, and Verus needs the subject _written in_ its Rust subset (a
+  rewrite, against the adopt-existing-repos premise). That call stays open. **The whole harness shape was
+  run against real Kani 0.67.0 BEFORE any lowering was written** — holds → `VERIFICATION:- SUCCESSFUL`,
+  violated → `FAILED` + `Failed Checks`, counterexample via `-Z concrete-playback`, and a sort without
+  `kani::Arbitrary` → `E0277`, exit 101 — so the design rested on observed behavior, not guesses.
+  - **New module `src/kani.rs`** owns lowering + run + output→outcome, so the core never learns what Kani
+    is (D2's "one meaning, lowering to each engine" runs in this direction too). `lower` is **pure** and
+    Kani-free-testable; only `run` touches the tool. Lowering target is small because the gate (#38)
+    already guarantees cat-1 is temporal-free: `always`/`never` over boolean combinations, quantified.
+    `never P` = `always not P`. Anything it cannot faithfully express (a scope, a `with` guard, an
+    argument that is not the quantified variable) is a `NotLowerable` → honest `unknown`, **never** an
+    approximation.
+  - **The call follows the subject's real signature.** `rust_adapter::Resolution::Resolved` now carries
+    `params: Vec<ParamMode>` (by-ref vs by-value, judged syntactically like everything else the adapter
+    does), so the harness emits `login(&u)` or `login(u)` to match — a mismatch surfaces as a harness that
+    won't compile → `unknown`, never a wrong verdict. Cross-checking a param's _type_ against the sort is
+    still deferred (#42's open item); it also lands as a compile-error `unknown`.
+  - **Verdict split (D7/D8/D9):** polarity (`status`) from basis (`Basis::ModelCheckedBounded` — the ONLY
+    rung, because Kani is bounded; `proven` is _unrepresentable_, so an engine cannot overclaim by
+    accident) from witness (the concrete counterexample as a runnable replay test — D9's re-checkable
+    witness). The read-back spells out "verified over the states the engine explored, NOT proven for all
+    executions" so a bounded pass can't be misread even at a glance. New `UnknownReason::Inconclusive` for
+    "engine ran, couldn't decide" — and its detail prefers the compiler's own `error…` line over the tail
+    of the log, because the actionable cause (`User: kani::Arbitrary is not satisfied`) is at the _top_ of
+    a rustc diagnostic.
+  - **`engines` honesty, both ends (the pre-existing overclaim this slice had to fix):** cat 1 gained a
+    real probe (`cargo-kani`), and **2a/2b/3 LOST their probes** — a probe now exists iff provreq can
+    _run_ the engine, so `probe: Some` means "wired", not "we know the binary's name". Otherwise an
+    operator with `playwright` on PATH would see cat 3 report ready while `verify` still answered
+    `no-engine` — the exact REQ024 overclaim wearing a different hat. `ready` finally means "provreq can
+    run it".
+  - **No litter in someone else's repo:** the harness file _and_ any `tests/` dir provreq created are
+    removed on every path incl. failure; an existing file is never clobbered (a collision is `unknown`,
+    not an overwrite).
+  - **Install/CI (settled 2026-07-17, done here):** Kani in `.devcontainer/Dockerfile` (`cargo install
+    --locked kani-verifier` + `cargo kani setup` for CBMC/solvers) + `postCreateCommand` version summary.
+    CI's main `test` job stays **Kani-free by design** (R-eng-2: engine-absent is the common user state
+    and the path most worth proving continuously); real-engine tests are `#[ignore]`d and run by a
+    **separate parallel `kani` job** (`cargo test -- --ignored`). Verified here: 164 Kani-free unit tests +
+    4 real-engine tests (holds/fails-with-witness/inconclusive/no-trace) + a live CLI smoke against a real
+    cargo subject, all green. REQ027 (1.26). Deferred: default-unwind/timeout config → provreq.yml; the
+    param-type-vs-sort cross-check (#42); the D2b ensemble's second engine + per-tool evidence map +
+    cross-check.
+
+**Next slice:** with cat-1 proving end to end, the open forks are (a) the **D2b ensemble's second cat-1
+engine** (a `proven`-capable deductive verifier — Prusti/Creusot/Verus — which forces the annotate-the-
+subject decision Kani let us defer) and its per-tool evidence map + core-vs-native cross-check, or (b) a
+**second category** (2a model checking → TLC), which exercises the multi-category machinery the fragment
+check and readiness already carry. Everything cat-1 needs is in place: groundable against real source
+(#30), gate-guaranteed temporal-free (#38), predicate + sort resolution (#40/#42), verdict object (#36),
+and now a wired engine (#44).
 
 ## Packaging — Design A (old, superseded)
 

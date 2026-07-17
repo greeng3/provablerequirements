@@ -1041,7 +1041,22 @@ fn run_verify(subject: &Path, id: &str) -> Result<()> {
         subject_commit: subject_head_commit(subject),
         tool_version: env!("CARGO_PKG_VERSION").to_string(),
     };
-    let verdict = provreq::verdict::from_grounding(id, &grounding_result, provenance);
+    // Only a GROUNDED requirement reaches an engine: an unresolved binding means there is
+    // nothing to check the claim through, and running an engine against it would answer a
+    // question nobody asked (R-ground-1).
+    let verdict = match &grounding_result {
+        Grounding::Grounded => engine_verdict(
+            subject,
+            id,
+            &requirement,
+            &draft.bindings,
+            &by_symbol,
+            provenance,
+        ),
+        Grounding::Parked { .. } => {
+            provreq::verdict::from_grounding(id, &grounding_result, provenance)
+        }
+    };
     println!("{}", provreq::verdict::render(&verdict));
     // An admitted draft whose source prose moved is worth flagging alongside the verdict.
     if draft::is_stale(draft, item) {
@@ -1050,6 +1065,63 @@ fn run_verify(subject: &Path, id: &str) -> Result<()> {
         );
     }
     Ok(())
+}
+
+/// Ask the requirement's engine, and turn what it says into a verdict (REQ027).
+///
+/// The category gate is explicit rather than left to "only category 1 has a probe": a future
+/// wired 2a must route to ITS engine, not silently inherit Kani's lowering.
+fn engine_verdict(
+    subject: &Path,
+    id: &str,
+    requirement: &Requirement,
+    bindings: &[Binding],
+    resolutions: &BTreeMap<String, Resolution>,
+    provenance: provreq::verdict::Provenance,
+) -> provreq::verdict::Verdict {
+    let category = grounding::default_category(requirement);
+    let engine = engine::engine_for(category);
+    let status = engine::detect(&engine);
+
+    // Not wired (2a/2b/3) or not installed (Kani absent) — both leave the property
+    // unchecked, but they ask different people to act, so the verdict says which.
+    if category != grounding::BindCategory::Code || !status.is_ready() {
+        return provreq::verdict::no_engine(
+            id,
+            vec![format!(
+                "category {} routes to {} — {}",
+                category.as_label(),
+                engine.name,
+                status.describe()
+            )],
+            provenance,
+        );
+    }
+
+    let Some(crate_name) = provreq::kani::subject_crate_name(subject) else {
+        return provreq::verdict::inconclusive(
+            id,
+            vec![
+                "the subject is not a cargo crate (`cargo metadata` found no package), so a \
+                 Kani harness has nothing to import"
+                    .to_string(),
+            ],
+            provenance,
+        );
+    };
+    let harness = match provreq::kani::lower(
+        requirement,
+        &crate_name,
+        bindings,
+        resolutions,
+        &provreq::kani::harness_name(id),
+    ) {
+        Ok(h) => h,
+        // A claim we cannot faithfully express is inconclusive, never approximated (D2).
+        Err(e) => return provreq::verdict::inconclusive(id, vec![e.reason], provenance),
+    };
+    println!("  running {} ({})...", engine.name, status.describe());
+    provreq::kani::run(subject, &harness).into_verdict(id, provenance)
 }
 
 /// Best-effort subject git HEAD for verdict provenance (D9). `None` when the subject is not

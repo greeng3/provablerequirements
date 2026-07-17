@@ -6,23 +6,26 @@
 //! *not formalized*.
 //!
 //! The R-eng-1 split: category 1 (code) is **toolchain-welded** — its engine needs the
-//! subject's own compiler (R-eng-4), so it is not a shared portable binary this module can
-//! probe by name. Categories 2a/2b/3 are **artifact-fed** portable engines (TLC, MonPoly,
-//! a UI driver) detected on `PATH`.
+//! subject's own compiler (R-eng-4), so it is deployed into the dev env rather than fed a
+//! portable artifact. Categories 2a/2b/3 are **artifact-fed** portable engines (TLC,
+//! MonPoly, a UI driver). Both are detected the same way when wired — a `PATH` probe — and
+//! only category 1 (Kani) is wired today, so 2a/2b/3 report NotWired.
 //!
 //! "Toolchain-welded" classifies *how an engine is deployed*, never *whether it is
 //! present*: R-eng-2 requires welded engines to be provisioned into the dev env and
 //! detected like any other. Reading the class as readiness is what REQ024 fixed — see
 //! [`EngineStatus::is_ready`].
 //!
-//! `// ponytail:` readiness here still means "the engine binary is present", not "provreq
-//! can run it" — no engine is wired yet, so no `Available` engine can actually back a
-//! verdict either. That gap closes when the first engine is wired and `ready` earns its
-//! full meaning; category 1 is fixed now because it claimed readiness with no detection at
-//! all, which is strictly worse.
+//! **`ready` now means what it says.** It previously meant only "the engine binary is
+//! present", because no engine was wired and so no `Available` engine could actually back a
+//! verdict. REQ027 closed that gap from both ends: category 1 gained a real engine (Kani),
+//! and 2a/2b/3 lost the probes that would have reported a readiness nothing could honor. An
+//! engine is probed only if provreq can run it, so `Available` ⇒ a verdict is really
+//! obtainable.
 //!
 //! Implements: REQ022 (engine coverage — detect installed engines, report readiness),
-//! REQ024 (a category-1 engine that is not wired never reports ready).
+//! REQ024 (a category-1 engine that is not wired never reports ready), REQ027 (category 1
+//! is wired to Kani; only a runnable engine is probed).
 
 use crate::grounding::BindCategory;
 use std::process::Command;
@@ -40,9 +43,9 @@ pub struct EngineProbe {
     pub min_version: Option<&'static str>,
 }
 
-/// A verification engine a PRL category routes to. `probe` is `None` when no integration
-/// exists yet, which today is the toolchain-welded category-1 engine — it cannot be
-/// probed as one portable binary, and nothing is wired to run it.
+/// A verification engine a PRL category routes to. `probe` is `Some` exactly when provreq
+/// has an integration that can run the engine — so `None` means "not wired", which is ours
+/// to fix, and a failed probe means "not installed", which is the operator's.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Engine {
     pub category: BindCategory,
@@ -94,50 +97,50 @@ impl EngineStatus {
     }
 }
 
-/// The category→engine registry: exactly one engine per PRL category. Engine names and
-/// routing follow the settled design (docs/requirement-language.md): 2a model checking is
+/// The category→engine registry: exactly one engine per PRL category.
+///
+/// **A probe exists only for an engine provreq can actually run.** That is the whole
+/// meaning of `probe: Option` — not "we know the binary's name", but "there is an
+/// integration behind it". Detecting a binary we cannot drive would report a readiness we
+/// cannot honor: the operator installs the tool, `engines` turns green, and `verify` still
+/// answers `no-engine`. REQ024 fixed exactly that overclaim for category 1; REQ027 keeps
+/// 2a/2b/3 honest by the same rule, and each gets its probe when its lowering is wired.
+///
+/// Routing follows the settled design (docs/requirement-language.md): 2a model checking is
 /// the TLA+ lineage (TLC), 2b runtime monitoring is MonPoly (MFOTL), 3 UI is a
 /// Selenium/Playwright driver.
 pub fn registry() -> Vec<Engine> {
     vec![
         Engine {
-            // The category-1 engine is a deductive verifier over the temporal-free
-            // fragment (docs/requirement-language.md, Core layer: "1 → the temporal-free
-            // fragment (pre/post/invariants) → Viper/deductive"); for Rust the candidates
-            // are Prusti/Verus/Creusot/Kani (D2b). It is toolchain-welded (R-eng-1/R-eng-4)
-            // because it needs the subject's own compiler, so it is not a shared portable
-            // binary this module can probe by name — `probe: None` says "no integration
-            // yet", NOT "assume ready". Picking and wiring the verifier is the next slice.
+            // Category 1 is the temporal-free fragment (pre/post/invariants), and its engine
+            // is Kani — #1, first and not only (D2b wants a per-language ensemble). It is
+            // toolchain-welded (R-eng-1/R-eng-4): it needs the subject's own compiler, so it
+            // is not a portable artifact-fed binary. That classifies how it is DEPLOYED, not
+            // whether it is present — R-eng-2 requires it to be provisioned into the dev env
+            // and detected like any other, which is what this probe does. `cargo-kani` is the
+            // binary `cargo kani` needs on PATH, so it is the one worth probing.
             category: BindCategory::Code,
-            name: "deductive verifier",
-            probe: None,
+            name: "Kani",
+            probe: Some(EngineProbe {
+                bin: "cargo-kani",
+                version_arg: "--version",
+                min_version: None,
+            }),
         },
         Engine {
             category: BindCategory::Model,
             name: "TLC (TLA+)",
-            probe: Some(EngineProbe {
-                bin: "tlc",
-                version_arg: "-h",
-                min_version: None,
-            }),
+            probe: None,
         },
         Engine {
             category: BindCategory::Runtime,
             name: "MonPoly",
-            probe: Some(EngineProbe {
-                bin: "monpoly",
-                version_arg: "-version",
-                min_version: None,
-            }),
+            probe: None,
         },
         Engine {
             category: BindCategory::Ui,
             name: "Selenium/Playwright driver",
-            probe: Some(EngineProbe {
-                bin: "playwright",
-                version_arg: "--version",
-                min_version: None,
-            }),
+            probe: None,
         },
     ]
 }
@@ -271,8 +274,9 @@ mod tests {
     use super::*;
     use std::collections::BTreeMap;
 
-    // Verifies: REQ022 — the registry routes every PRL category to exactly one engine,
-    // with category 1 toolchain-welded (no portable probe) and the rest artifact-fed.
+    // Verifies: REQ022/REQ027 — the registry routes every PRL category to exactly one
+    // engine, and category 1 is now wired to Kani (probed by the binary `cargo kani`
+    // actually needs).
     #[test]
     fn registry_covers_every_category_once() {
         let reg = registry();
@@ -284,20 +288,34 @@ mod tests {
         ] {
             assert_eq!(reg.iter().filter(|e| e.category == cat).count(), 1);
         }
-        assert!(engine_for(BindCategory::Code).probe.is_none());
-        assert!(engine_for(BindCategory::Model).probe.is_some());
+        let code = engine_for(BindCategory::Code);
+        assert_eq!(code.name, "Kani");
+        assert_eq!(code.probe.expect("cat-1 is wired").bin, "cargo-kani");
     }
 
-    // Verifies: REQ024 (R-eng-2) — the category-1 engine has no integration yet, so it
-    // reports NotWired and is NOT ready. It previously claimed readiness unconditionally
-    // from being toolchain-welded, which reported every category-1 requirement as
-    // engine-ready when no verifier existed at all.
+    // Verifies: REQ027 (R-eng-2/3) — an engine is probed ONLY if provreq can run it. A
+    // category with no lowering reports NotWired even when its binary is installed, because
+    // reporting `ready` for an engine nothing drives is the REQ024 overclaim wearing a
+    // different hat: the operator installs the tool, `engines` turns green, and `verify`
+    // still answers `no-engine`.
     #[test]
-    fn code_engine_is_not_wired_and_not_ready() {
-        assert_eq!(
-            detect(&engine_for(BindCategory::Code)),
-            EngineStatus::NotWired
-        );
+    fn unwired_categories_are_not_probed_and_never_report_ready() {
+        for cat in [BindCategory::Model, BindCategory::Runtime, BindCategory::Ui] {
+            let engine = engine_for(cat);
+            assert!(
+                engine.probe.is_none(),
+                "{} has no lowering, so probing its binary would promise a verdict provreq \
+                 cannot produce",
+                engine.name
+            );
+            assert_eq!(detect(&engine), EngineStatus::NotWired);
+            assert!(!detect(&engine).is_ready());
+        }
+    }
+
+    // Verifies: REQ024 — `NotWired` can never back a verdict, whoever reports it.
+    #[test]
+    fn an_unwired_engine_is_never_ready() {
         assert!(
             !EngineStatus::NotWired.is_ready(),
             "an unwired engine can never back a verdict"

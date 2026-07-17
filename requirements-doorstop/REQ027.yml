@@ -1,0 +1,37 @@
+active: true
+derived: false
+header: ''
+level: 1.26
+links: []
+normative: true
+ref: ''
+reviewed: hNkMgC5oOhQD1YdGTK_IHBwAD_816QiDYafi4e9GFEU=
+text: |
+  A grounded category-1 requirement earns a real verdict from a verification engine, rather
+  than an honest placeholder. The engine is Kani, the first category-1 engine wired: a
+  bounded model checker driven through an additive proof harness that imports the subject's
+  public interface and changes nothing in the subject's own code.
+
+  The requirement is lowered to a harness that instantiates each quantified variable over its
+  bound type and asserts the requirement's invariant. Only a grounded requirement is lowered:
+  an unresolved binding leaves nothing for the claim to be checked through, so no engine is
+  run. Anything the lowering cannot faithfully express — a scoped claim, a guard the tool
+  never parsed, an argument that is not a quantified variable — is reported as undecided, not
+  approximated.
+
+  A verdict separates its polarity from its basis. A pass is reported as model-checked over a
+  bounded state space, never as proven for all executions, because a bounded checker
+  establishes the claim only over the states it explored. A failure carries the engine's
+  concrete counterexample as a re-checkable witness, which the operator can replay against the
+  subject. An engine that runs but cannot decide — because the harness does not compile, or
+  the run errors — yields an honest unknown that names its cause, and is never read as either
+  answer.
+
+  An engine is reported ready only when the tool can actually run it, not merely when some
+  binary of its name is present. A category with no lowering is reported as not wired even
+  when a matching binary is installed, because reporting readiness for an engine nothing
+  drives promises a verdict that cannot be produced.
+
+  Running an engine leaves no trace in the subject: the generated harness, and any directory
+  created to hold it, are removed after the run, including when the run fails, and an existing
+  file is never overwritten.
