@@ -41,6 +41,6 @@
     ],
     // Install the Node-based linters/formatters (need the Node feature above) and
     // print a versions summary so a freshly built container is self-verifying.
-    "postCreateCommand": "npm install -g markdownlint-cli2 prettier && echo '--- tool versions ---' && git --version && glab --version && node --version && markdownlint-cli2 --version && prettier --version && yamllint --version && doorstop --version && cargo kani --version",
+    "postCreateCommand": "npm install -g markdownlint-cli2 prettier && echo '--- tool versions ---' && git --version && glab --version && node --version && markdownlint-cli2 --version && prettier --version && yamllint --version && doorstop --version && cargo kani --version && java -cp \"$TLA2TOOLS_JAR\" tlc2.TLC | head -1",
     "shutdownAction": "stopContainer"
 }
