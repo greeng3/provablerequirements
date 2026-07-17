@@ -46,14 +46,33 @@ fn is_skipped_dir(path: &Path, companion_root: &Path) -> bool {
         .unwrap_or(false)
 }
 
+/// How one parameter of a resolved predicate takes its argument. The only thing an engine
+/// needs in order to *call* the predicate, and — consistent with this module's
+/// syntax-not-types limit — the only thing `syn` can honestly report: whether the parameter
+/// is **written** as a reference.
+///
+/// `&mut` and a `self` receiver both read as [`ParamMode::ByRef`]. Neither is a sensible
+/// state predicate, and a generated call would fail to compile rather than mislead — an
+/// honest `unknown`, which is the right outcome for a shape we cannot faithfully call.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ParamMode {
+    ByRef,
+    ByValue,
+}
+
 /// What resolving one cat-1 binding against the subject's Rust found. Every non-resolved
 /// variant is a *distinct operator action* — a typo, a name collision, a wrong predicate,
 /// or a non-boolean — so they stay distinct rather than collapsing to "not found".
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Resolution {
     /// Exactly one function of that name, with matching arity, syntactically returning
-    /// `bool`. The only variant that grounds.
-    Resolved(CodeMatch),
+    /// `bool`. The only variant that grounds. `params` carries how each parameter takes its
+    /// argument, in declaration order, so [`crate::kani`] can generate a call that matches
+    /// the subject's real signature instead of guessing at `&u` versus `u`.
+    Resolved {
+        at: CodeMatch,
+        params: Vec<ParamMode>,
+    },
     /// No function of that name anywhere in the subject's Rust.
     NotFound,
     /// Several functions share the name. Never guessed between — the operator must
@@ -76,7 +95,7 @@ impl Resolution {
     /// asks. Only [`Resolution::Resolved`] grounds; everything else parks the requirement
     /// (R-ground-1: a no-resolve never fakes a verdict).
     pub fn is_resolved(&self) -> bool {
-        matches!(self, Resolution::Resolved(_))
+        matches!(self, Resolution::Resolved { .. })
     }
 
     /// The operator-facing read-back for one binding (D13: "here is what your binding
@@ -85,7 +104,7 @@ impl Resolution {
     /// cannot perform.
     pub fn describe(&self, symbol: &str, observable: &str) -> String {
         match self {
-            Resolution::Resolved(at) => format!(
+            Resolution::Resolved { at, .. } => format!(
                 "{symbol} → `{observable}` resolves to {}:{}  {}\n      (syntactic check \
                  only — `syn` sees no types, so a `bool` alias or `Result<bool>` would \
                  pass here)",
@@ -259,17 +278,17 @@ pub fn resolve(
 /// One function declaration found in the subject, with the facts the check needs.
 struct FoundFn {
     at: CodeMatch,
-    arity: usize,
+    params: Vec<ParamMode>,
     returns: String,
 }
 
 /// Decide whether a single found function can stand for the predicate. Arity is checked
 /// before the return type so the message names the more fundamental mismatch first.
 fn classify(f: FoundFn, arity: usize) -> Resolution {
-    if f.arity != arity {
+    if f.params.len() != arity {
         return Resolution::WrongArity {
             expected: arity,
-            found: f.arity,
+            found: f.params.len(),
             at: f.at,
         };
     }
@@ -279,7 +298,10 @@ fn classify(f: FoundFn, arity: usize) -> Resolution {
             at: f.at,
         };
     }
-    Resolution::Resolved(f.at)
+    Resolution::Resolved {
+        at: f.at,
+        params: f.params,
+    }
 }
 
 /// Every function named `name` in the subject's `.rs` files, including inside inline
@@ -354,8 +376,8 @@ fn collect_fns(items: &[syn::Item], name: &str, rel: &str, text: &str, out: &mut
     }
 }
 
-/// Build the record for one matched signature: where it is, how many parameters it takes,
-/// and how its return type is written.
+/// Build the record for one matched signature: where it is, how each parameter takes its
+/// argument, and how its return type is written.
 fn found(sig: &syn::Signature, rel: &str, text: &str) -> FoundFn {
     let line = sig.ident.span().start().line;
     FoundFn {
@@ -364,8 +386,27 @@ fn found(sig: &syn::Signature, rel: &str, text: &str) -> FoundFn {
             line,
             text: source_line(text, line),
         },
-        arity: sig.inputs.len(),
+        params: sig.inputs.iter().map(param_mode).collect(),
         returns: return_type(sig),
+    }
+}
+
+/// How one parameter takes its argument, judged on how the type is *written* — the same
+/// syntactic limit [`return_type`] works under. A `self` receiver reads as by-reference;
+/// see [`ParamMode`] for why that is safe to get approximately right.
+fn param_mode(arg: &syn::FnArg) -> ParamMode {
+    match arg {
+        syn::FnArg::Receiver(r) => {
+            if r.reference.is_some() {
+                ParamMode::ByRef
+            } else {
+                ParamMode::ByValue
+            }
+        }
+        syn::FnArg::Typed(t) => match &*t.ty {
+            syn::Type::Reference(_) => ParamMode::ByRef,
+            _ => ParamMode::ByValue,
+        },
     }
 }
 
@@ -431,12 +472,38 @@ mod tests {
     fn resolves_a_bool_function_to_its_source_location() {
         let tmp = subject("pub fn login(user: &str) -> bool { !user.is_empty() }\n");
         let r = resolve_in(&tmp, "login", 1);
-        let Resolution::Resolved(at) = r else {
+        let Resolution::Resolved { at, params } = r else {
             panic!("should resolve, got {r:?}")
         };
         assert_eq!(at.file, "src/auth.rs");
         assert_eq!(at.line, 1);
         assert!(at.text.contains("fn login"));
+        assert_eq!(params, vec![ParamMode::ByRef]);
+    }
+
+    // Verifies: REQ027 — a resolved predicate reports how each parameter takes its
+    // argument, which is what lets the engine generate `login(&u)` rather than `login(u)`.
+    // Judged on how the type is WRITTEN, the same syntactic limit the rest of this adapter
+    // works under.
+    #[test]
+    fn resolved_predicate_reports_how_its_parameters_take_arguments() {
+        let tmp = subject(
+            "pub fn by_value(u: User) -> bool { true }
+pub fn by_ref(u: &User) -> bool { true }
+pub fn mixed(a: &User, b: u32) -> bool { true }
+pub fn nullary() -> bool { true }\n",
+        );
+        let modes = |name: &str, arity: usize| match resolve_in(&tmp, name, arity) {
+            Resolution::Resolved { params, .. } => params,
+            other => panic!("{name} should resolve, got {other:?}"),
+        };
+        assert_eq!(modes("by_value", 1), vec![ParamMode::ByValue]);
+        assert_eq!(modes("by_ref", 1), vec![ParamMode::ByRef]);
+        assert_eq!(
+            modes("mixed", 2),
+            vec![ParamMode::ByRef, ParamMode::ByValue]
+        );
+        assert!(modes("nullary", 0).is_empty());
     }
 
     // Verifies: REQ025 — a binding to a name that is not in the subject parks the
@@ -552,7 +619,7 @@ impl S { fn ready(&self) -> bool { true } }\n",
         .unwrap();
 
         let r = resolve(tmp.path(), &companion, "login", 1);
-        let Resolution::Resolved(at) = &r else {
+        let Resolution::Resolved { at, .. } = &r else {
             panic!("the companion/.git copies must not create an ambiguity, got {r:?}")
         };
         assert_eq!(at.file, "src/auth.rs");

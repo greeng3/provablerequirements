@@ -43,3 +43,30 @@ jobs:
           tool: cargo-audit
       - name: Audit dependencies
         run: cargo audit
+
+  # The real-engine path, on its own job (REQ027). The main `test` job stays Kani-FREE by
+  # design: the common user state is engine-absent (R-eng-2), and that path — provreq staying
+  # honest when no verifier is installed — is the one most worth proving on every push. The
+  # real-engine tests are `#[ignore]`d, so `test` never pays Kani's cost; this job installs
+  # Kani and runs exactly those. It does not gate the fast job — a Kani regression is real,
+  # but it must not block a change that never touched the engine.
+  kani:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      # `cargo test` links the whole crate (axum, rust-embed), which embeds web/dist — so the
+      # frontend must exist on disk even though these tests never touch it.
+      - name: Set up Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Build frontend
+        run: npm --prefix web ci && npm --prefix web run build
+      # Installs the driver and runs `cargo kani setup` (CBMC + solvers) — the same two steps
+      # the devcontainer bakes into its image.
+      - name: Install Kani
+        uses: model-checking/kani-github-action@v1
+      - name: Run the real-engine tests
+        run: cargo test --lib -- --ignored

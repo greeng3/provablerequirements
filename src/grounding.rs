@@ -377,6 +377,15 @@ mod tests {
         }
     }
 
+    /// A resolved nullary predicate. This module's verdict asks only whether a binding
+    /// resolved, so the parameter modes an engine would need are irrelevant here.
+    fn resolved(file: &str) -> Resolution {
+        Resolution::Resolved {
+            at: at(file),
+            params: vec![],
+        }
+    }
+
     // Verifies: REQ021/REQ025 (R-ground-1/2) — a requirement grounds only when every
     // symbol is bound in category 1 and each binding RESOLVES to a real state predicate.
     #[test]
@@ -388,14 +397,8 @@ mod tests {
             sort_binding("User", "User"),
         ];
         let resolutions = BTreeMap::from([
-            (
-                "logged_in".to_string(),
-                Resolution::Resolved(at("src/a.rs")),
-            ),
-            (
-                "has_session".to_string(),
-                Resolution::Resolved(at("src/a.rs")),
-            ),
+            ("logged_in".to_string(), resolved("src/a.rs")),
+            ("has_session".to_string(), resolved("src/a.rs")),
         ]);
         let sorts =
             BTreeMap::from([("User".to_string(), TypeResolution::Resolved(at("src/a.rs")))]);
@@ -415,10 +418,7 @@ mod tests {
             code_binding("has_session", "nonexistent"),
         ];
         let resolutions = BTreeMap::from([
-            (
-                "logged_in".to_string(),
-                Resolution::Resolved(at("src/a.rs")),
-            ),
+            ("logged_in".to_string(), resolved("src/a.rs")),
             ("has_session".to_string(), Resolution::NotFound),
         ]);
         let Grounding::Parked { reasons } = verdict(&r, &bindings, &resolutions, &BTreeMap::new())
@@ -439,10 +439,7 @@ mod tests {
             code_binding("logged_in", "login"),
             code_binding("has_session", "has_session"),
         ];
-        let only_one = BTreeMap::from([(
-            "logged_in".to_string(),
-            Resolution::Resolved(at("src/a.rs")),
-        )]);
+        let only_one = BTreeMap::from([("logged_in".to_string(), resolved("src/a.rs"))]);
         let Grounding::Parked { reasons } = verdict(&r, &bindings, &only_one, &BTreeMap::new())
         else {
             panic!("an unresolved-by-omission binding must park");
@@ -499,14 +496,8 @@ mod tests {
             code_binding("has_session", "has_session"),
         ];
         let resolutions = BTreeMap::from([
-            (
-                "logged_in".to_string(),
-                Resolution::Resolved(at("src/a.rs")),
-            ),
-            (
-                "has_session".to_string(),
-                Resolution::Resolved(at("src/a.rs")),
-            ),
+            ("logged_in".to_string(), resolved("src/a.rs")),
+            ("has_session".to_string(), resolved("src/a.rs")),
         ]);
         let Grounding::Parked { reasons } = verdict(&r, &bindings, &resolutions, &BTreeMap::new())
         else {
@@ -529,14 +520,8 @@ mod tests {
             sort_binding("User", "NoSuchType"),
         ];
         let resolutions = BTreeMap::from([
-            (
-                "logged_in".to_string(),
-                Resolution::Resolved(at("src/a.rs")),
-            ),
-            (
-                "has_session".to_string(),
-                Resolution::Resolved(at("src/a.rs")),
-            ),
+            ("logged_in".to_string(), resolved("src/a.rs")),
+            ("has_session".to_string(), resolved("src/a.rs")),
         ]);
         let sorts = BTreeMap::from([("User".to_string(), TypeResolution::NotFound)]);
         let Grounding::Parked { reasons } = verdict(&r, &bindings, &resolutions, &sorts) else {

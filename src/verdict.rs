@@ -1,26 +1,53 @@
-//! Step 4 — the verdict object (D7 three-valued evidence record + D9 provenance). First
-//! slice: the honest epistemic record, **no engine execution yet**.
+//! Step 4 — the verdict object (D7 three-valued evidence record + D9 provenance).
 //!
 //! A verdict is never a judgment — `status ∈ {holds, fails, unknown}` and an `unknown`
-//! always carries a reason (D10). Because no verification engine runs in this slice, every
-//! verdict produced is honestly `unknown`: either **missing-grounding** (the requirement
-//! is not grounded, so no engine could run — R-ground-1) or **no-engine** (grounded, but
-//! no engine has executed the property). A sound `holds` needs a prover to actually check
-//! the temporal property against the code; grounding only confirms the binding *resolves*.
-//! Real `holds`/`fails` — with a strength/basis scale and per-tool evidence tree — arrive
-//! when an engine is wired.
+//! always carries a reason (D10). An ungrounded requirement is `unknown / missing-grounding`
+//! (R-ground-1); a grounded one with no engine for its category is `unknown / no-engine`.
 //!
-//! Implements: REQ023 (verdict object + provenance; honest unknown, no engine yet).
+//! **Engine-independent by design.** REQ027 wired Kani as category-1 engine #1, but D2's
+//! rule is one core meaning lowered to each engine — so this module knows about *bases* and
+//! *witnesses*, never about Kani. Each engine maps its own result into these constructors
+//! ([`crate::kani::Outcome::into_verdict`]), which is what lets D2b's ensemble add engines
+//! with differing soundness directions without touching the core.
+//!
+//! Implements: REQ023 (verdict object + provenance; honest unknown), REQ027 (a real
+//! `holds`/`fails` from a wired engine, with a D8 basis and a D9 witness).
 
 use crate::grounding::Grounding;
 
-/// The three-valued verdict polarity (D7). No engine runs in this slice, so only
-/// [`Status::Unknown`] is ever produced here; `Holds`/`Fails` exist for the engine slice.
+/// The three-valued verdict polarity (D7).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Status {
     Holds,
     Fails,
     Unknown,
+}
+
+/// D8 basis for a `holds` — *how* the polarity was established, which is a different
+/// question from the polarity itself. The design's scale, strongest first: `proven`
+/// (deductive, ∀ executions) › `model-checked` (∀ over a model M; note *bounded?*) ›
+/// `not-falsified` (empirical: N runs / duration / coverage).
+///
+/// Only the rung an engine can actually earn is representable. Kani is a **bounded** model
+/// checker: it establishes the claim over the states it explored, not over all executions,
+/// so it yields [`Basis::ModelCheckedBounded`] and **cannot** yield `proven`. Making that
+/// structural rather than a convention is the point — an engine cannot overclaim by
+/// accident.
+///
+/// `// ponytail: one rung, because one engine. `proven` (Prusti/Creusot/Verus) and
+/// `not-falsified` (empirical) arrive with the engines that earn them — adding them now
+/// would be scale we cannot back.`
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Basis {
+    ModelCheckedBounded,
+}
+
+impl Basis {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Basis::ModelCheckedBounded => "model-checked (bounded)",
+        }
+    }
 }
 
 impl Status {
@@ -33,16 +60,22 @@ impl Status {
     }
 }
 
-/// Why a verdict is `unknown` (D10 taxonomy, restricted to what this slice can produce).
-/// The richer reasons — inconclusive, inapplicable, divergence-needs-review,
-/// assumption-unmet — arrive with real engines.
+/// Why a verdict is `unknown` (D10 taxonomy, restricted to what the wired engines can
+/// produce). `inapplicable` is deliberately absent: the fragment check (REQ024) rejects an
+/// out-of-fragment claim at the gate, so it never reaches a verdict to carry the reason —
+/// adding the variant would be dead code. `divergence-needs-review` and `assumption-unmet`
+/// arrive with the D2b ensemble and D8 contingencies respectively.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UnknownReason {
     /// The requirement is not grounded — no engine could run (R-ground-1). Never faked
     /// into a verdict, honestly recorded as "not grounded".
     MissingGrounding,
-    /// Grounded, but no verification engine has executed the property yet (this slice).
+    /// Grounded, but no engine is wired for the requirement's category (2a/2b/3 today).
     NoEngine,
+    /// An engine was asked but could not decide: the claim could not be lowered, the
+    /// harness would not compile, or the run errored. D10's `inconclusive(…)` — the tool
+    /// ran and came back without an answer, which is not the same as the answer being no.
+    Inconclusive,
 }
 
 impl UnknownReason {
@@ -50,6 +83,7 @@ impl UnknownReason {
         match self {
             UnknownReason::MissingGrounding => "missing-grounding",
             UnknownReason::NoEngine => "no-engine",
+            UnknownReason::Inconclusive => "inconclusive",
         }
     }
 }
@@ -64,40 +98,121 @@ pub struct Provenance {
     pub tool_version: String,
 }
 
-/// A verdict for one requirement (D7). This slice carries status + reason + provenance;
-/// the strength/basis scale and per-category evidence tree are added with real engines.
+/// A verdict for one requirement (D7). Splits **polarity** (`status`) from **basis** (how a
+/// `holds` was established) and from the **witness** (what makes a `fails` re-checkable).
+///
+/// `// ponytail: no per-tool evidence map or cross-check yet — one engine cannot disagree
+/// with itself. Both land with D2b's ensemble.`
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Verdict {
     pub id: String,
     pub status: Status,
     /// Present exactly when `status == Unknown` (an unknown always carries a reason).
     pub reason: Option<UnknownReason>,
-    /// Human-readable detail — e.g. the grounding parked-reasons behind a
-    /// missing-grounding unknown.
+    /// D8 — how a `holds` was established. Present exactly when `status == Holds`; a
+    /// polarity without a basis would be a claim with no strength behind it.
+    pub basis: Option<Basis>,
+    /// D9 — the re-checkable witness behind a `fails` (a counterexample the operator can
+    /// replay). `None` when the engine refuted the claim without producing one.
+    pub witness: Option<String>,
+    /// Human-readable detail — the grounding parked-reasons behind a missing-grounding
+    /// unknown, the engine's own message behind an inconclusive, the violated check behind
+    /// a fails.
     pub detail: Vec<String>,
     pub provenance: Provenance,
 }
 
-/// Produce the honest verdict for a requirement from its live grounding result and pinned
-/// provenance. Pure — the caller runs the grounding dry-run and gathers provenance, so this
-/// stays testable. No engine runs, so the result is always `unknown` with a reason.
+/// The verdict for a requirement **no engine ran for** — either because it is not grounded
+/// (nothing could run) or because no engine is wired for its category. Pure.
+///
+/// A grounded requirement whose engine *is* wired does not come through here: it earns a
+/// real verdict via the engine's own mapping into [`holds`]/[`fails`]/[`inconclusive`].
 pub fn from_grounding(id: &str, grounding: &Grounding, provenance: Provenance) -> Verdict {
     let (reason, detail) = match grounding {
         Grounding::Parked { reasons } => (UnknownReason::MissingGrounding, reasons.clone()),
         Grounding::Grounded => (UnknownReason::NoEngine, Vec::new()),
     };
+    unknown(id, reason, detail, provenance)
+}
+
+/// A grounded requirement whose category has no engine that can answer it — either nothing
+/// is wired for the category, or the wired engine is not installed. `detail` names which,
+/// because the two ask different people to act: wiring is ours, installing is the
+/// operator's.
+pub fn no_engine(id: &str, detail: Vec<String>, provenance: Provenance) -> Verdict {
+    unknown(id, UnknownReason::NoEngine, detail, provenance)
+}
+
+/// A `holds` established on `basis`. Engine-agnostic: the engine names the rung it earned,
+/// and [`Basis`] makes `proven` unrepresentable for a bounded checker.
+pub fn holds(id: &str, basis: Basis, provenance: Provenance) -> Verdict {
+    Verdict {
+        id: id.to_string(),
+        status: Status::Holds,
+        reason: None,
+        basis: Some(basis),
+        witness: None,
+        detail: Vec::new(),
+        provenance,
+    }
+}
+
+/// A `fails` — definitive when it carries a valid witness (falsification is the robust
+/// half, D8).
+pub fn fails(
+    id: &str,
+    witness: Option<String>,
+    detail: Vec<String>,
+    provenance: Provenance,
+) -> Verdict {
+    Verdict {
+        id: id.to_string(),
+        status: Status::Fails,
+        reason: None,
+        basis: None,
+        witness,
+        detail,
+        provenance,
+    }
+}
+
+/// An engine ran but could not decide (D10 `inconclusive`). Never a verdict — the whole
+/// point is that "the tool came back empty" and "the claim is false" are different answers.
+pub fn inconclusive(id: &str, detail: Vec<String>, provenance: Provenance) -> Verdict {
+    unknown(id, UnknownReason::Inconclusive, detail, provenance)
+}
+
+fn unknown(
+    id: &str,
+    reason: UnknownReason,
+    detail: Vec<String>,
+    provenance: Provenance,
+) -> Verdict {
     Verdict {
         id: id.to_string(),
         status: Status::Unknown,
         reason: Some(reason),
+        basis: None,
+        witness: None,
         detail,
         provenance,
     }
 }
 
 /// Render a verdict as a human read-back (D1 round-trip). Deterministic, no LLM.
+///
+/// A `holds` always renders its basis, so a bounded result can never be *read* as a proof
+/// even at a glance — the overclaim D8 guards against is a reading error as much as a
+/// modelling one.
 pub fn render(v: &Verdict) -> String {
     let mut out = format!("{}: {}", v.id, v.status.as_str());
+    if let Some(basis) = v.basis {
+        out.push_str(&format!(
+            " — {}: verified over the states the engine explored, NOT proven for all \
+             executions",
+            basis.as_str()
+        ));
+    }
     if let Some(reason) = v.reason {
         out.push_str(&format!(" ({})", reason.as_str()));
         match reason {
@@ -107,10 +222,19 @@ pub fn render(v: &Verdict) -> String {
             ),
             UnknownReason::NoEngine => out
                 .push_str(" — grounded, but no verification engine has executed this property yet"),
+            UnknownReason::Inconclusive => out
+                .push_str(" — an engine ran but could not decide; this is not evidence either way"),
         }
     }
     for d in &v.detail {
         out.push_str(&format!("\n    - {d}"));
+    }
+    if let Some(w) = &v.witness {
+        out.push_str("\n  witness (D9 — replay it against the subject to re-check this):\n");
+        for line in w.lines() {
+            out.push_str(&format!("    {line}\n"));
+        }
+        out.pop();
     }
     let commit = v
         .provenance

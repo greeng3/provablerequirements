@@ -11,6 +11,7 @@ pub mod draft;
 pub mod engine;
 pub mod formalize;
 pub mod grounding;
+pub mod kani;
 pub mod llm;
 pub mod prl;
 pub mod rust_adapter;

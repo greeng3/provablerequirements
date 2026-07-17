@@ -65,3 +65,12 @@ RUN uv tool install yamllint
 # `make audit` / `pre-merge` targets. Justified by the HTTP/TLS stack (reqwest,
 # rustls) the LLM classifier pulls in. cargo comes from the base rust-dev image.
 RUN cargo install cargo-audit --locked
+
+# Kani — the category-1 verification engine (REQ027). Baked into the IMAGE, not just
+# installed at runtime: the repo bakes in every workflow tool (cargo-audit above is the
+# precedent), a runtime-only install evaporates on rebuild, and then `provreq engines`
+# reports category 1 Missing — indistinguishable from a bug in our own code. Two steps:
+# `cargo install` lays down the driver; `cargo kani setup` fetches CBMC + the SAT/SMT
+# solvers it drives, and that second step is what grows the image (hundreds of MB).
+RUN cargo install --locked kani-verifier \
+    && cargo kani setup
