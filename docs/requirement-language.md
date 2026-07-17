@@ -535,6 +535,19 @@ requirement no_message_lost {
   narrowed by guess until this is settled.
 - Concrete syntax for grounding modules and refinement mappings (the mechanism is decided
   in D4/D5/D6 and _Grounding layer_; the exact adapter syntax per category is still open).
+  **Category 1 is now concrete (REQ025, `src/rust_adapter.rs`).** A cat-1 binding names a **function
+  standing for the predicate**, and grounding **resolves** it against the subject's real syntax tree
+  (`syn`): exactly one such function exists, its parameter count matches the arity the requirement
+  declares, and it is written to return `bool`. This replaces a **substring match**, which could never
+  become "a state predicate at a source location" — the shape this document's Adapters list requires,
+  and the shape every candidate engine consumes. Not-found / ambiguous / wrong-arity / non-boolean are
+  kept distinct (each asks a different person to act) and all park (R-ground-1); an ambiguous name is
+  never silently resolved, since choosing would bind to whichever file was walked first. **Resolution
+  is syntactic** — `syn` parses but does not type-check, so a `bool` alias or `Result<bool>` is judged
+  on how it is written; the limit is stated wherever a resolved binding is reported. Rust-only
+  (R-eng-4 per-language adapter). **Still open:** methods, field/expression predicates, path-qualified
+  items, generics — and **sort bindings** (PRL sort `User` → a real Rust type), which the first engine
+  needs to instantiate a quantified variable.
 - Concrete serialization + human read-back rendering of the verdict object (the schema and
   rules are decided in D7–D10 and _Verdict object_; the wire format is still open).
 - **Deferred:** grammar-constrained decoder for the LLM front-end — revisit if the

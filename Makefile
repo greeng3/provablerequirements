@@ -53,9 +53,17 @@ check-tools:
 	@bash scripts/validate_dependencies.sh
 
 # --- aggregates ---
-fmt: fmt-md fmt-yaml
+# `fmt` covers every language the repo formats, Rust included: pre-merge runs `fmt` at step
+# 2 and `cargo fmt --check` (inside rust-check) at step 8, so a `fmt` that skipped Rust made
+# the gate fail on exactly what its own earlier step claimed to have fixed.
+fmt: fmt-md fmt-yaml fmt-rust
 fmt-check: fmt-check-md fmt-check-yaml
 lint: lint-md lint-yaml
+
+# --- Rust ---
+# Only the formatter lives here; rust-check owns the checking side (fmt-check, clippy, test).
+fmt-rust:
+	@cargo fmt
 
 # --- Markdown ---
 fmt-md:
