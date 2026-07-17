@@ -1,25 +1,25 @@
-//! D13 grounding — first slice. Binds PRL vocabulary symbols to real observables
-//! and **dry-runs** the category-1 (code-state) bindings against the subject's real
-//! source, so the operator can confirm *"here are the spans matching this binding — is
-//! that what you meant?"* before any engine is trusted.
+//! D13 grounding — the binding schema and the grounded/parked decision. Binds PRL
+//! vocabulary symbols to real observables and **dry-runs** the category-1 (code-state)
+//! bindings against the subject's real source, so the operator can confirm *"here is what
+//! your binding resolves to — is that what you meant?"* before any engine is trusted.
 //!
-//! Only category 1 has a real dry-run in this slice: its observable is the subject's
-//! own source tree, which is already on disk. Categories 2a/2b/3 (model / runtime /
-//! UI) carry the same binding schema but their dry-run is **deferred** until the
-//! engines/telemetry are wired — a deferred or no-match grounding never fakes a verdict
-//! and never grounds the requirement (R-ground-1); the requirement stays
-//! `admitted-but-ungrounded`, parked (R-ground-2).
+//! Category 1's observable world is the subject's own source tree, and resolving against
+//! it is [`crate::rust_adapter`]'s job (R-eng-4, the per-language adapter) — this module
+//! owns the category-independent schema and the verdict, not the language. Categories
+//! 2a/2b/3 (model / runtime / UI) carry the same binding schema but their dry-run is
+//! **deferred** until the engines/telemetry are wired — a deferred or unresolved grounding
+//! never fakes a verdict and never grounds the requirement (R-ground-1); the requirement
+//! stays `admitted-but-ungrounded`, parked (R-ground-2).
 //!
-//! Bindings persist on the draft; **matches do not** — they are recomputed live on
-//! every dry-run, because code moves under a binding exactly as prose moves under a
-//! draft.
+//! Bindings persist on the draft; **resolutions do not** — they are recomputed live on
+//! every dry-run, because code moves under a binding exactly as prose moves under a draft.
 //!
-//! Implements: REQ021 (grounding binding schema + category-1 dry-run).
+//! Implements: REQ021 (grounding binding schema + category-1 dry-run), REQ025 (a cat-1
+//! binding grounds only by resolving to a state predicate at a source location).
 
 use crate::prl::ast::{Category, Decl, Requirement};
+use crate::rust_adapter::Resolution;
 use std::collections::BTreeMap;
-use std::path::Path;
-use walkdir::WalkDir;
 
 /// D5 binding fidelity — a verdict is never stronger than its weakest binding. This
 /// slice records it; the Step-4 verdict engine consumes it. `definitional` = true by
@@ -100,8 +100,9 @@ impl From<Category> for BindCategory {
 }
 
 /// One vocabulary symbol bound to one concrete observable (D4). `symbol` names a
-/// declared predicate; `observable` is the concrete anchor (for category 1, a code
-/// search term); `fidelity` feeds verdict strength (D5).
+/// declared predicate; `observable` is the concrete anchor — for category 1 the **name of
+/// a function** that stands for the predicate, resolved against the subject's real syntax
+/// tree (REQ025), not a text to search for; `fidelity` feeds verdict strength (D5).
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Binding {
     pub symbol: String,
@@ -109,19 +110,6 @@ pub struct Binding {
     pub observable: String,
     pub fidelity: Fidelity,
 }
-
-/// One code-state span the dry-run matched: file (relative to the subject root), 1-based
-/// line, and the trimmed line text — enough for the operator to eyeball the binding.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct CodeMatch {
-    pub file: String,
-    pub line: usize,
-    pub text: String,
-}
-
-/// Cap on spans reported per dry-run — enough to confirm a binding, not a full grep.
-/// `// ponytail: fixed cap; if operators need paging, count-and-page then.`
-pub const DRY_RUN_MATCH_CAP: usize = 20;
 
 /// The declared vocabulary symbols a grounding may bind: the event/state **predicates**
 /// the gate name-checks. Sorts (types) and raw identities are not bound in this slice.
@@ -134,6 +122,18 @@ pub fn bindable_symbols(req: &Requirement) -> Vec<String> {
             Decl::Sort { .. } | Decl::Identity { .. } => None,
         })
         .collect()
+}
+
+/// The arity the requirement declares for a vocabulary predicate — what a category-1
+/// binding's resolved function must match (REQ025). `None` when the symbol is not a
+/// declared event/state predicate.
+pub fn predicate_arity(req: &Requirement, symbol: &str) -> Option<usize> {
+    req.vocabulary.iter().find_map(|d| match d {
+        Decl::Event { name, params, .. } | Decl::State { name, params, .. } if name == symbol => {
+            Some(params.len())
+        }
+        _ => None,
+    })
 }
 
 /// The requirement's primary binding category — its first declared category, or
@@ -166,9 +166,10 @@ pub fn is_bindable(req: &Requirement, symbol: &str) -> bool {
 }
 
 /// The grounding verdict for a requirement (R-ground-1/2). `Grounded` only when every
-/// symbol is bound in category 1 **and** each such binding matched ≥1 real span. Any
-/// unbound symbol, any deferred (non-code) category, or any no-match code binding leaves
-/// it `Parked` with human-readable reasons — never a verdict, never faked.
+/// symbol is bound in category 1 **and** each such binding resolves to a real state
+/// predicate at a real source location. Any unbound symbol, any deferred (non-code)
+/// category, or any unresolved code binding leaves it `Parked` with human-readable
+/// reasons — never a verdict, never faked.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Grounding {
     Grounded,
@@ -176,12 +177,18 @@ pub enum Grounding {
 }
 
 /// Decide the grounding verdict from the bindings and the **already-computed** category-1
-/// match counts (keyed by symbol). Pure — the caller runs [`dry_run_code`] and passes the
-/// counts, so this stays testable without a filesystem.
+/// resolutions (keyed by symbol). Pure — the caller runs [`crate::rust_adapter::resolve`]
+/// and passes the results, so this stays testable without a filesystem.
+///
+/// A category-1 binding grounds only when its predicate **resolves** to a real state
+/// predicate at a real source location (REQ025). Every other outcome — not found,
+/// ambiguous, wrong arity, not boolean — parks the requirement and carries the adapter's
+/// own explanation as the reason, so the operator reads one account of what happened
+/// rather than a summary of it.
 pub fn verdict(
     req: &Requirement,
     bindings: &[Binding],
-    code_match_counts: &BTreeMap<String, usize>,
+    resolutions: &BTreeMap<String, Resolution>,
 ) -> Grounding {
     let mut reasons = Vec::new();
 
@@ -193,14 +200,16 @@ pub fn verdict(
 
     for b in bindings {
         match b.category {
-            BindCategory::Code if code_match_counts.get(&b.symbol).copied().unwrap_or(0) == 0 => {
-                reasons.push(format!(
-                    "{}: no code span matches `{}` — wrong binding, or the requirement is \
-                     ahead of the code (parked)",
+            BindCategory::Code => match resolutions.get(&b.symbol) {
+                Some(r) if r.is_resolved() => {}
+                // An absent resolution is treated exactly as a failed one: the caller not
+                // having resolved a symbol is not evidence that it grounds.
+                Some(r) => reasons.push(r.describe(&b.symbol, &b.observable)),
+                None => reasons.push(format!(
+                    "{}: `{}` was not resolved against the subject's source",
                     b.symbol, b.observable
-                ))
-            }
-            BindCategory::Code => {}
+                )),
+            },
             other => reasons.push(format!(
                 "{}: category {} dry-run deferred — engine not wired yet",
                 b.symbol,
@@ -214,72 +223,6 @@ pub fn verdict(
     } else {
         Grounding::Parked { reasons }
     }
-}
-
-/// Dry-run a category-1 (code-state) observable against the subject's real source: walk
-/// the tree, skipping `.git` and the companion tree, and collect up to
-/// [`DRY_RUN_MATCH_CAP`] lines containing `observable` (substring —
-/// `// ponytail: substring, regex when operators need it`). Live: recomputed every call,
-/// never persisted, because code drifts under a binding.
-pub fn dry_run_code(
-    subject_root: &Path,
-    companion_root: &Path,
-    observable: &str,
-) -> Vec<CodeMatch> {
-    let needle = observable.trim();
-    if needle.is_empty() {
-        return Vec::new();
-    }
-    let mut out = Vec::new();
-    for entry in WalkDir::new(subject_root)
-        .into_iter()
-        .filter_entry(|e| !is_skipped_dir(e.path(), companion_root))
-    {
-        if out.len() >= DRY_RUN_MATCH_CAP {
-            break;
-        }
-        let Ok(entry) = entry else { continue };
-        if !entry.file_type().is_file() {
-            continue;
-        }
-        // Non-UTF-8 / binary files read-fail or lossily differ — skip them silently;
-        // a code-state binding names source text, not bytes.
-        let Ok(text) = std::fs::read_to_string(entry.path()) else {
-            continue;
-        };
-        let rel = entry
-            .path()
-            .strip_prefix(subject_root)
-            .unwrap_or(entry.path())
-            .display()
-            .to_string();
-        for (i, line) in text.lines().enumerate() {
-            if line.contains(needle) {
-                out.push(CodeMatch {
-                    file: rel.clone(),
-                    line: i + 1,
-                    text: line.trim().to_string(),
-                });
-                if out.len() >= DRY_RUN_MATCH_CAP {
-                    break;
-                }
-            }
-        }
-    }
-    out
-}
-
-/// Whether a directory should be pruned from the dry-run walk: the VCS metadata dir or
-/// the companion tree (whose `drafts.yml` holds the observables themselves — matching
-/// there would be a spurious self-hit).
-fn is_skipped_dir(path: &Path, companion_root: &Path) -> bool {
-    if path == companion_root {
-        return true;
-    }
-    path.file_name()
-        .and_then(|n| n.to_str())
-        .map(|n| n == ".git")
-        .unwrap_or(false)
 }
 
 #[cfg(test)]
@@ -355,39 +298,77 @@ mod tests {
         }
     }
 
-    // Verifies: REQ021 (R-ground-1/2) — a requirement grounds only when every symbol is
-    // bound in category 1 and each binding matched a real span.
-    #[test]
-    fn verdict_is_grounded_only_when_every_code_binding_matches() {
-        let r = req(CODE_REQ);
-        let bindings = vec![
-            code_binding("logged_in", "fn log_in"),
-            code_binding("has_session", "struct Session"),
-        ];
-        let mut counts = BTreeMap::new();
-        counts.insert("logged_in".to_string(), 2);
-        counts.insert("has_session".to_string(), 1);
-        assert_eq!(verdict(&r, &bindings, &counts), Grounding::Grounded);
+    fn at(file: &str) -> crate::rust_adapter::CodeMatch {
+        crate::rust_adapter::CodeMatch {
+            file: file.into(),
+            line: 1,
+            text: "fn f() -> bool { true }".into(),
+        }
     }
 
-    // Verifies: REQ021 (R-ground-2) — a code binding with no match parks the requirement
-    // (never a verdict), and names the two causes.
+    // Verifies: REQ021/REQ025 (R-ground-1/2) — a requirement grounds only when every
+    // symbol is bound in category 1 and each binding RESOLVES to a real state predicate.
     #[test]
-    fn verdict_parks_on_no_match() {
+    fn verdict_is_grounded_only_when_every_code_binding_resolves() {
         let r = req(CODE_REQ);
         let bindings = vec![
-            code_binding("logged_in", "fn log_in"),
-            code_binding("has_session", "fn nonexistent"),
+            code_binding("logged_in", "login"),
+            code_binding("has_session", "has_session"),
         ];
-        let mut counts = BTreeMap::new();
-        counts.insert("logged_in".to_string(), 3);
-        counts.insert("has_session".to_string(), 0);
-        let Grounding::Parked { reasons } = verdict(&r, &bindings, &counts) else {
-            panic!("a no-match binding must park, never ground");
+        let resolutions = BTreeMap::from([
+            (
+                "logged_in".to_string(),
+                Resolution::Resolved(at("src/a.rs")),
+            ),
+            (
+                "has_session".to_string(),
+                Resolution::Resolved(at("src/a.rs")),
+            ),
+        ]);
+        assert_eq!(verdict(&r, &bindings, &resolutions), Grounding::Grounded);
+    }
+
+    // Verifies: REQ025 (R-ground-2) — a binding that does not resolve parks the
+    // requirement (never a verdict), carrying the adapter's own explanation.
+    #[test]
+    fn verdict_parks_when_a_binding_does_not_resolve() {
+        let r = req(CODE_REQ);
+        let bindings = vec![
+            code_binding("logged_in", "login"),
+            code_binding("has_session", "nonexistent"),
+        ];
+        let resolutions = BTreeMap::from([
+            (
+                "logged_in".to_string(),
+                Resolution::Resolved(at("src/a.rs")),
+            ),
+            ("has_session".to_string(), Resolution::NotFound),
+        ]);
+        let Grounding::Parked { reasons } = verdict(&r, &bindings, &resolutions) else {
+            panic!("an unresolved binding must park, never ground");
         };
         assert!(reasons
             .iter()
-            .any(|reason| reason.contains("has_session") && reason.contains("no code span")));
+            .any(|reason| reason.contains("has_session") && reason.contains("nonexistent")));
+    }
+
+    // Verifies: REQ025 — a symbol the caller never resolved is NOT treated as grounded.
+    // Absence of evidence is not evidence of grounding.
+    #[test]
+    fn verdict_parks_when_a_binding_was_never_resolved() {
+        let r = req(CODE_REQ);
+        let bindings = vec![
+            code_binding("logged_in", "login"),
+            code_binding("has_session", "has_session"),
+        ];
+        let only_one = BTreeMap::from([(
+            "logged_in".to_string(),
+            Resolution::Resolved(at("src/a.rs")),
+        )]);
+        let Grounding::Parked { reasons } = verdict(&r, &bindings, &only_one) else {
+            panic!("an unresolved-by-omission binding must park");
+        };
+        assert!(reasons.iter().any(|reason| reason.contains("has_session")));
     }
 
     // Verifies: REQ021 (R-ground-1) — a non-code binding is honestly deferred, never
@@ -411,39 +392,12 @@ mod tests {
         assert!(reasons.iter().any(|reason| reason.contains("deferred")));
     }
 
-    // Verifies: REQ021 — the dry-run finds real spans in the subject tree, skips the
-    // companion tree and .git, respects the cap, and reports relative file + line.
+    // Verifies: REQ025 — the arity checked against comes from the requirement's own
+    // vocabulary declaration, which is what makes a wrong binding detectable.
     #[test]
-    fn dry_run_matches_real_source_and_skips_companion() {
-        let tmp = tempfile::tempdir().unwrap();
-        let subject = tmp.path();
-        std::fs::create_dir_all(subject.join("src")).unwrap();
-        std::fs::write(
-            subject.join("src/auth.rs"),
-            "fn log_in(u: User) {}\n// unrelated\nfn log_out() {}\n",
-        )
-        .unwrap();
-        // A companion sibling whose drafts.yml mentions the same term must NOT match.
-        let companion = subject.join("requirements-provreq");
-        std::fs::create_dir_all(&companion).unwrap();
-        std::fs::write(companion.join("drafts.yml"), "observable: fn log_in\n").unwrap();
-        // .git content must be skipped too.
-        std::fs::create_dir_all(subject.join(".git")).unwrap();
-        std::fs::write(subject.join(".git/config"), "fn log_in\n").unwrap();
-
-        let matches = dry_run_code(subject, &companion, "fn log_in");
-        assert_eq!(matches.len(), 1, "only the real source line should match");
-        assert_eq!(matches[0].file, "src/auth.rs");
-        assert_eq!(matches[0].line, 1);
-        assert!(matches[0].text.contains("log_in"));
-    }
-
-    // Verifies: REQ021 — an empty observable never matches (guards a degenerate binding).
-    #[test]
-    fn dry_run_empty_observable_matches_nothing() {
-        let tmp = tempfile::tempdir().unwrap();
-        std::fs::write(tmp.path().join("a.rs"), "anything\n").unwrap();
-        let companion = tmp.path().join("companion");
-        assert!(dry_run_code(tmp.path(), &companion, "   ").is_empty());
+    fn predicate_arity_comes_from_the_vocabulary() {
+        let r = req(CODE_REQ);
+        assert_eq!(predicate_arity(&r, "logged_in"), Some(1));
+        assert_eq!(predicate_arity(&r, "not_declared"), None);
     }
 }

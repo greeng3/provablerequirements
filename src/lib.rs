@@ -13,6 +13,7 @@ pub mod formalize;
 pub mod grounding;
 pub mod llm;
 pub mod prl;
+pub mod rust_adapter;
 pub mod server;
 pub mod source;
 pub mod status;

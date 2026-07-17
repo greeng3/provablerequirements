@@ -26,6 +26,12 @@ serde_json = "1"
 serde_yaml = "0.9"
 walkdir = "2"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+# The category-1 adapter resolves a PRL predicate to a real item in the subject's Rust
+# (REQ025). Both crates were already in Cargo.lock transitively (serde derive), so this
+# promotes them to direct deps rather than adding weight. `span-locations` is what makes
+# a resolved predicate reportable as file:line — without it syn spans carry no line.
+syn = { version = "2", features = ["full", "parsing"] }
+proc-macro2 = { version = "1", features = ["span-locations"] }
 
 [dev-dependencies]
 tower = { version = "0.5", features = ["util"] }

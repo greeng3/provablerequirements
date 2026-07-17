@@ -1,0 +1,36 @@
+active: true
+derived: false
+header: ''
+level: 1.24
+links: []
+normative: true
+ref: ''
+reviewed: BTE7TGG1r-rp1-1MyOrwsnb4iOEf92vFm8TZAOfuR90=
+text: |
+  A category-1 grounding binds a vocabulary predicate to a state predicate at a source
+  location in the subject's code, and grounds only when that predicate resolves against
+  the subject's real syntax tree. A binding is the name of a function standing for the
+  predicate, not a text to search for: resolving it confirms that exactly one such function
+  exists, that it takes as many parameters as the requirement declares for that predicate,
+  and that it is written to return a boolean. Anything else parks the requirement with the
+  reason, and never grounds it (R-ground-1) — a binding that cannot be resolved is not an
+  observable, whatever text happens to appear in the subject.
+
+  The four ways a binding fails to resolve are kept distinct, because each asks a different
+  person to do a different thing: no such function (the binding names something absent), an
+  ambiguous name (several functions share it), an arity disagreement (the requirement and
+  the code disagree about the predicate, and which one is wrong is the operator's call),
+  and a non-boolean return (the function cannot stand for a state predicate). An ambiguous
+  name is never silently resolved to one of its candidates, since choosing between them
+  would bind the requirement to whichever file was walked first.
+
+  A resolution is recomputed live and never stored, because code moves under a binding
+  exactly as prose moves under a draft. Resolving is read-only over the subject. The
+  dry-run reports what each binding resolved to — the function, its file, and its line —
+  so that the operator's confirmation step has something specific to confirm.
+
+  Resolution is syntactic. The tool parses the subject's source; it does not type-check it,
+  so a boolean return is recognised by how it is written and an alias for a boolean or a
+  wrapped boolean will not be recognised as one. The tool states this limit wherever it
+  reports a resolved binding, so that a resolved binding never implies more checking than
+  was performed.

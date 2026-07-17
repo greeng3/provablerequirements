@@ -268,19 +268,50 @@ formalize pipeline with draft persistence (`R-draft-*`, `R-ground-*`). The reqfo
   `Missing`, the operator's to fix by installing) and never ready; the cat-1 engine is renamed to what
   it is, a **deductive verifier**. REQ024 (1.23).
 
+- **Cat-1 binding = a state predicate at a source location: issue #40 / PR #TBD (2026-07-17).**
+  The engine was never blocked on _which verifier_ — it was blocked on the **binding**. A cat-1
+  binding was a **grep term** (`logged_in` ↦ the text `"fn login"`; `dry_run_code` was a plain
+  substring search, grounded iff that text occurred anywhere), but the Adapters list requires cat-1
+  to compile to "a state predicate at a source location". A substring cannot say which function the
+  predicate is evaluated in, what computes it, or whether the symbol is a boolean over program state
+  — **no engine can consume it.** Now `src/rust_adapter.rs` (R-eng-4 per-language adapter, Rust-only)
+  **resolves** the binding against the subject's real syntax tree via `syn`: exactly one function of
+  that name, parameter count matching the arity the **requirement** declares, written to return
+  `bool`. `Resolution::{Resolved, NotFound, Ambiguous, WrongArity, NotBoolean}` stay distinct because
+  each asks a different person to act; an ambiguous name is **never** silently resolved (choosing
+  would bind to whichever file was walked first). All non-resolved outcomes park (R-ground-1). The
+  dry-run now reports _"`login` resolves to src/auth.rs:1 `pub fn login(user: &str) -> bool`"_ instead
+  of 20 grep lines — D13's "is that what you meant?" finally has something specific to confirm.
+  **Resolution is syntactic** (`syn` parses, does not type-check): a `bool` alias or `Result<bool>` is
+  judged as written, and the limit is printed with every resolved binding so a green line never
+  implies more checking than happened. Deleted the substring machinery outright (`dry_run_code`,
+  `DRY_RUN_MATCH_CAP`); `CodeMatch` + the tree walk moved to the adapter, and `grounding.rs` kept the
+  category-independent schema + verdict — it owns the model, not the language. `syn`/`proc-macro2`
+  promoted from transitive to direct deps (`span-locations` is what makes file:line reportable).
+  REQ025 (1.24). The arity check earned itself immediately: the smoke subject declared
+  `state logged_in` (arity 0) against `fn login(user: &str)` (arity 1) — a real mismatch the old grep
+  binding matched right past.
+
 **Next slice:** wire the **first real engine** so `verify` can produce a real `holds`/`fails` instead of
-only `unknown / no-engine`. Category 1 is still the lightest — groundable against real source (#30),
-verdict object ready to receive the result (#36), and now, post-#38, a gate-passing cat-1 requirement is
-**guaranteed temporal-free pre/post**, which is exactly what a deductive verifier consumes. Note the
-premise has changed: cat-1's engine is _not_ "already ready" — #34 said so only because of the
-overclaim #38 fixed. It is `NotWired`, and there is real integration work. The open design question is **which
-verifier and what it consumes**: Prusti / Verus / Creusot / Kani (bounded) are the Rust candidates
-(D2b), and their soundness directions differ sharply — Kani is under-approximating (a `fails` is a real
-bug; a `pass` only means "no bug within the bound"), while Verus/Prusti are deductive and spec-relative.
-D8's basis scale already encodes that difference (`proven` › `model-checked` › `not-falsified`), so the
-choice determines what strength a cat-1 `holds` may honestly claim. Also open and worth folding in:
-`ready` still means "the engine binary is present", not "provreq can run it" — that gap closes when the
-first engine is wired.
+only `unknown / no-engine`. **Kani is engine #1 — first, not only** (settled 2026-07-17): D2b wants a
+per-language **ensemble**, and the verdict object already reserves a per-tool evidence map for tools
+with differing soundness directions. Kani goes first because it takes **additive proof harnesses** (a
+generated file), so it never forces the "does provreq write annotations into the subject's own code?"
+decision — Prusti/Creusot would force it immediately, and Verus needs the subject _written in_ its Rust
+subset (a rewrite, against the adopt-existing-repos premise). That call stays open, to be made
+deliberately when `proven` is worth it. The binding is **core-owned**; Kani is **lowering #1**, not the
+definition (D2 "one meaning, lowering to each engine"). Honest under D8/D9: bounded → a pass is
+`model-checked (bounded)`, **never** `proven`; a failure is a real counterexample = D9's re-checkable
+witness. **Known gap:** a harness needs `let u: User = kani::any()`, so **sorts need bindings too**
+(PRL sort `User` → a real Rust type) — `bindable_symbols` excludes sorts today on purpose, and cat-1
+now needs them. Everything else cat-1 needs is in place: groundable against real source (#30), a
+gate-passing cat-1 requirement is **guaranteed temporal-free pre/post** (#38) — exactly what a verifier
+consumes — the binding now resolves to a real predicate at a real location (#40), and the verdict object
+is ready to receive the result (#36). The remaining work is integration, not design: cat-1's engine is
+`NotWired` (#34 called it ready only because of the overclaim #38 fixed), and Kani is not installed here
+(`cargo install --locked kani-verifier` + `cargo kani setup` is heavy — it pulls CBMC; check disk first).
+Also worth folding in: `ready` still means "the engine binary is present", not "provreq can run it" —
+that gap closes when the first engine is wired and `ready` earns its full meaning.
 
 ## Packaging — Design A (old, superseded)
 

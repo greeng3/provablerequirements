@@ -7,6 +7,8 @@ use provreq::engine;
 use provreq::formalize::Translator;
 use provreq::grounding::{self, Binding, Grounding};
 use provreq::llm::{HttpBackend, LlmClassifier};
+use provreq::prl::Requirement;
+use provreq::rust_adapter::{self, Resolution};
 use provreq::source::{Classification, Item, RequirementsSource};
 use provreq::triage::{self, ProseFloorClassifier, TriageState};
 use std::collections::BTreeMap;
@@ -77,7 +79,8 @@ enum Command {
         #[arg(long, conflicts_with_all = ["set", "translate", "check", "readback", "admit", "discard"])]
         writeback: bool,
         /// Bind a vocabulary symbol to an observable (D13 grounding), as `SYMBOL=OBSERVABLE`
-        /// (for category 1, the observable is a code search term).
+        /// (for category 1, the observable is the name of a function standing for the
+        /// predicate, resolved against the subject's real source — not a search term).
         #[arg(long, value_name = "SYMBOL=OBSERVABLE", conflicts_with_all = ["set", "translate", "check", "readback", "admit", "writeback", "discard"])]
         ground: Option<String>,
         /// Fidelity for a `--ground` binding (definitional | observed | probed);
@@ -626,32 +629,30 @@ fn ground_candidate(
     Ok(())
 }
 
-/// Live category-1 match lookup for a draft's bindings, keyed by symbol. The single place
-/// the observable world is consulted, so `ground --dry-run` and `verify` can never disagree
-/// about what grounds. Only category 1 (code) has a real observable world in this slice;
-/// other categories are absent from the map and park in [`grounding::verdict`].
-fn code_matches(
+/// Live category-1 resolution lookup for a draft's bindings, keyed by symbol. The single
+/// place the observable world is consulted, so `ground --dry-run` and `verify` can never
+/// disagree about what grounds. Only category 1 (code) has a real observable world in this
+/// slice; other categories are absent from the map and park in [`grounding::verdict`].
+///
+/// The arity checked against is the one the **requirement** declares for that predicate —
+/// the binding is wrong if the two disagree, and which of them is at fault is the
+/// operator's call, not this tool's.
+fn resolutions(
     subject: &Path,
     companion: &Path,
+    requirement: &Requirement,
     bindings: &[Binding],
-) -> BTreeMap<String, Vec<grounding::CodeMatch>> {
+) -> BTreeMap<String, Resolution> {
     bindings
         .iter()
         .filter(|b| b.category == grounding::BindCategory::Code)
         .map(|b| {
+            let arity = grounding::predicate_arity(requirement, &b.symbol).unwrap_or(0);
             (
                 b.symbol.clone(),
-                grounding::dry_run_code(subject, companion, &b.observable),
+                rust_adapter::resolve(subject, companion, &b.observable, arity),
             )
         })
-        .collect()
-}
-
-/// Collapse live matches to the per-symbol counts [`grounding::verdict`] consumes.
-fn match_counts(matches: &BTreeMap<String, Vec<grounding::CodeMatch>>) -> BTreeMap<String, usize> {
-    matches
-        .iter()
-        .map(|(symbol, ms)| (symbol.clone(), ms.len()))
         .collect()
 }
 
@@ -694,31 +695,23 @@ fn dry_run_candidate(
         return Ok(());
     }
 
-    // Live dry-run: only category 1 has a real observable world in this slice.
-    let matches_by_symbol = code_matches(subject, companion, &draft.bindings);
+    // Live dry-run: only category 1 has a real observable world in this slice. Each
+    // binding reports what it resolved to (D13's "is that what you meant?"), which is a
+    // question the operator can only answer against a named function at a named line.
+    let by_symbol = resolutions(subject, companion, &requirement, &draft.bindings);
     for b in &draft.bindings {
-        let Some(matches) = matches_by_symbol.get(&b.symbol) else {
-            continue;
-        };
-        println!(
-            "{} → `{}` (category {}): {} match(es){}",
-            b.symbol,
-            b.observable,
-            b.category.as_label(),
-            matches.len(),
-            if matches.len() >= grounding::DRY_RUN_MATCH_CAP {
-                " (capped)"
-            } else {
-                ""
-            }
-        );
-        for m in matches {
-            println!("    {}:{}  {}", m.file, m.line, m.text);
+        match by_symbol.get(&b.symbol) {
+            Some(r) => println!("  {}", r.describe(&b.symbol, &b.observable)),
+            None => println!(
+                "  {} → `{}` (category {}): dry-run deferred — engine not wired yet",
+                b.symbol,
+                b.observable,
+                b.category.as_label()
+            ),
         }
     }
-    let counts = match_counts(&matches_by_symbol);
 
-    match grounding::verdict(&requirement, &draft.bindings, &counts) {
+    match grounding::verdict(&requirement, &draft.bindings, &by_symbol) {
         Grounding::Grounded => {
             println!("\n{id}: GROUNDED — every symbol binds to a confirmed observable.");
         }
@@ -1015,8 +1008,8 @@ fn run_verify(subject: &Path, id: &str) -> Result<()> {
     };
 
     // Live category-1 grounding dry-run (the only observable world wired) → grounding verdict.
-    let counts = match_counts(&code_matches(subject, &companion, &draft.bindings));
-    let grounding_result = grounding::verdict(&requirement, &draft.bindings, &counts);
+    let by_symbol = resolutions(subject, &companion, &requirement, &draft.bindings);
+    let grounding_result = grounding::verdict(&requirement, &draft.bindings, &by_symbol);
 
     let provenance = provreq::verdict::Provenance {
         requirement_revision: draft.revision.clone(),
