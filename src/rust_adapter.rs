@@ -126,6 +126,114 @@ impl Resolution {
     }
 }
 
+/// What resolving one **sort** binding found (REQ026). Deliberately *not* [`Resolution`]:
+/// arity and boolean-return cannot occur for a type, and an enum carrying variants a caller
+/// can never see misstates the state space.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TypeResolution {
+    /// Exactly one `struct`, `enum`, or `type` alias of that name. The only variant that
+    /// grounds.
+    Resolved(CodeMatch),
+    /// No type of that name in the subject's Rust.
+    NotFound,
+    /// Several types share the name — never guessed between, for the same reason as
+    /// [`Resolution::Ambiguous`].
+    Ambiguous(Vec<CodeMatch>),
+}
+
+impl TypeResolution {
+    /// Whether this sort resolved. Only `Resolved` grounds; a quantified claim whose domain
+    /// names no real type is not grounded (R-ground-1).
+    pub fn is_resolved(&self) -> bool {
+        matches!(self, TypeResolution::Resolved(_))
+    }
+
+    /// The operator-facing read-back for one sort binding (D13's "is that what you meant?").
+    pub fn describe(&self, sort: &str, observable: &str) -> String {
+        match self {
+            TypeResolution::Resolved(at) => format!(
+                "{sort} (sort) → `{observable}` resolves to {}:{}  {}",
+                at.file, at.line, at.text
+            ),
+            TypeResolution::NotFound => format!(
+                "{sort} (sort): no type `{observable}` in the subject's Rust — a quantified \
+                 variable cannot range over it"
+            ),
+            TypeResolution::Ambiguous(ats) => {
+                let places = ats
+                    .iter()
+                    .map(|a| format!("{}:{}", a.file, a.line))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                format!(
+                    "{sort} (sort): `{observable}` is ambiguous — {} types share the name \
+                     ({places}); qualify it",
+                    ats.len()
+                )
+            }
+        }
+    }
+}
+
+/// Resolve a PRL sort to a real Rust type: a `struct`, `enum`, or `type` alias of that
+/// name (REQ026). Existence only — whether the type can be *instantiated* (Kani's
+/// `Arbitrary`) is an engine's question, and the binding is core-owned, so answering it
+/// here would bake one engine's shape into the core.
+pub fn resolve_type(
+    subject_root: &Path,
+    companion_root: &Path,
+    observable: &str,
+) -> TypeResolution {
+    let name = observable.trim();
+    if name.is_empty() {
+        return TypeResolution::NotFound;
+    }
+    let found = find_types(subject_root, companion_root, name);
+    match found.len() {
+        0 => TypeResolution::NotFound,
+        1 => TypeResolution::Resolved(found.into_iter().next().expect("len checked")),
+        _ => TypeResolution::Ambiguous(found),
+    }
+}
+
+/// Every `struct`/`enum`/`type` alias named `name`, with the same walk and skip rules as
+/// the predicate resolver.
+fn find_types(subject_root: &Path, companion_root: &Path, name: &str) -> Vec<CodeMatch> {
+    let mut out = Vec::new();
+    for_each_rust_file(subject_root, companion_root, |file, rel, text| {
+        collect_types(&file.items, name, rel, text, &mut out);
+    });
+    out
+}
+
+/// Walk items for a type named `name`, descending into inline modules.
+fn collect_types(items: &[syn::Item], name: &str, rel: &str, text: &str, out: &mut Vec<CodeMatch>) {
+    for item in items {
+        let ident = match item {
+            syn::Item::Struct(s) => Some(&s.ident),
+            syn::Item::Enum(e) => Some(&e.ident),
+            syn::Item::Type(t) => Some(&t.ident),
+            syn::Item::Mod(m) => {
+                if let Some((_, inner)) = &m.content {
+                    collect_types(inner, name, rel, text, out);
+                }
+                None
+            }
+            _ => None,
+        };
+        if let Some(ident) = ident {
+            if ident == name {
+                let line = ident.span().start().line;
+                out.push(CodeMatch {
+                    file: rel.to_string(),
+                    line,
+                    text: source_line(text, line),
+                });
+            }
+        }
+    }
+}
+
 /// Resolve `observable` (a function name) against the subject's Rust, requiring `arity`
 /// parameters to match the PRL predicate's declared arity. Read-only over the subject and
 /// recomputed live — code moves under a binding exactly as prose moves under a draft, so a
@@ -175,20 +283,34 @@ fn classify(f: FoundFn, arity: usize) -> Resolution {
 }
 
 /// Every function named `name` in the subject's `.rs` files, including inside inline
-/// `mod` blocks and `impl` blocks. Unparseable files are skipped rather than failing the
-/// run — a subject may legitimately contain a Rust file this parser cannot read (a newer
-/// edition, a generated fixture), and one bad file must not blind the whole resolution.
+/// `mod` blocks and `impl` blocks.
 fn find_functions(subject_root: &Path, companion_root: &Path, name: &str) -> Vec<FoundFn> {
     let mut out = Vec::new();
+    for_each_rust_file(subject_root, companion_root, |file, rel, text| {
+        collect_fns(&file.items, name, rel, text, &mut out);
+    });
+    out
+}
+
+/// Visit every parseable `.rs` file under the subject, handing the callback its parsed
+/// syntax tree, its path relative to the subject root, and its raw text.
+///
+/// The single walk both resolvers use, so a predicate and a sort can never disagree about
+/// which files count — the skip rules are the binding's semantics, not an implementation
+/// detail. Unparseable files are skipped rather than failing the run: a subject may
+/// legitimately hold a Rust file this parser cannot read (a newer edition, a generated
+/// fixture), and one bad file must not blind the whole resolution.
+fn for_each_rust_file(
+    subject_root: &Path,
+    companion_root: &Path,
+    mut visit: impl FnMut(&syn::File, &str, &str),
+) {
     for entry in WalkDir::new(subject_root)
         .into_iter()
         .filter_entry(|e| !is_skipped_dir(e.path(), companion_root))
     {
         let Ok(entry) = entry else { continue };
-        if !entry.file_type().is_file() || entry.path().extension().is_some_and(|x| x != "rs") {
-            continue;
-        }
-        if entry.path().extension().is_none() {
+        if !entry.file_type().is_file() || entry.path().extension().is_none_or(|x| x != "rs") {
             continue;
         }
         let Ok(text) = std::fs::read_to_string(entry.path()) else {
@@ -203,9 +325,8 @@ fn find_functions(subject_root: &Path, companion_root: &Path, name: &str) -> Vec
             .unwrap_or(entry.path())
             .display()
             .to_string();
-        collect_fns(&file.items, name, &rel, &text, &mut out);
+        visit(&file, &rel, &text);
     }
-    out
 }
 
 /// Walk items for functions named `name`, descending into inline modules and impl blocks
@@ -456,6 +577,86 @@ impl S { fn ready(&self) -> bool { true } }\n",
         )
         .unwrap();
         assert!(resolve_in(&tmp, "login", 1).is_resolved());
+    }
+
+    // Verifies: REQ026 — a sort resolves to a real Rust type, so a quantified variable has
+    // a domain. struct / enum / type alias all qualify.
+    #[test]
+    fn resolves_a_sort_to_a_struct_enum_or_alias() {
+        for (src, name) in [
+            ("pub struct User { id: u32 }\n", "User"),
+            ("pub enum User { Admin, Guest }\n", "User"),
+            ("pub type User = u32;\n", "User"),
+        ] {
+            let tmp = subject(src);
+            let r = resolve_type(tmp.path(), &tmp.path().join("ProvableRequirements"), name);
+            let TypeResolution::Resolved(at) = &r else {
+                panic!("{name} should resolve from {src:?}, got {r:?}")
+            };
+            assert_eq!(at.file, "src/auth.rs");
+            assert!(r.is_resolved());
+        }
+    }
+
+    // Verifies: REQ026 — a sort naming no real type does not resolve, so the requirement
+    // parks: nothing can range over a domain that does not exist (R-ground-1).
+    #[test]
+    fn unknown_sort_does_not_resolve() {
+        let tmp = subject("pub struct User;\n");
+        let r = resolve_type(
+            tmp.path(),
+            &tmp.path().join("ProvableRequirements"),
+            "Session",
+        );
+        assert_eq!(r, TypeResolution::NotFound);
+        assert!(!r.is_resolved());
+        assert!(r
+            .describe("Session", "Session")
+            .contains("cannot range over"));
+    }
+
+    // Verifies: REQ026 — two types sharing a name are never silently disambiguated, for the
+    // same reason as predicates: the choice would depend on walk order.
+    #[test]
+    fn duplicate_sorts_are_ambiguous_never_guessed() {
+        let tmp = subject("pub struct User;\nmod admin { pub struct User; }\n");
+        let r = resolve_type(tmp.path(), &tmp.path().join("ProvableRequirements"), "User");
+        let TypeResolution::Ambiguous(ats) = &r else {
+            panic!("should be ambiguous, got {r:?}")
+        };
+        assert_eq!(ats.len(), 2);
+        assert!(!r.is_resolved());
+    }
+
+    // Verifies: REQ026 — a function and a type sharing a name do not cross-resolve. A
+    // predicate binds to a function and a sort binds to a type; one resolver must never
+    // answer the other's question.
+    #[test]
+    fn predicates_and_sorts_do_not_cross_resolve() {
+        let tmp = subject("pub struct login;\npub fn User() -> bool { true }\n");
+        let companion = tmp.path().join("ProvableRequirements");
+        // `login` is a struct here, not a fn → the predicate resolver must not find it.
+        assert_eq!(
+            resolve(tmp.path(), &companion, "login", 0),
+            Resolution::NotFound
+        );
+        // `User` is a fn here, not a type → the sort resolver must not find it.
+        assert_eq!(
+            resolve_type(tmp.path(), &companion, "User"),
+            TypeResolution::NotFound
+        );
+    }
+
+    // Verifies: REQ025/REQ026 — both resolvers share one walk, so they cannot disagree
+    // about which files count: the companion tree is skipped for sorts exactly as for
+    // predicates.
+    #[test]
+    fn sort_resolution_skips_the_companion_tree() {
+        let tmp = subject("pub struct User;\n");
+        let companion = tmp.path().join("ProvableRequirements");
+        std::fs::create_dir_all(&companion).unwrap();
+        std::fs::write(companion.join("shadow.rs"), "pub struct User;\n").unwrap();
+        assert!(resolve_type(tmp.path(), &companion, "User").is_resolved());
     }
 
     // Verifies: REQ025 — the resolved read-back names the limit of what was checked, so a

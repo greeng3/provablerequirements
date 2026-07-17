@@ -1,0 +1,30 @@
+active: true
+derived: false
+header: ''
+level: 1.25
+links: []
+normative: true
+ref: ''
+reviewed: rDk2OK66cX3PEc2ubokXxTdTFcyLHwNLTkALSDb62mY=
+text: |
+  A grounding binds the sorts a requirement speaks of, not only its predicates. The sorts
+  are the types a quantified variable ranges over and any sort the vocabulary declares; a
+  category-1 sort binding names a type in the subject's code, and resolves when exactly one
+  struct, enum, or type alias of that name exists.
+
+  A sort that is unbound, or bound to a name that does not resolve, parks the requirement
+  exactly as an unbound predicate does. A quantified claim whose domain names nothing real
+  is not grounded, however well its predicates resolve: there is nothing for the variable to
+  range over, so nothing could check the claim. As with predicates, an ambiguous name is
+  never silently resolved to one of its candidates.
+
+  Predicates and sorts are resolved separately and never cross-resolve. A predicate binds to
+  a function and a sort binds to a type, so a function sharing a sort's name does not
+  satisfy that sort, and a type sharing a predicate's name does not satisfy that predicate.
+  Both resolve against the same walk of the subject, so the two can never disagree about
+  which of its files count.
+
+  A sort binding establishes that the type exists, and no more. Whether a type can be
+  instantiated is a question belonging to whichever engine needs to instantiate it, and is
+  reported by that engine rather than by the binding, so that no single engine's demands are
+  written into a binding shared by all of them.

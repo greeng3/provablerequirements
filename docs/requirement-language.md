@@ -545,9 +545,17 @@ requirement no_message_lost {
   never silently resolved, since choosing would bind to whichever file was walked first. **Resolution
   is syntactic** — `syn` parses but does not type-check, so a `bool` alias or `Result<bool>` is judged
   on how it is written; the limit is stated wherever a resolved binding is reported. Rust-only
-  (R-eng-4 per-language adapter). **Still open:** methods, field/expression predicates, path-qualified
-  items, generics — and **sort bindings** (PRL sort `User` → a real Rust type), which the first engine
-  needs to instantiate a quantified variable.
+  (R-eng-4 per-language adapter).
+  **Sorts bind too (REQ026).** The types a quantified variable ranges over (`each u: User`) plus any
+  declared `sort` resolve to a real `struct`/`enum`/`type` alias. An unbound or unresolved sort parks
+  the requirement exactly as an unbound predicate does — a quantified claim whose domain names nothing
+  real is not grounded, however well its predicates resolve. Predicates and sorts resolve **separately
+  and never cross-resolve** (a predicate binds to a function, a sort to a type), through one shared
+  walk so they cannot disagree about which files count. A sort binding proves the type **exists**, and
+  no more: whether it can be _instantiated_ (e.g. Kani's `Arbitrary`) belongs to the engine that needs
+  to instantiate it, since the binding is core-owned and shared across engines.
+  **Still open:** methods, field/expression predicates, path-qualified items, generics, and
+  cross-checking a typed parameter's sort (`event accepted(m: Message)`) against the quantifier's.
 - Concrete serialization + human read-back rendering of the verdict object (the schema and
   rules are decided in D7–D10 and _Verdict object_; the wire format is still open).
 - **Deferred:** grammar-constrained decoder for the LLM front-end — revisit if the

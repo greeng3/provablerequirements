@@ -15,10 +15,11 @@
 //! every dry-run, because code moves under a binding exactly as prose moves under a draft.
 //!
 //! Implements: REQ021 (grounding binding schema + category-1 dry-run), REQ025 (a cat-1
-//! binding grounds only by resolving to a state predicate at a source location).
+//! binding grounds only by resolving to a state predicate at a source location), REQ026
+//! (sorts bind to real types, so a quantified variable has a domain).
 
 use crate::prl::ast::{Category, Decl, Requirement};
-use crate::rust_adapter::Resolution;
+use crate::rust_adapter::{Resolution, TypeResolution};
 use std::collections::BTreeMap;
 
 /// D5 binding fidelity — a verdict is never stronger than its weakest binding. This
@@ -111,9 +112,10 @@ pub struct Binding {
     pub fidelity: Fidelity,
 }
 
-/// The declared vocabulary symbols a grounding may bind: the event/state **predicates**
-/// the gate name-checks. Sorts (types) and raw identities are not bound in this slice.
-/// `// ponytail: predicates only; sort/type existence when cat-1 needs it.`
+/// The declared vocabulary **predicates** a grounding may bind: the event/state names the
+/// gate name-checks. Sorts are bound too, but separately — see [`bindable_sorts`], since a
+/// predicate binds to a function and a sort binds to a type. Raw identities are still
+/// unbound. `// ponytail: identities when D6 cross-category correspondence lands.`
 pub fn bindable_symbols(req: &Requirement) -> Vec<String> {
     req.vocabulary
         .iter()
@@ -122,6 +124,35 @@ pub fn bindable_symbols(req: &Requirement) -> Vec<String> {
             Decl::Sort { .. } | Decl::Identity { .. } => None,
         })
         .collect()
+}
+
+/// The sorts a grounding may bind: the **types a quantified variable ranges over**
+/// (`each u: User`) plus any declared `sort` in the vocabulary, deduplicated and in a
+/// stable order. Peer of [`bindable_symbols`], which stays predicates-only — a predicate
+/// binds to a function, a sort binds to a type, and conflating them would let one resolver
+/// answer a question it was not asked.
+///
+/// A quantified claim whose domain is unknown is not grounded: nothing can range over a
+/// sort that names no real type, so an unbound sort parks the requirement exactly as an
+/// unbound predicate does (R-ground-1). REQ026.
+pub fn bindable_sorts(req: &Requirement) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    let mut push = |s: &str| {
+        if !s.is_empty() && !out.iter().any(|seen| seen == s) {
+            out.push(s.to_string());
+        }
+    };
+    for decl in &req.vocabulary {
+        if let Decl::Sort { name, .. } = decl {
+            push(name);
+        }
+    }
+    for prop in &req.require {
+        if let Some(q) = &prop.quantifier {
+            push(&q.sort);
+        }
+    }
+    out
 }
 
 /// The arity the requirement declares for a vocabulary predicate — what a category-1
@@ -148,21 +179,31 @@ pub fn default_category(req: &Requirement) -> BindCategory {
         .unwrap_or(BindCategory::Code)
 }
 
-/// Symbols that are declared vocabulary but have no binding yet — an unbound symbol
-/// keeps the requirement ungrounded (there is nothing to observe it through). Pure.
+/// Everything the requirement speaks of that has no binding yet — **predicates and sorts
+/// alike** (REQ026). An unbound name keeps the requirement ungrounded: there is nothing to
+/// observe a predicate through, and nothing for a quantified variable to range over. Pure.
 pub fn unbound_symbols(req: &Requirement, bindings: &[Binding]) -> Vec<String> {
     let bound: std::collections::BTreeSet<&str> =
         bindings.iter().map(|b| b.symbol.as_str()).collect();
     bindable_symbols(req)
         .into_iter()
+        .chain(bindable_sorts(req))
         .filter(|s| !bound.contains(s.as_str()))
         .collect()
 }
 
-/// Whether a symbol name is a declared, bindable predicate — a `--ground` for anything
-/// else is a user error (you cannot ground a symbol the requirement does not speak of).
+/// Whether a name is a declared, bindable predicate **or sort** — a `--ground` for
+/// anything else is a user error (you cannot ground a name the requirement does not speak
+/// of).
 pub fn is_bindable(req: &Requirement, symbol: &str) -> bool {
     bindable_symbols(req).iter().any(|s| s == symbol)
+        || bindable_sorts(req).iter().any(|s| s == symbol)
+}
+
+/// Whether a bindable name is a **sort** rather than a predicate. Decides which resolver
+/// answers for it: a predicate binds to a function, a sort binds to a type.
+pub fn is_sort(req: &Requirement, symbol: &str) -> bool {
+    bindable_sorts(req).iter().any(|s| s == symbol)
 }
 
 /// The grounding verdict for a requirement (R-ground-1/2). `Grounded` only when every
@@ -189,6 +230,7 @@ pub fn verdict(
     req: &Requirement,
     bindings: &[Binding],
     resolutions: &BTreeMap<String, Resolution>,
+    sort_resolutions: &BTreeMap<String, TypeResolution>,
 ) -> Grounding {
     let mut reasons = Vec::new();
 
@@ -200,6 +242,19 @@ pub fn verdict(
 
     for b in bindings {
         match b.category {
+            // A sort binds to a type and a predicate to a function, so each is answered by
+            // its own resolver — asking one for the other's name would silently succeed on
+            // a coincidental match (a `struct login` is not the predicate `login`).
+            BindCategory::Code if is_sort(req, &b.symbol) => {
+                match sort_resolutions.get(&b.symbol) {
+                    Some(r) if r.is_resolved() => {}
+                    Some(r) => reasons.push(r.describe(&b.symbol, &b.observable)),
+                    None => reasons.push(format!(
+                        "{} (sort): `{}` was not resolved against the subject's source",
+                        b.symbol, b.observable
+                    )),
+                }
+            }
             BindCategory::Code => match resolutions.get(&b.symbol) {
                 Some(r) if r.is_resolved() => {}
                 // An absent resolution is treated exactly as a failed one: the caller not
@@ -273,23 +328,39 @@ mod tests {
         assert!(!is_bindable(&r, "not_a_symbol"));
     }
 
-    // Verifies: REQ021 — an unbound declared symbol is reported, and drops off once bound.
+    // Verifies: REQ021/REQ026 — an unbound name is reported and drops off once bound, and
+    // that covers SORTS as well as predicates: `CODE_REQ` quantifies `each u: User`, so the
+    // sort `User` is a name the requirement speaks of and must be bound too.
     #[test]
-    fn unbound_symbols_tracks_coverage() {
+    fn unbound_symbols_tracks_predicates_and_sorts() {
         let r = req(CODE_REQ);
         let none: Vec<Binding> = vec![];
-        assert_eq!(unbound_symbols(&r, &none), vec!["logged_in", "has_session"]);
+        assert_eq!(
+            unbound_symbols(&r, &none),
+            vec!["logged_in", "has_session", "User"]
+        );
 
-        let one = vec![Binding {
-            symbol: "logged_in".into(),
-            category: BindCategory::Code,
-            observable: "fn log_in".into(),
-            fidelity: Fidelity::Definitional,
-        }];
-        assert_eq!(unbound_symbols(&r, &one), vec!["has_session"]);
+        let one = vec![code_binding("logged_in", "login")];
+        assert_eq!(unbound_symbols(&r, &one), vec!["has_session", "User"]);
+
+        let all = vec![
+            code_binding("logged_in", "login"),
+            code_binding("has_session", "has_session"),
+            sort_binding("User", "User"),
+        ];
+        assert!(unbound_symbols(&r, &all).is_empty());
     }
 
     fn code_binding(symbol: &str, observable: &str) -> Binding {
+        Binding {
+            symbol: symbol.into(),
+            category: BindCategory::Code,
+            observable: observable.into(),
+            fidelity: Fidelity::Definitional,
+        }
+    }
+
+    fn sort_binding(symbol: &str, observable: &str) -> Binding {
         Binding {
             symbol: symbol.into(),
             category: BindCategory::Code,
@@ -314,6 +385,7 @@ mod tests {
         let bindings = vec![
             code_binding("logged_in", "login"),
             code_binding("has_session", "has_session"),
+            sort_binding("User", "User"),
         ];
         let resolutions = BTreeMap::from([
             (
@@ -325,7 +397,12 @@ mod tests {
                 Resolution::Resolved(at("src/a.rs")),
             ),
         ]);
-        assert_eq!(verdict(&r, &bindings, &resolutions), Grounding::Grounded);
+        let sorts =
+            BTreeMap::from([("User".to_string(), TypeResolution::Resolved(at("src/a.rs")))]);
+        assert_eq!(
+            verdict(&r, &bindings, &resolutions, &sorts),
+            Grounding::Grounded
+        );
     }
 
     // Verifies: REQ025 (R-ground-2) — a binding that does not resolve parks the
@@ -344,7 +421,8 @@ mod tests {
             ),
             ("has_session".to_string(), Resolution::NotFound),
         ]);
-        let Grounding::Parked { reasons } = verdict(&r, &bindings, &resolutions) else {
+        let Grounding::Parked { reasons } = verdict(&r, &bindings, &resolutions, &BTreeMap::new())
+        else {
             panic!("an unresolved binding must park, never ground");
         };
         assert!(reasons
@@ -365,7 +443,8 @@ mod tests {
             "logged_in".to_string(),
             Resolution::Resolved(at("src/a.rs")),
         )]);
-        let Grounding::Parked { reasons } = verdict(&r, &bindings, &only_one) else {
+        let Grounding::Parked { reasons } = verdict(&r, &bindings, &only_one, &BTreeMap::new())
+        else {
             panic!("an unresolved-by-omission binding must park");
         };
         assert!(reasons.iter().any(|reason| reason.contains("has_session")));
@@ -386,10 +465,84 @@ mod tests {
             observable: "queue.events".into(),
             fidelity: Fidelity::Observed,
         }];
-        let Grounding::Parked { reasons } = verdict(&r, &bindings, &BTreeMap::new()) else {
+        let Grounding::Parked { reasons } =
+            verdict(&r, &bindings, &BTreeMap::new(), &BTreeMap::new())
+        else {
             panic!("a deferred category must park");
         };
         assert!(reasons.iter().any(|reason| reason.contains("deferred")));
+    }
+
+    // Verifies: REQ026 — the sorts a quantifier ranges over are bindable, alongside any
+    // declared `sort`. Predicates stay out of this list; they bind to functions.
+    #[test]
+    fn bindable_sorts_are_quantifier_sorts_and_declared_sorts() {
+        assert_eq!(bindable_sorts(&req(CODE_REQ)), vec!["User"]);
+        let with_decl = req("requirement r {
+            category: 1
+            vocabulary { sort Message state sent(m) }
+            require { each m: Message . always sent(m) }
+        }");
+        assert_eq!(bindable_sorts(&with_decl), vec!["Message"]);
+        assert!(!bindable_sorts(&with_decl).contains(&"sent".to_string()));
+        assert!(is_sort(&with_decl, "Message"));
+        assert!(!is_sort(&with_decl, "sent"));
+    }
+
+    // Verifies: REQ026 — an UNBOUND sort parks the requirement. A quantified claim whose
+    // domain names nothing is not grounded, however well its predicates resolve.
+    #[test]
+    fn unbound_sort_parks_even_when_every_predicate_resolves() {
+        let r = req(CODE_REQ);
+        let bindings = vec![
+            code_binding("logged_in", "login"),
+            code_binding("has_session", "has_session"),
+        ];
+        let resolutions = BTreeMap::from([
+            (
+                "logged_in".to_string(),
+                Resolution::Resolved(at("src/a.rs")),
+            ),
+            (
+                "has_session".to_string(),
+                Resolution::Resolved(at("src/a.rs")),
+            ),
+        ]);
+        let Grounding::Parked { reasons } = verdict(&r, &bindings, &resolutions, &BTreeMap::new())
+        else {
+            panic!("an unbound sort must park");
+        };
+        assert!(
+            reasons.iter().any(|reason| reason.contains("User")),
+            "the unbound sort must be named: {reasons:?}"
+        );
+    }
+
+    // Verifies: REQ026 — a BOUND sort that does not resolve parks too, carrying the
+    // adapter's own explanation.
+    #[test]
+    fn unresolved_sort_parks() {
+        let r = req(CODE_REQ);
+        let bindings = vec![
+            code_binding("logged_in", "login"),
+            code_binding("has_session", "has_session"),
+            sort_binding("User", "NoSuchType"),
+        ];
+        let resolutions = BTreeMap::from([
+            (
+                "logged_in".to_string(),
+                Resolution::Resolved(at("src/a.rs")),
+            ),
+            (
+                "has_session".to_string(),
+                Resolution::Resolved(at("src/a.rs")),
+            ),
+        ]);
+        let sorts = BTreeMap::from([("User".to_string(), TypeResolution::NotFound)]);
+        let Grounding::Parked { reasons } = verdict(&r, &bindings, &resolutions, &sorts) else {
+            panic!("an unresolved sort must park");
+        };
+        assert!(reasons.iter().any(|reason| reason.contains("NoSuchType")));
     }
 
     // Verifies: REQ025 — the arity checked against comes from the requirement's own
