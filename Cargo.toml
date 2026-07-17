@@ -32,10 +32,13 @@ reqwest = { version = "0.12", default-features = false, features = ["json", "rus
 # a resolved predicate reportable as file:line — without it syn spans carry no line.
 syn = { version = "2", features = ["full", "parsing"] }
 proc-macro2 = { version = "1", features = ["span-locations"] }
+# The category-2a engine (TLC, REQ029) redirects TLC's scratch (`states/`) to a throwaway
+# metadir outside the subject, so `run` needs tempfile at runtime, not just in tests. Already
+# in Cargo.lock as a dev-dep, so this promotes it rather than adding weight.
+tempfile = "3"
 
 [dev-dependencies]
 tower = { version = "0.5", features = ["util"] }
-tempfile = "3"
 
 # cargo-dist / release configuration is expressed in the CI workflow
 # (.github/workflows/release.yml) for this prototype; see docs/build-and-release.md.

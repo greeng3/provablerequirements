@@ -30,17 +30,25 @@
 use crate::grounding::BindCategory;
 use std::process::Command;
 
-/// A portable engine's presence probe: the binary to look up on `PATH`, the argument
-/// that makes it print its version, and an optional minimum version. Version thresholds
-/// are presence-only for now (`None`) — the compatibility machinery is real and tested,
-/// but no minimums are shipped until a real engine is on hand to calibrate against.
-/// `// ponytail: probe args are best-effort (TLC has no clean --version); tune per engine
-/// when one is actually installed, and move bins/min-versions to provreq.yml config.`
+/// An engine's presence probe: the command to run (`bin` + `args`) that makes it print its
+/// version, an optional marker the output must contain to count as present, and an optional
+/// minimum version. Version thresholds are presence-only for now (`None`) — the compatibility
+/// machinery is real and tested, but no minimums are shipped until a real engine is on hand to
+/// calibrate against.
+///
+/// `version_marker` is what keeps a *host* being present from masquerading as the *engine*: TLC
+/// runs as `java -cp <jar> tlc2.TLC`, so `java` spawning successfully is not evidence TLC is
+/// there — only the marker (`TLC2 Version`) in the output is. `None` (Kani: `cargo-kani
+/// --version` only runs at all if `cargo-kani` exists) means any successful run counts.
+///
+/// `// ponytail: probe args are best-effort (TLC has no clean --version — its banner is the
+/// version); move bins/args/min-versions to provreq.yml config when a real subject needs it.`
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EngineProbe {
-    pub bin: &'static str,
-    pub version_arg: &'static str,
-    pub min_version: Option<&'static str>,
+    pub bin: String,
+    pub args: Vec<String>,
+    pub version_marker: Option<String>,
+    pub min_version: Option<String>,
 }
 
 /// A verification engine a PRL category routes to. `probe` is `Some` exactly when provreq
@@ -122,15 +130,30 @@ pub fn registry() -> Vec<Engine> {
             category: BindCategory::Code,
             name: "Kani",
             probe: Some(EngineProbe {
-                bin: "cargo-kani",
-                version_arg: "--version",
+                bin: "cargo-kani".to_string(),
+                args: vec!["--version".to_string()],
+                version_marker: None,
                 min_version: None,
             }),
         },
         Engine {
+            // Category 2a is the model world: the temporal properties (safety AND liveness)
+            // checked against a TLA+ model. Its engine is TLC — REQ029, the model-world analog
+            // of wiring Kani for category 1. TLC is not a PATH binary; it runs as
+            // `java -cp <jar> tlc2.TLC`, so the probe is java with the jar on the classpath and
+            // the marker guards against java-present-but-jar-absent.
             category: BindCategory::Model,
             name: "TLC (TLA+)",
-            probe: None,
+            probe: Some(EngineProbe {
+                bin: "java".to_string(),
+                args: vec![
+                    "-cp".to_string(),
+                    crate::tlc::jar_path(),
+                    "tlc2.TLC".to_string(),
+                ],
+                version_marker: Some("TLC2 Version".to_string()),
+                min_version: None,
+            }),
         },
         Engine {
             category: BindCategory::Runtime,
@@ -166,7 +189,7 @@ pub fn detect(engine: &Engine) -> EngineStatus {
 fn detect_probe(probe: &EngineProbe) -> EngineStatus {
     // `Command::new(bare_name)` searches `PATH`; a not-found binary errors here, which is
     // exactly the honest "engine missing" signal.
-    let output = match Command::new(probe.bin).arg(probe.version_arg).output() {
+    let output = match Command::new(&probe.bin).args(&probe.args).output() {
         Ok(o) => o,
         Err(_) => return EngineStatus::Missing,
     };
@@ -175,8 +198,15 @@ fn detect_probe(probe: &EngineProbe) -> EngineStatus {
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );
+    // A marker that is set but absent means the host ran (e.g. `java`) but the engine is not
+    // actually reachable (e.g. the jar is missing) — that is Missing, not Available.
+    if let Some(marker) = &probe.version_marker {
+        if !combined.contains(marker) {
+            return EngineStatus::Missing;
+        }
+    }
     let found = parse_version(&combined);
-    match (probe.min_version, &found) {
+    match (probe.min_version.as_deref(), &found) {
         (Some(min), Some(v)) if !version_meets_min(v, min) => EngineStatus::Incompatible {
             found: v.clone(),
             required: min.to_string(),
@@ -291,16 +321,20 @@ mod tests {
         let code = engine_for(BindCategory::Code);
         assert_eq!(code.name, "Kani");
         assert_eq!(code.probe.expect("cat-1 is wired").bin, "cargo-kani");
+        // REQ029: category 2a is wired to TLC, probed via `java … tlc2.TLC`.
+        let model = engine_for(BindCategory::Model);
+        assert_eq!(model.name, "TLC (TLA+)");
+        assert_eq!(model.probe.expect("cat-2a is wired").bin, "java");
     }
 
-    // Verifies: REQ027 (R-eng-2/3) — an engine is probed ONLY if provreq can run it. A
+    // Verifies: REQ027/REQ029 (R-eng-2/3) — an engine is probed ONLY if provreq can run it. A
     // category with no lowering reports NotWired even when its binary is installed, because
     // reporting `ready` for an engine nothing drives is the REQ024 overclaim wearing a
     // different hat: the operator installs the tool, `engines` turns green, and `verify`
-    // still answers `no-engine`.
+    // still answers `no-engine`. Categories 1 (Kani) and 2a (TLC) are wired; 2b/3 are not.
     #[test]
     fn unwired_categories_are_not_probed_and_never_report_ready() {
-        for cat in [BindCategory::Model, BindCategory::Runtime, BindCategory::Ui] {
+        for cat in [BindCategory::Runtime, BindCategory::Ui] {
             let engine = engine_for(cat);
             assert!(
                 engine.probe.is_none(),
@@ -337,8 +371,9 @@ mod tests {
     #[test]
     fn absent_binary_detects_as_missing() {
         let probe = EngineProbe {
-            bin: "provreq_no_such_engine_xyz",
-            version_arg: "--version",
+            bin: "provreq_no_such_engine_xyz".to_string(),
+            args: vec!["--version".to_string()],
+            version_marker: None,
             min_version: None,
         };
         assert_eq!(detect_probe(&probe), EngineStatus::Missing);
@@ -349,14 +384,30 @@ mod tests {
     #[test]
     fn present_binary_detects_as_available() {
         let probe = EngineProbe {
-            bin: "echo",
-            version_arg: "--version",
+            bin: "echo".to_string(),
+            args: vec!["9.9".to_string()],
+            version_marker: None,
             min_version: None,
         };
         assert!(matches!(
             detect_probe(&probe),
             EngineStatus::Available { .. }
         ));
+    }
+
+    // Verifies: REQ029 — a host that runs but whose output lacks the engine's marker is
+    // Missing, not falsely Available. This is the TLC-via-java case: `java` spawns fine but the
+    // jar is absent, so the `TLC2 Version` banner never appears and the engine is not really
+    // present. `echo` stands in for the host here.
+    #[test]
+    fn present_host_without_the_engine_marker_is_missing() {
+        let probe = EngineProbe {
+            bin: "echo".to_string(),
+            args: vec!["some other output".to_string()],
+            version_marker: Some("TLC2 Version".to_string()),
+            min_version: None,
+        };
+        assert_eq!(detect_probe(&probe), EngineStatus::Missing);
     }
 
     // Verifies: REQ022 — version parsing and comparison (the compatibility machinery that

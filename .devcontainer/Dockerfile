@@ -74,3 +74,16 @@ RUN cargo install cargo-audit --locked
 # solvers it drives, and that second step is what grows the image (hundreds of MB).
 RUN cargo install --locked kani-verifier \
     && cargo kani setup
+
+# TLC — the category-2a verification engine (REQ029), for the model (TLA+) world. Same reason
+# as Kani above: baked into the image so `provreq engines` never reports 2a Missing on a fresh
+# rebuild. TLC ships as a single jar run under a JRE (no PATH binary), and is far lighter than
+# Kani/CBMC — a headless JRE plus a ~2 MB jar. `TLA2TOOLS_JAR` is the path `provreq::tlc` reads.
+ENV TLA2TOOLS_JAR=/opt/tlaplus/tla2tools.jar
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends default-jre-headless \
+    && rm -rf /var/lib/apt/lists/* \
+    && mkdir -p /opt/tlaplus \
+    && curl -fLsS -o "$TLA2TOOLS_JAR" \
+      "https://github.com/tlaplus/tlaplus/releases/download/v1.7.4/tla2tools.jar" \
+    && java -cp "$TLA2TOOLS_JAR" tlc2.TLC 2>&1 | grep -q "TLC2 Version"

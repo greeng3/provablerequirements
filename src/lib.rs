@@ -19,6 +19,7 @@ pub mod server;
 pub mod source;
 pub mod status;
 pub mod tla_adapter;
+pub mod tlc;
 pub mod triage;
 pub mod verdict;
 

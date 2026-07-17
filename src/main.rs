@@ -1080,6 +1080,7 @@ fn run_verify(subject: &Path, id: &str) -> Result<()> {
     let verdict = match &grounding_result {
         Grounding::Grounded => engine_verdict(
             subject,
+            &companion,
             id,
             &requirement,
             &draft.bindings,
@@ -1100,12 +1101,14 @@ fn run_verify(subject: &Path, id: &str) -> Result<()> {
     Ok(())
 }
 
-/// Ask the requirement's engine, and turn what it says into a verdict (REQ027).
+/// Ask the requirement's engine, and turn what it says into a verdict (REQ027/REQ029).
 ///
-/// The category gate is explicit rather than left to "only category 1 has a probe": a future
-/// wired 2a must route to ITS engine, not silently inherit Kani's lowering.
+/// The category dispatch is explicit: category 1 routes to Kani (code), category 2a to TLC
+/// (model); each has its own lowering, and neither silently inherits the other's. 2b/3 have no
+/// wired engine, so they never reach a branch here — they are `no_engine` at the gate below.
 fn engine_verdict(
     subject: &Path,
+    companion: &Path,
     id: &str,
     requirement: &Requirement,
     bindings: &[Binding],
@@ -1116,9 +1119,9 @@ fn engine_verdict(
     let engine = engine::engine_for(category);
     let status = engine::detect(&engine);
 
-    // Not wired (2a/2b/3) or not installed (Kani absent) — both leave the property
+    // Not wired (2b/3) or not installed (engine binary absent) — both leave the property
     // unchecked, but they ask different people to act, so the verdict says which.
-    if category != grounding::BindCategory::Code || !status.is_ready() {
+    if !status.is_ready() {
         return provreq::verdict::no_engine(
             id,
             vec![format!(
@@ -1131,6 +1134,32 @@ fn engine_verdict(
         );
     }
 
+    println!("  running {} ({})...", engine.name, status.describe());
+    match category {
+        grounding::BindCategory::Code => {
+            kani_verdict(subject, id, requirement, bindings, resolutions, provenance)
+        }
+        grounding::BindCategory::Model => {
+            tlc_verdict(subject, companion, id, requirement, bindings, provenance)
+        }
+        // 2b/3 are NotWired → not ready → returned above; this keeps the match total.
+        _ => provreq::verdict::no_engine(
+            id,
+            vec![format!("no lowering for category {}", category.as_label())],
+            provenance,
+        ),
+    }
+}
+
+/// Category 1 → Kani (REQ027): lower to an additive proof harness, run it, map to a verdict.
+fn kani_verdict(
+    subject: &Path,
+    id: &str,
+    requirement: &Requirement,
+    bindings: &[Binding],
+    resolutions: &BTreeMap<String, Resolution>,
+    provenance: provreq::verdict::Provenance,
+) -> provreq::verdict::Verdict {
     let Some(crate_name) = provreq::kani::subject_crate_name(subject) else {
         return provreq::verdict::inconclusive(
             id,
@@ -1153,8 +1182,34 @@ fn engine_verdict(
         // A claim we cannot faithfully express is inconclusive, never approximated (D2).
         Err(e) => return provreq::verdict::inconclusive(id, vec![e.reason], provenance),
     };
-    println!("  running {} ({})...", engine.name, status.describe());
     provreq::kani::run(subject, &harness).into_verdict(id, provenance)
+}
+
+/// Category 2a → TLC (REQ029): locate the subject's `Spec`, lower to an additive TLA+ module
+/// with a temporal property, run TLC beside the spec, map to a verdict. A missing `Spec` or an
+/// un-lowerable claim is honestly `inconclusive`, never approximated (D2).
+fn tlc_verdict(
+    subject: &Path,
+    companion: &Path,
+    id: &str,
+    requirement: &Requirement,
+    bindings: &[Binding],
+    provenance: provreq::verdict::Provenance,
+) -> provreq::verdict::Verdict {
+    let site = match provreq::tlc::locate_spec(subject, companion) {
+        Ok(site) => site,
+        Err(reason) => return provreq::verdict::inconclusive(id, vec![reason], provenance),
+    };
+    let check = match provreq::tlc::lower(
+        requirement,
+        &site.module,
+        bindings,
+        &provreq::tlc::module_name(id),
+    ) {
+        Ok(c) => c,
+        Err(e) => return provreq::verdict::inconclusive(id, vec![e.reason], provenance),
+    };
+    provreq::tlc::run(&site, &check).into_verdict(id, provenance)
 }
 
 /// Best-effort subject git HEAD for verdict provenance (D9). `None` when the subject is not

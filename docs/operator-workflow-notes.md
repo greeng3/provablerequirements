@@ -388,14 +388,40 @@ only; sort/type existence when cat-1 needs it`). Cat-1 now needs it: a harness c
       `Msg.tla`, and an unresolvable binding parks), all green. Deferred: wire TLC → real verdict; operator
       arity/shape checks; a configured spec path when specs live outside the subject tree.
 
-**Next slice:** **wire TLC** so a grounded category-2a requirement earns a real `model-checked (bounded)`
-verdict (the REQ027 analog for the model world). Everything 2a needs on the provreq side is now in place:
-gate-expressible (fragment check permits the full working set at 2a), groundable against a real TLA+ spec
-(#46), and the verdict object already carries the `model-checked (bounded)` basis Kani established. The
-work is: lower a gated 2a requirement to a TLA+ temporal property + a TLC `.cfg`, run TLC (a Java jar,
-`tla2tools.jar` — check it is installable/available here), map its output to a verdict, and give cat 2a a
-real probe so it stops being `NotWired`. The still-open **cat-1 fork** (a `proven`-capable deductive
-verifier — Prusti/Creusot/Verus — forcing the annotate-the-subject decision) remains available after.
+- **TLC wired — cat-2a engine: issue #48 / PR #TBD (2026-07-17).** The REQ027 analog for the model world.
+  A grounded category-2a requirement now earns a real `holds`/`fails`, closing the `NotWired` state #46 left
+  it in. Everything below was verified against real TLC 2.19 (a JRE + `tla2tools.jar`, ~2 MB — far lighter
+  than Kani/CBMC), not designed in the abstract.
+    - New `src/tlc.rs`: `lower` (PURE, TLC-free-testable) + `run` + `Outcome::into_verdict`, mirroring
+      `kani.rs`. `lower` turns a gated 2a temporal pattern into a TLA+ temporal property and emits an
+      **additive** module that `EXTENDS` the subject's own spec plus a `.cfg` naming the subject's `Spec` and
+      the property. Subject spec untouched; generated files removed after the run (TLC's `states/` scratch
+      redirected to a throwaway `-metadir` outside the subject); an existing file is never clobbered.
+    - Linear-temporal core: `always`→`[]`, `never`→`[]~`, `eventually`→`<>`, `leads_to`→`~>`, over a
+      `\A x \in Sort` quantifier. A scope, a `with` guard, a metric `within`, a non-variable arg, or a
+      pattern outside that core (`precedes`/`occurs at most`/`can_reach`) → honest `NotLowerable` →
+      `unknown`, never approximated (D2). The subject must define a behaviour `Spec` (located via
+      `tla_adapter`); a missing/ambiguous `Spec`, an unassigned `CONSTANT`, or a parse error → honest
+      `inconclusive` — the TLC analog of Kani's uncompilable harness. Constant models deferred.
+    - `engine.rs` honesty: `EngineProbe` gained `args: Vec<String>` + a `version_marker`, because TLC runs as
+      `java -cp <jar> tlc2.TLC` (no PATH binary) and `java` present ≠ TLC present — only the `TLC2 Version`
+      banner in the output counts, so a jar-absent host reads `Missing`, not falsely `Available`. Cat-2a gets
+      a real probe and stops being `NotWired`.
+    - `main.rs engine_verdict` now dispatches on category: 1→Kani (`kani_verdict`), 2a→TLC (`tlc_verdict`);
+      2b/3 stay `no-engine`. `verdict.rs` reused as-is — TLC is bounded too, so a pass is
+      `Basis::ModelCheckedBounded` (`model-checked (bounded)`, **never** `proven`) and a `fails` carries TLC's
+      counter-example behaviour as the D9 witness.
+    - Install/CI (Kani precedent): JRE + `tla2tools.jar` baked into `.devcontainer/Dockerfile` + a postCreate
+      version line + `TLA2TOOLS_JAR`; installed in the running container too. Main `test` job stays
+      engine-free; a separate parallel `tlc` CI job installs TLC and runs `cargo test --lib tlc:: -- --ignored`
+      (the `kani` job was scoped to `kani::` so it stops running the cat-2a real-engine tests it can't).
+      REQ029 (1.28). 198 engine-free tests + 3 real-TLC (`#[ignore]`d) + live CLI smoke, all green.
+
+**Next slice:** the still-open **cat-1 fork** — a `proven`-capable deductive verifier (Prusti/Creusot/Verus)
+as cat-1 engine #2 — which forces the annotate-the-subject decision + the D2b per-tool evidence map +
+cross-check. Or the **cat-2b/3** engines (MonPoly runtime monitor / a UI driver), still `NotWired`. The 2b/3
+liveness-monitorability question (can a finite trace refute `eventually P`? — only the metric `leads_to …
+within T` looks decidable there) stays open; settle it with the user before narrowing 2b/3 from permissive.
 
 ## Packaging — Design A (old, superseded)
 

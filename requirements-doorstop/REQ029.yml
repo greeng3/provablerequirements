@@ -1,0 +1,34 @@
+active: true
+derived: false
+header: ''
+level: 1.28
+links: []
+normative: true
+ref: ''
+reviewed: 9SjTRpYtH2vx7du2bbuoXDwuKQi3BLDC-3ekwUVCr_0=
+text: |
+  Category 2a — the model world — has a verification engine: TLC, the TLA+ model checker. A
+  grounded category-2a requirement earns a real verdict, the way a grounded category-1
+  requirement earns one from Kani. This is the model-world counterpart to wiring the code
+  world's first engine.
+
+  The property is checked against the subject's own TLA+ specification, not against generated
+  behaviour. The tool adds to the model without changing it: it writes a new module that
+  extends the subject's specification and defines one temporal property, and a configuration
+  that names the subject's behaviour specification and that property. The subject's specification
+  is never edited; the generated files are removed after the run, and an existing file is never
+  overwritten.
+
+  The linear-temporal patterns lower to their temporal-logic forms: an invariant to "always", a
+  prohibition to "always not", an eventuality to "eventually", and a leads-to to the leads-to
+  operator, each optionally quantified over a bound sort's model set. A claim the tool cannot
+  faithfully express — a scoped property, a real-time deadline, a pattern outside that core, or
+  a reference the model does not define — is reported as an honest unknown, never approximated
+  into a checkable formula.
+
+  TLC is a bounded model checker: it establishes a passing property over the states it explored,
+  not over every execution, so a pass is recorded as model-checked and never as proven. A
+  violation is definitive and carries the concrete counter-example behaviour TLC found as a
+  re-checkable witness. A run that cannot decide — because the specification will not parse, a
+  constant is unassigned, or no behaviour specification is defined — yields an unknown with its
+  reason, never a verdict.

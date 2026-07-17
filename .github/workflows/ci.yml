@@ -68,5 +68,39 @@ jobs:
       # the devcontainer bakes into its image.
       - name: Install Kani
         uses: model-checking/kani-github-action@v1
+      # Scoped to the kani module: this job installs Kani but not TLC, so it must not run the
+      # cat-2a real-engine tests (that is the `tlc` job's). Each engine's real path is proven
+      # by the job that has that engine.
       - name: Run the real-engine tests
-        run: cargo test --lib -- --ignored
+        run: "cargo test --lib kani:: -- --ignored"
+
+  # The category-2a real-engine path (REQ029), on its own job — same design as `kani` above:
+  # the main `test` job stays engine-FREE, and this job installs TLC and runs exactly the
+  # `#[ignore]`d cat-2a tests. TLC is a JRE + a jar (far lighter than Kani/CBMC), so this job is
+  # quick; a public repo pays nothing for the extra minutes.
+  tlc:
+    runs-on: ubuntu-latest
+    env:
+      TLA2TOOLS_JAR: ${{ github.workspace }}/tla2tools.jar
+    steps:
+      - uses: actions/checkout@v5
+      # `cargo test` links the whole crate (axum, rust-embed), which embeds web/dist — so the
+      # frontend must exist on disk even though these tests never touch it.
+      - name: Set up Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Build frontend
+        run: npm --prefix web ci && npm --prefix web run build
+      # A headless JRE plus the tla2tools jar — the same two pieces the devcontainer bakes in.
+      - name: Install TLC (JRE + tla2tools.jar)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends default-jre-headless
+          curl -fLsS -o "$TLA2TOOLS_JAR" \
+            https://github.com/tlaplus/tlaplus/releases/download/v1.7.4/tla2tools.jar
+          java -cp "$TLA2TOOLS_JAR" tlc2.TLC 2>&1 | grep -q "TLC2 Version"
+      - name: Run the real-engine tests
+        run: "cargo test --lib tlc:: -- --ignored"
