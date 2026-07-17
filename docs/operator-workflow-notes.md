@@ -292,6 +292,25 @@ formalize pipeline with draft persistence (`R-draft-*`, `R-ground-*`). The reqfo
   `state logged_in` (arity 0) against `fn login(user: &str)` (arity 1) — a real mismatch the old grep
   binding matched right past.
 
+- **Sorts bind too: issue #42 / PR #TBD (2026-07-17).** The last prerequisite before Kani. #40 made a
+  cat-1 **predicate** resolve to a real function, but **sorts** — the types a quantified variable
+  ranges over — had no bindings at all (`grounding.rs` said so outright: `// ponytail: predicates
+only; sort/type existence when cat-1 needs it`). Cat-1 now needs it: a harness cannot say
+  `let u: User = kani::any()` when nothing maps `User` to a real type. `bindable_sorts` (quantifier
+  sorts + declared `sort`s) and `rust_adapter::resolve_type` → a `struct`/`enum`/`type` alias at a
+  file:line. **A distinct `TypeResolution{Resolved,NotFound,Ambiguous}`**, not a reuse of
+  `Resolution` — arity and boolean-return cannot occur for a type, and an enum carrying variants a
+  caller can never see misstates the state space. Predicates and sorts **never cross-resolve** (a
+  `struct login` is not the predicate `login`), through one shared `for_each_rust_file` walk so the
+  two can never disagree about which files count. An unbound or unresolved sort **parks** — a
+  quantified claim whose domain names nothing real is not grounded, however well its predicates
+  resolve. That bit immediately: the smoke subject was GROUNDED before this slice and now parks on
+  `User: unbound`, correctly. **Existence only** — whether a type is instantiable (Kani's `Arbitrary`)
+  is the engine's question, since the binding is core-owned and shared; answering it here would bake
+  one engine's shape into the core, which is exactly what "Kani is lowering #1, not the definition"
+  forbids. REQ026 (1.25). Deferred: cross-checking a typed parameter's sort against the quantifier's,
+  generics, path-qualified types.
+
 **Next slice:** wire the **first real engine** so `verify` can produce a real `holds`/`fails` instead of
 only `unknown / no-engine`. **Kani is engine #1 — first, not only** (settled 2026-07-17): D2b wants a
 per-language **ensemble**, and the verdict object already reserves a per-tool evidence map for tools
@@ -302,9 +321,17 @@ subset (a rewrite, against the adopt-existing-repos premise). That call stays op
 deliberately when `proven` is worth it. The binding is **core-owned**; Kani is **lowering #1**, not the
 definition (D2 "one meaning, lowering to each engine"). Honest under D8/D9: bounded → a pass is
 `model-checked (bounded)`, **never** `proven`; a failure is a real counterexample = D9's re-checkable
-witness. **Known gap:** a harness needs `let u: User = kani::any()`, so **sorts need bindings too**
-(PRL sort `User` → a real Rust type) — `bindable_symbols` excludes sorts today on purpose, and cat-1
-now needs them. Everything else cat-1 needs is in place: groundable against real source (#30), a
+witness. The sort gap is **closed** (#42), so `let u: User = kani::any()` now has a real type behind
+it. **Install/CI decisions (settled 2026-07-17):** Kani goes in `.devcontainer/Dockerfile`, not just
+the running container — the repo bakes in every workflow tool (`cargo install cargo-audit --locked` is
+the precedent), a runtime-only install evaporates on rebuild, and `engines` then reports Missing,
+indistinguishable from a real bug in our own code; add it to the `postCreateCommand` versions summary
+too. `cargo kani setup` must run in the image as well (`cargo install kani-verifier` only lays down the
+driver; `setup` fetches CBMC + solvers — and that is what grows the image). CI's main `test` job stays
+**Kani-free by design** (R-eng-2: the common user state is _engine absent_, and that path is the one
+most worth proving continuously); real-run tests get `#[ignore]`, plus a **separate parallel `kani`
+job** running `cargo test -- --ignored` so the real-engine path is covered without slowing the main
+job. Everything else cat-1 needs is in place: groundable against real source (#30), a
 gate-passing cat-1 requirement is **guaranteed temporal-free pre/post** (#38) — exactly what a verifier
 consumes — the binding now resolves to a real predicate at a real location (#40), and the verdict object
 is ready to receive the result (#36). The remaining work is integration, not design: cat-1's engine is
