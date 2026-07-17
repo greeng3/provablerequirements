@@ -10,6 +10,7 @@ use provreq::llm::{HttpBackend, LlmClassifier};
 use provreq::prl::Requirement;
 use provreq::rust_adapter::{self, Resolution, TypeResolution};
 use provreq::source::{Classification, Item, RequirementsSource};
+use provreq::tla_adapter::{self, ModelResolution};
 use provreq::triage::{self, ProseFloorClassifier, TriageState};
 use std::collections::BTreeMap;
 use std::io::{self, Write};
@@ -637,10 +638,13 @@ fn ground_candidate(
 /// The arity checked against is the one the **requirement** declares for that predicate —
 /// the binding is wrong if the two disagree, and which of them is at fault is the
 /// operator's call, not this tool's.
-/// Both live category-1 resolution maps for a draft's bindings: predicates → functions,
-/// and sorts → types (REQ026). Kept apart because they answer different questions and a
-/// coincidental cross-hit (a `struct login` standing in for the predicate `login`) must
-/// never ground anything.
+/// The live resolution maps for a draft's bindings, one per observable world: category-1
+/// predicates → functions and sorts → types (REQ025/REQ026), and category-2a symbols →
+/// TLA+ definitions (REQ028). The cat-1 predicate/sort split is kept because a coincidental
+/// cross-hit (a `struct login` standing in for the predicate `login`) must never ground
+/// anything; category 2a needs no such split — TLA+ has one kind of name. Categories 2b/3
+/// have no observable world wired yet, so their bindings are absent from every map and park
+/// in [`grounding::verdict`].
 fn resolutions(
     subject: &Path,
     companion: &Path,
@@ -649,11 +653,15 @@ fn resolutions(
 ) -> (
     BTreeMap<String, Resolution>,
     BTreeMap<String, TypeResolution>,
+    BTreeMap<String, ModelResolution>,
 ) {
-    let code: Vec<&Binding> = bindings
-        .iter()
-        .filter(|b| b.category == grounding::BindCategory::Code)
-        .collect();
+    let in_category = |cat| {
+        bindings
+            .iter()
+            .filter(move |b| b.category == cat)
+            .collect::<Vec<_>>()
+    };
+    let code = in_category(grounding::BindCategory::Code);
     let predicates = code
         .iter()
         .filter(|b| !grounding::is_sort(requirement, &b.symbol))
@@ -675,7 +683,16 @@ fn resolutions(
             )
         })
         .collect();
-    (predicates, sorts)
+    let model = in_category(grounding::BindCategory::Model)
+        .iter()
+        .map(|b| {
+            (
+                b.symbol.clone(),
+                tla_adapter::resolve(subject, companion, &b.observable),
+            )
+        })
+        .collect();
+    (predicates, sorts, model)
 }
 
 /// D13: dry-run a draft's category-1 bindings against the subject's real source and
@@ -717,14 +734,17 @@ fn dry_run_candidate(
         return Ok(());
     }
 
-    // Live dry-run: only category 1 has a real observable world in this slice. Each
-    // binding reports what it resolved to (D13's "is that what you meant?"), which is a
-    // question the operator can only answer against a named function at a named line.
-    let (by_symbol, by_sort) = resolutions(subject, companion, &requirement, &draft.bindings);
+    // Live dry-run: categories 1 (code) and 2a (model) have real observable worlds. Each
+    // binding reports what it resolved to (D13's "is that what you meant?"), which the
+    // operator can only answer against a named observable at a named line.
+    let (by_symbol, by_sort, by_model) =
+        resolutions(subject, companion, &requirement, &draft.bindings);
     for b in &draft.bindings {
         if let Some(r) = by_sort.get(&b.symbol) {
             println!("  {}", r.describe(&b.symbol, &b.observable));
         } else if let Some(r) = by_symbol.get(&b.symbol) {
+            println!("  {}", r.describe(&b.symbol, &b.observable));
+        } else if let Some(r) = by_model.get(&b.symbol) {
             println!("  {}", r.describe(&b.symbol, &b.observable));
         } else {
             println!(
@@ -736,7 +756,13 @@ fn dry_run_candidate(
         }
     }
 
-    match grounding::verdict(&requirement, &draft.bindings, &by_symbol, &by_sort) {
+    match grounding::verdict(
+        &requirement,
+        &draft.bindings,
+        &by_symbol,
+        &by_sort,
+        &by_model,
+    ) {
         Grounding::Grounded => {
             println!("\n{id}: GROUNDED — every symbol binds to a confirmed observable.");
         }
@@ -1032,9 +1058,16 @@ fn run_verify(subject: &Path, id: &str) -> Result<()> {
         }
     };
 
-    // Live category-1 grounding dry-run (the only observable world wired) → grounding verdict.
-    let (by_symbol, by_sort) = resolutions(subject, &companion, &requirement, &draft.bindings);
-    let grounding_result = grounding::verdict(&requirement, &draft.bindings, &by_symbol, &by_sort);
+    // Live grounding dry-run against every wired observable world (code + model) → verdict.
+    let (by_symbol, by_sort, by_model) =
+        resolutions(subject, &companion, &requirement, &draft.bindings);
+    let grounding_result = grounding::verdict(
+        &requirement,
+        &draft.bindings,
+        &by_symbol,
+        &by_sort,
+        &by_model,
+    );
 
     let provenance = provreq::verdict::Provenance {
         requirement_revision: draft.revision.clone(),

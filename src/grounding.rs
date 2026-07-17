@@ -16,10 +16,12 @@
 //!
 //! Implements: REQ021 (grounding binding schema + category-1 dry-run), REQ025 (a cat-1
 //! binding grounds only by resolving to a state predicate at a source location), REQ026
-//! (sorts bind to real types, so a quantified variable has a domain).
+//! (sorts bind to real types, so a quantified variable has a domain), REQ028 (a cat-2a
+//! binding grounds by resolving to a definition in a TLA+ spec).
 
 use crate::prl::ast::{Category, Decl, Requirement};
 use crate::rust_adapter::{Resolution, TypeResolution};
+use crate::tla_adapter::ModelResolution;
 use std::collections::BTreeMap;
 
 /// D5 binding fidelity — a verdict is never stronger than its weakest binding. This
@@ -207,30 +209,33 @@ pub fn is_sort(req: &Requirement, symbol: &str) -> bool {
 }
 
 /// The grounding verdict for a requirement (R-ground-1/2). `Grounded` only when every
-/// symbol is bound in category 1 **and** each such binding resolves to a real state
-/// predicate at a real source location. Any unbound symbol, any deferred (non-code)
-/// category, or any unresolved code binding leaves it `Parked` with human-readable
-/// reasons — never a verdict, never faked.
+/// symbol is bound **and** each binding resolves against its category's observable world —
+/// category 1 to a state predicate at a source location, category 2a to a definition in a
+/// TLA+ spec. Any unbound symbol, any unresolved binding, or any still-deferred category
+/// (2b/3) leaves it `Parked` with human-readable reasons — never a verdict, never faked.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Grounding {
     Grounded,
     Parked { reasons: Vec<String> },
 }
 
-/// Decide the grounding verdict from the bindings and the **already-computed** category-1
-/// resolutions (keyed by symbol). Pure — the caller runs [`crate::rust_adapter::resolve`]
-/// and passes the results, so this stays testable without a filesystem.
+/// Decide the grounding verdict from the bindings and the **already-computed** per-category
+/// resolutions (keyed by symbol). Pure — the caller runs the adapters
+/// ([`crate::rust_adapter`], [`crate::tla_adapter`]) and passes the results, so this stays
+/// testable without a filesystem.
 ///
-/// A category-1 binding grounds only when its predicate **resolves** to a real state
-/// predicate at a real source location (REQ025). Every other outcome — not found,
-/// ambiguous, wrong arity, not boolean — parks the requirement and carries the adapter's
-/// own explanation as the reason, so the operator reads one account of what happened
-/// rather than a summary of it.
+/// Each binding grounds only when it **resolves** against its category's observable world:
+/// category 1 to a real state predicate (REQ025) or type (REQ026), category 2a to a real
+/// TLA+ definition (REQ028). Every other outcome parks the requirement and carries the
+/// adapter's own explanation as the reason, so the operator reads one account of what
+/// happened rather than a summary of it. Categories 2b/3 have no observable world wired yet
+/// and are honestly deferred.
 pub fn verdict(
     req: &Requirement,
     bindings: &[Binding],
     resolutions: &BTreeMap<String, Resolution>,
     sort_resolutions: &BTreeMap<String, TypeResolution>,
+    model_resolutions: &BTreeMap<String, ModelResolution>,
 ) -> Grounding {
     let mut reasons = Vec::new();
 
@@ -262,6 +267,17 @@ pub fn verdict(
                 Some(r) => reasons.push(r.describe(&b.symbol, &b.observable)),
                 None => reasons.push(format!(
                     "{}: `{}` was not resolved against the subject's source",
+                    b.symbol, b.observable
+                )),
+            },
+            // Category 2a: predicates and sorts alike resolve through the one model resolver,
+            // because TLA+ does not distinguish an action from a set from a variable at the
+            // name level (see [`crate::tla_adapter`]).
+            BindCategory::Model => match model_resolutions.get(&b.symbol) {
+                Some(r) if r.is_resolved() => {}
+                Some(r) => reasons.push(r.describe(&b.symbol, &b.observable)),
+                None => reasons.push(format!(
+                    "{}: `{}` was not resolved against the subject's TLA+ spec",
                     b.symbol, b.observable
                 )),
             },
@@ -403,7 +419,7 @@ mod tests {
         let sorts =
             BTreeMap::from([("User".to_string(), TypeResolution::Resolved(at("src/a.rs")))]);
         assert_eq!(
-            verdict(&r, &bindings, &resolutions, &sorts),
+            verdict(&r, &bindings, &resolutions, &sorts, &BTreeMap::new()),
             Grounding::Grounded
         );
     }
@@ -421,8 +437,13 @@ mod tests {
             ("logged_in".to_string(), resolved("src/a.rs")),
             ("has_session".to_string(), Resolution::NotFound),
         ]);
-        let Grounding::Parked { reasons } = verdict(&r, &bindings, &resolutions, &BTreeMap::new())
-        else {
+        let Grounding::Parked { reasons } = verdict(
+            &r,
+            &bindings,
+            &resolutions,
+            &BTreeMap::new(),
+            &BTreeMap::new(),
+        ) else {
             panic!("an unresolved binding must park, never ground");
         };
         assert!(reasons
@@ -440,7 +461,8 @@ mod tests {
             code_binding("has_session", "has_session"),
         ];
         let only_one = BTreeMap::from([("logged_in".to_string(), resolved("src/a.rs"))]);
-        let Grounding::Parked { reasons } = verdict(&r, &bindings, &only_one, &BTreeMap::new())
+        let Grounding::Parked { reasons } =
+            verdict(&r, &bindings, &only_one, &BTreeMap::new(), &BTreeMap::new())
         else {
             panic!("an unresolved-by-omission binding must park");
         };
@@ -462,9 +484,13 @@ mod tests {
             observable: "queue.events".into(),
             fidelity: Fidelity::Observed,
         }];
-        let Grounding::Parked { reasons } =
-            verdict(&r, &bindings, &BTreeMap::new(), &BTreeMap::new())
-        else {
+        let Grounding::Parked { reasons } = verdict(
+            &r,
+            &bindings,
+            &BTreeMap::new(),
+            &BTreeMap::new(),
+            &BTreeMap::new(),
+        ) else {
             panic!("a deferred category must park");
         };
         assert!(reasons.iter().any(|reason| reason.contains("deferred")));
@@ -499,8 +525,13 @@ mod tests {
             ("logged_in".to_string(), resolved("src/a.rs")),
             ("has_session".to_string(), resolved("src/a.rs")),
         ]);
-        let Grounding::Parked { reasons } = verdict(&r, &bindings, &resolutions, &BTreeMap::new())
-        else {
+        let Grounding::Parked { reasons } = verdict(
+            &r,
+            &bindings,
+            &resolutions,
+            &BTreeMap::new(),
+            &BTreeMap::new(),
+        ) else {
             panic!("an unbound sort must park");
         };
         assert!(
@@ -524,7 +555,9 @@ mod tests {
             ("has_session".to_string(), resolved("src/a.rs")),
         ]);
         let sorts = BTreeMap::from([("User".to_string(), TypeResolution::NotFound)]);
-        let Grounding::Parked { reasons } = verdict(&r, &bindings, &resolutions, &sorts) else {
+        let Grounding::Parked { reasons } =
+            verdict(&r, &bindings, &resolutions, &sorts, &BTreeMap::new())
+        else {
             panic!("an unresolved sort must park");
         };
         assert!(reasons.iter().any(|reason| reason.contains("NoSuchType")));
@@ -537,5 +570,104 @@ mod tests {
         let r = req(CODE_REQ);
         assert_eq!(predicate_arity(&r, "logged_in"), Some(1));
         assert_eq!(predicate_arity(&r, "not_declared"), None);
+    }
+
+    // A category-2a model requirement: a liveness claim the model world can express (the code
+    // fragment cannot, which is exactly why it declares 2a).
+    const MODEL_REQ: &str = "requirement r {
+        category: 2a
+        vocabulary { sort Message event accepted(m) state succeeded(m) }
+        require { each m: Message . accepted(m) leads_to succeeded(m) }
+    }";
+
+    fn model_binding(symbol: &str, observable: &str) -> Binding {
+        Binding {
+            symbol: symbol.into(),
+            category: BindCategory::Model,
+            observable: observable.into(),
+            fidelity: Fidelity::Definitional,
+        }
+    }
+
+    // Verifies: REQ028 — a category-2a requirement grounds when every symbol (predicates AND
+    // sorts alike) resolves to a definition in the subject's TLA+ spec. This is the model
+    // world's analog of the cat-1 grounding.
+    #[test]
+    fn model_requirement_grounds_when_every_binding_resolves() {
+        let r = req(MODEL_REQ);
+        let bindings = vec![
+            model_binding("accepted", "Accept"),
+            model_binding("succeeded", "Succeeded"),
+            model_binding("Message", "Message"),
+        ];
+        let model = BTreeMap::from([
+            ("accepted".to_string(), ModelResolution::Resolved(spec_at())),
+            (
+                "succeeded".to_string(),
+                ModelResolution::Resolved(spec_at()),
+            ),
+            ("Message".to_string(), ModelResolution::Resolved(spec_at())),
+        ]);
+        assert_eq!(
+            verdict(&r, &bindings, &BTreeMap::new(), &BTreeMap::new(), &model),
+            Grounding::Grounded
+        );
+    }
+
+    // Verifies: REQ028 — a 2a binding to a name the spec does not define parks the
+    // requirement, carrying the adapter's own explanation (never a verdict, R-ground-1).
+    #[test]
+    fn model_requirement_parks_when_a_binding_does_not_resolve() {
+        let r = req(MODEL_REQ);
+        let bindings = vec![
+            model_binding("accepted", "Accept"),
+            model_binding("succeeded", "NoSuchOp"),
+            model_binding("Message", "Message"),
+        ];
+        let model = BTreeMap::from([
+            ("accepted".to_string(), ModelResolution::Resolved(spec_at())),
+            ("succeeded".to_string(), ModelResolution::NotFound),
+            ("Message".to_string(), ModelResolution::Resolved(spec_at())),
+        ]);
+        let Grounding::Parked { reasons } =
+            verdict(&r, &bindings, &BTreeMap::new(), &BTreeMap::new(), &model)
+        else {
+            panic!("an unresolved model binding must park");
+        };
+        assert!(reasons
+            .iter()
+            .any(|reason| reason.contains("succeeded") && reason.contains("NoSuchOp")));
+    }
+
+    // Verifies: REQ028 — a 2a symbol the caller never resolved is NOT treated as grounded,
+    // exactly as for cat-1: absence of evidence is not evidence of grounding.
+    #[test]
+    fn model_requirement_parks_when_a_binding_was_never_resolved() {
+        let r = req(MODEL_REQ);
+        let bindings = vec![
+            model_binding("accepted", "Accept"),
+            model_binding("succeeded", "Succeeded"),
+            model_binding("Message", "Message"),
+        ];
+        let only_two = BTreeMap::from([
+            ("accepted".to_string(), ModelResolution::Resolved(spec_at())),
+            ("Message".to_string(), ModelResolution::Resolved(spec_at())),
+        ]);
+        let Grounding::Parked { reasons } =
+            verdict(&r, &bindings, &BTreeMap::new(), &BTreeMap::new(), &only_two)
+        else {
+            panic!("an unresolved-by-omission model binding must park");
+        };
+        assert!(reasons
+            .iter()
+            .any(|reason| reason.contains("succeeded") && reason.contains("TLA+")));
+    }
+
+    fn spec_at() -> crate::tla_adapter::SpecMatch {
+        crate::tla_adapter::SpecMatch {
+            file: "spec.tla".into(),
+            line: 1,
+            text: "Accept(m) == TRUE".into(),
+        }
     }
 }

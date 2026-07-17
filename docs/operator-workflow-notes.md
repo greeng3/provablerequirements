@@ -322,52 +322,80 @@ only; sort/type existence when cat-1 needs it`). Cat-1 now needs it: a harness c
   run against real Kani 0.67.0 BEFORE any lowering was written** — holds → `VERIFICATION:- SUCCESSFUL`,
   violated → `FAILED` + `Failed Checks`, counterexample via `-Z concrete-playback`, and a sort without
   `kani::Arbitrary` → `E0277`, exit 101 — so the design rested on observed behavior, not guesses.
-  - **New module `src/kani.rs`** owns lowering + run + output→outcome, so the core never learns what Kani
-    is (D2's "one meaning, lowering to each engine" runs in this direction too). `lower` is **pure** and
-    Kani-free-testable; only `run` touches the tool. Lowering target is small because the gate (#38)
-    already guarantees cat-1 is temporal-free: `always`/`never` over boolean combinations, quantified.
-    `never P` = `always not P`. Anything it cannot faithfully express (a scope, a `with` guard, an
-    argument that is not the quantified variable) is a `NotLowerable` → honest `unknown`, **never** an
-    approximation.
-  - **The call follows the subject's real signature.** `rust_adapter::Resolution::Resolved` now carries
-    `params: Vec<ParamMode>` (by-ref vs by-value, judged syntactically like everything else the adapter
-    does), so the harness emits `login(&u)` or `login(u)` to match — a mismatch surfaces as a harness that
-    won't compile → `unknown`, never a wrong verdict. Cross-checking a param's _type_ against the sort is
-    still deferred (#42's open item); it also lands as a compile-error `unknown`.
-  - **Verdict split (D7/D8/D9):** polarity (`status`) from basis (`Basis::ModelCheckedBounded` — the ONLY
-    rung, because Kani is bounded; `proven` is _unrepresentable_, so an engine cannot overclaim by
-    accident) from witness (the concrete counterexample as a runnable replay test — D9's re-checkable
-    witness). The read-back spells out "verified over the states the engine explored, NOT proven for all
-    executions" so a bounded pass can't be misread even at a glance. New `UnknownReason::Inconclusive` for
-    "engine ran, couldn't decide" — and its detail prefers the compiler's own `error…` line over the tail
-    of the log, because the actionable cause (`User: kani::Arbitrary is not satisfied`) is at the _top_ of
-    a rustc diagnostic.
-  - **`engines` honesty, both ends (the pre-existing overclaim this slice had to fix):** cat 1 gained a
-    real probe (`cargo-kani`), and **2a/2b/3 LOST their probes** — a probe now exists iff provreq can
-    _run_ the engine, so `probe: Some` means "wired", not "we know the binary's name". Otherwise an
-    operator with `playwright` on PATH would see cat 3 report ready while `verify` still answered
-    `no-engine` — the exact REQ024 overclaim wearing a different hat. `ready` finally means "provreq can
-    run it".
-  - **No litter in someone else's repo:** the harness file _and_ any `tests/` dir provreq created are
-    removed on every path incl. failure; an existing file is never clobbered (a collision is `unknown`,
-    not an overwrite).
-  - **Install/CI (settled 2026-07-17, done here):** Kani in `.devcontainer/Dockerfile` (`cargo install
-    --locked kani-verifier` + `cargo kani setup` for CBMC/solvers) + `postCreateCommand` version summary.
-    CI's main `test` job stays **Kani-free by design** (R-eng-2: engine-absent is the common user state
-    and the path most worth proving continuously); real-engine tests are `#[ignore]`d and run by a
-    **separate parallel `kani` job** (`cargo test -- --ignored`). Verified here: 164 Kani-free unit tests +
-    4 real-engine tests (holds/fails-with-witness/inconclusive/no-trace) + a live CLI smoke against a real
-    cargo subject, all green. REQ027 (1.26). Deferred: default-unwind/timeout config → provreq.yml; the
-    param-type-vs-sort cross-check (#42); the D2b ensemble's second engine + per-tool evidence map +
-    cross-check.
+    - **New module `src/kani.rs`** owns lowering + run + output→outcome, so the core never learns what Kani
+      is (D2's "one meaning, lowering to each engine" runs in this direction too). `lower` is **pure** and
+      Kani-free-testable; only `run` touches the tool. Lowering target is small because the gate (#38)
+      already guarantees cat-1 is temporal-free: `always`/`never` over boolean combinations, quantified.
+      `never P` = `always not P`. Anything it cannot faithfully express (a scope, a `with` guard, an
+      argument that is not the quantified variable) is a `NotLowerable` → honest `unknown`, **never** an
+      approximation.
+    - **The call follows the subject's real signature.** `rust_adapter::Resolution::Resolved` now carries
+      `params: Vec<ParamMode>` (by-ref vs by-value, judged syntactically like everything else the adapter
+      does), so the harness emits `login(&u)` or `login(u)` to match — a mismatch surfaces as a harness that
+      won't compile → `unknown`, never a wrong verdict. Cross-checking a param's _type_ against the sort is
+      still deferred (#42's open item); it also lands as a compile-error `unknown`.
+    - **Verdict split (D7/D8/D9):** polarity (`status`) from basis (`Basis::ModelCheckedBounded` — the ONLY
+      rung, because Kani is bounded; `proven` is _unrepresentable_, so an engine cannot overclaim by
+      accident) from witness (the concrete counterexample as a runnable replay test — D9's re-checkable
+      witness). The read-back spells out "verified over the states the engine explored, NOT proven for all
+      executions" so a bounded pass can't be misread even at a glance. New `UnknownReason::Inconclusive` for
+      "engine ran, couldn't decide" — and its detail prefers the compiler's own `error…` line over the tail
+      of the log, because the actionable cause (`User: kani::Arbitrary is not satisfied`) is at the _top_ of
+      a rustc diagnostic.
+    - **`engines` honesty, both ends (the pre-existing overclaim this slice had to fix):** cat 1 gained a
+      real probe (`cargo-kani`), and **2a/2b/3 LOST their probes** — a probe now exists iff provreq can
+      _run_ the engine, so `probe: Some` means "wired", not "we know the binary's name". Otherwise an
+      operator with `playwright` on PATH would see cat 3 report ready while `verify` still answered
+      `no-engine` — the exact REQ024 overclaim wearing a different hat. `ready` finally means "provreq can
+      run it".
+    - **No litter in someone else's repo:** the harness file _and_ any `tests/` dir provreq created are
+      removed on every path incl. failure; an existing file is never clobbered (a collision is `unknown`,
+      not an overwrite).
+    - **Install/CI (settled 2026-07-17, done here):** Kani in `.devcontainer/Dockerfile` (`cargo install
+--locked kani-verifier` + `cargo kani setup` for CBMC/solvers) + `postCreateCommand` version summary.
+      CI's main `test` job stays **Kani-free by design** (R-eng-2: engine-absent is the common user state
+      and the path most worth proving continuously); real-engine tests are `#[ignore]`d and run by a
+      **separate parallel `kani` job** (`cargo test -- --ignored`). Verified here: 164 Kani-free unit tests +
+      4 real-engine tests (holds/fails-with-witness/inconclusive/no-trace) + a live CLI smoke against a real
+      cargo subject, all green. REQ027 (1.26). Deferred: default-unwind/timeout config → provreq.yml; the
+      param-type-vs-sort cross-check (#42); the D2b ensemble's second engine + per-tool evidence map +
+      cross-check.
 
-**Next slice:** with cat-1 proving end to end, the open forks are (a) the **D2b ensemble's second cat-1
-engine** (a `proven`-capable deductive verifier — Prusti/Creusot/Verus — which forces the annotate-the-
-subject decision Kani let us defer) and its per-tool evidence map + core-vs-native cross-check, or (b) a
-**second category** (2a model checking → TLC), which exercises the multi-category machinery the fragment
-check and readiness already carry. Everything cat-1 needs is in place: groundable against real source
-(#30), gate-guaranteed temporal-free (#38), predicate + sort resolution (#40/#42), verdict object (#36),
-and now a wired engine (#44).
+- **Cat-2a grounding — model binding vs a TLA+ spec: issue #46 / PR #TBD (2026-07-17).** Chosen fork =
+  the **second category** (2a model checking). Sliced the way cat-1 was — **grounding first, engine
+  (TLC) next** — so a category-2a requirement can become GROUNDED while its engine stays `NotWired`,
+  exactly the state cat-1 sat in between #30 and #44.
+    - **The observable world for 2a is a MODEL, not the subject's code.** Per the design (Grounding layer →
+      Adapters: "2a (model) a direct model variable/action reference"), the operator writes a TLA+ spec and
+      a 2a binding names a definition in it. New `src/tla_adapter.rs` (peer of `rust_adapter`, R-eng-4 per
+      observable-world) walks the subject's `.tla` files (same companion/`.git` skip discipline) and
+      resolves a symbol to a `VARIABLE(S)`/`CONSTANT(S)` declaration or a top-level operator definition
+      (`Name ==`, `Name(args) ==`, `Name[x \in S] ==`).
+    - **ONE resolver, not two — and that's more faithful, not just smaller.** Cat-1 splits predicate→fn
+      from sort→type because Rust makes them distinct and a `struct login` must never satisfy the predicate
+      `login`. TLA+ draws no such line: an action, a state operator, a data set, a variable, a constant are
+      all just _named definitions_, so `ModelResolution{Resolved,NotFound,Ambiguous}` asks one question —
+      does the spec define this name? Ambiguity (defined in two specs) never silently disambiguates.
+    - **Existence only** (like REQ026 sorts): arity/shape is the engine's question, deferred. **Structural
+      read, not SANY** (no TLA+ parser crate exists as `syn` does for Rust): comments stripped, `VARIABLES`/
+      operator forms parsed properly (not substring-matched), and the read-back states the limit
+      (LET/INSTANCE/multi-line decls not seen) so a green line never implies more than was checked —
+      mirroring `rust_adapter`'s "syntactic check only" honesty.
+    - `grounding.rs` gained a `BindCategory::Model` arm in `verdict()` (now takes a third resolution map);
+      `main.rs resolutions()` produces model resolutions for 2a bindings and threads them through
+      `verify`/`--dry-run`. `engine_verdict` still returns `no-engine` for 2a (TLC is the next issue).
+      REQ028 (1.27). 178 tests + a live CLI smoke (a 2a `leads_to` requirement grounds against a real
+      `Msg.tla`, and an unresolvable binding parks), all green. Deferred: wire TLC → real verdict; operator
+      arity/shape checks; a configured spec path when specs live outside the subject tree.
+
+**Next slice:** **wire TLC** so a grounded category-2a requirement earns a real `model-checked (bounded)`
+verdict (the REQ027 analog for the model world). Everything 2a needs on the provreq side is now in place:
+gate-expressible (fragment check permits the full working set at 2a), groundable against a real TLA+ spec
+(#46), and the verdict object already carries the `model-checked (bounded)` basis Kani established. The
+work is: lower a gated 2a requirement to a TLA+ temporal property + a TLC `.cfg`, run TLC (a Java jar,
+`tla2tools.jar` — check it is installable/available here), map its output to a verdict, and give cat 2a a
+real probe so it stops being `NotWired`. The still-open **cat-1 fork** (a `proven`-capable deductive
+verifier — Prusti/Creusot/Verus — forcing the annotate-the-subject decision) remains available after.
 
 ## Packaging — Design A (old, superseded)
 
