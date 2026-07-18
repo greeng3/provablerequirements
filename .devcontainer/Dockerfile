@@ -129,6 +129,7 @@ RUN apt-get update \
        RUSTFLAGS="-C prefer-dynamic" \
        cargo build --release -p prusti -p prusti-launch -p prusti-server \
     && host="$(rustc -vV | sed -n 's/^host: //p')" \
+    && mkdir -p "$(dirname "$PRUSTI_BIN")" \
     && ln -sfn "/opt/prusti-src/target/${host}/release" "$PRUSTI_BIN" \
     && test -x "${PRUSTI_BIN}/cargo-prusti" \
     && test -x "${PRUSTI_BIN}/prusti-rustc" \
