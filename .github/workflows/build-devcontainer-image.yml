@@ -15,9 +15,13 @@ name: Build devcontainer image
 "on":
   workflow_dispatch: {}
   # Refresh the image when the Dockerfile changes on main (rare; it's a long build).
+  # Scoped to the Dockerfile ALONE, not .devcontainer/**: the Dockerfile is the only input to
+  # the image. devcontainer.json, the README, and anything else in that directory are consumed
+  # by the editor, not baked in, so matching them would spend 1-2 hours rebuilding an image
+  # whose contents did not change.
   push:
     branches: [main]
-    paths: [".devcontainer/**"]
+    paths: [".devcontainer/Dockerfile"]
 
 env:
   IMAGE: ghcr.io/${{ github.repository_owner }}/provreq-devcontainer
