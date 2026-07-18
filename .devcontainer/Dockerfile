@@ -113,8 +113,13 @@ ENV JAVA_HOME=/usr/lib/jvm/default-java \
     Z3_EXE=/usr/bin/z3 \
     PRUSTI_BIN=/opt/prusti/bin
 ENV PATH="${PRUSTI_BIN}:${PATH}"
+# `x.py setup` shells out to `sudo apt-get` to install its native build deps (it detects
+# Ubuntu and runs setup_ubuntu), so `sudo` must exist even though the Docker build is already
+# root — a clean base image has no sudo. We also pre-install those deps here so the stage is
+# self-sufficient; `x.py setup` re-running apt with them present is a harmless no-op.
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends z3 git python3 \
+    && apt-get install -y --no-install-recommends \
+      z3 git python3 sudo build-essential pkg-config curl gcc libssl-dev unzip \
     && rm -rf /var/lib/apt/lists/* \
     && git clone --depth 1 --branch "$PRUSTI_TAG" \
       https://github.com/viperproject/prusti-dev /opt/prusti-src \
