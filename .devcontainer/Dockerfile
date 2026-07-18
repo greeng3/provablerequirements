@@ -87,3 +87,44 @@ RUN apt-get update \
     && curl -fLsS -o "$TLA2TOOLS_JAR" \
       "https://github.com/tlaplus/tlaplus/releases/download/v1.7.4/tla2tools.jar" \
     && java -cp "$TLA2TOOLS_JAR" tlc2.TLC 2>&1 | grep -q "TLC2 Version"
+
+# Prusti — the SECOND category-1 verification engine (deductive; the rung that earns `proven`,
+# alongside Kani's bounded `model-checked` — D2b's ensemble). Baked in for the same reason as
+# Kani/TLC: a runtime install evaporates on rebuild and then `provreq engines` reports category 1
+# short an engine, indistinguishable from a bug in our own code.
+#
+# Unlike Kani/TLC there is no release binary for this arch, so Prusti is SOURCE-BUILT at a pinned
+# tag. Its verifier backend is Viper (arch-independent JVM bytecode via the viper_tools jars that
+# `x.py setup` fetches); only the Rust driver compiles natively. Two things make that build work
+# here, both non-obvious:
+#   1. `RUSTFLAGS=-C prefer-dynamic` — prusti-driver is itself a rustc driver, so it links the
+#      rustc-private crates (rustc_middle, rustc_driver, …). This pinned nightly's `rustc-dev`
+#      ships those crates as dylibs ONLY, so a default (static-rlib) link fails with ~196
+#      "required to be available in rlib format" errors; prefer-dynamic links the .so form on disk.
+#   2. System `z3` (apt) — the z3 bundled in viper_tools is an x86_64 binary and rosetta-fails on
+#      arm64, so `Z3_EXE` points at the distro-native z3 instead.
+# The bins land under target/<host-triple>/release/ (the repo's .cargo/config sets bindeps, which
+# forces an explicit target triple), so the path is computed, never hardcoded. The pinned nightly
+# toolchain is left installed on purpose: `cargo prusti` recompiles the subject with the prusti
+# driver and needs it at verify time. The JRE from the TLC stage above doubles as Prusti's JVM.
+ARG PRUSTI_TAG=v-2023-08-22-1715
+ENV JAVA_HOME=/usr/lib/jvm/default-java \
+    VIPER_HOME=/opt/prusti-src/viper_tools/backends \
+    Z3_EXE=/usr/bin/z3 \
+    PRUSTI_BIN=/opt/prusti/bin
+ENV PATH="${PRUSTI_BIN}:${PATH}"
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends z3 git python3 \
+    && rm -rf /var/lib/apt/lists/* \
+    && git clone --depth 1 --branch "$PRUSTI_TAG" \
+      https://github.com/viperproject/prusti-dev /opt/prusti-src \
+    && cd /opt/prusti-src \
+    && python3 ./x.py setup \
+    && LD_LIBRARY_PATH="${JAVA_HOME}/lib/server:${JAVA_HOME}/lib" \
+       RUSTFLAGS="-C prefer-dynamic" \
+       cargo build --release -p prusti -p prusti-launch -p prusti-server \
+    && host="$(rustc -vV | sed -n 's/^host: //p')" \
+    && ln -sfn "/opt/prusti-src/target/${host}/release" "$PRUSTI_BIN" \
+    && test -x "${PRUSTI_BIN}/cargo-prusti" \
+    && test -x "${PRUSTI_BIN}/prusti-rustc" \
+    && test -x "${PRUSTI_BIN}/prusti-driver"
