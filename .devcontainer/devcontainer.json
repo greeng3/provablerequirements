@@ -1,9 +1,10 @@
 {
     "name": "Provable Requirements",
-    "build": {
-        "dockerfile": "Dockerfile",
-        "context": ".."
-    },
+    // Pull the prebuilt multi-arch image instead of building Dockerfile locally: the heavy
+    // stages (Kani setup, the Prusti source build) are paid ONCE in CI by
+    // .github/workflows/build-devcontainer-image.yml, which publishes this tag. To change the
+    // toolchain, edit .devcontainer/Dockerfile and re-run that workflow to republish the image.
+    "image": "ghcr.io/greeng3/provreq-devcontainer:latest",
     // Node is only needed for the Markdown linting toolchain (markdownlint-cli2),
     // which matches the DavidAnson.vscode-markdownlint editor extension's rules.
     "features": {
