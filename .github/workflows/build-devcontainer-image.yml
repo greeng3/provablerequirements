@@ -1,0 +1,99 @@
+# Build the devcontainer image once per arch and publish a multi-arch tag to GHCR, so the
+# heavy stages in .devcontainer/Dockerfile (Kani setup, the Prusti source build) are paid
+# ONCE in CI and never again on a developer's machine — devcontainer.json then pulls this
+# image instead of building the Dockerfile.
+#
+# Native runners per arch (NOT QEMU): the Prusti source build under emulation would take many
+# hours. ubuntu-latest is amd64; ubuntu-24.04-arm is a free arm64 hosted runner on public
+# repos. Each leg pushes by DIGEST (no tag), then the `merge` job assembles one manifest list
+# tagged :latest and :<sha> from the two digests — the standard docker multi-arch pattern.
+#
+# Prerequisite: the base image (greeng340or/rust-dev-ubuntu) must provide BOTH linux/amd64 and
+# linux/arm64, or the corresponding leg fails at FROM.
+name: Build devcontainer image
+
+"on":
+  workflow_dispatch: {}
+  # Refresh the image when the Dockerfile changes on main (rare; it's a long build).
+  push:
+    branches: [main]
+    paths: [".devcontainer/**"]
+
+env:
+  IMAGE: ghcr.io/${{ github.repository_owner }}/provreq-devcontainer
+
+jobs:
+  build:
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            platform: linux/amd64
+            arch: amd64
+          - runner: ubuntu-24.04-arm
+            platform: linux/arm64
+            arch: arm64
+    steps:
+      - uses: actions/checkout@v5
+      - uses: docker/setup-buildx-action@v3
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build and push by digest
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: .devcontainer/Dockerfile
+          platforms: ${{ matrix.platform }}
+          outputs: >-
+            type=image,name=${{ env.IMAGE }},push-by-digest=true,name-canonical=true,push=true
+      - name: Export digest
+        run: |
+          mkdir -p /tmp/digests
+          touch "/tmp/digests/${digest#sha256:}"
+        env:
+          digest: ${{ steps.build.outputs.digest }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: digest-${{ matrix.arch }}
+          path: /tmp/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  merge:
+    runs-on: ubuntu-latest
+    needs: [build]
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: /tmp/digests
+          pattern: digest-*
+          merge-multiple: true
+      - uses: docker/setup-buildx-action@v3
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Create multi-arch manifest
+        working-directory: /tmp/digests
+        run: |
+          docker buildx imagetools create \
+            -t "${IMAGE}:latest" \
+            -t "${IMAGE}:${GITHUB_SHA}" \
+            $(printf "${IMAGE}@sha256:%s " *)
+      - name: Show the published manifest
+        run: docker buildx imagetools inspect "${IMAGE}:latest"
