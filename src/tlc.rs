@@ -33,7 +33,7 @@
 use crate::grounding::Binding;
 use crate::prl::ast::{Atom, Expr, Pattern, Property, Quantifier, Requirement, Scope};
 use crate::tla_adapter::{self, ModelResolution};
-use crate::verdict::{self, Basis, Provenance, Verdict};
+use crate::verdict::{Basis, Evidence};
 use std::path::{Path, PathBuf};
 
 /// The behaviour-spec operator provreq checks against. TLA+ convention names the full
@@ -86,23 +86,23 @@ pub enum Outcome {
 }
 
 impl Outcome {
-    /// Map what TLC established into a core verdict. The mapping lives here, in the engine, so
-    /// [`crate::verdict`] never learns what TLC is (D2's "one meaning, lowering to each
-    /// engine", running in this direction too).
+    /// Map what TLC established into a piece of [`Evidence`]. The mapping lives here, in the
+    /// engine, so [`crate::verdict`] never learns what TLC is (D2's "one meaning, lowering to
+    /// each engine", running in this direction too). The core aggregates it into the
+    /// requirement's verdict (D2b).
     ///
     /// The load-bearing line is `Holds` → [`Basis::ModelCheckedBounded`]: TLC is bounded, so a
     /// pass is `model-checked (bounded)` and never `proven`.
-    pub fn into_verdict(&self, id: &str, provenance: Provenance) -> Verdict {
+    pub fn into_evidence(&self) -> Evidence {
         match self {
-            Outcome::Holds => verdict::holds(id, Basis::ModelCheckedBounded, provenance),
-            Outcome::Fails { violated, witness } => verdict::fails(
-                id,
+            Outcome::Holds => Evidence::holds("TLC (TLA+)", Basis::ModelCheckedBounded),
+            Outcome::Fails { violated, witness } => Evidence::fails(
+                "TLC (TLA+)",
                 witness.clone(),
                 violated.iter().cloned().collect(),
-                provenance,
             ),
             Outcome::Inconclusive { reason } => {
-                verdict::inconclusive(id, vec![reason.clone()], provenance)
+                Evidence::inconclusive("TLC (TLA+)", vec![reason.clone()])
             }
         }
     }
@@ -581,6 +581,7 @@ mod tests {
     use super::*;
     use crate::grounding::{BindCategory, Fidelity};
     use crate::prl::gate;
+    use crate::verdict::Provenance;
 
     const MODEL_REQ: &str = "requirement r {
         category: 2a
@@ -877,7 +878,7 @@ Error: The constant parameter MaxLen is not assigned a value by the configuratio
     // explores a bounded model, so claiming ∀-executions would be the overclaim REQ024 guards.
     #[test]
     fn a_tlc_pass_is_bounded_model_checked_never_proven() {
-        let v = Outcome::Holds.into_verdict("SR001", prov());
+        let v = crate::verdict::aggregate("SR001", vec![Outcome::Holds.into_evidence()], prov());
         assert_eq!(v.status, crate::verdict::Status::Holds);
         assert_eq!(v.basis, Some(Basis::ModelCheckedBounded));
         let text = crate::verdict::render(&v);
@@ -893,7 +894,7 @@ Error: The constant parameter MaxLen is not assigned a value by the configuratio
             violated: Some("Error: Temporal properties were violated.".into()),
             witness: Some("State 1: <Initial predicate>\npc = 0".into()),
         };
-        let v = outcome.into_verdict("SR002", prov());
+        let v = crate::verdict::aggregate("SR002", vec![outcome.into_evidence()], prov());
         assert_eq!(v.status, crate::verdict::Status::Fails);
         assert_eq!(v.basis, None, "a fails has a witness, not a basis");
         let text = crate::verdict::render(&v);
@@ -909,7 +910,7 @@ Error: The constant parameter MaxLen is not assigned a value by the configuratio
         let outcome = Outcome::Inconclusive {
             reason: "Error: The constant parameter MaxLen is not assigned a value.".into(),
         };
-        let v = outcome.into_verdict("SR003", prov());
+        let v = crate::verdict::aggregate("SR003", vec![outcome.into_evidence()], prov());
         assert_eq!(v.status, crate::verdict::Status::Unknown);
         assert_eq!(v.reason, Some(crate::verdict::UnknownReason::Inconclusive));
         let text = crate::verdict::render(&v);

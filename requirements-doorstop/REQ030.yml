@@ -1,0 +1,27 @@
+active: true
+derived: false
+header: ''
+level: 1.29
+links: []
+normative: true
+ref: ''
+reviewed: 2iX0pIxgwLUETxpWcwVrVZamgYldo6TpW31AA0QshL4=
+text: |
+  A requirement's category routes to an ensemble of verification engines, not a single one.
+  When a grounded requirement is verified, every engine wired for its category that is
+  installed and ready is run, and their results are combined into one verdict. An engine that
+  is wired but not installed does not block the verdict as long as another engine can answer;
+  a category with no ready engine still yields an honest no-engine unknown that names, for each
+  engine, whether the gap is provreq's to wire or the operator's to install.
+
+  The results are combined by soundness, never by majority vote. Engines that agree corroborate
+  one another, and the combined basis is the strongest any engine established. A single
+  refutation carrying a re-checkable witness refutes the requirement. When one engine establishes
+  the property and another refutes it, the disagreement is reported as a divergence that needs
+  human review — a real modelling discrepancy between a witness and a basis, which no vote may
+  paper over. When every engine ran but none could decide, the verdict is an honest unknown.
+
+  The verdict records each engine's own contribution — which engine held, which refuted, and
+  which could not decide — alongside the combined answer, so the read-back can be audited back
+  to the tools that produced it. This slice wires no new engine: category 1 remains Kani and
+  category 2a remains TLC, each a single-member ensemble, so an existing verdict is unchanged.

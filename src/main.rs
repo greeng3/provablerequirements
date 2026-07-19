@@ -938,8 +938,13 @@ fn run_engines(subject: &Path) -> Result<()> {
     let (companion, items) = resolve(subject)?;
     let draft_state = draft::load(&companion)?;
 
-    // Probe each engine once (R-eng-2) and keep the per-category status for coverage.
-    let mut status_by_category = std::collections::BTreeMap::new();
+    // Probe each engine once (R-eng-2) and keep the per-category statuses for coverage. A
+    // category can have several engines (D2b), so statuses accumulate per category rather than
+    // overwriting — readiness then needs only one of them ready.
+    let mut status_by_category: std::collections::BTreeMap<
+        grounding::BindCategory,
+        Vec<engine::EngineStatus>,
+    > = std::collections::BTreeMap::new();
     println!("Verification engines:");
     for e in engine::registry() {
         let status = engine::detect(&e);
@@ -949,7 +954,10 @@ fn run_engines(subject: &Path) -> Result<()> {
             e.name,
             status.describe()
         );
-        status_by_category.insert(e.category, status);
+        status_by_category
+            .entry(e.category)
+            .or_default()
+            .push(status);
     }
 
     // Coverage of formalized (admitted) requirements (R-eng-3).
@@ -1116,59 +1124,69 @@ fn engine_verdict(
     provenance: provreq::verdict::Provenance,
 ) -> provreq::verdict::Verdict {
     let category = grounding::default_category(requirement);
-    let engine = engine::engine_for(category);
-    let status = engine::detect(&engine);
+    let engines = engine::engines_for(category);
 
-    // Not wired (2b/3) or not installed (engine binary absent) — both leave the property
-    // unchecked, but they ask different people to act, so the verdict says which.
-    if !status.is_ready() {
-        return provreq::verdict::no_engine(
-            id,
-            vec![format!(
-                "category {} routes to {} — {}",
-                category.as_label(),
-                engine.name,
-                status.describe()
-            )],
-            provenance,
-        );
+    // The ensemble runs every engine that is ready; the others are reported but do not block,
+    // as long as one can answer (D2b). No engine ready means nothing checked the property — an
+    // honest no-engine that names who must act (wiring is ours, installing is the operator's).
+    let ready: Vec<&engine::Engine> = engines
+        .iter()
+        .filter(|e| engine::detect(e).is_ready())
+        .collect();
+    if ready.is_empty() {
+        let detail = engines
+            .iter()
+            .map(|e| {
+                format!(
+                    "category {} routes to {} — {}",
+                    category.as_label(),
+                    e.name,
+                    engine::detect(e).describe()
+                )
+            })
+            .collect();
+        return provreq::verdict::no_engine(id, detail, provenance);
     }
 
-    println!("  running {} ({})...", engine.name, status.describe());
-    match category {
-        grounding::BindCategory::Code => {
-            kani_verdict(subject, id, requirement, bindings, resolutions, provenance)
-        }
-        grounding::BindCategory::Model => {
-            tlc_verdict(subject, companion, id, requirement, bindings, provenance)
-        }
-        // 2b/3 are NotWired → not ready → returned above; this keeps the match total.
-        _ => provreq::verdict::no_engine(
-            id,
-            vec![format!("no lowering for category {}", category.as_label())],
-            provenance,
-        ),
+    let mut evidence = Vec::new();
+    for e in ready {
+        println!("  running {}...", e.name);
+        // Dispatch by engine, not category: a category may route to several engines (D2b) and
+        // each has its own lowering. A ready engine with no lowering wired here is a gap in
+        // provreq, recorded as inconclusive rather than silently skipped.
+        let ev = match e.name {
+            "Kani" => kani_evidence(subject, id, requirement, bindings, resolutions),
+            "TLC (TLA+)" => tlc_evidence(subject, companion, id, requirement, bindings),
+            other => provreq::verdict::Evidence::inconclusive(
+                other,
+                vec![format!(
+                    "{other} probed as ready but has no lowering wired in provreq"
+                )],
+            ),
+        };
+        evidence.push(ev);
     }
+    provreq::verdict::aggregate(id, evidence, provenance)
 }
 
-/// Category 1 → Kani (REQ027): lower to an additive proof harness, run it, map to a verdict.
-fn kani_verdict(
+/// Category 1 → Kani (REQ027): lower to an additive proof harness, run it, map to evidence.
+/// A subject that is not a cargo crate or a claim that cannot be faithfully lowered is honest
+/// `inconclusive` evidence, never approximated (D2).
+fn kani_evidence(
     subject: &Path,
     id: &str,
     requirement: &Requirement,
     bindings: &[Binding],
     resolutions: &BTreeMap<String, Resolution>,
-    provenance: provreq::verdict::Provenance,
-) -> provreq::verdict::Verdict {
+) -> provreq::verdict::Evidence {
     let Some(crate_name) = provreq::kani::subject_crate_name(subject) else {
-        return provreq::verdict::inconclusive(
-            id,
+        return provreq::verdict::Evidence::inconclusive(
+            "Kani",
             vec![
                 "the subject is not a cargo crate (`cargo metadata` found no package), so a \
                  Kani harness has nothing to import"
                     .to_string(),
             ],
-            provenance,
         );
     };
     let harness = match provreq::kani::lower(
@@ -1179,26 +1197,24 @@ fn kani_verdict(
         &provreq::kani::harness_name(id),
     ) {
         Ok(h) => h,
-        // A claim we cannot faithfully express is inconclusive, never approximated (D2).
-        Err(e) => return provreq::verdict::inconclusive(id, vec![e.reason], provenance),
+        Err(e) => return provreq::verdict::Evidence::inconclusive("Kani", vec![e.reason]),
     };
-    provreq::kani::run(subject, &harness).into_verdict(id, provenance)
+    provreq::kani::run(subject, &harness).into_evidence()
 }
 
 /// Category 2a → TLC (REQ029): locate the subject's `Spec`, lower to an additive TLA+ module
-/// with a temporal property, run TLC beside the spec, map to a verdict. A missing `Spec` or an
+/// with a temporal property, run TLC beside the spec, map to evidence. A missing `Spec` or an
 /// un-lowerable claim is honestly `inconclusive`, never approximated (D2).
-fn tlc_verdict(
+fn tlc_evidence(
     subject: &Path,
     companion: &Path,
     id: &str,
     requirement: &Requirement,
     bindings: &[Binding],
-    provenance: provreq::verdict::Provenance,
-) -> provreq::verdict::Verdict {
+) -> provreq::verdict::Evidence {
     let site = match provreq::tlc::locate_spec(subject, companion) {
         Ok(site) => site,
-        Err(reason) => return provreq::verdict::inconclusive(id, vec![reason], provenance),
+        Err(reason) => return provreq::verdict::Evidence::inconclusive("TLC (TLA+)", vec![reason]),
     };
     let check = match provreq::tlc::lower(
         requirement,
@@ -1207,9 +1223,9 @@ fn tlc_verdict(
         &provreq::tlc::module_name(id),
     ) {
         Ok(c) => c,
-        Err(e) => return provreq::verdict::inconclusive(id, vec![e.reason], provenance),
+        Err(e) => return provreq::verdict::Evidence::inconclusive("TLC (TLA+)", vec![e.reason]),
     };
-    provreq::tlc::run(&site, &check).into_verdict(id, provenance)
+    provreq::tlc::run(&site, &check).into_evidence()
 }
 
 /// Best-effort subject git HEAD for verdict provenance (D9). `None` when the subject is not
