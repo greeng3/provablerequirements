@@ -134,3 +134,66 @@ RUN apt-get update \
     && test -x "${PRUSTI_BIN}/cargo-prusti" \
     && test -x "${PRUSTI_BIN}/prusti-rustc" \
     && test -x "${PRUSTI_BIN}/prusti-driver"
+
+# Creusot — the THIRD category-1 verification engine (deductive, Why3/SMT). Not a subset of
+# Prusti: different backend (Why3 + SMT solvers vs Viper) and a different contract surface, so
+# per the many-tools/no-subset preference it belongs in D2b's ensemble. Baked in for the same
+# reason as Kani/TLC/Prusti: a runtime install evaporates on rebuild, and `provreq engines` then
+# reports category 1 short an engine — indistinguishable from a bug in our own code.
+#
+# Creusot's installer did not build on arm64 at all: `creusot-setup`'s URLS table is gated per
+# platform and only ever defined linux/x86_64 and macos/aarch64, so on linux/aarch64 the binary
+# failed to compile with `error[E0425]: cannot find value URLS in this scope`. Our patch (vendored
+# below, also on greeng3/creusot@linux-aarch64-provers for upstreaming) adds the linux/aarch64
+# block and makes each prover URL an Option, so a prover with no release for the platform is
+# SKIPPED with a message instead of breaking the build. Consequences on arm64:
+#   - Z3 and CVC5 have real aarch64 Linux releases and are downloaded normally.
+#   - Alt-Ergo has none, but is an OCaml program: we install it into Creusot's own opam switch
+#     and hand it to the installer with `--external alt-ergo`.
+#   - CVC4 is archived upstream (last release 2020, x86_64 only) and is simply absent. CVC5
+#     supersedes it; `cargo creusot` tolerates it missing from why3find.json's prover list.
+ARG CREUSOT_TAG=v0.12.0
+ENV CREUSOT_DATA=/root/.local/share/creusot
+ENV PATH="${CREUSOT_DATA}/bin:${CREUSOT_DATA}/_opam/bin:${PATH}"
+COPY .devcontainer/patches/creusot-linux-aarch64-provers.patch /tmp/creusot.patch
+# `autoconf` is why3's depext and `zlib1g-dev`/`libgmp-dev` back camlzip/zarith; installing them
+# with apt up front keeps opam from trying to shell out to the system package manager mid-build.
+# `in-creusot-ci=true` is the variable Creusot's own CI sets to drop why3-ide from the dependency
+# set — it is a GTK3 application, pure bloat in a headless image.
+# OPAMYES + </dev/null are load-bearing: opam's depext handler asks a NUMBERED question, so a
+# piped `yes` answers nothing, re-prompts forever, and writes until the disk fills.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+      opam autoconf zlib1g-dev libgmp-dev m4 \
+    && rm -rf /var/lib/apt/lists/* \
+    && opam init --bare --disable-sandboxing --no-setup -y \
+    && opam var --global in-creusot-ci=true \
+    && git clone --depth 1 --branch "$CREUSOT_TAG" \
+      https://github.com/creusot-rs/creusot /opt/creusot-src \
+    && cd /opt/creusot-src \
+    && git apply /tmp/creusot.patch \
+    && rm -f /tmp/creusot.patch \
+    # 1. The opam switch (OCaml 5.3.0, Why3, why3find). Must come first: it is the switch that
+    #    the Alt-Ergo install below lands in.
+    && OPAMYES=1 cargo run --bin creusot-install -- why3 </dev/null \
+    && OPAMYES=1 opam install alt-ergo.2.6.2 --switch "$CREUSOT_DATA" </dev/null \
+    # 2. creusot-rustc is itself a rustc driver, so it links the rustc-private crates, which this
+    #    pinned nightly ships as dylibs ONLY — a default static-rlib link fails with 224 "required
+    #    to be available in rlib format" errors. Exactly the Prusti problem above, same fix. The
+    #    flag is scoped to THIS component on purpose: applied to cargo-creusot it produces a binary
+    #    that cannot find libstd.so at runtime.
+    && RUSTFLAGS="-C prefer-dynamic" \
+       OPAMYES=1 cargo run --bin creusot-install -- creusot-rustc </dev/null \
+    # 3. Everything else, statically linked as usual. Alt-Ergo comes from the switch via --external.
+    && OPAMYES=1 cargo run --bin creusot-install -- \
+         --external alt-ergo prelude cargo-creusot provers why3-conf </dev/null \
+    && test -x "${CREUSOT_DATA}/bin/z3" \
+    && test -x "${CREUSOT_DATA}/bin/cvc5" \
+    && test -x "${CREUSOT_DATA}/bin/alt-ergo" \
+    && test -x "$(echo ${CREUSOT_DATA}/toolchains/*/bin/creusot-rustc)" \
+    && test -x /root/.cargo/bin/cargo-creusot \
+    # cargo-creusot was the one binary the prefer-dynamic mistake produced silently-broken: it
+    # installed fine and only died at RUN time on a missing libstd.so. So run it, don't just stat
+    # it. Outside a Creusot project it exits non-zero with "creusot-std not found in dependencies",
+    # which is a perfectly good liveness signal — what must NOT appear is a loader error.
+    && ! cargo-creusot --help 2>&1 | grep -q "error while loading shared libraries"
