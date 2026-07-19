@@ -160,11 +160,13 @@ COPY .devcontainer/patches/creusot-linux-aarch64-provers.patch /tmp/creusot.patc
 # with apt up front keeps opam from trying to shell out to the system package manager mid-build.
 # `in-creusot-ci=true` is the variable Creusot's own CI sets to drop why3-ide from the dependency
 # set — it is a GTK3 application, pure bloat in a headless image.
+# `rsync` is how opam fetches a local-path pin, and creusot-deps is pinned to a file:// path — the
+# clean base image has no rsync, so the switch create dies with `"rsync": command not found`.
 # OPAMYES + </dev/null are load-bearing: opam's depext handler asks a NUMBERED question, so a
 # piped `yes` answers nothing, re-prompts forever, and writes until the disk fills.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
-      opam autoconf zlib1g-dev libgmp-dev m4 \
+      opam autoconf zlib1g-dev libgmp-dev m4 rsync \
     && rm -rf /var/lib/apt/lists/* \
     && opam init --bare --disable-sandboxing --no-setup -y \
     && opam var --global in-creusot-ci=true \
