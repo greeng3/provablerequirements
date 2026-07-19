@@ -6,12 +6,14 @@
 //!
 //! **Engine-independent by design.** REQ027 wired Kani as category-1 engine #1, but D2's
 //! rule is one core meaning lowered to each engine — so this module knows about *bases* and
-//! *witnesses*, never about Kani. Each engine maps its own result into these constructors
-//! ([`crate::kani::Outcome::into_verdict`]), which is what lets D2b's ensemble add engines
-//! with differing soundness directions without touching the core.
+//! *witnesses*, never about Kani. Each engine maps its own result into an [`Evidence`]
+//! ([`crate::kani::Outcome::into_evidence`]) that the core aggregates ([`aggregate`]) — which
+//! is what lets D2b's ensemble add engines with differing soundness directions without
+//! touching the core.
 //!
 //! Implements: REQ023 (verdict object + provenance; honest unknown), REQ027 (a real
-//! `holds`/`fails` from a wired engine, with a D8 basis and a D9 witness).
+//! `holds`/`fails` from a wired engine, with a D8 basis and a D9 witness), REQ030 (aggregate
+//! an ensemble of engines' [`Evidence`] into one verdict, soundness-aware, never a vote).
 
 use crate::grounding::Grounding;
 
@@ -63,8 +65,7 @@ impl Status {
 /// Why a verdict is `unknown` (D10 taxonomy, restricted to what the wired engines can
 /// produce). `inapplicable` is deliberately absent: the fragment check (REQ024) rejects an
 /// out-of-fragment claim at the gate, so it never reaches a verdict to carry the reason —
-/// adding the variant would be dead code. `divergence-needs-review` and `assumption-unmet`
-/// arrive with the D2b ensemble and D8 contingencies respectively.
+/// adding the variant would be dead code. `assumption-unmet` arrives with D8 contingencies.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UnknownReason {
     /// The requirement is not grounded — no engine could run (R-ground-1). Never faked
@@ -76,6 +77,11 @@ pub enum UnknownReason {
     /// harness would not compile, or the run errored. D10's `inconclusive(…)` — the tool
     /// ran and came back without an answer, which is not the same as the answer being no.
     Inconclusive,
+    /// Two engines in the ensemble reached **opposite** answers — one `holds`, another
+    /// `fails` (D2b). This is never resolved by majority vote: a `fails` carries a
+    /// re-checkable witness and a `holds` a soundness basis, so a conflict is a real
+    /// modelling discrepancy for a human to adjudicate, not noise to average away.
+    Divergence,
 }
 
 impl UnknownReason {
@@ -84,6 +90,7 @@ impl UnknownReason {
             UnknownReason::MissingGrounding => "missing-grounding",
             UnknownReason::NoEngine => "no-engine",
             UnknownReason::Inconclusive => "inconclusive",
+            UnknownReason::Divergence => "divergence-needs-review",
         }
     }
 }
@@ -98,11 +105,62 @@ pub struct Provenance {
     pub tool_version: String,
 }
 
+/// One engine's contribution to a requirement's verdict (D2b). The core aggregates a
+/// `Vec<Evidence>` — one per engine that actually ran — into a single [`Verdict`]. Unlike a
+/// verdict it carries no `id`/provenance (those belong to the requirement, not the engine);
+/// it is purely *what this tool said*.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Evidence {
+    /// The engine that produced this, e.g. `"Kani"` — named so a divergence or a
+    /// corroboration can say *who*.
+    pub engine: String,
+    pub status: Status,
+    /// The D8 rung, present exactly when `status == Holds`.
+    pub basis: Option<Basis>,
+    /// The re-checkable witness, present for a `fails` when the engine produced one.
+    pub witness: Option<String>,
+    /// The engine's own message (the inconclusive reason, the violated check).
+    pub detail: Vec<String>,
+}
+
+impl Evidence {
+    pub fn holds(engine: &str, basis: Basis) -> Evidence {
+        Evidence {
+            engine: engine.to_string(),
+            status: Status::Holds,
+            basis: Some(basis),
+            witness: None,
+            detail: Vec::new(),
+        }
+    }
+
+    pub fn fails(engine: &str, witness: Option<String>, detail: Vec<String>) -> Evidence {
+        Evidence {
+            engine: engine.to_string(),
+            status: Status::Fails,
+            basis: None,
+            witness,
+            detail,
+        }
+    }
+
+    pub fn inconclusive(engine: &str, detail: Vec<String>) -> Evidence {
+        Evidence {
+            engine: engine.to_string(),
+            status: Status::Unknown,
+            basis: None,
+            witness: None,
+            detail,
+        }
+    }
+}
+
 /// A verdict for one requirement (D7). Splits **polarity** (`status`) from **basis** (how a
 /// `holds` was established) and from the **witness** (what makes a `fails` re-checkable).
 ///
-/// `// ponytail: no per-tool evidence map or cross-check yet — one engine cannot disagree
-/// with itself. Both land with D2b's ensemble.`
+/// The aggregate fields (`status`/`basis`/`witness`/`detail`) are the ensemble's combined
+/// answer per D2b; `evidence` keeps every engine's own result so the read-back can name who
+/// held, who refuted, and who could not decide.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Verdict {
     pub id: String,
@@ -119,6 +177,9 @@ pub struct Verdict {
     /// unknown, the engine's own message behind an inconclusive, the violated check behind
     /// a fails.
     pub detail: Vec<String>,
+    /// Per-engine results that were aggregated into this verdict (D2b). Empty when no
+    /// engine ran (missing-grounding / no-engine): there is nothing to break down.
+    pub evidence: Vec<Evidence>,
     pub provenance: Provenance,
 }
 
@@ -143,43 +204,86 @@ pub fn no_engine(id: &str, detail: Vec<String>, provenance: Provenance) -> Verdi
     unknown(id, UnknownReason::NoEngine, detail, provenance)
 }
 
-/// A `holds` established on `basis`. Engine-agnostic: the engine names the rung it earned,
-/// and [`Basis`] makes `proven` unrepresentable for a bounded checker.
-pub fn holds(id: &str, basis: Basis, provenance: Provenance) -> Verdict {
-    Verdict {
-        id: id.to_string(),
-        status: Status::Holds,
-        reason: None,
-        basis: Some(basis),
-        witness: None,
-        detail: Vec::new(),
-        provenance,
-    }
-}
+/// Aggregate every engine's [`Evidence`] into one requirement verdict per **D2b** —
+/// soundness-aware, never a majority vote. `evidence` must be non-empty (an engine ran);
+/// callers where no engine ran use [`no_engine`] / [`from_grounding`].
+///
+/// - A `holds` and a `fails` together is **divergence-needs-review**: one engine found a
+///   re-checkable counterexample while another established the claim — a real discrepancy no
+///   vote can resolve.
+/// - Otherwise any `fails` refutes the requirement (a valid counterexample is definitive),
+///   carrying the first witness produced.
+/// - Otherwise any `holds` establishes it; agreement *corroborates* rather than out-votes,
+///   and the basis is the strongest rung any holding engine earned.
+/// - Otherwise every engine was inconclusive → `unknown / inconclusive`.
+///
+/// Implements: REQ030
+pub fn aggregate(id: &str, evidence: Vec<Evidence>, provenance: Provenance) -> Verdict {
+    let any_holds = evidence.iter().any(|e| e.status == Status::Holds);
+    let any_fails = evidence.iter().any(|e| e.status == Status::Fails);
+    let detail: Vec<String> = evidence.iter().flat_map(describe_evidence).collect();
 
-/// A `fails` — definitive when it carries a valid witness (falsification is the robust
-/// half, D8).
-pub fn fails(
-    id: &str,
-    witness: Option<String>,
-    detail: Vec<String>,
-    provenance: Provenance,
-) -> Verdict {
+    let (status, reason, basis, witness) = if any_holds && any_fails {
+        (Status::Unknown, Some(UnknownReason::Divergence), None, None)
+    } else if any_fails {
+        (
+            Status::Fails,
+            None,
+            None,
+            evidence.iter().find_map(|e| e.witness.clone()),
+        )
+    } else if any_holds {
+        let basis = evidence
+            .iter()
+            .filter_map(|e| e.basis)
+            .max_by_key(basis_rank);
+        (Status::Holds, None, basis, None)
+    } else {
+        (
+            Status::Unknown,
+            Some(UnknownReason::Inconclusive),
+            None,
+            None,
+        )
+    };
+
     Verdict {
         id: id.to_string(),
-        status: Status::Fails,
-        reason: None,
-        basis: None,
+        status,
+        reason,
+        basis,
         witness,
         detail,
+        evidence,
         provenance,
     }
 }
 
-/// An engine ran but could not decide (D10 `inconclusive`). Never a verdict — the whole
-/// point is that "the tool came back empty" and "the claim is false" are different answers.
-pub fn inconclusive(id: &str, detail: Vec<String>, provenance: Provenance) -> Verdict {
-    unknown(id, UnknownReason::Inconclusive, detail, provenance)
+/// D8 rung ordering — higher is stronger. One rung exists today; the engine that earns
+/// `proven` extends this, and [`aggregate`]'s `max_by_key` picks it up with no other change.
+fn basis_rank(basis: &Basis) -> u8 {
+    match basis {
+        Basis::ModelCheckedBounded => 1,
+    }
+}
+
+/// A human line per engine, folded into the verdict `detail` so the read-back names who
+/// held, who refuted, and who could not decide.
+fn describe_evidence(e: &Evidence) -> Vec<String> {
+    let head = match e.status {
+        Status::Holds => format!(
+            "{}: holds{}",
+            e.engine,
+            e.basis
+                .map(|b| format!(" ({})", b.as_str()))
+                .unwrap_or_default()
+        ),
+        Status::Fails => format!("{}: fails", e.engine),
+        Status::Unknown => format!("{}: inconclusive", e.engine),
+    };
+    std::iter::once(head)
+        .chain(e.detail.iter().cloned())
+        .collect()
 }
 
 fn unknown(
@@ -195,6 +299,7 @@ fn unknown(
         basis: None,
         witness: None,
         detail,
+        evidence: Vec::new(),
         provenance,
     }
 }
@@ -224,6 +329,10 @@ pub fn render(v: &Verdict) -> String {
                 .push_str(" — grounded, but no verification engine has executed this property yet"),
             UnknownReason::Inconclusive => out
                 .push_str(" — an engine ran but could not decide; this is not evidence either way"),
+            UnknownReason::Divergence => out.push_str(
+                " — engines disagreed (one holds, another fails); a human must reconcile the \
+                 witness against the basis, never a majority vote",
+            ),
         }
     }
     for d in &v.detail {
@@ -308,5 +417,99 @@ mod tests {
         };
         let text = render(&from_grounding("SR004", &Grounding::Grounded, p));
         assert!(text.contains("subject@(not a git subject)"));
+    }
+
+    // Verifies: REQ030 — a single engine's evidence aggregates to exactly that engine's
+    // answer (N=1 is the wired reality today; the ensemble must not change it).
+    #[test]
+    fn single_holds_aggregates_to_that_holds() {
+        let v = aggregate(
+            "SR010",
+            vec![Evidence::holds("Kani", Basis::ModelCheckedBounded)],
+            prov(),
+        );
+        assert_eq!(v.status, Status::Holds);
+        assert_eq!(v.basis, Some(Basis::ModelCheckedBounded));
+        assert_eq!(v.evidence.len(), 1);
+        assert!(render(&v).contains("Kani: holds"));
+    }
+
+    // Verifies: REQ030 (D2b) — agreement corroborates rather than out-votes; the read-back
+    // names every contributing engine.
+    #[test]
+    fn agreeing_holds_corroborate() {
+        let v = aggregate(
+            "SR011",
+            vec![
+                Evidence::holds("Kani", Basis::ModelCheckedBounded),
+                Evidence::holds("Prusti", Basis::ModelCheckedBounded),
+            ],
+            prov(),
+        );
+        assert_eq!(v.status, Status::Holds);
+        let text = render(&v);
+        assert!(text.contains("Kani: holds"));
+        assert!(text.contains("Prusti: holds"));
+    }
+
+    // Verifies: REQ030 (D2b) — a `holds` and a `fails` together is divergence-needs-review,
+    // NEVER resolved by majority vote.
+    #[test]
+    fn holds_versus_fails_is_divergence() {
+        let v = aggregate(
+            "SR012",
+            vec![
+                Evidence::holds("Prusti", Basis::ModelCheckedBounded),
+                Evidence::fails("Kani", Some("cex: u=0".into()), vec![]),
+            ],
+            prov(),
+        );
+        assert_eq!(v.status, Status::Unknown);
+        assert_eq!(v.reason, Some(UnknownReason::Divergence));
+        assert!(render(&v).contains("divergence-needs-review"));
+    }
+
+    // Verifies: REQ030 — a lone counterexample refutes and carries its witness.
+    #[test]
+    fn a_fails_refutes_and_keeps_the_witness() {
+        let v = aggregate(
+            "SR013",
+            vec![Evidence::fails("Kani", Some("cex: u=0".into()), vec![])],
+            prov(),
+        );
+        assert_eq!(v.status, Status::Fails);
+        assert_eq!(v.witness.as_deref(), Some("cex: u=0"));
+    }
+
+    // Verifies: REQ030 — a `holds` corroborated by an inconclusive engine still holds;
+    // an inability to decide is not a disagreement.
+    #[test]
+    fn inconclusive_does_not_block_a_holds() {
+        let v = aggregate(
+            "SR014",
+            vec![
+                Evidence::holds("Kani", Basis::ModelCheckedBounded),
+                Evidence::inconclusive("Prusti", vec!["no contracts on `login`".into()]),
+            ],
+            prov(),
+        );
+        assert_eq!(v.status, Status::Holds);
+        assert!(render(&v).contains("Prusti: inconclusive"));
+    }
+
+    // Verifies: REQ030 — every engine inconclusive yields unknown/inconclusive, not a fake
+    // decision.
+    #[test]
+    fn all_inconclusive_is_unknown_inconclusive() {
+        let v = aggregate(
+            "SR015",
+            vec![Evidence::inconclusive(
+                "Kani",
+                vec!["harness would not compile".into()],
+            )],
+            prov(),
+        );
+        assert_eq!(v.status, Status::Unknown);
+        assert_eq!(v.reason, Some(UnknownReason::Inconclusive));
     }
 }

@@ -31,7 +31,7 @@
 use crate::grounding::Binding;
 use crate::prl::ast::{Atom, Expr, Pattern, Property, Quantifier, Requirement, Scope};
 use crate::rust_adapter::{ParamMode, Resolution};
-use crate::verdict::{self, Basis, Provenance, Verdict};
+use crate::verdict::{Basis, Evidence};
 use std::collections::BTreeMap;
 use std::path::Path;
 
@@ -79,26 +79,26 @@ pub enum Outcome {
 }
 
 impl Outcome {
-    /// Map what Kani established into a core verdict. The mapping lives here, in the engine,
-    /// so [`crate::verdict`] never learns what Kani is — D2's "one meaning, lowering to each
-    /// engine" runs in this direction too.
+    /// Map what Kani established into a piece of [`Evidence`]. The mapping lives here, in the
+    /// engine, so [`crate::verdict`] never learns what Kani is — D2's "one meaning, lowering
+    /// to each engine" runs in this direction too. The core then aggregates this evidence
+    /// (alongside any other engine's) into the requirement's verdict (D2b).
     ///
     /// The load-bearing line is `Holds` → [`Basis::ModelCheckedBounded`]: Kani is bounded,
     /// so a pass is `model-checked (bounded)` and never `proven`.
-    pub fn into_verdict(&self, id: &str, provenance: Provenance) -> Verdict {
+    pub fn into_evidence(&self) -> Evidence {
         match self {
-            Outcome::Holds => verdict::holds(id, Basis::ModelCheckedBounded, provenance),
+            Outcome::Holds => Evidence::holds("Kani", Basis::ModelCheckedBounded),
             Outcome::Fails {
                 failed_check,
                 witness,
-            } => verdict::fails(
-                id,
+            } => Evidence::fails(
+                "Kani",
                 witness.clone(),
                 failed_check.iter().cloned().collect(),
-                provenance,
             ),
             Outcome::Inconclusive { reason } => {
-                verdict::inconclusive(id, vec![reason.clone()], provenance)
+                Evidence::inconclusive("Kani", vec![reason.clone()])
             }
         }
     }
@@ -510,6 +510,7 @@ mod tests {
     use crate::grounding::{BindCategory, Fidelity};
     use crate::prl::gate;
     use crate::rust_adapter::CodeMatch;
+    use crate::verdict::Provenance;
 
     const CODE_REQ: &str = "requirement r {
         category: 1
@@ -964,7 +965,7 @@ For more information about this error, try `rustc --explain E0277`.
     // of exactly the kind REQ024 fixed for engine readiness.
     #[test]
     fn a_kani_pass_is_bounded_model_checked_never_proven() {
-        let v = Outcome::Holds.into_verdict("SR001", prov());
+        let v = crate::verdict::aggregate("SR001", vec![Outcome::Holds.into_evidence()], prov());
         assert_eq!(v.status, crate::verdict::Status::Holds);
         assert_eq!(v.basis, Some(Basis::ModelCheckedBounded));
         let text = crate::verdict::render(&v);
@@ -983,7 +984,7 @@ For more information about this error, try `rustc --explain E0277`.
             failed_check: Some("Failed Checks: assertion failed: has_session(&u)".into()),
             witness: Some("fn kani_concrete_playback_provreq_r_1() {\n    // 7\n}".into()),
         };
-        let v = outcome.into_verdict("SR002", prov());
+        let v = crate::verdict::aggregate("SR002", vec![outcome.into_evidence()], prov());
         assert_eq!(v.status, crate::verdict::Status::Fails);
         assert_eq!(v.basis, None, "a fails has a witness, not a basis");
         let text = crate::verdict::render(&v);
@@ -1000,7 +1001,7 @@ For more information about this error, try `rustc --explain E0277`.
         let outcome = Outcome::Inconclusive {
             reason: "error[E0277]: the trait bound `User: kani::Arbitrary` is not satisfied".into(),
         };
-        let v = outcome.into_verdict("SR003", prov());
+        let v = crate::verdict::aggregate("SR003", vec![outcome.into_evidence()], prov());
         assert_eq!(v.status, crate::verdict::Status::Unknown);
         assert_eq!(v.reason, Some(crate::verdict::UnknownReason::Inconclusive));
         let text = crate::verdict::render(&v);

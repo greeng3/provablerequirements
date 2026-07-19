@@ -25,7 +25,8 @@
 //!
 //! Implements: REQ022 (engine coverage — detect installed engines, report readiness),
 //! REQ024 (a category-1 engine that is not wired never reports ready), REQ027 (category 1
-//! is wired to Kani; only a runnable engine is probed).
+//! is wired to Kani; only a runnable engine is probed), REQ030 (a category routes to an
+//! ensemble via [`engines_for`]; it is ready as soon as any one engine is).
 
 use crate::grounding::BindCategory;
 use std::process::Command;
@@ -168,12 +169,16 @@ pub fn registry() -> Vec<Engine> {
     ]
 }
 
-/// The engine that runs a given category.
-pub fn engine_for(category: BindCategory) -> Engine {
+/// The engines that run a given category — an **ensemble** (D2b), so this returns every
+/// engine registered for it. One per category today (Kani, TLC); the deductive verifiers
+/// join category 1 as further members without any caller here changing shape.
+///
+/// Implements: REQ030
+pub fn engines_for(category: BindCategory) -> Vec<Engine> {
     registry()
         .into_iter()
-        .find(|e| e.category == category)
-        .expect("registry covers every BindCategory")
+        .filter(|e| e.category == category)
+        .collect()
 }
 
 /// Detect an engine's status (R-eng-2). An engine with no probe has no integration yet and
@@ -271,24 +276,26 @@ pub struct Readiness {
 pub fn readiness(
     id: &str,
     categories: &[BindCategory],
-    status_by_category: &std::collections::BTreeMap<BindCategory, EngineStatus>,
+    status_by_category: &std::collections::BTreeMap<BindCategory, Vec<EngineStatus>>,
 ) -> Readiness {
     let mut blockers = Vec::new();
     if categories.is_empty() {
         blockers.push("no declared category — cannot route to an engine".to_string());
     }
     for cat in categories {
+        // A category is routable as soon as **any** of its ensemble engines is ready — the
+        // others corroborate but are not required (D2b). None ready blocks it.
         let ready = status_by_category
             .get(cat)
-            .map(EngineStatus::is_ready)
+            .map(|statuses| statuses.iter().any(EngineStatus::is_ready))
             .unwrap_or(false);
         if !ready {
-            let engine = engine_for(*cat);
-            blockers.push(format!(
-                "category {} ({}) not ready",
-                cat.as_label(),
-                engine.name
-            ));
+            let names = engines_for(*cat)
+                .iter()
+                .map(|e| e.name)
+                .collect::<Vec<_>>()
+                .join(" / ");
+            blockers.push(format!("category {} ({names}) not ready", cat.as_label()));
         }
     }
     Readiness {
@@ -318,13 +325,25 @@ mod tests {
         ] {
             assert_eq!(reg.iter().filter(|e| e.category == cat).count(), 1);
         }
-        let code = engine_for(BindCategory::Code);
-        assert_eq!(code.name, "Kani");
-        assert_eq!(code.probe.expect("cat-1 is wired").bin, "cargo-kani");
+        let code = engines_for(BindCategory::Code);
+        assert_eq!(
+            code.len(),
+            1,
+            "category 1 has one wired engine in this slice"
+        );
+        assert_eq!(code[0].name, "Kani");
+        assert_eq!(
+            code[0].probe.as_ref().expect("cat-1 is wired").bin,
+            "cargo-kani"
+        );
         // REQ029: category 2a is wired to TLC, probed via `java … tlc2.TLC`.
-        let model = engine_for(BindCategory::Model);
-        assert_eq!(model.name, "TLC (TLA+)");
-        assert_eq!(model.probe.expect("cat-2a is wired").bin, "java");
+        let model = engines_for(BindCategory::Model);
+        assert_eq!(model.len(), 1);
+        assert_eq!(model[0].name, "TLC (TLA+)");
+        assert_eq!(
+            model[0].probe.as_ref().expect("cat-2a is wired").bin,
+            "java"
+        );
     }
 
     // Verifies: REQ027/REQ029 (R-eng-2/3) — an engine is probed ONLY if provreq can run it. A
@@ -335,15 +354,16 @@ mod tests {
     #[test]
     fn unwired_categories_are_not_probed_and_never_report_ready() {
         for cat in [BindCategory::Runtime, BindCategory::Ui] {
-            let engine = engine_for(cat);
-            assert!(
-                engine.probe.is_none(),
-                "{} has no lowering, so probing its binary would promise a verdict provreq \
-                 cannot produce",
-                engine.name
-            );
-            assert_eq!(detect(&engine), EngineStatus::NotWired);
-            assert!(!detect(&engine).is_ready());
+            for engine in engines_for(cat) {
+                assert!(
+                    engine.probe.is_none(),
+                    "{} has no lowering, so probing its binary would promise a verdict provreq \
+                     cannot produce",
+                    engine.name
+                );
+                assert_eq!(detect(&engine), EngineStatus::NotWired);
+                assert!(!detect(&engine).is_ready());
+            }
         }
     }
 
@@ -437,11 +457,11 @@ mod tests {
         let mut status = BTreeMap::new();
         status.insert(
             BindCategory::Runtime,
-            EngineStatus::Available {
+            vec![EngineStatus::Available {
                 version: "1.0".into(),
-            },
+            }],
         );
-        status.insert(BindCategory::Model, EngineStatus::Missing);
+        status.insert(BindCategory::Model, vec![EngineStatus::Missing]);
 
         let ready_one = readiness("SR001", &[BindCategory::Runtime], &status);
         assert!(ready_one.ready);
@@ -460,10 +480,30 @@ mod tests {
     // and is named as a blocker, rather than being waved through as ready.
     #[test]
     fn unwired_engine_blocks_readiness() {
-        let status = BTreeMap::from([(BindCategory::Code, EngineStatus::NotWired)]);
+        let status = BTreeMap::from([(BindCategory::Code, vec![EngineStatus::NotWired])]);
         let r = readiness("SR004", &[BindCategory::Code], &status);
         assert!(!r.ready, "an unwired category-1 engine is not readiness");
         assert!(r.blockers.iter().any(|b| b.contains('1')));
+    }
+
+    // Verifies: REQ030 (D2b) — a category is routable as soon as ONE of its ensemble engines
+    // is ready; a missing corroborating engine does not block it. This is the any-ready
+    // semantics that replaces the one-status-per-category assumption (and the silent overwrite
+    // it caused once a category has two engines).
+    #[test]
+    fn category_is_ready_when_any_ensemble_engine_is_ready() {
+        let status = BTreeMap::from([(
+            BindCategory::Code,
+            vec![
+                EngineStatus::Available {
+                    version: "0.67".into(),
+                },
+                EngineStatus::Missing,
+            ],
+        )]);
+        let r = readiness("SR005", &[BindCategory::Code], &status);
+        assert!(r.ready, "one ready engine is enough to route the category");
+        assert!(r.blockers.is_empty());
     }
 
     // Verifies: REQ022 — a requirement with no declared category is blocked (unroutable),
