@@ -1111,9 +1111,10 @@ fn run_verify(subject: &Path, id: &str) -> Result<()> {
 
 /// Ask the requirement's engine, and turn what it says into a verdict (REQ027/REQ029).
 ///
-/// The category dispatch is explicit: category 1 routes to Kani (code), category 2a to TLC
-/// (model); each has its own lowering, and neither silently inherits the other's. 2b/3 have no
-/// wired engine, so they never reach a branch here — they are `no_engine` at the gate below.
+/// Dispatch is by engine name, not category, because category 1 is an **ensemble** (D2b):
+/// Kani AND Creusot both run and their evidence is aggregated. Category 2a routes to TLC.
+/// Each engine has its own lowering, and none silently inherits another's. 2b/3 have no wired
+/// engine, so they never reach a branch here — they are `no_engine` at the gate below.
 fn engine_verdict(
     subject: &Path,
     companion: &Path,
@@ -1156,6 +1157,7 @@ fn engine_verdict(
         // provreq, recorded as inconclusive rather than silently skipped.
         let ev = match e.name {
             "Kani" => kani_evidence(subject, id, requirement, bindings, resolutions),
+            "Creusot" => creusot_evidence(subject, id, requirement, bindings, resolutions),
             "TLC (TLA+)" => tlc_evidence(subject, companion, id, requirement, bindings),
             other => provreq::verdict::Evidence::inconclusive(
                 other,
@@ -1200,6 +1202,31 @@ fn kani_evidence(
         Err(e) => return provreq::verdict::Evidence::inconclusive("Kani", vec![e.reason]),
     };
     provreq::kani::run(subject, &harness).into_evidence()
+}
+
+/// Category 1 → Creusot (REQ031): the ensemble's deductive member. Lower to an additive
+/// in-crate proof harness, run it, map to evidence. Unlike Kani it needs no crate name (the
+/// harness lives inside the subject crate and reaches it via `crate::`). A claim that cannot
+/// be faithfully lowered — or a subject with no crate root — is honest `inconclusive`, never
+/// approximated (D2). A pass earns `proven`; an unproved goal is `inconclusive`, never a
+/// witnessed `fails`.
+fn creusot_evidence(
+    subject: &Path,
+    id: &str,
+    requirement: &Requirement,
+    bindings: &[Binding],
+    resolutions: &BTreeMap<String, Resolution>,
+) -> provreq::verdict::Evidence {
+    let harness = match provreq::creusot::lower(
+        requirement,
+        bindings,
+        resolutions,
+        &provreq::creusot::harness_name(id),
+    ) {
+        Ok(h) => h,
+        Err(e) => return provreq::verdict::Evidence::inconclusive("Creusot", vec![e.reason]),
+    };
+    provreq::creusot::run(subject, &harness).into_evidence()
 }
 
 /// Category 2a → TLC (REQ029): locate the subject's `Spec`, lower to an additive TLA+ module
