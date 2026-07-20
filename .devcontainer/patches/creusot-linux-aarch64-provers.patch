@@ -15,6 +15,16 @@ binary release for this platform", and `install_provers` skips such a
 tool with a message pointing at `--external <TOOL>` rather than the whole
 installer failing to build.
 
+Complete the CVC4 -> CVC5 migration rather than leaving CVC4 half-wired.
+CVC5 supersedes CVC4 (which is EOL 2020 and has no aarch64 binary), so
+CVC4 is dropped from `PROVERS` and from the `why3find.json` template. The
+template is the single source every subject's config is copied from
+(`creusot-install` copies it to the data dir; `cargo creusot init` copies
+that into each project). Leaving CVC4 listed there but uninstalled made
+`why3find` fail to *calibrate* CVC4 on any goal it could not discharge
+quickly -- so an unprovable goal errored ("can not calibrate prover
+cvc4") instead of reporting a clean unproved result.
+
 Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
 
 
@@ -163,5 +173,39 @@ index 940e4bc..1039ccb 100644
 +    pub cvc4: Option<Url>,
 +    pub cvc5: Option<Url>,
  }
- 
+
  pub struct Url {
+diff --git a/creusot-setup/src/tools.rs b/creusot-setup/src/tools.rs
+index 18c63bb..396ab13 100644
+--- a/creusot-setup/src/tools.rs
++++ b/creusot-setup/src/tools.rs
+@@ -51,7 +51,7 @@ pub const CVC5: Binary = Binary {
+     detect_version: detect_cvc5_version,
+ };
+
+-pub const PROVERS: &[Binary] = &[ALTERGO, Z3, CVC4, CVC5];
++pub const PROVERS: &[Binary] = &[ALTERGO, Z3, CVC5];
+
+ // ----
+
+diff --git a/why3find.json b/why3find.json
+index 433e450..2ff3cb8 100644
+--- a/why3find.json
++++ b/why3find.json
+@@ -3,14 +3,13 @@
+   "time": 1,
+   "depth": 6,
+   "packages": [ "creusot" ],
+-  "provers": [ "alt-ergo", "z3", "cvc5", "cvc4" ],
++  "provers": [ "alt-ergo", "z3", "cvc5" ],
+   "tactics": [ "compute_specified", "split_vc" ],
+   "drivers": [],
+   "warnoff": [ "unused_variable", "axiom_abstract" ],
+   "profile": [
+     { "prover": "cvc5", "size": 45, "time": 0.473 },
+     { "prover": "z3", "size": 30, "time": 0.165 },
+-    { "prover": "alt-ergo", "size": 16, "time": 0.232 },
+-    { "prover": "cvc4", "size": 40, "time": 0.506 }
++    { "prover": "alt-ergo", "size": 16, "time": 0.232 }
+   ]
+ }
