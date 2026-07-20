@@ -74,6 +74,45 @@ jobs:
       - name: Run the real-engine tests
         run: "cargo test --lib kani:: -- --ignored"
 
+  # The category-1 DEDUCTIVE real-engine path (REQ031), on its own job — same design as `kani`
+  # above: the main `test` job stays engine-FREE, and this job runs exactly the `#[ignore]`d
+  # `creusot::` real-engine tests. Creusot is far too heavy to build from scratch on a runner
+  # (opam + Why3 + a rustc-driver source build), so — following the repo's "everything is baked
+  # into the image" convention — this job runs INSIDE the prebuilt devcontainer image, where
+  # cargo-creusot, Why3, and the provers already live. ubuntu-latest is amd64, so it pulls the
+  # image's amd64 variant; the provers provreq supplies (alt-ergo/z3/cvc5) are present on both
+  # arches.
+  #
+  # ⚠️ UNVERIFIED until the first CI run (like REQ027's kani-github-action@v1 was): a job running
+  # in a `container:` inherits the image's baked PATH, but GHA container-job env handling and the
+  # ghcr pull are exactly the pieces that cannot be proven from a dev shell. The `which` step
+  # below makes a first-run failure legible. If PATH is lost, add an `env:` that restores the
+  # image's CREUSOT_DATA bin dirs.
+  creusot:
+    runs-on: ubuntu-latest
+    container: ghcr.io/greeng3/provreq-devcontainer:latest
+    steps:
+      - uses: actions/checkout@v5
+      # Confirm the baked engine is reachable before spending time on the frontend build — a
+      # first-run PATH problem shows up here, not 3 minutes later in an opaque link error.
+      - name: Show the baked Creusot toolchain
+        run: cargo-creusot --version; command -v cargo-creusot why3 z3 alt-ergo cvc5
+      # `cargo test` links the whole crate (axum, rust-embed), which embeds web/dist — so the
+      # frontend must exist on disk even though these tests never touch it. Node is a
+      # devcontainer FEATURE, not part of the raw image, so set it up here.
+      - name: Set up Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Build frontend
+        run: npm --prefix web ci && npm --prefix web run build
+      # Scoped to the creusot module: this job has Creusot but drives only its real-engine
+      # tests. Each engine's real path is proven by the job that has that engine.
+      - name: Run the real-engine tests
+        run: "cargo test --lib creusot:: -- --ignored"
+
   # The category-2a real-engine path (REQ029), on its own job — same design as `kani` above:
   # the main `test` job stays engine-FREE, and this job installs TLC and runs exactly the
   # `#[ignore]`d cat-2a tests. TLC is a JRE + a jar (far lighter than Kani/CBMC), so this job is

@@ -6,6 +6,7 @@
 //! Doorstop layout and scaffolds its companion tree.
 
 pub mod adopt;
+pub mod creusot;
 pub mod doorstop;
 pub mod draft;
 pub mod engine;

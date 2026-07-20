@@ -1,0 +1,29 @@
+active: true
+derived: false
+header: ''
+level: '1.30'
+links: []
+normative: true
+ref: ''
+reviewed: iQ57Y36wQ5ZAMUpYdFWcbBeHeJ5XGjf5Jfk8Vkbnzt4=
+text: |
+  Category 1 is verified by an ensemble of deductive engines, and Creusot is wired as its
+  second member alongside Kani. When a grounded category-1 requirement is verified and Creusot
+  is installed, its invariant is lowered to an additive proof harness — a module placed inside
+  the subject crate that asserts the invariant as a universally quantified logical proposition
+  over the bound sort — which Creusot is run against. The subject's own source is never edited:
+  only the harness module and, if the subject has none, a prover configuration are added, and
+  every artifact the tool created is removed afterward, leaving the subject exactly as it was.
+
+  Because Creusot is a deductive verifier, a discharged proof obligation establishes the
+  property for every execution relative to the specification. Such a pass earns the strongest
+  basis, proven, and its read-back must not carry the bounded-model-checking caveat that a
+  Kani pass does. When both engines establish the property, the combined verdict reports the
+  proven basis and records that the bounded engine corroborated it.
+
+  An undischarged obligation is not a refutation. A deductive prover that cannot prove a claim
+  may have met a false claim or merely one whose predicates lack the logical contracts the
+  prover needs to see inside them; either way there is no counterexample witness. Such a result
+  is recorded as an honest inconclusive unknown that names the likely cause, never as a
+  refutation and never as a proof. A harness that fails to compile — most often because a bound
+  predicate is an ordinary function rather than a logical one — is likewise inconclusive.

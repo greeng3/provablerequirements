@@ -30,23 +30,29 @@ pub enum Status {
 /// (deductive, ∀ executions) › `model-checked` (∀ over a model M; note *bounded?*) ›
 /// `not-falsified` (empirical: N runs / duration / coverage).
 ///
-/// Only the rung an engine can actually earn is representable. Kani is a **bounded** model
-/// checker: it establishes the claim over the states it explored, not over all executions,
-/// so it yields [`Basis::ModelCheckedBounded`] and **cannot** yield `proven`. Making that
-/// structural rather than a convention is the point — an engine cannot overclaim by
-/// accident.
+/// Only the rung an engine can actually earn is representable, so an engine cannot overclaim
+/// by accident:
+/// - Kani is a **bounded** model checker — it establishes the claim over the states it
+///   explored, not over all executions — so it yields [`Basis::ModelCheckedBounded`] and
+///   **cannot** yield `proven`.
+/// - Creusot is a **deductive** verifier (REQ031) — a discharged proof obligation holds for
+///   *all* executions, spec-relative — so it yields [`Basis::Proven`], the strongest rung.
 ///
-/// `// ponytail: one rung, because one engine. `proven` (Prusti/Creusot/Verus) and
-/// `not-falsified` (empirical) arrive with the engines that earn them — adding them now
-/// would be scale we cannot back.`
+/// `// ponytail: two rungs, because two engines. `not-falsified` (empirical: N runs /
+/// coverage) arrives with the engine that earns it — adding it now would be scale we cannot
+/// back.`
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Basis {
+    /// Deductive proof (Creusot): the property holds for every execution, relative to the
+    /// spec — the strongest rung. Unlike a bounded checker, no state-space caveat applies.
+    Proven,
     ModelCheckedBounded,
 }
 
 impl Basis {
     pub fn as_str(&self) -> &'static str {
         match self {
+            Basis::Proven => "proven",
             Basis::ModelCheckedBounded => "model-checked (bounded)",
         }
     }
@@ -259,10 +265,12 @@ pub fn aggregate(id: &str, evidence: Vec<Evidence>, provenance: Provenance) -> V
     }
 }
 
-/// D8 rung ordering — higher is stronger. One rung exists today; the engine that earns
-/// `proven` extends this, and [`aggregate`]'s `max_by_key` picks it up with no other change.
+/// D8 rung ordering — higher is stronger, so [`aggregate`]'s `max_by_key` reports the
+/// strongest basis any holding engine earned: a `proven` outranks a bounded `model-checked`,
+/// which is how "proven by Creusot, corroborated bounded by Kani" comes out proven.
 fn basis_rank(basis: &Basis) -> u8 {
     match basis {
+        Basis::Proven => 2,
         Basis::ModelCheckedBounded => 1,
     }
 }
@@ -308,15 +316,21 @@ fn unknown(
 ///
 /// A `holds` always renders its basis, so a bounded result can never be *read* as a proof
 /// even at a glance — the overclaim D8 guards against is a reading error as much as a
-/// modelling one.
+/// modelling one. Symmetrically, a genuine `proven` must not wear the bounded caveat, or the
+/// read-back would *under*claim a deductive proof — so the caveat branches on the basis.
 pub fn render(v: &Verdict) -> String {
     let mut out = format!("{}: {}", v.id, v.status.as_str());
     if let Some(basis) = v.basis {
-        out.push_str(&format!(
-            " — {}: verified over the states the engine explored, NOT proven for all \
-             executions",
-            basis.as_str()
-        ));
+        let gloss = match basis {
+            Basis::Proven => {
+                "established deductively for every execution (spec-relative), not just the \
+                 states a bounded checker explored"
+            }
+            Basis::ModelCheckedBounded => {
+                "verified over the states the engine explored, NOT proven for all executions"
+            }
+        };
+        out.push_str(&format!(" — {}: {gloss}", basis.as_str()));
     }
     if let Some(reason) = v.reason {
         out.push_str(&format!(" ({})", reason.as_str()));
@@ -495,6 +509,50 @@ mod tests {
         );
         assert_eq!(v.status, Status::Holds);
         assert!(render(&v).contains("Prusti: inconclusive"));
+    }
+
+    // Verifies: REQ031 (D8) — a deductive `proven` renders WITHOUT the bounded caveat. A
+    // real proof holds for all executions, so reading it as "only the states explored" would
+    // under-claim it — the symmetric error to letting a bounded pass read as a proof.
+    #[test]
+    fn a_proven_holds_does_not_wear_the_bounded_caveat() {
+        let v = aggregate(
+            "SR020",
+            vec![Evidence::holds("Creusot", Basis::Proven)],
+            prov(),
+        );
+        assert_eq!(v.status, Status::Holds);
+        assert_eq!(v.basis, Some(Basis::Proven));
+        let text = render(&v);
+        assert!(text.contains("proven: established deductively"), "{text}");
+        assert!(
+            !text.contains("NOT proven for all executions"),
+            "a deductive proof must not read as bounded: {text}"
+        );
+    }
+
+    // Verifies: REQ031 (D2b) — `proven` outranks bounded `model-checked`, so an ensemble
+    // where Creusot proves and Kani corroborates bounded reports the STRONGER basis. This is
+    // "proven by Creusot, corroborated bounded by Kani".
+    #[test]
+    fn proven_outranks_bounded_model_checked_in_the_ensemble() {
+        let v = aggregate(
+            "SR021",
+            vec![
+                Evidence::holds("Kani", Basis::ModelCheckedBounded),
+                Evidence::holds("Creusot", Basis::Proven),
+            ],
+            prov(),
+        );
+        assert_eq!(v.status, Status::Holds);
+        assert_eq!(
+            v.basis,
+            Some(Basis::Proven),
+            "the strongest rung any holding engine earned wins"
+        );
+        let text = render(&v);
+        assert!(text.contains("Kani: holds"), "{text}");
+        assert!(text.contains("Creusot: holds (proven)"), "{text}");
     }
 
     // Verifies: REQ030 — every engine inconclusive yields unknown/inconclusive, not a fake

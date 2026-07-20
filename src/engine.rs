@@ -106,7 +106,9 @@ impl EngineStatus {
     }
 }
 
-/// The category→engine registry: exactly one engine per PRL category.
+/// The category→engine registry. Most categories route to one engine, but category 1 is an
+/// **ensemble** (D2b): Kani (bounded model-checking) and Creusot (deductive proof) both run,
+/// their evidence aggregated — so this is a `Vec`, not a 1:1 map.
 ///
 /// **A probe exists only for an engine provreq can actually run.** That is the whole
 /// meaning of `probe: Option` — not "we know the binary's name", but "there is an
@@ -132,6 +134,23 @@ pub fn registry() -> Vec<Engine> {
             name: "Kani",
             probe: Some(EngineProbe {
                 bin: "cargo-kani".to_string(),
+                args: vec!["--version".to_string()],
+                version_marker: None,
+                min_version: None,
+            }),
+        },
+        Engine {
+            // Category 1 is an ENSEMBLE (D2b), not a single engine: Creusot joins Kani as the
+            // #2 member — REQ031. It is a **deductive** verifier, so it earns `proven` (∀
+            // executions) where Kani earns bounded `model-checked`; `aggregate` reports the
+            // stronger rung when both hold ("proven by Creusot, corroborated bounded by
+            // Kani"). Toolchain-welded like Kani (R-eng-4). `cargo-creusot` is the binary
+            // `cargo creusot` needs on PATH; it runs (exit 0) even outside a subject, so its
+            // presence is the honest readiness signal (there is no clean --version to parse).
+            category: BindCategory::Code,
+            name: "Creusot",
+            probe: Some(EngineProbe {
+                bin: "cargo-creusot".to_string(),
                 args: vec!["--version".to_string()],
                 version_marker: None,
                 min_version: None,
@@ -311,30 +330,31 @@ mod tests {
     use super::*;
     use std::collections::BTreeMap;
 
-    // Verifies: REQ022/REQ027 — the registry routes every PRL category to exactly one
-    // engine, and category 1 is now wired to Kani (probed by the binary `cargo kani`
-    // actually needs).
+    // Verifies: REQ022/REQ027/REQ031 — every PRL category is routed, and category 1 is an
+    // ENSEMBLE of two wired engines (Kani + Creusot, D2b), while 2a/2b/3 route to one each.
     #[test]
-    fn registry_covers_every_category_once() {
-        let reg = registry();
-        for cat in [
-            BindCategory::Code,
-            BindCategory::Model,
-            BindCategory::Runtime,
-            BindCategory::Ui,
-        ] {
-            assert_eq!(reg.iter().filter(|e| e.category == cat).count(), 1);
+    fn registry_routes_every_category() {
+        for cat in [BindCategory::Model, BindCategory::Runtime, BindCategory::Ui] {
+            assert_eq!(engines_for(cat).len(), 1, "{cat:?} routes to one engine");
         }
+        // Category 1 is the ensemble — Kani first, Creusot second (REQ031).
         let code = engines_for(BindCategory::Code);
+        assert_eq!(code.len(), 2, "category 1 is a two-engine ensemble");
+        let names: Vec<&str> = code.iter().map(|e| e.name).collect();
+        assert!(names.contains(&"Kani"), "{names:?}");
+        assert!(names.contains(&"Creusot"), "{names:?}");
+        let kani = code.iter().find(|e| e.name == "Kani").expect("Kani wired");
         assert_eq!(
-            code.len(),
-            1,
-            "category 1 has one wired engine in this slice"
-        );
-        assert_eq!(code[0].name, "Kani");
-        assert_eq!(
-            code[0].probe.as_ref().expect("cat-1 is wired").bin,
+            kani.probe.as_ref().expect("cat-1 is wired").bin,
             "cargo-kani"
+        );
+        let creusot = code
+            .iter()
+            .find(|e| e.name == "Creusot")
+            .expect("Creusot wired");
+        assert_eq!(
+            creusot.probe.as_ref().expect("Creusot is wired").bin,
+            "cargo-creusot"
         );
         // REQ029: category 2a is wired to TLC, probed via `java … tlc2.TLC`.
         let model = engines_for(BindCategory::Model);
