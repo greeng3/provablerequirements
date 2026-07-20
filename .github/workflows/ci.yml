@@ -83,18 +83,21 @@ jobs:
   # image's amd64 variant; the provers provreq supplies (alt-ergo/z3/cvc5) are present on both
   # arches.
   #
-  # ⚠️ UNVERIFIED until the first CI run (like REQ027's kani-github-action@v1 was): a job running
-  # in a `container:` inherits the image's baked PATH, but GHA container-job env handling and the
-  # ghcr pull are exactly the pieces that cannot be proven from a dev shell. The `which` step
-  # below makes a first-run failure legible. If PATH is lost, add an `env:` that restores the
-  # image's CREUSOT_DATA bin dirs.
+  # A job running in a `container:` inherits the image's baked PATH, so cargo-creusot/why3/provers
+  # are found. But GHA sets HOME=/github/home for container jobs, while the image's rustup default
+  # toolchain and cargo caches live under /root — so without pointing RUSTUP_HOME/CARGO_HOME back,
+  # `cargo` (which cargo-creusot shells out to) reports "no default toolchain configured". Setting
+  # them restores the running-container env the tests were verified against.
   creusot:
     runs-on: ubuntu-latest
     container: ghcr.io/greeng3/provreq-devcontainer:latest
+    env:
+      RUSTUP_HOME: /root/.rustup
+      CARGO_HOME: /root/.cargo
     steps:
       - uses: actions/checkout@v5
       # Confirm the baked engine is reachable before spending time on the frontend build — a
-      # first-run PATH problem shows up here, not 3 minutes later in an opaque link error.
+      # first-run PATH/toolchain problem shows up here, not 3 minutes later in an opaque error.
       - name: Show the baked Creusot toolchain
         run: cargo-creusot --version; command -v cargo-creusot why3 z3 alt-ergo cvc5
       # `cargo test` links the whole crate (axum, rust-embed), which embeds web/dist — so the
