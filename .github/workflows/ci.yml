@@ -98,8 +98,12 @@ jobs:
       - uses: actions/checkout@v5
       # Confirm the baked engine is reachable before spending time on the frontend build — a
       # first-run PATH/toolchain problem shows up here, not 3 minutes later in an opaque error.
+      # Never gates: `cargo-creusot --version` exits non-zero outside a Creusot project ("creusot-std
+      # not found"), which is expected — the real gate is the test step below.
       - name: Show the baked Creusot toolchain
-        run: cargo-creusot --version; command -v cargo-creusot why3 z3 alt-ergo cvc5
+        run: |
+          for t in cargo-creusot why3 z3 alt-ergo cvc5; do command -v "$t" || echo "MISSING: $t"; done
+          cargo-creusot --version || true
       # `cargo test` links the whole crate (axum, rust-embed), which embeds web/dist — so the
       # frontend must exist on disk even though these tests never touch it. Node is a
       # devcontainer FEATURE, not part of the raw image, so set it up here.
