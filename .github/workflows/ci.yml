@@ -123,6 +123,54 @@ jobs:
       - name: Run the real-engine tests
         run: "cargo test --lib creusot:: -- --ignored"
 
+  # The category-1 DEDUCTIVE real-engine path (REQ032), on its own job — same design as `creusot`
+  # above: the main `test` job stays engine-FREE, and this job runs exactly the `#[ignore]`d
+  # `prusti::` real-engine tests. Prusti is source-built (far too heavy to build on a runner), so
+  # this job runs INSIDE the prebuilt devcontainer image, where cargo-prusti, its Viper backend,
+  # the staged prusti-contracts, and the ldconfig'd runtime libraries all already live.
+  #
+  # Like the `creusot` job, `HOME=/root` restores the running-container env the tests were
+  # verified against (a `container:` job otherwise gets HOME=/github/home, which hides the baked
+  # rustup/cargo homes). `provreq::prusti::run` clears RUSTUP_TOOLCHAIN itself, so the subject's
+  # pinned 2023 toolchain governs regardless of the toolchain this job's `cargo test` runs under.
+  #
+  # NOTE ON SEQUENCING: this job pulls `:latest`, so it only goes green once the image-build
+  # workflow has republished the image with the B0 Prusti fix in this same change. On the first
+  # push it runs against the old image and fails until that rebuild lands — the same bootstrapping
+  # the Creusot bake went through.
+  prusti:
+    runs-on: ubuntu-latest
+    container: ghcr.io/greeng3/provreq-devcontainer:latest
+    env:
+      HOME: /root
+      RUSTUP_HOME: /root/.rustup
+      CARGO_HOME: /root/.cargo
+    steps:
+      - uses: actions/checkout@v5
+      # Confirm the baked engine is reachable before spending time on the frontend build. Never
+      # gates: `cargo-prusti --help` exits 0 anywhere (it has no `--version`), and it also proves
+      # the prefer-dynamic launcher's libraries load (the image's ldconfig fix); the real gate is
+      # the test step below.
+      - name: Show the baked Prusti toolchain
+        run: |
+          for t in cargo-prusti prusti-rustc prusti-driver; do command -v "$t" || echo "MISSING: $t"; done
+          cargo-prusti --help >/dev/null && echo "cargo-prusti OK" || echo "cargo-prusti FAILED"
+      # `cargo test` links the whole crate (axum, rust-embed), which embeds web/dist — so the
+      # frontend must exist on disk even though these tests never touch it. Node is a devcontainer
+      # FEATURE, not part of the raw image, so set it up here.
+      - name: Set up Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Build frontend
+        run: npm --prefix web ci && npm --prefix web run build
+      # Scoped to the prusti module: this job has Prusti but drives only its real-engine tests.
+      # Each engine's real path is proven by the job that has that engine.
+      - name: Run the real-engine tests
+        run: "cargo test --lib prusti:: -- --ignored"
+
   # The category-2a real-engine path (REQ029), on its own job — same design as `kani` above:
   # the main `test` job stays engine-FREE, and this job installs TLC and runs exactly the
   # `#[ignore]`d cat-2a tests. TLC is a JRE + a jar (far lighter than Kani/CBMC), so this job is
