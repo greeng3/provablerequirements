@@ -112,6 +112,9 @@ ARG PRUSTI_TAG=v-2023-08-22-1715
 # environment variable and panics ("unknown configuration flag `bin`") on any it doesn't
 # recognise, so an exported `PRUSTI_BIN` broke every single invocation. A non-`PRUSTI_`-prefixed
 # name sidesteps the parser entirely — it is only ever used here and in provreq's own tests.
+# The `PRUSTI_TAG` build ARG is the same trap: Docker exposes an ARG as an env var to the RUN
+# below, so cargo-prusti (driven by the prusti-contracts build) saw `PRUSTI_TAG` and panicked on
+# the unknown flag `tag`. It is `unset` right after the clone that uses it, before any cargo runs.
 ENV JAVA_HOME=/usr/lib/jvm/default-java \
     VIPER_HOME=/opt/prusti-src/viper_tools/backends \
     Z3_EXE=/usr/bin/z3 \
@@ -145,6 +148,7 @@ RUN apt-get update \
     && git clone --depth 1 --branch "$PRUSTI_TAG" \
       https://github.com/viperproject/prusti-dev /opt/prusti-src \
     && cd /opt/prusti-src \
+    && unset PRUSTI_TAG \
     && sed -i 's/uuid = { version = "1.0"/uuid = { version = "=1.10.0"/' \
       prusti-contracts/prusti-specs/Cargo.toml \
     && python3 ./x.py setup \
