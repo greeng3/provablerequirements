@@ -15,6 +15,7 @@ pub mod grounding;
 pub mod kani;
 pub mod llm;
 pub mod prl;
+pub mod prusti;
 pub mod rust_adapter;
 pub mod server;
 pub mod source;

@@ -1158,6 +1158,7 @@ fn engine_verdict(
         let ev = match e.name {
             "Kani" => kani_evidence(subject, id, requirement, bindings, resolutions),
             "Creusot" => creusot_evidence(subject, id, requirement, bindings, resolutions),
+            "Prusti" => prusti_evidence(subject, id, requirement, bindings, resolutions),
             "TLC (TLA+)" => tlc_evidence(subject, companion, id, requirement, bindings),
             other => provreq::verdict::Evidence::inconclusive(
                 other,
@@ -1227,6 +1228,31 @@ fn creusot_evidence(
         Err(e) => return provreq::verdict::Evidence::inconclusive("Creusot", vec![e.reason]),
     };
     provreq::creusot::run(subject, &harness).into_evidence()
+}
+
+/// Category 1 → Prusti (REQ032): the ensemble's second deductive member. Lower to an additive
+/// in-crate proof harness, run it, map to evidence. Like Creusot the harness lives inside the
+/// subject crate and reaches it via `crate::`; unlike Creusot it needs no prover config, but it
+/// does need the subject to already depend on `prusti-contracts` (a subject that uses Prusti
+/// has it) — a subject without it is honest `inconclusive`, never approximated (D2). A pass earns
+/// `proven`; an undischarged obligation is `inconclusive`, never a witnessed `fails`.
+fn prusti_evidence(
+    subject: &Path,
+    id: &str,
+    requirement: &Requirement,
+    bindings: &[Binding],
+    resolutions: &BTreeMap<String, Resolution>,
+) -> provreq::verdict::Evidence {
+    let harness = match provreq::prusti::lower(
+        requirement,
+        bindings,
+        resolutions,
+        &provreq::prusti::harness_name(id),
+    ) {
+        Ok(h) => h,
+        Err(e) => return provreq::verdict::Evidence::inconclusive("Prusti", vec![e.reason]),
+    };
+    provreq::prusti::run(subject, &harness).into_evidence()
 }
 
 /// Category 2a → TLC (REQ029): locate the subject's `Spec`, lower to an additive TLA+ module
