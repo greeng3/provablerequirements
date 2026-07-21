@@ -108,15 +108,36 @@ RUN apt-get update \
 # toolchain is left installed on purpose: `cargo prusti` recompiles the subject with the prusti
 # driver and needs it at verify time. The JRE from the TLC stage above doubles as Prusti's JVM.
 ARG PRUSTI_TAG=v-2023-08-22-1715
+# The prusti home is NOT exported as `PRUSTI_BIN`: Prusti's config parser reads EVERY `PRUSTI_*`
+# environment variable and panics ("unknown configuration flag `bin`") on any it doesn't
+# recognise, so an exported `PRUSTI_BIN` broke every single invocation. A non-`PRUSTI_`-prefixed
+# name sidesteps the parser entirely — it is only ever used here and in provreq's own tests.
 ENV JAVA_HOME=/usr/lib/jvm/default-java \
     VIPER_HOME=/opt/prusti-src/viper_tools/backends \
     Z3_EXE=/usr/bin/z3 \
-    PRUSTI_BIN=/opt/prusti/bin
-ENV PATH="${PRUSTI_BIN}:${PATH}"
+    PROVREQ_PRUSTI_HOME=/opt/prusti/bin
+ENV PATH="${PROVREQ_PRUSTI_HOME}:${PATH}"
 # `x.py setup` shells out to `sudo apt-get` to install its native build deps (it detects
 # Ubuntu and runs setup_ubuntu), so `sudo` must exist even though the Docker build is already
 # root — a clean base image has no sudo. We also pre-install those deps here so the stage is
 # self-sufficient; `x.py setup` re-running apt with them present is a harmless no-op.
+#
+# Three things beyond the driver build are needed to make `cargo prusti` actually VERIFY (the
+# original stage only built the binaries and `test -x`'d them, so nothing here ever ran a proof):
+#   A. prusti-contracts must be COMPILED and staged. `-p prusti-contracts-build` runs a build
+#      script that drives the just-built `cargo-prusti` over prusti-contracts, emitting
+#      `libprusti_contracts.rlib`/`libprusti_std.rlib` under `target/verify/<host>/release/`.
+#      Because .cargo/config forces an explicit target triple, those land under a `<host>/`
+#      subdir that Prusti's own `get_prusti_contracts_dir` does NOT search (it looks only in the
+#      prusti home and a non-triple `target/verify/release`), so they are copied into the home.
+#   B. `uuid` is capped at 1.10.0. Current uuid (1.24+) needs `getrandom ^0.4`, whose manifest is
+#      edition-2024 — which this pinned 2023-08-15 cargo cannot parse ("older than the 2024
+#      edition"). prusti-specs is uuid's only requirer, so capping it there caps the whole graph;
+#      the cap is needed both for this contracts build and for any subject `cargo prusti` resolves.
+#   C. The launcher binaries are `-C prefer-dynamic`, so they need the nightly toolchain's dylibs
+#      on the loader path just to START. `ldconfig` makes them permanently findable without an
+#      ambient `LD_LIBRARY_PATH` (which would leak into the later Creusot stage); Prusti adds its
+#      own libjvm path when it spawns the driver, so the JVM libs are only needed at build time.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
       z3 git python3 sudo build-essential pkg-config curl gcc libssl-dev unzip \
@@ -124,16 +145,30 @@ RUN apt-get update \
     && git clone --depth 1 --branch "$PRUSTI_TAG" \
       https://github.com/viperproject/prusti-dev /opt/prusti-src \
     && cd /opt/prusti-src \
+    && sed -i 's/uuid = { version = "1.0"/uuid = { version = "=1.10.0"/' \
+      prusti-contracts/prusti-specs/Cargo.toml \
     && python3 ./x.py setup \
-    && LD_LIBRARY_PATH="${JAVA_HOME}/lib/server:${JAVA_HOME}/lib" \
-       RUSTFLAGS="-C prefer-dynamic" \
-       cargo build --release -p prusti -p prusti-launch -p prusti-server \
+    && sysroot="$(rustc --print sysroot)" \
     && host="$(rustc -vV | sed -n 's/^host: //p')" \
-    && mkdir -p "$(dirname "$PRUSTI_BIN")" \
-    && ln -sfn "/opt/prusti-src/target/${host}/release" "$PRUSTI_BIN" \
-    && test -x "${PRUSTI_BIN}/cargo-prusti" \
-    && test -x "${PRUSTI_BIN}/prusti-rustc" \
-    && test -x "${PRUSTI_BIN}/prusti-driver"
+    && LD_LIBRARY_PATH="${sysroot}/lib:${JAVA_HOME}/lib/server:${JAVA_HOME}/lib" \
+       RUSTFLAGS="-C prefer-dynamic" \
+       cargo build --release \
+         -p prusti -p prusti-launch -p prusti-server -p prusti-contracts-build \
+    && mkdir -p "$(dirname "$PROVREQ_PRUSTI_HOME")" \
+    && ln -sfn "/opt/prusti-src/target/${host}/release" "$PROVREQ_PRUSTI_HOME" \
+    && verify="/opt/prusti-src/target/verify/${host}/release" \
+    && cp "${verify}/libprusti_contracts.rlib" "${verify}/libprusti_std.rlib" \
+      "${PROVREQ_PRUSTI_HOME}/" \
+    && mkdir -p "${PROVREQ_PRUSTI_HOME}/deps" \
+    && cp -rn "${verify}/deps/." "${PROVREQ_PRUSTI_HOME}/deps/" \
+    && printf '%s\n%s\n' "${sysroot}/lib" "${sysroot}/lib/rustlib/${host}/lib" \
+      > /etc/ld.so.conf.d/prusti.conf \
+    && ldconfig \
+    && test -x "${PROVREQ_PRUSTI_HOME}/cargo-prusti" \
+    && test -x "${PROVREQ_PRUSTI_HOME}/prusti-rustc" \
+    && test -x "${PROVREQ_PRUSTI_HOME}/prusti-driver" \
+    && test -f "${PROVREQ_PRUSTI_HOME}/libprusti_contracts.rlib" \
+    && test -f "${PROVREQ_PRUSTI_HOME}/libprusti_std.rlib"
 
 # Creusot — the THIRD category-1 verification engine (deductive, Why3/SMT). Not a subset of
 # Prusti: different backend (Why3 + SMT solvers vs Viper) and a different contract surface, so
