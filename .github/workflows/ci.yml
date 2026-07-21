@@ -84,14 +84,17 @@ jobs:
   # arches.
   #
   # A job running in a `container:` inherits the image's baked PATH, so cargo-creusot/why3/provers
-  # are found. But GHA sets HOME=/github/home for container jobs, while the image's rustup default
-  # toolchain and cargo caches live under /root — so without pointing RUSTUP_HOME/CARGO_HOME back,
-  # `cargo` (which cargo-creusot shells out to) reports "no default toolchain configured". Setting
-  # them restores the running-container env the tests were verified against.
+  # are found. But GHA sets HOME=/github/home for container jobs, while everything the image baked
+  # lives under /root: the rustup default toolchain (/root/.rustup), cargo (/root/.cargo), AND —
+  # the one that bites hardest — Creusot's own data dir, which `cargo creusot` resolves from $HOME
+  # (it looked for creusot-rustc at $HOME/.local/share/creusot/toolchains/…, not via CREUSOT_DATA).
+  # Setting HOME=/root restores the running-container env the tests were verified against; the two
+  # rust homes are then redundant but kept explicit.
   creusot:
     runs-on: ubuntu-latest
     container: ghcr.io/greeng3/provreq-devcontainer:latest
     env:
+      HOME: /root
       RUSTUP_HOME: /root/.rustup
       CARGO_HOME: /root/.cargo
     steps:
