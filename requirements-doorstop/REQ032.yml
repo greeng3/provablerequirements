@@ -1,0 +1,31 @@
+active: true
+derived: false
+header: ''
+level: 1.31
+links: []
+normative: true
+ref: ''
+reviewed: Q5f81oGx0d4jxjMisavep3GfqeSOcj9BvvZE09vfSR4=
+text: |
+  Category 1 is verified by an ensemble of deductive engines, and Prusti is wired as its third
+  member alongside Kani and Creusot. When a grounded category-1 requirement is verified and
+  Prusti is installed, its invariant is lowered to an additive proof harness — a module placed
+  inside the subject crate that asserts the invariant as a universally quantified proposition over
+  the bound sort — which Prusti is run against. The subject's own source is never edited: only the
+  harness module is added, and every artifact the tool created is removed afterward, leaving the
+  subject exactly as it was. Prusti consumes the subject's existing dependency on its contracts
+  crate and its existing pure predicates; a subject that does not depend on that crate is reported
+  as an honest inconclusive that names the missing dependency, never a guess.
+
+  Because Prusti is a deductive verifier, a discharged proof obligation establishes the property
+  for every execution relative to the specification. Such a pass earns the strongest basis,
+  proven, and its read-back must not carry the bounded-model-checking caveat that a Kani pass
+  does. When a deductive engine and a bounded engine both establish the property, the combined
+  verdict reports the proven basis and records that the bounded engine corroborated it.
+
+  An undischarged obligation is not a refutation. A deductive prover that cannot prove a claim may
+  have met a false claim or merely one whose predicates are not pure and so are opaque to the
+  prover; either way there is no counterexample witness. Such a result is recorded as an honest
+  inconclusive unknown that names the likely cause, never as a refutation and never as a proof. A
+  harness that fails to compile — most often because a bound predicate is an ordinary function
+  rather than a pure one — is likewise inconclusive.
