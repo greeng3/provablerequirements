@@ -4,7 +4,8 @@
 //! Implements: REQ008 (propose an A3-derived companion name and scaffold the
 //! mirrored companion root + manifest)
 
-use crate::doorstop::DoorstopDoc;
+use crate::doorstop::{DoorstopDoc, DoorstopSource};
+use crate::source::{Item, RequirementsSource};
 use anyhow::{bail, Context, Result};
 use std::path::{Path, PathBuf};
 use walkdir::WalkDir;
@@ -180,6 +181,20 @@ pub fn find_companion(subject_root: &Path) -> Result<Option<PathBuf>> {
         }
     }
     Ok(None)
+}
+
+/// Resolve the adopted companion root + source items for a subject, or explain that `init` must
+/// run first. Shared by the CLI commands and the `serve` backend so both reach requirements the
+/// same way (through the `RequirementsSource` seam, R-src-1).
+pub fn resolve(subject: &Path) -> Result<(PathBuf, Vec<Item>)> {
+    let companion = find_companion(subject)?.with_context(|| {
+        format!(
+            "no companion tree found under {} — run `provreq init` first",
+            subject.display()
+        )
+    })?;
+    let items = DoorstopSource::new(subject).items()?;
+    Ok((companion, items))
 }
 
 #[cfg(test)]

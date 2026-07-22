@@ -10,7 +10,7 @@ use crate::source::{Classification, Item};
 use crate::triage::TriageState;
 
 /// A snapshot of where every discovered item sits in the funnel.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub struct Coverage {
     pub discovered: usize,
     pub untriaged: usize,
@@ -54,6 +54,50 @@ pub fn coverage(items: &[Item], triage: &TriageState, drafts: &DraftState) -> Co
         }
     }
     cov
+}
+
+/// Where one item's formalization sits (Step 3): no draft, an in-progress draft, or an admitted
+/// formalization. The per-item peer of the funnel's `drafting`/`formalized` totals.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum Formalization {
+    None,
+    Drafting,
+    Admitted,
+}
+
+/// One item's read-only funnel state, for the browse surface: its identity and prose alongside
+/// the triage classification (`None` = untriaged) and formalization state. Carries no verdict —
+/// a verdict runs an engine on demand and does not belong in a passive listing.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct ItemState {
+    pub id: String,
+    pub title: Option<String>,
+    pub text: String,
+    pub classification: Option<Classification>,
+    pub formalization: Formalization,
+}
+
+/// Pair every discovered item with its current triage + formalization state, in `items` order.
+/// Pure over the same three inputs as [`coverage`], so the browse API is testable without a server.
+pub fn backlog(items: &[Item], triage: &TriageState, drafts: &DraftState) -> Vec<ItemState> {
+    items
+        .iter()
+        .map(|item| {
+            let formalization = match drafts.drafts.get(&item.id) {
+                Some(d) if d.is_admitted() => Formalization::Admitted,
+                Some(_) => Formalization::Drafting,
+                None => Formalization::None,
+            };
+            ItemState {
+                id: item.id.clone(),
+                title: item.title.clone(),
+                text: item.text.clone(),
+                classification: triage.items.get(&item.id).map(|e| e.classification),
+                formalization,
+            }
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -112,5 +156,31 @@ mod tests {
         let cov = coverage(&items, &TriageState::new(), &admitted);
         assert_eq!(cov.drafting, 0);
         assert_eq!(cov.formalized, 1);
+    }
+
+    // Verifies: REQ034 — the per-item backlog pairs each item, in order, with its triage
+    // classification (None when untriaged) and its formalization state.
+    #[test]
+    fn backlog_pairs_each_item_with_its_triage_and_formalization() {
+        let items = [item("A"), item("B")];
+        let triage = set(
+            &TriageState::new(),
+            &items[0],
+            Classification::FormalizableNow,
+        );
+        let drafts = draft::open(&DraftState::new(), &items[0]);
+
+        let rows = backlog(&items, &triage, &drafts);
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0].id, "A");
+        assert_eq!(
+            rows[0].classification,
+            Some(Classification::FormalizableNow)
+        );
+        assert_eq!(rows[0].formalization, Formalization::Drafting);
+        // B is untriaged and undrafted — both honest "none" states.
+        assert_eq!(rows[1].id, "B");
+        assert_eq!(rows[1].classification, None);
+        assert_eq!(rows[1].formalization, Formalization::None);
     }
 }

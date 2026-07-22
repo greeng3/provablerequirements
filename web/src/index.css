@@ -1,87 +1,53 @@
+@import "tailwindcss";
+
+/* Semantic tokens in oklch, theme-aware. `@theme inline` maps them to Tailwind
+   colour utilities that resolve `var(...)` at use-site, so the dark override below
+   flows through every `bg-surface` / `text-muted` / `border-border` automatically. */
 :root {
   --bg: oklch(97% 0.01 250);
   --surface: oklch(100% 0 0);
+  --surface-2: oklch(98.5% 0.006 260);
   --text: oklch(25% 0.02 260);
   --muted: oklch(55% 0.02 260);
-  --ok: oklch(60% 0.16 150);
   --border: oklch(90% 0.01 260);
-  --radius: 14px;
+  --accent: oklch(56% 0.17 265);
+  --ok: oklch(58% 0.15 150);
+  --warn: oklch(66% 0.15 75);
+  --info: oklch(60% 0.13 240);
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: oklch(20% 0.02 260);
-    --surface: oklch(26% 0.02 260);
+    --bg: oklch(19% 0.02 265);
+    --surface: oklch(23.5% 0.02 265);
+    --surface-2: oklch(27% 0.02 265);
     --text: oklch(94% 0.01 260);
-    --muted: oklch(70% 0.02 260);
-    --ok: oklch(72% 0.16 150);
-    --border: oklch(34% 0.02 260);
+    --muted: oklch(68% 0.02 260);
+    --border: oklch(33% 0.02 265);
+    --accent: oklch(72% 0.15 265);
+    --ok: oklch(74% 0.16 150);
+    --warn: oklch(80% 0.14 75);
+    --info: oklch(74% 0.13 240);
   }
 }
 
-* {
-  box-sizing: border-box;
+@theme inline {
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-text: var(--text);
+  --color-muted: var(--muted);
+  --color-border: var(--border);
+  --color-accent: var(--accent);
+  --color-ok: var(--ok);
+  --color-warn: var(--warn);
+  --color-info: var(--info);
 }
 
 body {
   margin: 0;
-  font-family: system-ui, -apple-system, sans-serif;
   background: var(--bg);
   color: var(--text);
-}
-
-.shell {
-  min-height: 100vh;
-  display: grid;
-  place-items: center;
-  padding: 2rem;
-}
-
-.card {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 2.5rem 3rem;
-  box-shadow: 0 20px 50px -30px oklch(0% 0 0 / 0.5);
-  min-width: min(90vw, 22rem);
-}
-
-.card h1 {
-  margin: 0;
-  font-size: 2rem;
-  letter-spacing: -0.02em;
-}
-
-.tagline {
-  margin: 0.25rem 0 1.5rem;
-  color: var(--muted);
-}
-
-.health {
-  display: grid;
-  grid-template-columns: auto 1fr;
-  gap: 0.5rem 1.5rem;
-  margin: 0;
-}
-
-.health dt {
-  color: var(--muted);
-}
-
-.health dd {
-  margin: 0;
-  font-variant-numeric: tabular-nums;
-}
-
-.health dd.ok {
-  color: var(--ok);
-  font-weight: 600;
-}
-
-.error {
-  color: oklch(58% 0.2 25);
-}
-
-[role="status"] {
-  color: var(--muted);
+  font-family: ui-sans-serif, system-ui, -apple-system, sans-serif;
+  -webkit-font-smoothing: antialiased;
 }

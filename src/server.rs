@@ -5,16 +5,20 @@
 //!
 //! Implements: REQ005 (the serve command exposes GET /health as JSON)
 //! Implements: REQ006 (embedded UI served locally with SPA fallback to index.html)
+//! Implements: REQ034 (GET /api/requirements — the read-only backlog + coverage surface)
 
 use axum::{
     body::Body,
+    extract::State,
     http::{header, StatusCode, Uri},
     response::{IntoResponse, Response},
     routing::get,
-    Router,
+    Json, Router,
 };
 use rust_embed::RustEmbed;
 use std::net::SocketAddr;
+use std::path::PathBuf;
+use std::sync::Arc;
 
 /// The built frontend (`web/dist`), baked into the binary at compile time.
 /// In debug builds rust-embed reads these files from disk at runtime; release
@@ -23,21 +27,27 @@ use std::net::SocketAddr;
 #[folder = "web/dist"]
 struct WebAssets;
 
-/// Build the application router.
-pub fn router() -> Router {
+/// The subject repository this server browses. `serve` runs co-resident in the operator's dev
+/// env, so the subject is a path it is pointed at — shared by every request as router state.
+type Subject = Arc<PathBuf>;
+
+/// Build the application router for `subject`.
+pub fn router(subject: PathBuf) -> Router {
     Router::new()
         .route("/health", get(health))
+        .route("/api/requirements", get(requirements))
         .fallback(static_asset)
+        .with_state(Arc::new(subject))
 }
 
-/// Bind to the loopback interface on `port` and serve until the process stops.
+/// Bind to the loopback interface on `port` and serve `subject` until the process stops.
 ///
 /// Implements: REQ005 (local server)
-pub async fn serve(port: u16) -> std::io::Result<()> {
+pub async fn serve(port: u16, subject: PathBuf) -> std::io::Result<()> {
     let addr = SocketAddr::from(([127, 0, 0, 1], port));
     let listener = tokio::net::TcpListener::bind(addr).await?;
-    println!("provreq serving on http://{addr}");
-    axum::serve(listener, router()).await
+    println!("provreq serving {} on http://{addr}", subject.display());
+    axum::serve(listener, router(subject)).await
 }
 
 /// GET /health — the health payload as JSON.
@@ -49,6 +59,44 @@ async fn health() -> Response {
         crate::health_json(),
     )
         .into_response()
+}
+
+/// The read-only backlog surface: the coverage funnel plus every item's triage + formalization
+/// state. A passive listing — it reads persisted companion state only and runs no engine.
+#[derive(serde::Serialize)]
+struct Backlog {
+    coverage: crate::status::Coverage,
+    items: Vec<crate::status::ItemState>,
+}
+
+/// GET /api/requirements — the backlog + coverage for the served subject (REQ034).
+///
+/// Resolves the companion tree and reads triage + draft state fresh on each request: this is a
+/// local single-operator tool, so a per-request read is simpler than a cache and always current.
+/// A subject that has not been adopted yet is an honest 409 naming `init`, not an empty list.
+///
+/// Implements: REQ034
+async fn requirements(State(subject): State<Subject>) -> Response {
+    match load_backlog(&subject) {
+        Ok(backlog) => Json(backlog).into_response(),
+        Err(e) => (
+            StatusCode::CONFLICT,
+            Json(serde_json::json!({ "error": e.to_string() })),
+        )
+            .into_response(),
+    }
+}
+
+/// Assemble the backlog from persisted companion state. Split out so the error path stays a
+/// single `?`-chain; the handler only maps ok/err to a response.
+fn load_backlog(subject: &std::path::Path) -> anyhow::Result<Backlog> {
+    let (companion, items) = crate::adopt::resolve(subject)?;
+    let triage = crate::triage::load(&companion)?;
+    let drafts = crate::draft::load(&companion)?;
+    Ok(Backlog {
+        coverage: crate::status::coverage(&items, &triage, &drafts),
+        items: crate::status::backlog(&items, &triage, &drafts),
+    })
 }
 
 /// Serve an embedded asset by request path, falling back to `index.html` for
@@ -83,7 +131,11 @@ mod tests {
     use tower::ServiceExt;
 
     async fn get_path(path: &str) -> Response {
-        router()
+        get_path_on(path, PathBuf::from(".")).await
+    }
+
+    async fn get_path_on(path: &str, subject: PathBuf) -> Response {
+        router(subject)
             .oneshot(Request::builder().uri(path).body(Body::empty()).unwrap())
             .await
             .unwrap()
@@ -122,5 +174,57 @@ mod tests {
         let res = get_path("/some/spa/route").await;
         assert_eq!(res.status(), StatusCode::OK);
         assert!(content_type(&res).starts_with("text/html"), "{res:?}");
+    }
+
+    // Verifies: REQ034 — a subject that has not been adopted is an honest 409 that names `init`,
+    // never an empty listing that would read as "no requirements".
+    #[tokio::test]
+    async fn requirements_on_unadopted_subject_is_conflict() {
+        let empty = tempfile::tempdir().unwrap();
+        let res = get_path_on("/api/requirements", empty.path().to_path_buf()).await;
+        assert_eq!(res.status(), StatusCode::CONFLICT);
+        let bytes = to_bytes(res.into_body(), usize::MAX).await.unwrap();
+        let body = String::from_utf8(bytes.to_vec()).unwrap();
+        assert!(body.contains("init"), "error should name init: {body}");
+    }
+
+    // Verifies: REQ034 — an adopted subject returns the coverage funnel and one row per item.
+    #[tokio::test]
+    async fn requirements_lists_items_with_coverage() {
+        let subject = adopted_subject_with_one_item();
+        let res = get_path_on("/api/requirements", subject.path().to_path_buf()).await;
+        assert_eq!(res.status(), StatusCode::OK);
+        assert_eq!(content_type(&res), "application/json");
+        let bytes = to_bytes(res.into_body(), usize::MAX).await.unwrap();
+        let body: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(body["coverage"]["discovered"], 1);
+        assert_eq!(body["items"][0]["id"], "REQ001");
+        // Untriaged + undrafted item reports honest "null"/"none", not a guessed state.
+        assert!(body["items"][0]["classification"].is_null());
+        assert_eq!(body["items"][0]["formalization"], "none");
+    }
+
+    /// A minimal adopted subject: a Doorstop document with one item plus the `provreq.yml`
+    /// companion manifest that `adopt::resolve` looks for.
+    fn adopted_subject_with_one_item() -> tempfile::TempDir {
+        use std::fs;
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        fs::write(
+            root.join(".doorstop.yml"),
+            "settings:\n  prefix: REQ\n  digits: 3\n",
+        )
+        .unwrap();
+        fs::write(
+            root.join("REQ001.yml"),
+            "active: true\nlevel: 1.0\nnormative: true\nref: ''\nreviewed: null\ntext: |\n  A requirement.\n",
+        )
+        .unwrap();
+        fs::write(
+            root.join(crate::adopt::MANIFEST_FILE),
+            "subject_requirements_root: .\n",
+        )
+        .unwrap();
+        dir
     }
 }

@@ -1,6 +1,6 @@
 use anyhow::{bail, Context, Result};
 use clap::{Parser, Subcommand};
-use provreq::adopt::find_companion;
+use provreq::adopt::resolve;
 use provreq::doorstop::DoorstopSource;
 use provreq::draft::{self, Draft, GateStatus};
 use provreq::engine;
@@ -31,6 +31,9 @@ enum Command {
         /// TCP port to bind on the loopback interface.
         #[arg(long, default_value_t = 8080)]
         port: u16,
+        /// Path to the subject repository the UI browses (defaults to the current directory).
+        #[arg(long, default_value = ".")]
+        path: PathBuf,
     },
     /// Discover a subject repo's Doorstop layout and scaffold the companion tree.
     Init {
@@ -134,7 +137,9 @@ enum Command {
 #[tokio::main]
 async fn main() -> Result<()> {
     match Cli::parse().command {
-        Command::Serve { port } => provreq::server::serve(port).await.map_err(Into::into),
+        Command::Serve { port, path } => {
+            provreq::server::serve(port, path).await.map_err(Into::into)
+        }
         Command::Init { path, name, yes } => run_init(&path, name.as_deref(), yes),
         Command::Triage { path, set } => run_triage(&path, set).await,
         Command::Draft {
@@ -181,19 +186,6 @@ async fn main() -> Result<()> {
             draft_contracts,
         } => run_verify(&path, &id, draft_contracts),
     }
-}
-
-/// Resolve the adopted companion root + source items for a subject, or explain
-/// that `init` must run first.
-fn resolve(subject: &Path) -> Result<(PathBuf, Vec<Item>)> {
-    let companion = find_companion(subject)?.with_context(|| {
-        format!(
-            "no companion tree found under {} — run `provreq init` first",
-            subject.display()
-        )
-    })?;
-    let items = DoorstopSource::new(subject).items()?;
-    Ok((companion, items))
 }
 
 async fn run_triage(subject: &Path, set: Option<Vec<String>>) -> Result<()> {
