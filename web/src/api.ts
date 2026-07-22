@@ -1,4 +1,4 @@
-import type { Backlog, Classification, Detail } from "./types";
+import type { Backlog, Classification, Detail, VerifyResponse } from "./types";
 
 /**
  * Fetch the read-only backlog + coverage from the local backend (REQ034).
@@ -45,6 +45,22 @@ export async function setTriage(
     throw new Error(await errorMessage(res));
   }
   return (await res.json()) as Backlog;
+}
+
+/**
+ * Run the engine ensemble on demand for one requirement (REQ038) and return its verdict, or an
+ * honest not-yet-verifiable state. Synchronous on the backend: the request blocks while the
+ * engines run (which can take a while), so callers should show a pending state until it resolves.
+ * A 404 (unknown id) / 409 (unadopted) carries the backend's `{ error }` message.
+ */
+export async function verifyRequirement(id: string): Promise<VerifyResponse> {
+  const res = await fetch(`/api/requirements/${encodeURIComponent(id)}/verify`, {
+    method: "POST",
+  });
+  if (!res.ok) {
+    throw new Error(await errorMessage(res));
+  }
+  return (await res.json()) as VerifyResponse;
 }
 
 async function errorMessage(res: Response): Promise<string> {

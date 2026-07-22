@@ -7,10 +7,10 @@ use provreq::engine;
 use provreq::formalize::Translator;
 use provreq::grounding::{self, Binding, Grounding};
 use provreq::llm::{HttpBackend, LlmClassifier};
-use provreq::prl::Requirement;
 use provreq::rust_adapter::Resolution;
 use provreq::source::{Classification, Item, RequirementsSource};
 use provreq::triage::{self, ProseFloorClassifier, TriageState};
+use provreq::verify::VerifyOutcome;
 use std::collections::BTreeMap;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
@@ -984,27 +984,24 @@ fn run_engines(subject: &Path) -> Result<()> {
 /// engine yet, so the verdict is always `unknown` (no-engine when grounded,
 /// missing-grounding when not).
 fn run_verify(subject: &Path, id: &str, draft_contracts: bool) -> Result<()> {
-    let (companion, items) = resolve(subject)?;
-    let state = draft::load(&companion)?;
-    let item = items
-        .iter()
-        .find(|i| i.id == id)
-        .with_context(|| format!("no requirement item '{id}' in the subject"))?;
-
-    let draft = state.drafts.get(id).with_context(|| {
-        format!("no draft for {id} — formalize it first with `provreq draft {id}`")
-    })?;
-    if !draft.is_admitted() {
-        println!("Draft {id} is not admitted yet — admit the formalization first with `--admit`.");
-        return Ok(());
-    }
-    let Some(candidate) = &draft.candidate else {
-        println!("Draft {id} has no candidate PRL to verify.");
-        return Ok(());
+    let Some(outcome) = provreq::verify::verify(subject, id)? else {
+        bail!("no requirement item '{id}' in the subject");
     };
-    let requirement = match provreq::prl::gate(candidate) {
-        Ok(outcome) => outcome.requirement,
-        Err(errors) => {
+    let (verdict, stale, grounded, resolutions) = match outcome {
+        VerifyOutcome::NoDraft => {
+            bail!("no draft for {id} — formalize it first with `provreq draft {id}`");
+        }
+        VerifyOutcome::NotAdmitted => {
+            println!(
+                "Draft {id} is not admitted yet — admit the formalization first with `--admit`."
+            );
+            return Ok(());
+        }
+        VerifyOutcome::NoCandidate => {
+            println!("Draft {id} has no candidate PRL to verify.");
+            return Ok(());
+        }
+        VerifyOutcome::GateFailed { errors } => {
             println!(
                 "Cannot verify {id} — the admitted candidate no longer gates ({} error(s)); re-check it:",
                 errors.len()
@@ -1014,44 +1011,17 @@ fn run_verify(subject: &Path, id: &str, draft_contracts: bool) -> Result<()> {
             }
             return Ok(());
         }
+        VerifyOutcome::Verdict {
+            verdict,
+            stale,
+            grounded,
+            resolutions,
+        } => (verdict, stale, grounded, resolutions),
     };
 
-    // Live grounding dry-run against every wired observable world (code + model) → verdict.
-    let (by_symbol, by_sort, by_model) =
-        grounding::resolve_bindings(subject, &companion, &requirement, &draft.bindings);
-    let grounding_result = grounding::verdict(
-        &requirement,
-        &draft.bindings,
-        &by_symbol,
-        &by_sort,
-        &by_model,
-    );
-
-    let provenance = provreq::verdict::Provenance {
-        requirement_revision: draft.revision.clone(),
-        subject_commit: subject_head_commit(subject),
-        tool_version: env!("CARGO_PKG_VERSION").to_string(),
-    };
-    // Only a GROUNDED requirement reaches an engine: an unresolved binding means there is
-    // nothing to check the claim through, and running an engine against it would answer a
-    // question nobody asked (R-ground-1).
-    let verdict = match &grounding_result {
-        Grounding::Grounded => engine_verdict(
-            subject,
-            &companion,
-            id,
-            &requirement,
-            &draft.bindings,
-            &by_symbol,
-            provenance,
-        ),
-        Grounding::Parked { .. } => {
-            provreq::verdict::from_grounding(id, &grounding_result, provenance)
-        }
-    };
     println!("{}", provreq::verdict::render(&verdict));
     // An admitted draft whose source prose moved is worth flagging alongside the verdict.
-    if draft::is_stale(draft, item) {
+    if stale {
         println!(
             "  ! the requirement prose moved since admission — re-admit before trusting this verdict"
         );
@@ -1060,8 +1030,8 @@ fn run_verify(subject: &Path, id: &str, draft_contracts: bool) -> Result<()> {
     // opaque predicate fns so a deductive engine can then see inside them. Only a grounded
     // requirement has resolved predicates to annotate.
     if draft_contracts {
-        if matches!(grounding_result, Grounding::Grounded) {
-            stage_marker_drafts(subject, &by_symbol)?;
+        if grounded {
+            stage_marker_drafts(subject, &resolutions)?;
         } else {
             println!(
                 "\n--draft-contracts: nothing to draft — {id} is not grounded, so no predicate \
@@ -1136,194 +1106,6 @@ fn stage_marker_drafts(subject: &Path, resolutions: &BTreeMap<String, Resolution
          and ran no git; the draft is a proposal the verifier must re-check."
     );
     Ok(())
-}
-
-/// Ask the requirement's engine, and turn what it says into a verdict (REQ027/REQ029).
-///
-/// Dispatch is by engine name, not category, because category 1 is an **ensemble** (D2b):
-/// Kani AND Creusot both run and their evidence is aggregated. Category 2a routes to TLC.
-/// Each engine has its own lowering, and none silently inherits another's. 2b/3 have no wired
-/// engine, so they never reach a branch here — they are `no_engine` at the gate below.
-fn engine_verdict(
-    subject: &Path,
-    companion: &Path,
-    id: &str,
-    requirement: &Requirement,
-    bindings: &[Binding],
-    resolutions: &BTreeMap<String, Resolution>,
-    provenance: provreq::verdict::Provenance,
-) -> provreq::verdict::Verdict {
-    let category = grounding::default_category(requirement);
-    let engines = engine::engines_for(category);
-
-    // The ensemble runs every engine that is ready; the others are reported but do not block,
-    // as long as one can answer (D2b). No engine ready means nothing checked the property — an
-    // honest no-engine that names who must act (wiring is ours, installing is the operator's).
-    let ready: Vec<&engine::Engine> = engines
-        .iter()
-        .filter(|e| engine::detect(e).is_ready())
-        .collect();
-    if ready.is_empty() {
-        let detail = engines
-            .iter()
-            .map(|e| {
-                format!(
-                    "category {} routes to {} — {}",
-                    category.as_label(),
-                    e.name,
-                    engine::detect(e).describe()
-                )
-            })
-            .collect();
-        return provreq::verdict::no_engine(id, detail, provenance);
-    }
-
-    let mut evidence = Vec::new();
-    for e in ready {
-        println!("  running {}...", e.name);
-        // Dispatch by engine, not category: a category may route to several engines (D2b) and
-        // each has its own lowering. A ready engine with no lowering wired here is a gap in
-        // provreq, recorded as inconclusive rather than silently skipped.
-        let ev = match e.name {
-            "Kani" => kani_evidence(subject, id, requirement, bindings, resolutions),
-            "Creusot" => creusot_evidence(subject, id, requirement, bindings, resolutions),
-            "Prusti" => prusti_evidence(subject, id, requirement, bindings, resolutions),
-            "TLC (TLA+)" => tlc_evidence(subject, companion, id, requirement, bindings),
-            other => provreq::verdict::Evidence::inconclusive(
-                other,
-                vec![format!(
-                    "{other} probed as ready but has no lowering wired in provreq"
-                )],
-            ),
-        };
-        evidence.push(ev);
-    }
-    provreq::verdict::aggregate(id, evidence, provenance)
-}
-
-/// Category 1 → Kani (REQ027): lower to an additive proof harness, run it, map to evidence.
-/// A subject that is not a cargo crate or a claim that cannot be faithfully lowered is honest
-/// `inconclusive` evidence, never approximated (D2).
-fn kani_evidence(
-    subject: &Path,
-    id: &str,
-    requirement: &Requirement,
-    bindings: &[Binding],
-    resolutions: &BTreeMap<String, Resolution>,
-) -> provreq::verdict::Evidence {
-    let Some(crate_name) = provreq::kani::subject_crate_name(subject) else {
-        return provreq::verdict::Evidence::inconclusive(
-            "Kani",
-            vec![
-                "the subject is not a cargo crate (`cargo metadata` found no package), so a \
-                 Kani harness has nothing to import"
-                    .to_string(),
-            ],
-        );
-    };
-    let harness = match provreq::kani::lower(
-        requirement,
-        &crate_name,
-        bindings,
-        resolutions,
-        &provreq::kani::harness_name(id),
-    ) {
-        Ok(h) => h,
-        Err(e) => return provreq::verdict::Evidence::inconclusive("Kani", vec![e.reason]),
-    };
-    provreq::kani::run(subject, &harness).into_evidence()
-}
-
-/// Category 1 → Creusot (REQ031): the ensemble's deductive member. Lower to an additive
-/// in-crate proof harness, run it, map to evidence. Unlike Kani it needs no crate name (the
-/// harness lives inside the subject crate and reaches it via `crate::`). A claim that cannot
-/// be faithfully lowered — or a subject with no crate root — is honest `inconclusive`, never
-/// approximated (D2). A pass earns `proven`; an unproved goal is `inconclusive`, never a
-/// witnessed `fails`.
-fn creusot_evidence(
-    subject: &Path,
-    id: &str,
-    requirement: &Requirement,
-    bindings: &[Binding],
-    resolutions: &BTreeMap<String, Resolution>,
-) -> provreq::verdict::Evidence {
-    let harness = match provreq::creusot::lower(
-        requirement,
-        bindings,
-        resolutions,
-        &provreq::creusot::harness_name(id),
-    ) {
-        Ok(h) => h,
-        Err(e) => return provreq::verdict::Evidence::inconclusive("Creusot", vec![e.reason]),
-    };
-    provreq::creusot::run(subject, &harness).into_evidence()
-}
-
-/// Category 1 → Prusti (REQ032): the ensemble's second deductive member. Lower to an additive
-/// in-crate proof harness, run it, map to evidence. Like Creusot the harness lives inside the
-/// subject crate and reaches it via `crate::`; unlike Creusot it needs no prover config, but it
-/// does need the subject to already depend on `prusti-contracts` (a subject that uses Prusti
-/// has it) — a subject without it is honest `inconclusive`, never approximated (D2). A pass earns
-/// `proven`; an undischarged obligation is `inconclusive`, never a witnessed `fails`.
-fn prusti_evidence(
-    subject: &Path,
-    id: &str,
-    requirement: &Requirement,
-    bindings: &[Binding],
-    resolutions: &BTreeMap<String, Resolution>,
-) -> provreq::verdict::Evidence {
-    let harness = match provreq::prusti::lower(
-        requirement,
-        bindings,
-        resolutions,
-        &provreq::prusti::harness_name(id),
-    ) {
-        Ok(h) => h,
-        Err(e) => return provreq::verdict::Evidence::inconclusive("Prusti", vec![e.reason]),
-    };
-    provreq::prusti::run(subject, &harness).into_evidence()
-}
-
-/// Category 2a → TLC (REQ029): locate the subject's `Spec`, lower to an additive TLA+ module
-/// with a temporal property, run TLC beside the spec, map to evidence. A missing `Spec` or an
-/// un-lowerable claim is honestly `inconclusive`, never approximated (D2).
-fn tlc_evidence(
-    subject: &Path,
-    companion: &Path,
-    id: &str,
-    requirement: &Requirement,
-    bindings: &[Binding],
-) -> provreq::verdict::Evidence {
-    let site = match provreq::tlc::locate_spec(subject, companion) {
-        Ok(site) => site,
-        Err(reason) => return provreq::verdict::Evidence::inconclusive("TLC (TLA+)", vec![reason]),
-    };
-    let check = match provreq::tlc::lower(
-        requirement,
-        &site.module,
-        bindings,
-        &provreq::tlc::module_name(id),
-    ) {
-        Ok(c) => c,
-        Err(e) => return provreq::verdict::Evidence::inconclusive("TLC (TLA+)", vec![e.reason]),
-    };
-    provreq::tlc::run(&site, &check).into_evidence()
-}
-
-/// Best-effort subject git HEAD for verdict provenance (D9). `None` when the subject is not
-/// a git repo — never fabricated.
-fn subject_head_commit(subject: &Path) -> Option<String> {
-    let output = std::process::Command::new("git")
-        .arg("-C")
-        .arg(subject)
-        .args(["rev-parse", "HEAD"])
-        .output()
-        .ok()?;
-    if !output.status.success() {
-        return None;
-    }
-    let commit = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    (!commit.is_empty()).then_some(commit)
 }
 
 fn run_init(subject: &Path, name: Option<&str>, yes: bool) -> Result<()> {
