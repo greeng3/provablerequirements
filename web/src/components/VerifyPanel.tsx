@@ -1,11 +1,14 @@
 import { useState } from "react";
 import { verifyRequirement } from "../api";
-import type { EvidenceReport, VerdictReport, VerifyResponse } from "../types";
+import type { EvidenceReport, VerdictReport, VerdictView, VerifyResponse } from "../types";
 import type { Tone } from "../labels";
 import { Badge } from "./Badge";
+import { VerdictBadge } from "./VerdictBadge";
 
 type Props = {
   id: string;
+  /** The last stored verdict for this item (REQ039), shown until a fresh run replaces it. */
+  stored: VerdictView | null;
 };
 
 type Run =
@@ -34,7 +37,7 @@ const NOT_VERIFIABLE: Record<string, string> = {
   "no-candidate": "The admitted draft has no candidate PRL to verify.",
 };
 
-export function VerifyPanel({ id }: Props) {
+export function VerifyPanel({ id, stored }: Props) {
   const [run, setRun] = useState<Run>({ kind: "idle" });
 
   const handleVerify = () => {
@@ -56,10 +59,11 @@ export function VerifyPanel({ id }: Props) {
           disabled={run.kind === "running"}
           className="rounded-md border border-accent/40 bg-accent/10 px-3 py-1 text-sm font-medium text-accent hover:bg-accent/20 disabled:cursor-not-allowed disabled:opacity-60"
         >
-          {run.kind === "running" ? "Running engines…" : "Verify"}
+          {run.kind === "running" ? "Running engines…" : stored ? "Re-verify" : "Verify"}
         </button>
       </div>
 
+      {run.kind === "idle" && stored && <StoredVerdict verdict={stored} />}
       {run.kind === "running" && (
         <p role="status" className="text-sm text-muted">
           Running the verification engines — this can take a while.
@@ -72,6 +76,25 @@ export function VerifyPanel({ id }: Props) {
       )}
       {run.kind === "done" && <Result result={run.result} />}
     </section>
+  );
+}
+
+function StoredVerdict({ verdict }: { verdict: VerdictView }) {
+  return (
+    <div className="flex flex-col gap-1.5">
+      <div className="flex flex-wrap items-center gap-2 text-sm">
+        <span className="text-xs text-muted">Last verdict:</span>
+        <VerdictBadge verdict={verdict} />
+        {verdict.basis && <span className="text-xs text-muted">{verdict.basis}</span>}
+      </div>
+      {!verdict.fresh && (
+        <ul className="ml-1 list-inside list-disc text-xs text-warn">
+          {verdict.stale_reasons.map((r, i) => (
+            <li key={i}>{r}</li>
+          ))}
+        </ul>
+      )}
+    </div>
   );
 }
 

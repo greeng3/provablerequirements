@@ -110,6 +110,13 @@ pub fn verify(subject: &Path, id: &str) -> Result<Option<VerifyOutcome>> {
     } else {
         verdict::from_grounding(id, &grounding_result, provenance)
     };
+    // Living loop (REQ039): the verdict becomes durable state. Persist it keyed by id — the latest
+    // answer replaces any earlier one — so the backlog/detail can show it and later detect when it
+    // has drifted, without re-running an engine.
+    let store = crate::verdict_store::load(&companion)?;
+    let recorded = crate::verdict_store::record(&store, verdict::report(&verdict));
+    crate::verdict_store::save(&companion, &recorded)?;
+
     Ok(Some(VerifyOutcome::Verdict {
         verdict,
         stale: draft::is_stale(draft, item),
@@ -282,8 +289,9 @@ fn tlc_evidence(
 }
 
 /// Best-effort subject git HEAD for verdict provenance (D9). `None` when the subject is not a git
-/// repo — never fabricated.
-fn subject_head_commit(subject: &Path) -> Option<String> {
+/// repo — never fabricated. Public so the browse surfaces can build the same [`DriftAnchor`] the
+/// verdict was pinned against ([`crate::verdict_store`]).
+pub fn subject_head_commit(subject: &Path) -> Option<String> {
     let output = std::process::Command::new("git")
         .arg("-C")
         .arg(subject)

@@ -53,6 +53,10 @@ pub struct Detail {
     /// `None` unless the candidate gates and has bindings (nothing to resolve otherwise). The
     /// server fills this; [`build`] leaves it `None` so it stays pure and filesystem-free.
     pub grounding: Option<GroundingReport>,
+    /// The last stored verdict for this item paired with its drift status (REQ039), so the detail
+    /// shows what was last established and whether it still holds — without re-running an engine.
+    /// The server fills this from the verdict store; [`build`] leaves it `None` (it stays pure).
+    pub verdict: Option<crate::verdict_store::VerdictView>,
 }
 
 /// One binding resolved against the subject's live source (D13): whether it resolved and the
@@ -163,6 +167,7 @@ pub fn build(item: &Item, classification: Option<Classification>, draft: Option<
         readback,
         bindings: draft.map(|d| d.bindings.clone()).unwrap_or_default(),
         grounding: None,
+        verdict: None,
     }
 }
 

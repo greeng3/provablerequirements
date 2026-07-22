@@ -1,6 +1,7 @@
 import type { Classification, ItemState } from "../types";
 import * as labels from "../labels";
 import { Badge } from "./Badge";
+import { VerdictBadge } from "./VerdictBadge";
 
 const BUCKETS: { value: Classification; label: string }[] = [
   { value: "formalizable-now", label: "formalizable now" },
@@ -29,7 +30,8 @@ export function RequirementsTable({ items, onSelect, onTriage }: Props) {
         <tr className="border-b border-border text-left text-xs uppercase tracking-wide text-muted">
           <th className="py-2 pr-4 font-medium">Item</th>
           <th className="py-2 pr-4 font-medium">Triage</th>
-          <th className="py-2 font-medium">Formalization</th>
+          <th className="py-2 pr-4 font-medium">Formalization</th>
+          <th className="py-2 font-medium">Verdict</th>
         </tr>
       </thead>
       <tbody>
@@ -59,8 +61,15 @@ export function RequirementsTable({ items, onSelect, onTriage }: Props) {
               <td className="py-3 pr-4">
                 <TriageSelect item={item} onTriage={onTriage} />
               </td>
-              <td className="py-3">
+              <td className="py-3 pr-4">
                 <Badge label={formal.label} tone={formal.tone} />
+              </td>
+              <td className="py-3">
+                {item.verdict ? (
+                  <VerdictBadge verdict={item.verdict} />
+                ) : (
+                  <span className="text-xs text-muted">not verified</span>
+                )}
               </td>
             </tr>
           );

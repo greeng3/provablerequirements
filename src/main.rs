@@ -865,7 +865,10 @@ fn run_status(subject: &Path) -> Result<()> {
     let (companion, items) = resolve(subject)?;
     let triage_state = triage::load(&companion)?;
     let draft_state = draft::load(&companion)?;
-    let cov = provreq::status::coverage(&items, &triage_state, &draft_state);
+    let verdicts = provreq::verdict_store::load(&companion)?;
+    let anchor =
+        provreq::verdict_store::DriftAnchor::current(provreq::verify::subject_head_commit(subject));
+    let cov = provreq::status::coverage(&items, &triage_state, &draft_state, &verdicts, &anchor);
     println!("Coverage funnel:");
     println!("  discovered        {}", cov.discovered);
     println!("  untriaged         {}", cov.untriaged);
@@ -875,8 +878,8 @@ fn run_status(subject: &Path) -> Result<()> {
     println!("  drafting          {}", cov.drafting);
     println!("  formalized        {}", cov.formalized);
     println!(
-        "  verified          {} (Step 4 — no engine wired yet, so every verdict is \
-         `unknown`; see `provreq verify <ID>`)",
+        "  verified          {} (Step 6 — fresh `holds` verdicts; a drifted verdict drops out \
+         until re-verified with `provreq verify <ID>`)",
         cov.verified
     );
     Ok(())
