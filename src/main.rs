@@ -123,6 +123,11 @@ enum Command {
         /// Path to the subject repository (defaults to the current directory).
         #[arg(long, default_value = ".")]
         path: PathBuf,
+        /// Draft the missing deductive marker (`#[logic]`/`#[pure]`) onto opaque predicate fns
+        /// and stage it as an uncommitted working-tree edit for review (A6, REQ033). Never
+        /// commits; the tool proposes, the operator reviews the diff and the verifier re-checks.
+        #[arg(long)]
+        draft_contracts: bool,
     },
 }
 
@@ -170,7 +175,11 @@ async fn main() -> Result<()> {
         }
         Command::Status { path } => run_status(&path),
         Command::Engines { path } => run_engines(&path),
-        Command::Verify { id, path } => run_verify(&path, &id),
+        Command::Verify {
+            id,
+            path,
+            draft_contracts,
+        } => run_verify(&path, &id, draft_contracts),
     }
 }
 
@@ -1033,7 +1042,7 @@ fn run_engines(subject: &Path) -> Result<()> {
 /// live category-1 grounding dry-run, pins provenance, and renders the verdict. Runs no
 /// engine yet, so the verdict is always `unknown` (no-engine when grounded,
 /// missing-grounding when not).
-fn run_verify(subject: &Path, id: &str) -> Result<()> {
+fn run_verify(subject: &Path, id: &str, draft_contracts: bool) -> Result<()> {
     let (companion, items) = resolve(subject)?;
     let state = draft::load(&companion)?;
     let item = items
@@ -1106,6 +1115,85 @@ fn run_verify(subject: &Path, id: &str) -> Result<()> {
             "  ! the requirement prose moved since admission — re-admit before trusting this verdict"
         );
     }
+    // A6 proof-carrier draft channel (REQ033): on request, stage the missing deductive marker onto
+    // opaque predicate fns so a deductive engine can then see inside them. Only a grounded
+    // requirement has resolved predicates to annotate.
+    if draft_contracts {
+        if matches!(grounding_result, Grounding::Grounded) {
+            stage_marker_drafts(subject, &by_symbol)?;
+        } else {
+            println!(
+                "\n--draft-contracts: nothing to draft — {id} is not grounded, so no predicate \
+                 resolves to a function to annotate."
+            );
+        }
+    }
+    Ok(())
+}
+
+/// Stage the A6 deductive-marker drafts into the subject's working tree (REQ033). Reads the target
+/// marker from the subject's manifest, drafts it onto each resolved predicate fn that lacks it, and
+/// writes the edits back as uncommitted changes for the operator to review. Runs no git.
+fn stage_marker_drafts(subject: &Path, resolutions: &BTreeMap<String, Resolution>) -> Result<()> {
+    use provreq::contract_draft::{apply_to_source, marker_for_subject, plan_markers};
+
+    let manifest = std::fs::read_to_string(subject.join("Cargo.toml"))
+        .with_context(|| format!("reading {}", subject.join("Cargo.toml").display()))?;
+    let Some(marker) = marker_for_subject(&manifest) else {
+        println!(
+            "\n--draft-contracts: the subject depends on neither creusot-contracts nor \
+             prusti-contracts, so there is no deductive marker to draft — add a contracts crate \
+             first (this is REQ032's missing-dependency inconclusive)."
+        );
+        return Ok(());
+    };
+
+    // Load every file a resolved predicate lives in, so the planner can skip already-marked fns.
+    let mut sources: BTreeMap<String, String> = BTreeMap::new();
+    for res in resolutions.values() {
+        if let Resolution::Resolved { at, .. } = res {
+            if !sources.contains_key(&at.file) {
+                let text = std::fs::read_to_string(subject.join(&at.file))
+                    .with_context(|| format!("reading {}", subject.join(&at.file).display()))?;
+                sources.insert(at.file.clone(), text);
+            }
+        }
+    }
+
+    let drafts = plan_markers(resolutions, marker, &sources);
+    if drafts.is_empty() {
+        println!(
+            "\n--draft-contracts: every resolved predicate already carries {} — nothing to draft.",
+            marker.attribute()
+        );
+        return Ok(());
+    }
+
+    // Group by file and apply, then write the edited source back into the working tree.
+    let mut by_file: BTreeMap<String, Vec<_>> = BTreeMap::new();
+    for d in &drafts {
+        by_file.entry(d.file.clone()).or_default().push(d.clone());
+    }
+    for (file, file_drafts) in &by_file {
+        let original = &sources[file];
+        let edited = apply_to_source(original, file_drafts);
+        std::fs::write(subject.join(file), edited).with_context(|| {
+            format!("staging marker draft into {}", subject.join(file).display())
+        })?;
+    }
+
+    println!(
+        "\n--draft-contracts: staged {} `{}` marker(s) into the working tree for review:",
+        drafts.len(),
+        marker.attribute()
+    );
+    for d in &drafts {
+        println!("  + {} above {}:{}", d.attribute, d.file, d.line);
+    }
+    println!(
+        "  Review the working-tree diff and re-run `verify` — the tool staged an uncommitted edit \
+         and ran no git; the draft is a proposal the verifier must re-check."
+    );
     Ok(())
 }
 

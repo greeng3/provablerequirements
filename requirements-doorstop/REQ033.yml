@@ -1,0 +1,27 @@
+active: true
+derived: false
+header: ''
+level: 1.32
+links: []
+normative: true
+ref: ''
+reviewed: wTkkgu2xVWXvOWdKS5soMgy-R49ytZ3zHo4gRpKfuWM=
+text: |
+  A category-1 requirement is verified deductively only when the predicate functions it is
+  grounded to are transparent to the prover — marked as logical or pure functions. When a
+  grounded predicate resolves instead to an ordinary function, the deductive engines report an
+  honest inconclusive (REQ032). On the operator's request, the tool drafts the missing
+  transparency marker onto that function so a deductive engine can then see inside it.
+
+  The marker drawn is the one the subject's own verifier reads: the logical-function marker when
+  the subject depends on Creusot's contracts crate, the pure-function marker when it depends on
+  Prusti's. A subject that depends on neither has no deductive marker to draft, and the tool draws
+  none — that remains the missing-dependency inconclusive, never a guess. Only a grounded
+  requirement is drafted for, because only a resolved predicate names a function to annotate, and a
+  predicate that already carries the marker is left untouched.
+
+  The draft is a proposal, not a proof. The tool stages it as an uncommitted edit in the subject's
+  working tree and stops there: it runs no version control, holds no commit rights, and never
+  claims the drafted marker is correct — the operator reviews the working-tree diff and the
+  verifier re-checks the annotated code on the next run. The scope of this drafting is the marker
+  alone; drafting semantic pre- and post-conditions is not part of it.
