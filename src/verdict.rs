@@ -374,7 +374,7 @@ pub fn render(v: &Verdict) -> String {
 /// A JSON-serializable view of one engine's [`Evidence`] for the `POST /:id/verify` surface.
 /// The polarity/basis carry their human labels (`"holds"`, `"proven"`) — the same strings the
 /// CLI [`render`] prints — so the web surface and the command line never diverge on wording.
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct EvidenceReport {
     pub engine: String,
     pub status: String,
@@ -384,7 +384,7 @@ pub struct EvidenceReport {
 }
 
 /// A JSON-serializable view of a verdict's [`Provenance`] (D9).
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct ProvenanceReport {
     pub requirement_revision: String,
     pub subject_commit: Option<String>,
@@ -394,7 +394,7 @@ pub struct ProvenanceReport {
 /// A JSON-serializable view of a [`Verdict`] for the web surface (REQ038). The domain types are
 /// deliberately not `Serialize` (they are the core's own vocabulary); this is the wire shape, with
 /// polarity/basis/reason rendered to their labels so the client renders no enum internals.
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct VerdictReport {
     pub id: String,
     pub status: String,

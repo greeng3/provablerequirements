@@ -27,6 +27,7 @@ pub mod tla_adapter;
 pub mod tlc;
 pub mod triage;
 pub mod verdict;
+pub mod verdict_store;
 pub mod verify;
 
 /// The health payload the backend reports (and will later serve at `/health`).

@@ -158,7 +158,7 @@ function Body({ state }: { state: State }) {
         )
       )}
 
-      <VerifyPanel id={d.id} />
+      <VerifyPanel id={d.id} stored={d.verdict} />
     </div>
   );
 }

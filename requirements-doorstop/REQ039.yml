@@ -1,0 +1,27 @@
+active: true
+derived: false
+header: ''
+level: 1.38
+links: []
+normative: true
+ref: ''
+reviewed: Z0eNRJthRSKRQ7wKYiZowkU4SPQRDPwq10OUXMoFdmU=
+text: |
+  A verdict is not true forever: the requirement prose can move, the subject code can move, or the
+  tool can change underneath it. The tool persists each requirement's most recent verdict as durable
+  companion state and reports, against the current world, whether that verdict still holds.
+
+  A verdict is stored keyed by its item; re-verifying replaces the item's stored verdict rather than
+  duplicating it, so the store always holds the latest answer. A stored verdict is never silently
+  discarded when it drifts — it is retained and flagged, so the operator decides when to re-verify.
+
+  Drift is judged against the provenance the verdict was produced with: the requirement revision, the
+  subject commit, and the tool version. A stored verdict is fresh only when none of these has moved;
+  when any has, the verdict is reported as stale and names each concrete drift — prose moved, code
+  moved, tool changed — so the operator sees why a re-verification is owed, not merely that one is.
+
+  The coverage funnel counts a requirement as verified only when its stored verdict is a hold that is
+  still fresh. A drifted verdict drops out of the verified count until it is re-verified, so the
+  funnel reflects what is currently known to hold and never a stale claim. Both the backlog listing
+  and the item detail surface the stored verdict alongside its freshness. Re-verification is the same
+  on-demand action as the first verification; the tool never re-runs an engine on its own.

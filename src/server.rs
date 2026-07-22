@@ -96,9 +96,12 @@ fn load_backlog(subject: &std::path::Path) -> anyhow::Result<Backlog> {
     let (companion, items) = crate::adopt::resolve(subject)?;
     let triage = crate::triage::load(&companion)?;
     let drafts = crate::draft::load(&companion)?;
+    let verdicts = crate::verdict_store::load(&companion)?;
+    let anchor =
+        crate::verdict_store::DriftAnchor::current(crate::verify::subject_head_commit(subject));
     Ok(Backlog {
-        coverage: crate::status::coverage(&items, &triage, &drafts),
-        items: crate::status::backlog(&items, &triage, &drafts),
+        coverage: crate::status::coverage(&items, &triage, &drafts, &verdicts, &anchor),
+        items: crate::status::backlog(&items, &triage, &drafts, &verdicts, &anchor),
     })
 }
 
@@ -162,9 +165,12 @@ fn apply_triage(
     let next = crate::triage::set(&state, item, classification);
     crate::triage::save(&companion, &next)?;
     let drafts = crate::draft::load(&companion)?;
+    let verdicts = crate::verdict_store::load(&companion)?;
+    let anchor =
+        crate::verdict_store::DriftAnchor::current(crate::verify::subject_head_commit(subject));
     Ok(Some(Backlog {
-        coverage: crate::status::coverage(&items, &next, &drafts),
-        items: crate::status::backlog(&items, &next, &drafts),
+        coverage: crate::status::coverage(&items, &next, &drafts, &verdicts, &anchor),
+        items: crate::status::backlog(&items, &next, &drafts, &verdicts, &anchor),
     }))
 }
 
@@ -207,7 +213,18 @@ fn load_detail(
     let base = crate::detail::build(item, classification, draft);
     // Live D13 grounding dry-run: only meaningful when the candidate gates and has bindings.
     let grounding = draft.and_then(|d| grounding_report(subject, &companion, d));
-    Ok(Some(crate::detail::Detail { grounding, ..base }))
+    // Living loop (REQ039): the last stored verdict + whether it has drifted since it was produced.
+    let anchor =
+        crate::verdict_store::DriftAnchor::current(crate::verify::subject_head_commit(subject));
+    let verdict = crate::verdict_store::load(&companion)?
+        .verdicts
+        .get(id)
+        .map(|stored| crate::verdict_store::view(stored, &item.revision, &anchor));
+    Ok(Some(crate::detail::Detail {
+        grounding,
+        verdict,
+        ..base
+    }))
 }
 
 /// Run the live grounding dry-run for a draft, or `None` when there is nothing to resolve (no
@@ -497,6 +514,32 @@ mod tests {
         )
         .await;
         assert_eq!(res.status(), StatusCode::CONFLICT);
+    }
+
+    // Verifies: REQ039 — a stored verdict surfaces on the backlog row with its drift status; a
+    // verdict whose pinned revision no longer matches the item reads stale and drops out of the
+    // `verified` funnel count. Exercises the load_backlog → verdict_store surfacing seam (no engine).
+    #[tokio::test]
+    async fn stored_verdict_surfaces_on_the_row_and_drift_drops_it_from_verified() {
+        use std::fs;
+        let subject = adopted_subject_with_one_item();
+        // A holds verdict pinned to a revision the item no longer has → reads as prose-drifted.
+        fs::write(
+            subject.path().join(crate::verdict_store::VERDICT_FILE),
+            "verdicts:\n  REQ001:\n    id: REQ001\n    status: holds\n    basis: proven\n    \
+             reason: null\n    witness: null\n    detail: []\n    evidence: []\n    provenance:\n      \
+             requirement_revision: stale-rev\n      subject_commit: null\n      tool_version: 0.0.1\n",
+        )
+        .unwrap();
+
+        let res = get_path_on("/api/requirements", subject.path().to_path_buf()).await;
+        assert_eq!(res.status(), StatusCode::OK);
+        let bytes = to_bytes(res.into_body(), usize::MAX).await.unwrap();
+        let body: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(body["items"][0]["verdict"]["status"], "holds");
+        assert_eq!(body["items"][0]["verdict"]["fresh"], false);
+        // Drifted, so it does not count as verified.
+        assert_eq!(body["coverage"]["verified"], 0);
     }
 
     // Verifies: REQ038 — verifying an item with no draft is an honest 200 naming the "no-draft"

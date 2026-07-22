@@ -19,12 +19,24 @@ export interface Coverage {
   verified: number;
 }
 
+// Mirrors `verdict_store::VerdictView` from src/verdict_store.rs — a stored verdict paired with
+// whether it still holds against the current world (REQ039, the living loop). `fresh` is false when
+// any provenance axis drifted; `stale_reasons` names each drift the operator must re-verify.
+export interface VerdictView {
+  status: string;
+  basis: string | null;
+  reason: string | null;
+  fresh: boolean;
+  stale_reasons: string[];
+}
+
 export interface ItemState {
   id: string;
   title: string | null;
   text: string;
   classification: Classification | null;
   formalization: Formalization;
+  verdict: VerdictView | null;
 }
 
 export interface Backlog {
@@ -79,6 +91,7 @@ export interface Detail {
   readback: string | null;
   bindings: Binding[];
   grounding: GroundingReport | null;
+  verdict: VerdictView | null;
 }
 
 // Mirrors `verdict::report` from `src/verdict.rs` — the `POST /:id/verify` verdict wire shape.

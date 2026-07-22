@@ -40,9 +40,9 @@ const SAMPLE: Backlog = {
     verified: 0,
   },
   items: [
-    { id: "REQ001", title: "Login invariant", text: "prose", classification: "formalizable-now", formalization: "drafting" },
-    { id: "REQ002", title: null, text: "some prose here", classification: null, formalization: "none" },
-    { id: "REQ003", title: "A note", text: "prose", classification: "stays-prose", formalization: "none" },
+    { id: "REQ001", title: "Login invariant", text: "prose", classification: "formalizable-now", formalization: "drafting", verdict: { status: "holds", basis: "proven", reason: null, fresh: true, stale_reasons: [] } },
+    { id: "REQ002", title: null, text: "some prose here", classification: null, formalization: "none", verdict: null },
+    { id: "REQ003", title: "A note", text: "prose", classification: "stays-prose", formalization: "none", verdict: { status: "holds", basis: "proven", reason: null, fresh: false, stale_reasons: ["the subject code moved since this verdict (commit abc → def) — re-verify"] } },
   ],
 };
 
@@ -110,6 +110,7 @@ test("clicking a requirement opens its detail with the candidate and read-back",
         { symbol: "logged_in", observable: "login", category: "code", resolved: true, summary: "logged_in → `login` resolves to src/lib.rs:1" },
       ],
     },
+    verdict: null,
   };
   mockRoutes(SAMPLE, { REQ001: detail });
   render(<App />);
@@ -150,6 +151,22 @@ test("changing a row's triage bucket writes and reconciles to the server state",
   );
 });
 
+test("the backlog surfaces each item's stored verdict, marking a drifted one stale (REQ039)", async () => {
+  mockBacklog(SAMPLE);
+  render(<App />);
+  await screen.findByText("REQ001");
+
+  const table = screen.getByRole("table");
+  // REQ001's stored holds is fresh — no stale marker; REQ003's holds has drifted — marked stale.
+  const holds = within(table).getAllByText("holds");
+  expect(holds).toHaveLength(2);
+  const stale = within(table).getByText("⟳ stale");
+  expect(stale).toBeInTheDocument();
+  expect(stale).toHaveAttribute("title", expect.stringContaining("subject code moved"));
+  // REQ002 has never been verified.
+  expect(within(table).getByText("not verified")).toBeInTheDocument();
+});
+
 test("clicking Verify runs the ensemble and renders the verdict with per-engine evidence", async () => {
   const user = userEvent.setup();
   const detail: Detail = {
@@ -166,6 +183,7 @@ test("clicking Verify runs the ensemble and renders the verdict with per-engine 
     readback: "At every state...",
     bindings: [],
     grounding: null,
+    verdict: null,
   };
   const verdict: VerifyResponse = {
     state: "verdict",
