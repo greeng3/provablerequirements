@@ -14,6 +14,7 @@ pub mod formalize;
 pub mod grounding;
 pub mod kani;
 pub mod llm;
+pub mod lowering;
 pub mod prl;
 pub mod prusti;
 pub mod rust_adapter;
