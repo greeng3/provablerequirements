@@ -1,4 +1,4 @@
-import type { Backlog, Detail } from "./types";
+import type { Backlog, Classification, Detail } from "./types";
 
 /**
  * Fetch the read-only backlog + coverage from the local backend (REQ034).
@@ -25,6 +25,26 @@ export async function fetchDetail(id: string, signal?: AbortSignal): Promise<Det
     throw new Error(await errorMessage(res));
   }
   return (await res.json()) as Detail;
+}
+
+/**
+ * Set one item's triage bucket (REQ037) and return the updated backlog. Triage is companion
+ * state the tool writes freely, so this is a direct write — no working-tree gate. A 400 (bad
+ * bucket) / 404 (unknown id) / 409 (unadopted) carries the backend's `{ error }` message.
+ */
+export async function setTriage(
+  id: string,
+  classification: Classification,
+): Promise<Backlog> {
+  const res = await fetch(`/api/requirements/${encodeURIComponent(id)}/triage`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ classification }),
+  });
+  if (!res.ok) {
+    throw new Error(await errorMessage(res));
+  }
+  return (await res.json()) as Backlog;
 }
 
 async function errorMessage(res: Response): Promise<string> {

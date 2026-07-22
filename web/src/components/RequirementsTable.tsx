@@ -1,13 +1,20 @@
-import type { ItemState } from "../types";
+import type { Classification, ItemState } from "../types";
 import * as labels from "../labels";
 import { Badge } from "./Badge";
+
+const BUCKETS: { value: Classification; label: string }[] = [
+  { value: "formalizable-now", label: "formalizable now" },
+  { value: "falsifiable-only", label: "falsifiable only" },
+  { value: "stays-prose", label: "stays prose" },
+];
 
 type Props = {
   items: ItemState[];
   onSelect: (id: string) => void;
+  onTriage: (id: string, classification: Classification) => void;
 };
 
-export function RequirementsTable({ items, onSelect }: Props) {
+export function RequirementsTable({ items, onSelect, onTriage }: Props) {
   if (items.length === 0) {
     return (
       <p role="status" className="py-8 text-center text-muted">
@@ -27,7 +34,6 @@ export function RequirementsTable({ items, onSelect }: Props) {
       </thead>
       <tbody>
         {items.map((item) => {
-          const triage = labels.triage(item.classification);
           const formal = labels.formalization(item.formalization);
           return (
             <tr
@@ -51,7 +57,7 @@ export function RequirementsTable({ items, onSelect }: Props) {
                 </p>
               </td>
               <td className="py-3 pr-4">
-                <Badge label={triage.label} tone={triage.tone} />
+                <TriageSelect item={item} onTriage={onTriage} />
               </td>
               <td className="py-3">
                 <Badge label={formal.label} tone={formal.tone} />
@@ -61,5 +67,33 @@ export function RequirementsTable({ items, onSelect }: Props) {
         })}
       </tbody>
     </table>
+  );
+}
+
+type TriageSelectProps = {
+  item: ItemState;
+  onTriage: (id: string, classification: Classification) => void;
+};
+
+function TriageSelect({ item, onTriage }: TriageSelectProps) {
+  return (
+    <select
+      aria-label={`Triage bucket for ${item.id}`}
+      value={item.classification ?? ""}
+      onClick={(e) => e.stopPropagation()}
+      onChange={(e) => onTriage(item.id, e.target.value as Classification)}
+      className="rounded-md border border-border bg-surface px-2 py-1 text-xs text-text hover:border-accent focus:border-accent focus:outline-none"
+    >
+      {item.classification === null && (
+        <option value="" disabled>
+          untriaged…
+        </option>
+      )}
+      {BUCKETS.map((b) => (
+        <option key={b.value} value={b.value}>
+          {b.label}
+        </option>
+      ))}
+    </select>
   );
 }
