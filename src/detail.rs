@@ -12,10 +12,13 @@
 //! Implements: REQ035 (read-only item detail: prose, PRL, gate, read-back, bindings)
 
 use crate::draft::{self, Admission, Draft, GateStatus, ReviewTier};
-use crate::grounding::Binding;
-use crate::prl;
+use crate::grounding::{self, Binding, Grounding};
+use crate::prl::{self, Requirement};
+use crate::rust_adapter::{Resolution, TypeResolution};
 use crate::source::{Classification, Item};
 use crate::status::Formalization;
+use crate::tla_adapter::ModelResolution;
+use std::collections::BTreeMap;
 
 /// The review provenance of an admitted formalization (D12). `None` in [`Detail`] when the draft
 /// is not admitted, so the UI never invents a reviewer for an in-progress draft.
@@ -46,6 +49,81 @@ pub struct Detail {
     /// candidate currently gates; `None` otherwise (no candidate, or it no longer parses).
     pub readback: Option<String>,
     pub bindings: Vec<Binding>,
+    /// The live D13 grounding dry-run — each binding resolved against the subject's real source.
+    /// `None` unless the candidate gates and has bindings (nothing to resolve otherwise). The
+    /// server fills this; [`build`] leaves it `None` so it stays pure and filesystem-free.
+    pub grounding: Option<GroundingReport>,
+}
+
+/// One binding resolved against the subject's live source (D13): whether it resolved and the
+/// adapter's own read-back of *what* it resolved to — the "is that what you meant?" surface.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct BindingResolution {
+    pub symbol: String,
+    pub observable: String,
+    pub category: String,
+    pub resolved: bool,
+    pub summary: String,
+}
+
+/// The live grounding dry-run for a candidate: whether the requirement grounds, and the
+/// per-binding resolution behind that verdict.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct GroundingReport {
+    pub grounded: bool,
+    pub bindings: Vec<BindingResolution>,
+}
+
+/// Map already-computed resolutions into a [`GroundingReport`]. Pure over the resolution maps —
+/// the caller runs the adapters via [`grounding::resolve_bindings`] — so it is testable without a
+/// filesystem, mirroring [`grounding::verdict`]. Each binding is answered by its own resolver
+/// (sort → type, predicate → function, model → TLA+), in the same order the CLI dry-run uses.
+///
+/// Implements: REQ036 (live D13 grounding dry-run in the item detail surface)
+pub fn grounding_report(
+    requirement: &Requirement,
+    bindings: &[Binding],
+    by_symbol: &BTreeMap<String, Resolution>,
+    by_sort: &BTreeMap<String, TypeResolution>,
+    by_model: &BTreeMap<String, ModelResolution>,
+) -> GroundingReport {
+    let grounded = matches!(
+        grounding::verdict(requirement, bindings, by_symbol, by_sort, by_model),
+        Grounding::Grounded
+    );
+    let resolutions = bindings
+        .iter()
+        .map(|b| {
+            let (resolved, summary) = if let Some(r) = by_sort.get(&b.symbol) {
+                (r.is_resolved(), r.describe(&b.symbol, &b.observable))
+            } else if let Some(r) = by_symbol.get(&b.symbol) {
+                (r.is_resolved(), r.describe(&b.symbol, &b.observable))
+            } else if let Some(r) = by_model.get(&b.symbol) {
+                (r.is_resolved(), r.describe(&b.symbol, &b.observable))
+            } else {
+                (
+                    false,
+                    format!(
+                        "{} → `{}` (category {}): dry-run deferred — engine not wired yet",
+                        b.symbol,
+                        b.observable,
+                        b.category.as_label()
+                    ),
+                )
+            };
+            BindingResolution {
+                symbol: b.symbol.clone(),
+                observable: b.observable.clone(),
+                category: b.category.as_label().to_string(),
+                resolved,
+                summary,
+            }
+        })
+        .collect();
+    GroundingReport {
+        grounded,
+        bindings: resolutions,
+    }
 }
 
 /// Assemble one item's detail from its persisted draft (if any) and its triage classification.
@@ -84,6 +162,7 @@ pub fn build(item: &Item, classification: Option<Classification>, draft: Option<
         gate: draft.map(|d| d.gate.clone()),
         readback,
         bindings: draft.map(|d| d.bindings.clone()).unwrap_or_default(),
+        grounding: None,
     }
 }
 
@@ -144,5 +223,54 @@ mod tests {
         let readback = d.readback.expect("a gated candidate renders a read-back");
         assert!(!readback.is_empty());
         assert_eq!(d.admission.map(|a| a.by), Some("gg".to_string()));
+    }
+
+    // Verifies: REQ036 — the grounding report resolves each binding and parks the whole when any
+    // one does not resolve, carrying an honest per-binding read-back either way.
+    #[test]
+    fn grounding_report_reports_per_binding_and_parks_on_any_unresolved() {
+        use crate::grounding::{BindCategory, Fidelity};
+        use crate::rust_adapter::{CodeMatch, ParamMode};
+
+        let requirement = prl::gate(CANDIDATE).unwrap().requirement;
+        let bindings = vec![
+            Binding {
+                symbol: "logged_in".into(),
+                category: BindCategory::Code,
+                observable: "login".into(),
+                fidelity: Fidelity::Definitional,
+            },
+            Binding {
+                symbol: "has_session".into(),
+                category: BindCategory::Code,
+                observable: "has_session".into(),
+                fidelity: Fidelity::Definitional,
+            },
+        ];
+        let mut by_symbol = BTreeMap::new();
+        by_symbol.insert(
+            "logged_in".to_string(),
+            Resolution::Resolved {
+                at: CodeMatch {
+                    file: "src/lib.rs".into(),
+                    line: 1,
+                    text: "fn login() -> bool { true }".into(),
+                },
+                params: vec![ParamMode::ByValue; 0],
+            },
+        );
+        by_symbol.insert("has_session".to_string(), Resolution::NotFound);
+
+        let report = grounding_report(
+            &requirement,
+            &bindings,
+            &by_symbol,
+            &BTreeMap::new(),
+            &BTreeMap::new(),
+        );
+        assert!(!report.grounded, "an unresolved binding parks the whole");
+        assert_eq!(report.bindings.len(), 2);
+        assert!(report.bindings[0].resolved);
+        assert!(!report.bindings[1].resolved);
     }
 }

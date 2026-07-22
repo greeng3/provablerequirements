@@ -52,6 +52,19 @@ export interface AdmissionInfo {
   by: string;
 }
 
+export interface BindingResolution {
+  symbol: string;
+  observable: string;
+  category: string;
+  resolved: boolean;
+  summary: string;
+}
+
+export interface GroundingReport {
+  grounded: boolean;
+  bindings: BindingResolution[];
+}
+
 export interface Detail {
   id: string;
   title: string | null;
@@ -65,4 +78,5 @@ export interface Detail {
   gate: GateStatus | null;
   readback: string | null;
   bindings: Binding[];
+  grounding: GroundingReport | null;
 }

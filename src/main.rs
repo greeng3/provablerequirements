@@ -8,9 +8,8 @@ use provreq::formalize::Translator;
 use provreq::grounding::{self, Binding, Grounding};
 use provreq::llm::{HttpBackend, LlmClassifier};
 use provreq::prl::Requirement;
-use provreq::rust_adapter::{self, Resolution, TypeResolution};
+use provreq::rust_adapter::Resolution;
 use provreq::source::{Classification, Item, RequirementsSource};
-use provreq::tla_adapter::{self, ModelResolution};
 use provreq::triage::{self, ProseFloorClassifier, TriageState};
 use std::collections::BTreeMap;
 use std::io::{self, Write};
@@ -646,56 +645,6 @@ fn ground_candidate(
 /// anything; category 2a needs no such split — TLA+ has one kind of name. Categories 2b/3
 /// have no observable world wired yet, so their bindings are absent from every map and park
 /// in [`grounding::verdict`].
-fn resolutions(
-    subject: &Path,
-    companion: &Path,
-    requirement: &Requirement,
-    bindings: &[Binding],
-) -> (
-    BTreeMap<String, Resolution>,
-    BTreeMap<String, TypeResolution>,
-    BTreeMap<String, ModelResolution>,
-) {
-    let in_category = |cat| {
-        bindings
-            .iter()
-            .filter(move |b| b.category == cat)
-            .collect::<Vec<_>>()
-    };
-    let code = in_category(grounding::BindCategory::Code);
-    let predicates = code
-        .iter()
-        .filter(|b| !grounding::is_sort(requirement, &b.symbol))
-        .map(|b| {
-            let arity = grounding::predicate_arity(requirement, &b.symbol).unwrap_or(0);
-            (
-                b.symbol.clone(),
-                rust_adapter::resolve(subject, companion, &b.observable, arity),
-            )
-        })
-        .collect();
-    let sorts = code
-        .iter()
-        .filter(|b| grounding::is_sort(requirement, &b.symbol))
-        .map(|b| {
-            (
-                b.symbol.clone(),
-                rust_adapter::resolve_type(subject, companion, &b.observable),
-            )
-        })
-        .collect();
-    let model = in_category(grounding::BindCategory::Model)
-        .iter()
-        .map(|b| {
-            (
-                b.symbol.clone(),
-                tla_adapter::resolve(subject, companion, &b.observable),
-            )
-        })
-        .collect();
-    (predicates, sorts, model)
-}
-
 /// D13: dry-run a draft's category-1 bindings against the subject's real source and
 /// report whether the requirement grounds or stays parked. Read-only over the subject
 /// (matches are recomputed live, never stored). Requires a gate pass — the bindings are
@@ -739,7 +688,7 @@ fn dry_run_candidate(
     // binding reports what it resolved to (D13's "is that what you meant?"), which the
     // operator can only answer against a named observable at a named line.
     let (by_symbol, by_sort, by_model) =
-        resolutions(subject, companion, &requirement, &draft.bindings);
+        grounding::resolve_bindings(subject, companion, &requirement, &draft.bindings);
     for b in &draft.bindings {
         if let Some(r) = by_sort.get(&b.symbol) {
             println!("  {}", r.describe(&b.symbol, &b.observable));
@@ -1069,7 +1018,7 @@ fn run_verify(subject: &Path, id: &str, draft_contracts: bool) -> Result<()> {
 
     // Live grounding dry-run against every wired observable world (code + model) → verdict.
     let (by_symbol, by_sort, by_model) =
-        resolutions(subject, &companion, &requirement, &draft.bindings);
+        grounding::resolve_bindings(subject, &companion, &requirement, &draft.bindings);
     let grounding_result = grounding::verdict(
         &requirement,
         &draft.bindings,

@@ -135,11 +135,34 @@ fn load_detail(
     let triage = crate::triage::load(&companion)?;
     let drafts = crate::draft::load(&companion)?;
     let classification = triage.items.get(id).map(|e| e.classification);
-    Ok(Some(crate::detail::build(
-        item,
-        classification,
-        drafts.drafts.get(id),
-    )))
+    let draft = drafts.drafts.get(id);
+    let base = crate::detail::build(item, classification, draft);
+    // Live D13 grounding dry-run: only meaningful when the candidate gates and has bindings.
+    let grounding = draft.and_then(|d| grounding_report(subject, &companion, d));
+    Ok(Some(crate::detail::Detail { grounding, ..base }))
+}
+
+/// Run the live grounding dry-run for a draft, or `None` when there is nothing to resolve (no
+/// candidate, the candidate no longer gates, or no bindings attached yet).
+fn grounding_report(
+    subject: &std::path::Path,
+    companion: &std::path::Path,
+    draft: &crate::draft::Draft,
+) -> Option<crate::detail::GroundingReport> {
+    let candidate = draft.candidate.as_deref()?;
+    if draft.bindings.is_empty() {
+        return None;
+    }
+    let requirement = crate::prl::gate(candidate).ok()?.requirement;
+    let (by_symbol, by_sort, by_model) =
+        crate::grounding::resolve_bindings(subject, companion, &requirement, &draft.bindings);
+    Some(crate::detail::grounding_report(
+        &requirement,
+        &draft.bindings,
+        &by_symbol,
+        &by_sort,
+        &by_model,
+    ))
 }
 
 /// Serve an embedded asset by request path, falling back to `index.html` for

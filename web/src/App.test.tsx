@@ -104,6 +104,12 @@ test("clicking a requirement opens its detail with the candidate and read-back",
     gate: { status: "passed", warnings: [] },
     readback: "At every state, if the user is logged in then the user has a session.",
     bindings: [{ symbol: "logged_in", category: "code", observable: "login", fidelity: "definitional" }],
+    grounding: {
+      grounded: true,
+      bindings: [
+        { symbol: "logged_in", observable: "login", category: "code", resolved: true, summary: "logged_in → `login` resolves to src/lib.rs:1" },
+      ],
+    },
   };
   mockRoutes(SAMPLE, { REQ001: detail });
   render(<App />);
@@ -114,4 +120,7 @@ test("clicking a requirement opens its detail with the candidate and read-back",
   expect(within(dialog).getByText(/if the user is logged in/)).toBeInTheDocument();
   expect(within(dialog).getByText(/requirement r \{/)).toBeInTheDocument();
   expect(within(dialog).getByText("login")).toBeInTheDocument();
+  // The live grounding report renders its grounded status and per-binding read-back.
+  expect(within(dialog).getByText("grounded")).toBeInTheDocument();
+  expect(within(dialog).getByText(/resolves to src\/lib\.rs:1/)).toBeInTheDocument();
 });
