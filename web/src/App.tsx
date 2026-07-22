@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import * as Tabs from "@radix-ui/react-tabs";
-import { fetchBacklog } from "./api";
-import type { Backlog, ItemState } from "./types";
+import { fetchBacklog, setTriage } from "./api";
+import type { Backlog, Classification, ItemState } from "./types";
 import { CoverageBar } from "./components/CoverageBar";
 import { RequirementsTable } from "./components/RequirementsTable";
 import { ItemDetailDialog } from "./components/ItemDetailDialog";
@@ -72,15 +72,39 @@ function Body({ state }: { state: State }) {
 }
 
 function Backlog({ backlog }: { backlog: Backlog }) {
+  const [data, setData] = useState(backlog);
   const [filter, setFilter] = useState("all");
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
   const active = FILTERS.find((f) => f.key === filter) ?? FILTERS[0];
-  const shown = backlog.items.filter(active.match);
+  const shown = data.items.filter(active.match);
+
+  async function handleTriage(id: string, classification: Classification) {
+    const previous = data;
+    setError(null);
+    // Optimistic: reflect the new bucket immediately, then reconcile with the authoritative
+    // backlog the server returns (correct coverage); roll back and surface the error on failure.
+    setData((d) => ({
+      ...d,
+      items: d.items.map((it) => (it.id === id ? { ...it, classification } : it)),
+    }));
+    try {
+      setData(await setTriage(id, classification));
+    } catch (err: unknown) {
+      setData(previous);
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  }
 
   return (
     <div className="flex flex-col gap-8">
+      {error && (
+        <p role="alert" className="rounded-lg border border-warn/40 bg-warn/10 px-4 py-2 text-sm text-warn">
+          Could not save triage: {error}
+        </p>
+      )}
       <div className="rounded-xl border border-border bg-surface p-5 shadow-sm">
-        <CoverageBar coverage={backlog.coverage} />
+        <CoverageBar coverage={data.coverage} />
       </div>
 
       <Tabs.Root value={filter} onValueChange={setFilter}>
@@ -99,7 +123,7 @@ function Backlog({ backlog }: { backlog: Backlog }) {
           ))}
         </Tabs.List>
         <Tabs.Content value={filter} className="rounded-xl border border-border bg-surface p-2">
-          <RequirementsTable items={shown} onSelect={setSelectedId} />
+          <RequirementsTable items={shown} onSelect={setSelectedId} onTriage={handleTriage} />
         </Tabs.Content>
       </Tabs.Root>
 

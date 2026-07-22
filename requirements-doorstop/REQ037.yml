@@ -1,0 +1,24 @@
+active: true
+derived: false
+header: ''
+level: 1.36
+links: []
+normative: true
+ref: ''
+reviewed: hNkcobW5SrH9kS0PW02MlhNb-EGrLyirT8W_sd5o1DY=
+text: |
+  The serve backend lets the operator set a requirement's triage classification from the web
+  surface. Triage is advisory companion state that the tool owns and may write freely, so setting it
+  is a direct write to the companion tree — it needs no working-tree review gate, unlike a proof
+  carrier that lands in the subject's own source.
+
+  A triage write names the item and the bucket to set it to, accepts only the defined buckets, and
+  is rejected when the bucket is not one of them — an unrecognized bucket is never silently written.
+  A write to an item the subject does not contain is reported as not found, and a write against a
+  subject that has not been adopted is reported as the same unadopted condition the read surfaces.
+  On success the backend returns the updated backlog, so the surface reconciles against the tool's
+  authoritative state — including the recomputed coverage — rather than trusting its own optimistic
+  guess.
+
+  This write goes through the same source-agnostic triage machinery the command line uses, so the
+  web surface and the command line never diverge on an item's classification.

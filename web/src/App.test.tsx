@@ -124,3 +124,46 @@ test("clicking a requirement opens its detail with the candidate and read-back",
   expect(within(dialog).getByText("grounded")).toBeInTheDocument();
   expect(within(dialog).getByText(/resolves to src\/lib\.rs:1/)).toBeInTheDocument();
 });
+
+test("changing a row's triage bucket writes and reconciles to the server state", async () => {
+  const user = userEvent.setup();
+  // REQ002 (untriaged) becomes stays-prose in the authoritative response.
+  const after: Backlog = {
+    coverage: { ...SAMPLE.coverage, untriaged: 0, stays_prose: 2 },
+    items: SAMPLE.items.map((i) => (i.id === "REQ002" ? { ...i, classification: "stays-prose" } : i)),
+  };
+  const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation((input) => {
+    const url = typeof input === "string" ? input : (input as Request).url;
+    if (url.endsWith("/triage")) return Promise.resolve(json(after));
+    return Promise.resolve(json(SAMPLE));
+  });
+  render(<App />);
+  await screen.findByText("REQ001");
+
+  const select = screen.getByLabelText("Triage bucket for REQ002") as HTMLSelectElement;
+  await user.selectOptions(select, "stays-prose");
+
+  await waitFor(() => expect(select.value).toBe("stays-prose"));
+  expect(fetchSpy).toHaveBeenCalledWith(
+    "/api/requirements/REQ002/triage",
+    expect.objectContaining({ method: "POST" }),
+  );
+});
+
+test("a failed triage write rolls back and surfaces an error", async () => {
+  const user = userEvent.setup();
+  vi.spyOn(globalThis, "fetch").mockImplementation((input) => {
+    const url = typeof input === "string" ? input : (input as Request).url;
+    if (url.endsWith("/triage")) return Promise.resolve(json({ error: "disk full" }, 409));
+    return Promise.resolve(json(SAMPLE));
+  });
+  render(<App />);
+  await screen.findByText("REQ001");
+
+  const select = screen.getByLabelText("Triage bucket for REQ002") as HTMLSelectElement;
+  await user.selectOptions(select, "stays-prose");
+
+  await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("disk full"));
+  // Rolled back to the original untriaged value.
+  expect(select.value).toBe("");
+});

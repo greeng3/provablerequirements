@@ -12,7 +12,7 @@ use axum::{
     extract::{Path, State},
     http::{header, StatusCode, Uri},
     response::{IntoResponse, Response},
-    routing::get,
+    routing::{get, post},
     Json, Router,
 };
 use rust_embed::RustEmbed;
@@ -37,6 +37,7 @@ pub fn router(subject: PathBuf) -> Router {
         .route("/health", get(health))
         .route("/api/requirements", get(requirements))
         .route("/api/requirements/{id}", get(requirement_detail))
+        .route("/api/requirements/{id}/triage", post(set_triage))
         .fallback(static_asset)
         .with_state(Arc::new(subject))
 }
@@ -98,6 +99,72 @@ fn load_backlog(subject: &std::path::Path) -> anyhow::Result<Backlog> {
         coverage: crate::status::coverage(&items, &triage, &drafts),
         items: crate::status::backlog(&items, &triage, &drafts),
     })
+}
+
+/// The body of a triage write: the bucket to set the item to.
+#[derive(serde::Deserialize)]
+struct TriageRequest {
+    classification: String,
+}
+
+/// POST /api/requirements/:id/triage — set one item's triage bucket (REQ037).
+///
+/// The first operator write from the UI. Triage is companion state (A6 "the tool writes freely"),
+/// so this writes `triage.yml` directly — no working-tree gate, unlike a source-code proof carrier.
+/// Returns the updated backlog so the client reconciles against authoritative state (correct
+/// coverage), not just its optimistic patch. Bad bucket → 400, unknown id → 404, unadopted → 409.
+///
+/// Implements: REQ037
+async fn set_triage(
+    State(subject): State<Subject>,
+    Path(id): Path<String>,
+    Json(req): Json<TriageRequest>,
+) -> Response {
+    let Some(classification) = crate::source::Classification::parse(&req.classification) else {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({
+                "error": format!(
+                    "unknown bucket '{}' (formalizable-now | falsifiable-only | stays-prose)",
+                    req.classification
+                )
+            })),
+        )
+            .into_response();
+    };
+    match apply_triage(&subject, &id, classification) {
+        Ok(Some(backlog)) => Json(backlog).into_response(),
+        Ok(None) => (
+            StatusCode::NOT_FOUND,
+            Json(serde_json::json!({ "error": format!("no requirement '{id}' in the subject") })),
+        )
+            .into_response(),
+        Err(e) => (
+            StatusCode::CONFLICT,
+            Json(serde_json::json!({ "error": e.to_string() })),
+        )
+            .into_response(),
+    }
+}
+
+/// Set the item's bucket and re-read the backlog, or `Ok(None)` when the id is unknown.
+fn apply_triage(
+    subject: &std::path::Path,
+    id: &str,
+    classification: crate::source::Classification,
+) -> anyhow::Result<Option<Backlog>> {
+    let (companion, items) = crate::adopt::resolve(subject)?;
+    let Some(item) = items.iter().find(|i| i.id == id) else {
+        return Ok(None);
+    };
+    let state = crate::triage::load(&companion)?;
+    let next = crate::triage::set(&state, item, classification);
+    crate::triage::save(&companion, &next)?;
+    let drafts = crate::draft::load(&companion)?;
+    Ok(Some(Backlog {
+        coverage: crate::status::coverage(&items, &next, &drafts),
+        items: crate::status::backlog(&items, &next, &drafts),
+    }))
 }
 
 /// GET /api/requirements/:id — one item's read-only formalization detail (REQ035).
@@ -292,6 +359,58 @@ mod tests {
         assert_eq!(body["id"], "REQ001");
         assert_eq!(body["formalization"], "none");
         assert!(body["candidate"].is_null());
+    }
+
+    async fn post_json(path: &str, subject: PathBuf, body: serde_json::Value) -> Response {
+        router(subject)
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri(path)
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(body.to_string()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap()
+    }
+
+    // Verifies: REQ037 — a triage write sets the bucket, persists it, and returns the updated
+    // backlog (coverage reflects the new classification).
+    #[tokio::test]
+    async fn triage_write_sets_the_bucket_and_returns_updated_coverage() {
+        let subject = adopted_subject_with_one_item();
+        let res = post_json(
+            "/api/requirements/REQ001/triage",
+            subject.path().to_path_buf(),
+            serde_json::json!({ "classification": "formalizable-now" }),
+        )
+        .await;
+        assert_eq!(res.status(), StatusCode::OK);
+        let bytes = to_bytes(res.into_body(), usize::MAX).await.unwrap();
+        let body: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(body["coverage"]["formalizable_now"], 1);
+        assert_eq!(body["coverage"]["untriaged"], 0);
+        assert_eq!(body["items"][0]["classification"], "formalizable-now");
+
+        // The write persisted: a fresh GET reflects it.
+        let got = get_path_on("/api/requirements", subject.path().to_path_buf()).await;
+        let bytes = to_bytes(got.into_body(), usize::MAX).await.unwrap();
+        let backlog: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(backlog["items"][0]["classification"], "formalizable-now");
+    }
+
+    // Verifies: REQ037 — an unknown bucket is a 400, never silently written.
+    #[tokio::test]
+    async fn triage_write_rejects_an_unknown_bucket() {
+        let subject = adopted_subject_with_one_item();
+        let res = post_json(
+            "/api/requirements/REQ001/triage",
+            subject.path().to_path_buf(),
+            serde_json::json!({ "classification": "nonsense" }),
+        )
+        .await;
+        assert_eq!(res.status(), StatusCode::BAD_REQUEST);
     }
 
     /// A minimal adopted subject: a Doorstop document with one item plus the `provreq.yml`
