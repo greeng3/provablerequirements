@@ -4,6 +4,7 @@ import { fetchDetail } from "../api";
 import type { Detail, GateStatus } from "../types";
 import * as labels from "../labels";
 import { Badge } from "./Badge";
+import { VerifyPanel } from "./VerifyPanel";
 
 type Props = {
   id: string | null;
@@ -156,6 +157,8 @@ function Body({ state }: { state: State }) {
           </Field>
         )
       )}
+
+      <VerifyPanel id={d.id} />
     </div>
   );
 }

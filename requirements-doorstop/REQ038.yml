@@ -1,0 +1,28 @@
+active: true
+derived: false
+header: ''
+level: 1.37
+links: []
+normative: true
+ref: ''
+reviewed: CWFglkwsOBOxScTpGgYE7JsLMqYWoCmOCWQ1S-1l_NA=
+text: |
+  The serve backend verifies a requirement on demand from the web surface. Verification runs the
+  wired engine ensemble, which can be slow, so it is an explicit per-item action the operator
+  triggers — never run implicitly on a read. The backend runs the check synchronously and returns
+  the verdict in the response; a single-operator local tool blocks for the run rather than standing
+  up a job queue.
+
+  A verify request names the item. A request for an item the subject does not contain is reported as
+  not found, and a request against a subject that has not been adopted is reported as the same
+  unadopted condition the read surfaces — the two are distinct and are not collapsed. An item that
+  cannot yet be verified — it has no draft, its draft is not admitted, it has no candidate, or its
+  admitted candidate no longer passes the mechanical gate — is reported as that honest state, never
+  as an error and never as a fabricated verdict.
+
+  A verifiable item is checked through the same verdict machinery the command line uses, so the web
+  surface and the command line never diverge on an item's verdict. Only a grounded requirement
+  reaches an engine; an ungrounded one is an honest unknown that names the missing grounding. The
+  response carries the aggregate three-valued verdict, its basis or unknown reason, any counterexample
+  witness, each engine's own result, and the provenance the verdict was produced against, so the
+  operator sees who established what and can re-check it.

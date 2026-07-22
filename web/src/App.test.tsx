@@ -2,7 +2,7 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, expect, test, vi } from "vitest";
 import { App } from "./App";
-import type { Backlog, Detail } from "./types";
+import type { Backlog, Detail, VerifyResponse } from "./types";
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -148,6 +148,60 @@ test("changing a row's triage bucket writes and reconciles to the server state",
     "/api/requirements/REQ002/triage",
     expect.objectContaining({ method: "POST" }),
   );
+});
+
+test("clicking Verify runs the ensemble and renders the verdict with per-engine evidence", async () => {
+  const user = userEvent.setup();
+  const detail: Detail = {
+    id: "REQ001",
+    title: "Login invariant",
+    text: "A logged-in user always has a session.",
+    revision: "r1",
+    stale: false,
+    classification: "formalizable-now",
+    formalization: "admitted",
+    admission: { review: "optional", by: "gg" },
+    candidate: "requirement r { category: 1 ... }",
+    gate: { status: "passed", warnings: [] },
+    readback: "At every state...",
+    bindings: [],
+    grounding: null,
+  };
+  const verdict: VerifyResponse = {
+    state: "verdict",
+    stale: false,
+    verdict: {
+      id: "REQ001",
+      status: "holds",
+      basis: "proven",
+      reason: null,
+      witness: null,
+      detail: [],
+      evidence: [
+        { engine: "Creusot", status: "holds", basis: "proven", witness: null, detail: [] },
+        { engine: "Kani", status: "unknown", basis: null, witness: null, detail: ["harness would not compile"] },
+      ],
+      provenance: { requirement_revision: "r1", subject_commit: "abc123", tool_version: "0.0.1" },
+    },
+  };
+  // Route verify (POST) before the generic detail matcher, since both share the id prefix.
+  vi.spyOn(globalThis, "fetch").mockImplementation((input) => {
+    const url = typeof input === "string" ? input : (input as Request).url ?? String(input);
+    if (url.endsWith("/verify")) return Promise.resolve(json(verdict));
+    if (/\/api\/requirements\/REQ001$/.test(url)) return Promise.resolve(json(detail));
+    return Promise.resolve(json(SAMPLE));
+  });
+  render(<App />);
+
+  await user.click(await screen.findByRole("button", { name: "REQ001" }));
+  const dialog = await screen.findByRole("dialog");
+  await user.click(within(dialog).getByRole("button", { name: "Verify" }));
+
+  // The aggregate polarity and each engine's own result render (aggregate + Creusot both "holds").
+  expect(await within(dialog).findAllByText("holds")).toHaveLength(2);
+  expect(within(dialog).getByText("Creusot")).toBeInTheDocument();
+  expect(within(dialog).getByText("Kani")).toBeInTheDocument();
+  expect(within(dialog).getByText("harness would not compile")).toBeInTheDocument();
 });
 
 test("a failed triage write rolls back and surfaces an error", async () => {

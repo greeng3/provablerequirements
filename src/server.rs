@@ -38,6 +38,7 @@ pub fn router(subject: PathBuf) -> Router {
         .route("/api/requirements", get(requirements))
         .route("/api/requirements/{id}", get(requirement_detail))
         .route("/api/requirements/{id}/triage", post(set_triage))
+        .route("/api/requirements/{id}/verify", post(verify_requirement))
         .fallback(static_asset)
         .with_state(Arc::new(subject))
 }
@@ -232,6 +233,53 @@ fn grounding_report(
     ))
 }
 
+/// POST /api/requirements/:id/verify — run the engine ensemble on demand (REQ038).
+///
+/// The heaviest surface: it re-gates the admitted candidate, re-runs the live grounding dry-run,
+/// and — only when grounded — runs the wired engines, returning the aggregate verdict plus each
+/// engine's own evidence (D2b). **Synchronous**: a loopback single-operator tool blocks for the
+/// run rather than standing up a job queue. Unknown id → 404, unadopted → 409 (same split the
+/// detail read uses). A not-yet-verifiable state (undrafted / unadmitted / no candidate / the
+/// candidate no longer gates) is an honest 200 payload the operator can act on, never an error.
+///
+/// Implements: REQ038
+async fn verify_requirement(State(subject): State<Subject>, Path(id): Path<String>) -> Response {
+    match crate::verify::verify(&subject, &id) {
+        Ok(Some(outcome)) => Json(verify_payload(&outcome)).into_response(),
+        Ok(None) => (
+            StatusCode::NOT_FOUND,
+            Json(serde_json::json!({ "error": format!("no requirement '{id}' in the subject") })),
+        )
+            .into_response(),
+        Err(e) => (
+            StatusCode::CONFLICT,
+            Json(serde_json::json!({ "error": e.to_string() })),
+        )
+            .into_response(),
+    }
+}
+
+/// Map a [`crate::verify::VerifyOutcome`] to its JSON wire shape. A `state` tag discriminates the
+/// verdict from each honest not-yet-verifiable state, so the client renders one branch per state
+/// rather than guessing from missing fields. The verdict itself is the [`crate::verdict::report`]
+/// shape; the CLI-only grounding context (`grounded`/`resolutions`) is intentionally dropped.
+fn verify_payload(outcome: &crate::verify::VerifyOutcome) -> serde_json::Value {
+    use crate::verify::VerifyOutcome as O;
+    match outcome {
+        O::NoDraft => serde_json::json!({ "state": "no-draft" }),
+        O::NotAdmitted => serde_json::json!({ "state": "not-admitted" }),
+        O::NoCandidate => serde_json::json!({ "state": "no-candidate" }),
+        O::GateFailed { errors } => {
+            serde_json::json!({ "state": "gate-failed", "errors": errors })
+        }
+        O::Verdict { verdict, stale, .. } => serde_json::json!({
+            "state": "verdict",
+            "stale": stale,
+            "verdict": crate::verdict::report(verdict),
+        }),
+    }
+}
+
 /// Serve an embedded asset by request path, falling back to `index.html` for
 /// paths with no embedded file so the single-page app can route them.
 ///
@@ -411,6 +459,60 @@ mod tests {
         )
         .await;
         assert_eq!(res.status(), StatusCode::BAD_REQUEST);
+    }
+
+    async fn post_empty(path: &str, subject: PathBuf) -> Response {
+        router(subject)
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri(path)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap()
+    }
+
+    // Verifies: REQ038 — verifying an unknown id under an adopted subject is a 404, distinct from
+    // the unadopted-subject 409.
+    #[tokio::test]
+    async fn verify_unknown_id_is_not_found() {
+        let subject = adopted_subject_with_one_item();
+        let res = post_empty(
+            "/api/requirements/REQ999/verify",
+            subject.path().to_path_buf(),
+        )
+        .await;
+        assert_eq!(res.status(), StatusCode::NOT_FOUND);
+    }
+
+    // Verifies: REQ038 — verifying against an unadopted subject is a 409, never a 500.
+    #[tokio::test]
+    async fn verify_unadopted_subject_is_conflict() {
+        let empty = tempfile::tempdir().unwrap();
+        let res = post_empty(
+            "/api/requirements/REQ001/verify",
+            empty.path().to_path_buf(),
+        )
+        .await;
+        assert_eq!(res.status(), StatusCode::CONFLICT);
+    }
+
+    // Verifies: REQ038 — verifying an item with no draft is an honest 200 naming the "no-draft"
+    // state (nothing to run), never a fabricated verdict and never an error.
+    #[tokio::test]
+    async fn verify_undrafted_item_is_honest_no_draft_state() {
+        let subject = adopted_subject_with_one_item();
+        let res = post_empty(
+            "/api/requirements/REQ001/verify",
+            subject.path().to_path_buf(),
+        )
+        .await;
+        assert_eq!(res.status(), StatusCode::OK);
+        let bytes = to_bytes(res.into_body(), usize::MAX).await.unwrap();
+        let body: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(body["state"], "no-draft");
     }
 
     /// A minimal adopted subject: a Doorstop document with one item plus the `provreq.yml`

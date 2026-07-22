@@ -371,6 +371,70 @@ pub fn render(v: &Verdict) -> String {
     out
 }
 
+/// A JSON-serializable view of one engine's [`Evidence`] for the `POST /:id/verify` surface.
+/// The polarity/basis carry their human labels (`"holds"`, `"proven"`) — the same strings the
+/// CLI [`render`] prints — so the web surface and the command line never diverge on wording.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct EvidenceReport {
+    pub engine: String,
+    pub status: String,
+    pub basis: Option<String>,
+    pub witness: Option<String>,
+    pub detail: Vec<String>,
+}
+
+/// A JSON-serializable view of a verdict's [`Provenance`] (D9).
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct ProvenanceReport {
+    pub requirement_revision: String,
+    pub subject_commit: Option<String>,
+    pub tool_version: String,
+}
+
+/// A JSON-serializable view of a [`Verdict`] for the web surface (REQ038). The domain types are
+/// deliberately not `Serialize` (they are the core's own vocabulary); this is the wire shape, with
+/// polarity/basis/reason rendered to their labels so the client renders no enum internals.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct VerdictReport {
+    pub id: String,
+    pub status: String,
+    pub basis: Option<String>,
+    pub reason: Option<String>,
+    pub witness: Option<String>,
+    pub detail: Vec<String>,
+    pub evidence: Vec<EvidenceReport>,
+    pub provenance: ProvenanceReport,
+}
+
+/// Render a [`Verdict`] into its JSON wire shape. Pure — the aggregate polarity, the per-engine
+/// breakdown (D2b), and the provenance all carry through by their labels.
+pub fn report(v: &Verdict) -> VerdictReport {
+    VerdictReport {
+        id: v.id.clone(),
+        status: v.status.as_str().to_string(),
+        basis: v.basis.map(|b| b.as_str().to_string()),
+        reason: v.reason.map(|r| r.as_str().to_string()),
+        witness: v.witness.clone(),
+        detail: v.detail.clone(),
+        evidence: v
+            .evidence
+            .iter()
+            .map(|e| EvidenceReport {
+                engine: e.engine.clone(),
+                status: e.status.as_str().to_string(),
+                basis: e.basis.map(|b| b.as_str().to_string()),
+                witness: e.witness.clone(),
+                detail: e.detail.clone(),
+            })
+            .collect(),
+        provenance: ProvenanceReport {
+            requirement_revision: v.provenance.requirement_revision.clone(),
+            subject_commit: v.provenance.subject_commit.clone(),
+            tool_version: v.provenance.tool_version.clone(),
+        },
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -431,6 +495,29 @@ mod tests {
         };
         let text = render(&from_grounding("SR004", &Grounding::Grounded, p));
         assert!(text.contains("subject@(not a git subject)"));
+    }
+
+    // Verifies: REQ038 — the wire report carries the labels (not enum internals), the D9
+    // provenance, and every engine's own breakdown so the web surface reads them verbatim.
+    #[test]
+    fn report_carries_labels_provenance_and_per_engine_breakdown() {
+        let v = aggregate(
+            "REQ001",
+            vec![
+                Evidence::holds("Creusot", Basis::Proven),
+                Evidence::inconclusive("Kani", vec!["harness would not compile".into()]),
+            ],
+            prov(),
+        );
+        let r = report(&v);
+        assert_eq!(r.id, "REQ001");
+        assert_eq!(r.status, "holds");
+        assert_eq!(r.basis.as_deref(), Some("proven"));
+        assert_eq!(r.provenance.subject_commit.as_deref(), Some("abc123"));
+        assert_eq!(r.evidence.len(), 2);
+        let kani = r.evidence.iter().find(|e| e.engine == "Kani").unwrap();
+        assert_eq!(kani.status, "unknown");
+        assert_eq!(kani.detail, vec!["harness would not compile".to_string()]);
     }
 
     // Verifies: REQ030 — a single engine's evidence aggregates to exactly that engine's
