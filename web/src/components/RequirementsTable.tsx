@@ -4,9 +4,10 @@ import { Badge } from "./Badge";
 
 type Props = {
   items: ItemState[];
+  onSelect: (id: string) => void;
 };
 
-export function RequirementsTable({ items }: Props) {
+export function RequirementsTable({ items, onSelect }: Props) {
   if (items.length === 0) {
     return (
       <p role="status" className="py-8 text-center text-muted">
@@ -31,10 +32,20 @@ export function RequirementsTable({ items }: Props) {
           return (
             <tr
               key={item.id}
-              className="border-b border-border/60 align-top last:border-0"
+              onClick={() => onSelect(item.id)}
+              className="cursor-pointer border-b border-border/60 align-top last:border-0 hover:bg-surface-2"
             >
               <td className="py-3 pr-4">
-                <div className="font-semibold tabular-nums">{item.id}</div>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onSelect(item.id);
+                  }}
+                  className="font-semibold tabular-nums hover:text-accent"
+                >
+                  {item.id}
+                </button>
                 <p className="mt-0.5 line-clamp-2 max-w-prose text-muted">
                   {item.title ?? item.text}
                 </p>

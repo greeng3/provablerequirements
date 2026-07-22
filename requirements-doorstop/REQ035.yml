@@ -1,0 +1,26 @@
+active: true
+derived: false
+header: ''
+level: 1.34
+links: []
+normative: true
+ref: ''
+reviewed: wkybkysRAw1zpdjHJlBfbysFDu1AaAEwdMqExW9HPcE=
+text: |
+  The serve backend exposes a read-only detail view of one requirement, so the operator can drill
+  into a single item from the backlog. It reaches the item through the same source-agnostic seam the
+  backlog uses, and it reports the item's prose together with whatever formalization state is
+  persisted for it: the candidate formal statement, the last mechanical-gate outcome, the
+  deterministic read-back of the candidate's meaning, and the grounding bindings that have been
+  recorded.
+
+  The read-back is rendered from the candidate itself, independent of any language model, so it is
+  the same faithful restatement the command line produces. It is shown only when the candidate
+  currently passes the gate; an item with no candidate reports an honest unformalized state rather
+  than a fabricated one, and an item whose prose has moved since its draft was last touched is
+  reported as such.
+
+  The detail view surfaces persisted state only: it runs no verification engine, and it reports the
+  bindings as recorded rather than resolving them against the subject's live source. A requirement
+  that does not exist in the subject is reported as an explicit not-found condition, kept distinct
+  from the condition of a subject that has not been adopted.

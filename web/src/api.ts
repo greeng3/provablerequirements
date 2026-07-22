@@ -1,4 +1,4 @@
-import type { Backlog } from "./types";
+import type { Backlog, Detail } from "./types";
 
 /**
  * Fetch the read-only backlog + coverage from the local backend (REQ034).
@@ -13,6 +13,18 @@ export async function fetchBacklog(signal?: AbortSignal): Promise<Backlog> {
     throw new Error(message);
   }
   return (await res.json()) as Backlog;
+}
+
+/**
+ * Fetch one requirement's read-only formalization detail (REQ035). A 404 (unknown id) or 409
+ * (unadopted subject) carries the backend's `{ error }` message; surface it verbatim.
+ */
+export async function fetchDetail(id: string, signal?: AbortSignal): Promise<Detail> {
+  const res = await fetch(`/api/requirements/${encodeURIComponent(id)}`, { signal });
+  if (!res.ok) {
+    throw new Error(await errorMessage(res));
+  }
+  return (await res.json()) as Detail;
 }
 
 async function errorMessage(res: Response): Promise<string> {

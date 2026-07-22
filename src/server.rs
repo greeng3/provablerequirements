@@ -9,7 +9,7 @@
 
 use axum::{
     body::Body,
-    extract::State,
+    extract::{Path, State},
     http::{header, StatusCode, Uri},
     response::{IntoResponse, Response},
     routing::get,
@@ -36,6 +36,7 @@ pub fn router(subject: PathBuf) -> Router {
     Router::new()
         .route("/health", get(health))
         .route("/api/requirements", get(requirements))
+        .route("/api/requirements/{id}", get(requirement_detail))
         .fallback(static_asset)
         .with_state(Arc::new(subject))
 }
@@ -97,6 +98,48 @@ fn load_backlog(subject: &std::path::Path) -> anyhow::Result<Backlog> {
         coverage: crate::status::coverage(&items, &triage, &drafts),
         items: crate::status::backlog(&items, &triage, &drafts),
     })
+}
+
+/// GET /api/requirements/:id — one item's read-only formalization detail (REQ035).
+///
+/// Reads persisted companion state fresh, like [`requirements`]. An unadopted subject is a 409
+/// (same as the list); an unknown id under an adopted subject is a 404 — the two are distinct
+/// operator conditions and must not collapse.
+///
+/// Implements: REQ035
+async fn requirement_detail(State(subject): State<Subject>, Path(id): Path<String>) -> Response {
+    match load_detail(&subject, &id) {
+        Ok(Some(detail)) => Json(detail).into_response(),
+        Ok(None) => (
+            StatusCode::NOT_FOUND,
+            Json(serde_json::json!({ "error": format!("no requirement '{id}' in the subject") })),
+        )
+            .into_response(),
+        Err(e) => (
+            StatusCode::CONFLICT,
+            Json(serde_json::json!({ "error": e.to_string() })),
+        )
+            .into_response(),
+    }
+}
+
+/// Assemble one item's detail, or `Ok(None)` when the id is not in the subject.
+fn load_detail(
+    subject: &std::path::Path,
+    id: &str,
+) -> anyhow::Result<Option<crate::detail::Detail>> {
+    let (companion, items) = crate::adopt::resolve(subject)?;
+    let Some(item) = items.iter().find(|i| i.id == id) else {
+        return Ok(None);
+    };
+    let triage = crate::triage::load(&companion)?;
+    let drafts = crate::draft::load(&companion)?;
+    let classification = triage.items.get(id).map(|e| e.classification);
+    Ok(Some(crate::detail::build(
+        item,
+        classification,
+        drafts.drafts.get(id),
+    )))
 }
 
 /// Serve an embedded asset by request path, falling back to `index.html` for
@@ -202,6 +245,30 @@ mod tests {
         // Untriaged + undrafted item reports honest "null"/"none", not a guessed state.
         assert!(body["items"][0]["classification"].is_null());
         assert_eq!(body["items"][0]["formalization"], "none");
+    }
+
+    // Verifies: REQ035 — an unknown id under an adopted subject is a 404, distinct from the
+    // unadopted-subject 409.
+    #[tokio::test]
+    async fn detail_for_unknown_id_is_not_found() {
+        let subject = adopted_subject_with_one_item();
+        let res = get_path_on("/api/requirements/REQ999", subject.path().to_path_buf()).await;
+        assert_eq!(res.status(), StatusCode::NOT_FOUND);
+    }
+
+    // Verifies: REQ035 — a known item returns its detail (identity + prose + honest unformalized
+    // state for an item with no draft).
+    #[tokio::test]
+    async fn detail_for_known_id_returns_the_item() {
+        let subject = adopted_subject_with_one_item();
+        let res = get_path_on("/api/requirements/REQ001", subject.path().to_path_buf()).await;
+        assert_eq!(res.status(), StatusCode::OK);
+        assert_eq!(content_type(&res), "application/json");
+        let bytes = to_bytes(res.into_body(), usize::MAX).await.unwrap();
+        let body: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(body["id"], "REQ001");
+        assert_eq!(body["formalization"], "none");
+        assert!(body["candidate"].is_null());
     }
 
     /// A minimal adopted subject: a Doorstop document with one item plus the `provreq.yml`

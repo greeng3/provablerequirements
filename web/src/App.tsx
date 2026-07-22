@@ -4,6 +4,7 @@ import { fetchBacklog } from "./api";
 import type { Backlog, ItemState } from "./types";
 import { CoverageBar } from "./components/CoverageBar";
 import { RequirementsTable } from "./components/RequirementsTable";
+import { ItemDetailDialog } from "./components/ItemDetailDialog";
 
 type State =
   | { kind: "loading" }
@@ -72,6 +73,7 @@ function Body({ state }: { state: State }) {
 
 function Backlog({ backlog }: { backlog: Backlog }) {
   const [filter, setFilter] = useState("all");
+  const [selectedId, setSelectedId] = useState<string | null>(null);
   const active = FILTERS.find((f) => f.key === filter) ?? FILTERS[0];
   const shown = backlog.items.filter(active.match);
 
@@ -97,9 +99,11 @@ function Backlog({ backlog }: { backlog: Backlog }) {
           ))}
         </Tabs.List>
         <Tabs.Content value={filter} className="rounded-xl border border-border bg-surface p-2">
-          <RequirementsTable items={shown} />
+          <RequirementsTable items={shown} onSelect={setSelectedId} />
         </Tabs.Content>
       </Tabs.Root>
+
+      <ItemDetailDialog id={selectedId} onClose={() => setSelectedId(null)} />
     </div>
   );
 }
