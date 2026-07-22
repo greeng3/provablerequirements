@@ -94,7 +94,9 @@ pub fn lower_property(
     // can arrive. The match stays total anyway: this is public and must not depend on a caller
     // having gated first.
     let claim = match &prop.pattern {
-        Pattern::Always(e) => lower_expr(e, prop.quantifier.as_ref(), prefix, bindings, resolutions)?,
+        Pattern::Always(e) => {
+            lower_expr(e, prop.quantifier.as_ref(), prefix, bindings, resolutions)?
+        }
         // `never P` is `always not P`.
         Pattern::Never(e) => format!(
             "!({})",
@@ -226,7 +228,11 @@ fn lower_atom(
             ParamMode::ByValue => arg.to_string(),
         });
     }
-    Ok(format!("{prefix}::{}({})", binding.observable, args.join(", ")))
+    Ok(format!(
+        "{prefix}::{}({})",
+        binding.observable,
+        args.join(", ")
+    ))
 }
 
 fn pattern_verb(pattern: &Pattern) -> &'static str {
