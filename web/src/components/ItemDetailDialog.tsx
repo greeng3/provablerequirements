@@ -116,19 +116,45 @@ function Body({ state }: { state: State }) {
         </Field>
       )}
 
-      {d.bindings.length > 0 && (
+      {d.grounding ? (
         <Field label="Grounding">
-          <ul className="flex flex-col gap-1 text-sm">
-            {d.bindings.map((b) => (
-              <li key={b.symbol} className="flex items-center gap-2">
-                <code className="rounded bg-surface-2 px-1.5 py-0.5 text-xs">{b.symbol}</code>
-                <span className="text-muted">→</span>
-                <code className="rounded bg-surface-2 px-1.5 py-0.5 text-xs">{b.observable}</code>
-                <span className="text-xs text-muted">({b.fidelity})</span>
+          <div className="mb-2">
+            <Badge
+              label={d.grounding.grounded ? "grounded" : "parked"}
+              tone={d.grounding.grounded ? "ok" : "warn"}
+            />
+          </div>
+          <ul className="flex flex-col gap-2 text-sm">
+            {d.grounding.bindings.map((b) => (
+              <li key={b.symbol} className="flex flex-col gap-0.5">
+                <div className="flex items-center gap-2">
+                  <span aria-hidden className={b.resolved ? "text-ok" : "text-warn"}>
+                    {b.resolved ? "✓" : "✗"}
+                  </span>
+                  <code className="rounded bg-surface-2 px-1.5 py-0.5 text-xs">{b.symbol}</code>
+                  <span className="text-muted">→</span>
+                  <code className="rounded bg-surface-2 px-1.5 py-0.5 text-xs">{b.observable}</code>
+                </div>
+                <p className="ml-6 text-xs leading-snug text-muted">{b.summary}</p>
               </li>
             ))}
           </ul>
         </Field>
+      ) : (
+        d.bindings.length > 0 && (
+          <Field label="Grounding">
+            <ul className="flex flex-col gap-1 text-sm">
+              {d.bindings.map((b) => (
+                <li key={b.symbol} className="flex items-center gap-2">
+                  <code className="rounded bg-surface-2 px-1.5 py-0.5 text-xs">{b.symbol}</code>
+                  <span className="text-muted">→</span>
+                  <code className="rounded bg-surface-2 px-1.5 py-0.5 text-xs">{b.observable}</code>
+                  <span className="text-xs text-muted">({b.fidelity})</span>
+                </li>
+              ))}
+            </ul>
+          </Field>
+        )
       )}
     </div>
   );

@@ -23,6 +23,7 @@ use crate::prl::ast::{Category, Decl, Requirement};
 use crate::rust_adapter::{Resolution, TypeResolution};
 use crate::tla_adapter::ModelResolution;
 use std::collections::BTreeMap;
+use std::path::Path;
 
 /// D5 binding fidelity — a verdict is never stronger than its weakest binding. This
 /// slice records it; the Step-4 verdict engine consumes it. `definitional` = true by
@@ -230,6 +231,64 @@ pub enum Grounding {
 /// adapter's own explanation as the reason, so the operator reads one account of what
 /// happened rather than a summary of it. Categories 2b/3 have no observable world wired yet
 /// and are honestly deferred.
+/// Resolve every binding against its category's observable world, live (resolutions are never
+/// stored — code moves under a binding as prose moves under a draft). The per-category map peer of
+/// [`verdict`]: category-1 predicates → functions and sorts → types (REQ025/REQ026), category-2a
+/// symbols → TLA+ definitions (REQ028); 2b/3 have no world wired and are absent from every map.
+///
+/// The predicate/sort split is kept because a coincidental cross-hit (a `struct login` standing in
+/// for the predicate `login`) must never ground anything. Shared by the CLI dry-run and the serve
+/// backend so both resolve bindings the one same way.
+pub fn resolve_bindings(
+    subject: &Path,
+    companion: &Path,
+    requirement: &Requirement,
+    bindings: &[Binding],
+) -> (
+    BTreeMap<String, Resolution>,
+    BTreeMap<String, TypeResolution>,
+    BTreeMap<String, ModelResolution>,
+) {
+    let in_category = |cat| {
+        bindings
+            .iter()
+            .filter(move |b| b.category == cat)
+            .collect::<Vec<_>>()
+    };
+    let code = in_category(BindCategory::Code);
+    let predicates = code
+        .iter()
+        .filter(|b| !is_sort(requirement, &b.symbol))
+        .map(|b| {
+            let arity = predicate_arity(requirement, &b.symbol).unwrap_or(0);
+            (
+                b.symbol.clone(),
+                crate::rust_adapter::resolve(subject, companion, &b.observable, arity),
+            )
+        })
+        .collect();
+    let sorts = code
+        .iter()
+        .filter(|b| is_sort(requirement, &b.symbol))
+        .map(|b| {
+            (
+                b.symbol.clone(),
+                crate::rust_adapter::resolve_type(subject, companion, &b.observable),
+            )
+        })
+        .collect();
+    let model = in_category(BindCategory::Model)
+        .iter()
+        .map(|b| {
+            (
+                b.symbol.clone(),
+                crate::tla_adapter::resolve(subject, companion, &b.observable),
+            )
+        })
+        .collect();
+    (predicates, sorts, model)
+}
+
 pub fn verdict(
     req: &Requirement,
     bindings: &[Binding],

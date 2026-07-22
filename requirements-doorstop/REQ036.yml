@@ -1,0 +1,24 @@
+active: true
+derived: false
+header: ''
+level: 1.35
+links: []
+normative: true
+ref: ''
+reviewed: jGBp-1b17zeI5NI-46nzrtTRb0Pcwx3TA6Bg01zNm98=
+text: |
+  The item detail view reports the live grounding of a formalized requirement, so the operator can
+  see whether each binding still resolves against the subject's current source. When the requirement
+  has a gate-passing candidate and at least one binding, the detail reports, for every binding,
+  whether it resolves and the adapter's own account of what it resolved to, together with an overall
+  grounded-or-parked result for the requirement as a whole.
+
+  The grounding is computed live against the subject's real source rather than read from stored
+  state, because code moves under a binding exactly as prose moves under a draft. It uses the same
+  resolution the command-line dry-run uses, so the web surface and the command line never disagree
+  about what grounds. A requirement grounds only when every binding resolves; a single unresolved
+  binding parks the whole, and the report carries the reason rather than a summary of it.
+
+  This surface reads and resolves only; it runs no verification engine and writes nothing. A
+  requirement without a gate-passing candidate or without bindings has nothing to resolve, and the
+  detail reports no grounding rather than a fabricated one.
