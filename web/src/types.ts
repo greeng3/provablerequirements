@@ -31,3 +31,38 @@ export interface Backlog {
   coverage: Coverage;
   items: ItemState[];
 }
+
+export type Fidelity = "definitional" | "observed" | "probed";
+
+export interface Binding {
+  symbol: string;
+  category: string;
+  observable: string;
+  fidelity: Fidelity;
+}
+
+// Mirrors `draft::GateStatus` (serde tag "status", snake_case): the mechanical-gate outcome.
+export type GateStatus =
+  | { status: "ungated" }
+  | { status: "passed"; warnings: string[] }
+  | { status: "failed"; errors: string[] };
+
+export interface AdmissionInfo {
+  review: "mandatory" | "optional";
+  by: string;
+}
+
+export interface Detail {
+  id: string;
+  title: string | null;
+  text: string;
+  revision: string;
+  stale: boolean;
+  classification: Classification | null;
+  formalization: Formalization;
+  admission: AdmissionInfo | null;
+  candidate: string | null;
+  gate: GateStatus | null;
+  readback: string | null;
+  bindings: Binding[];
+}

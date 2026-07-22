@@ -2,11 +2,31 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, expect, test, vi } from "vitest";
 import { App } from "./App";
-import type { Backlog } from "./types";
+import type { Backlog, Detail } from "./types";
 
 afterEach(() => {
   vi.restoreAllMocks();
 });
+
+function json(body: unknown, status = 200): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { "Content-Type": "application/json" },
+  });
+}
+
+/** Route fetch by URL: the list vs a per-id detail. */
+function mockRoutes(backlog: Backlog, details: Record<string, Detail> = {}) {
+  vi.spyOn(globalThis, "fetch").mockImplementation((input) => {
+    const url = typeof input === "string" ? input : (input as Request).url ?? String(input);
+    const detailMatch = url.match(/\/api\/requirements\/(.+)$/);
+    if (detailMatch) {
+      const d = details[decodeURIComponent(detailMatch[1])];
+      return Promise.resolve(d ? json(d) : json({ error: "not found" }, 404));
+    }
+    return Promise.resolve(json(backlog));
+  });
+}
 
 const SAMPLE: Backlog = {
   coverage: {
@@ -27,12 +47,7 @@ const SAMPLE: Backlog = {
 };
 
 function mockBacklog(backlog: Backlog) {
-  vi.spyOn(globalThis, "fetch").mockResolvedValue(
-    new Response(JSON.stringify(backlog), {
-      status: 200,
-      headers: { "Content-Type": "application/json" },
-    }),
-  );
+  mockRoutes(backlog);
 }
 
 test("renders the coverage funnel and one row per requirement", async () => {
@@ -72,4 +87,31 @@ test("surfaces the backend error message when the subject is not adopted", async
   await waitFor(() =>
     expect(screen.getByRole("alert")).toHaveTextContent("provreq init"),
   );
+});
+
+test("clicking a requirement opens its detail with the candidate and read-back", async () => {
+  const user = userEvent.setup();
+  const detail: Detail = {
+    id: "REQ001",
+    title: "Login invariant",
+    text: "A logged-in user always has a session.",
+    revision: "r1",
+    stale: false,
+    classification: "formalizable-now",
+    formalization: "admitted",
+    admission: { review: "optional", by: "gg" },
+    candidate: "requirement r { category: 1 ... }",
+    gate: { status: "passed", warnings: [] },
+    readback: "At every state, if the user is logged in then the user has a session.",
+    bindings: [{ symbol: "logged_in", category: "code", observable: "login", fidelity: "definitional" }],
+  };
+  mockRoutes(SAMPLE, { REQ001: detail });
+  render(<App />);
+
+  await user.click(await screen.findByRole("button", { name: "REQ001" }));
+
+  const dialog = await screen.findByRole("dialog");
+  expect(within(dialog).getByText(/if the user is logged in/)).toBeInTheDocument();
+  expect(within(dialog).getByText(/requirement r \{/)).toBeInTheDocument();
+  expect(within(dialog).getByText("login")).toBeInTheDocument();
 });

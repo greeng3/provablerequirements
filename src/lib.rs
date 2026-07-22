@@ -8,6 +8,7 @@
 pub mod adopt;
 pub mod contract_draft;
 pub mod creusot;
+pub mod detail;
 pub mod doorstop;
 pub mod draft;
 pub mod engine;
