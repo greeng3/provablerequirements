@@ -1,0 +1,24 @@
+active: true
+derived: false
+header: ''
+level: 1.33
+links: []
+normative: true
+ref: ''
+reviewed: BiwHJwQVzv4seTbT35CO5M0sPzwZA-IOCctLFc9CU7A=
+text: |
+  The serve backend exposes the requirement backlog as a read-only surface for the operator to
+  browse. It is pointed at a subject repository, and it reaches that subject's requirements through
+  the same source-agnostic seam the command line uses, so the web surface and the command line never
+  diverge on what the backlog contains.
+
+  For each discovered item the backlog reports its identity and prose alongside its triage
+  classification and its formalization state, and it reports the coverage funnel over the whole
+  backlog. Every state is kept honestly distinct: an untriaged item is not reported as prose, and an
+  item with no formalization is not reported as one in progress. The surface carries no verdict,
+  because a verdict runs a verification engine on demand and does not belong in a passive listing.
+
+  The surface only reads persisted state; it never mutates the subject or the companion tree, so it
+  needs no human-approval gate. A subject that has not been adopted yet is reported as an explicit
+  condition that names the adoption step to run, never as an empty backlog that would read as a
+  subject with no requirements.
