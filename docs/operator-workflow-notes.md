@@ -660,3 +660,12 @@ install outcome gates only its own capabilities, honestly surfaced.
 > degradation is load-bearing (Kani has no Windows; opam engines are Unix-only). **Both light-tier
 > installs are shipped: `provreq install tlc` (REQ046) and `provreq install kani` (REQ047,
 > Linux/macOS only) — consent-gated, confirmed by re-detection, honest on every degradation.**
+>
+> **The dev-container branch is decided too — see
+> [devcontainer-branch-decision.md](devcontainer-branch-decision.md): NO-GO on the docker socket.**
+> The deductive engines pin the toolchain rather than adapting to it, and the heavy tier's real
+> precondition is subject-side contract adoption, so inheritance buys too little to earn a
+> root-equivalent seam. A5's strategy-selected build-env seam resolves to **detect and advise**, not
+> detect and exec: detect the subject's dev-container, explain heavy-tier absence concretely, and
+> ship the engine layer as an opt-in image/feature the subject adopts in its own repo. Design C's
+> deployment half now has no undeliberated piece left.
