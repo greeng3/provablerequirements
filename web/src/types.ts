@@ -17,6 +17,7 @@ export interface Coverage {
   drafting: number;
   formalized: number;
   verified: number;
+  stale: number;
 }
 
 // Mirrors `verdict_store::VerdictView` from src/verdict_store.rs — a stored verdict paired with

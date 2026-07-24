@@ -895,6 +895,11 @@ fn run_status(subject: &Path) -> Result<()> {
          until re-verified with `provreq verify <ID>`)",
         cov.verified
     );
+    println!(
+        "  stale             {} (Step 6 — stored verdicts that have drifted, any polarity; \
+         re-verify with `provreq verify <ID>`)",
+        cov.stale
+    );
     Ok(())
 }
 

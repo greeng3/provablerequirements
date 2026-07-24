@@ -27,6 +27,11 @@ pub struct Coverage {
     /// verdict that has drifted (its prose, code, or tool moved) drops out of the count until
     /// re-verified, so the funnel reflects what is *currently* known to hold, never a stale claim.
     pub verified: usize,
+    /// Step 6 — requirements with a stored verdict that has **drifted** and no longer applies, of
+    /// any polarity (REQ043). The re-verify worklist: a drifted `holds` left `verified`, a drifted
+    /// `fails` is a stale refutation — both owe a re-run. Aggregates the per-item drift the living
+    /// loop already detects, so the operator sees *how much* is owed, not just per-row markers.
+    pub stale: usize,
 }
 
 /// Compute the funnel for `items` given the current `triage`, `drafts`, and stored `verdicts`
@@ -48,6 +53,7 @@ pub fn coverage(
         drafting: 0,
         formalized: 0,
         verified: 0,
+        stale: 0,
     };
     for item in items {
         match triage.items.get(&item.id).map(|e| e.classification) {
@@ -62,7 +68,9 @@ pub fn coverage(
             None => {}
         }
         if let Some(view) = verdict_view(item, verdicts, anchor) {
-            if view.status == "holds" && view.fresh {
+            if !view.fresh {
+                cov.stale += 1;
+            } else if view.status == "holds" {
                 cov.verified += 1;
             }
         }
@@ -266,6 +274,10 @@ mod tests {
             cov.verified, 1,
             "only A's fresh holds counts; B's drifted out"
         );
+        assert_eq!(
+            cov.stale, 1,
+            "B's drifted verdict is tallied as re-verify work"
+        );
 
         let rows = backlog(
             &items,
@@ -279,6 +291,45 @@ mod tests {
         let b = rows[1].verdict.as_ref().expect("B has a stored verdict");
         assert!(!b.fresh, "B's prose moved");
         assert!(b.stale_reasons.iter().any(|r| r.contains("prose moved")));
+    }
+
+    // Verifies: REQ043 — a drifted verdict is stale regardless of polarity: a fresh `fails` is a
+    // known result (neither verified nor stale), but once its prose moves it becomes re-verify work.
+    #[test]
+    fn stale_counts_drifted_verdicts_of_any_polarity() {
+        let items = [item("A")];
+        let mut fails = holds_verdict("A", "A");
+        fails.status = "fails".into();
+
+        // Fresh `fails`: a known refutation — neither verified nor stale.
+        let fresh = store(vec![fails.clone()]);
+        let cov = coverage(
+            &items,
+            &TriageState::new(),
+            &DraftState::new(),
+            &fresh,
+            &anchor(),
+        );
+        assert_eq!(cov.verified, 0);
+        assert_eq!(
+            cov.stale, 0,
+            "a fresh fails is a current answer, not re-verify work"
+        );
+
+        // Same `fails` pinned to an old revision → prose moved → stale.
+        fails.provenance.requirement_revision = "old-rev".into();
+        let drifted = store(vec![fails]);
+        let cov = coverage(
+            &items,
+            &TriageState::new(),
+            &DraftState::new(),
+            &drifted,
+            &anchor(),
+        );
+        assert_eq!(
+            cov.stale, 1,
+            "a drifted fails owes a re-run just like a drifted holds"
+        );
     }
 
     // Verifies: REQ034 — the per-item backlog pairs each item, in order, with its triage

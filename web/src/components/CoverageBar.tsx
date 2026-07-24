@@ -50,21 +50,23 @@ export function CoverageBar({ coverage }: Props) {
           ))}
       </div>
 
-      <dl className="grid grid-cols-3 gap-3 sm:grid-cols-6">
+      <dl className="grid grid-cols-3 gap-3 sm:grid-cols-7">
         {segments.map((s) => (
           <Stat key={s.key} label={s.label} value={s.count} />
         ))}
         <Stat label="drafting" value={coverage.drafting} />
         <Stat label="verified" value={coverage.verified} />
+        {/* The living loop's re-verify worklist — warn-toned only when work is actually owed. */}
+        <Stat label="stale" value={coverage.stale} warn={coverage.stale > 0} />
       </dl>
     </section>
   );
 }
 
-function Stat({ label, value }: { label: string; value: number }) {
+function Stat({ label, value, warn = false }: { label: string; value: number; warn?: boolean }) {
   return (
-    <div className="rounded-lg border border-border bg-surface-2 px-3 py-2">
-      <dd className="text-lg font-semibold tabular-nums">{value}</dd>
+    <div className={`rounded-lg border bg-surface-2 px-3 py-2 ${warn ? "border-warn/50" : "border-border"}`}>
+      <dd className={`text-lg font-semibold tabular-nums ${warn ? "text-warn" : ""}`}>{value}</dd>
       <dt className="text-xs text-muted">{label}</dt>
     </div>
   );

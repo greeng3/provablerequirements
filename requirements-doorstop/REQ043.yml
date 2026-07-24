@@ -1,0 +1,22 @@
+active: true
+derived: false
+header: ''
+level: 1.42
+links: []
+normative: true
+ref: ''
+reviewed: null
+text: |
+  The living loop (REQ039) detects when a stored verdict has drifted — its requirement prose, its
+  subject code, or the tool moved since the verdict was produced — and marks each affected item as
+  stale. But drift, detected per item, was never tallied: a verified result that drifted simply
+  dropped out of the `verified` count, so the operator saw the number fall with no signal of how
+  much re-verification was owed or which items owed it.
+
+  The coverage funnel reports a `stale` count: requirements with a stored verdict that is no longer
+  fresh, of any polarity. A drifted `holds` has left `verified`; a drifted `fails` is a refutation
+  that no longer applies — both owe a re-run, and both are counted. A fresh verdict, whether it
+  holds or fails, is a current answer and is never counted as stale. The count aggregates the
+  per-item freshness the living loop already computes, giving the operator the loop's actionable
+  output — how much verified knowledge has gone stale — as a single number rather than markers to
+  hunt for row by row.
