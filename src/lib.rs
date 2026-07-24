@@ -18,6 +18,7 @@ pub mod kani;
 pub mod llm;
 pub mod lowering;
 pub mod prl;
+pub mod provision;
 pub mod prusti;
 pub mod rust_adapter;
 pub mod semantic_draft;

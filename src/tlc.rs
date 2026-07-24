@@ -325,13 +325,20 @@ pub struct SpecSite {
     pub module: String,
 }
 
-/// The tla2tools.jar path — `TLA2TOOLS_JAR` if set, else the image's install location. TLC is
-/// invoked as `java -cp <jar> tlc2.TLC`, so there is no PATH binary to probe.
+/// The tla2tools.jar path — `TLA2TOOLS_JAR` if set, else the location the native provisioner
+/// installs to ([`crate::provision::tla2tools_jar_default`]). TLC is invoked as
+/// `java -cp <jar> tlc2.TLC`, so there is no PATH binary to probe. The devcontainer image sets
+/// `TLA2TOOLS_JAR` explicitly, so its baked-in jar still wins there; a natively-provisioned TLC
+/// (REQ046) lands at the default path this returns, so installer and detector agree.
 ///
-/// `// ponytail: env var + baked-in default is enough until a real subject needs a per-project
+/// `// ponytail: env var + provisioned default is enough until a real subject needs a per-project
 /// jar; move to provreq.yml config then.`
 pub fn jar_path() -> String {
-    std::env::var("TLA2TOOLS_JAR").unwrap_or_else(|_| "/opt/tlaplus/tla2tools.jar".to_string())
+    std::env::var("TLA2TOOLS_JAR").unwrap_or_else(|_| {
+        crate::provision::tla2tools_jar_default()
+            .to_string_lossy()
+            .into_owned()
+    })
 }
 
 /// Locate the subject's behaviour spec (the module defining `Spec`) so a check can be
