@@ -117,6 +117,16 @@ enum Command {
         #[arg(default_value = ".")]
         path: PathBuf,
     },
+    /// Provision a verification engine natively into your dev env (R-eng-2 install half, REQ046).
+    /// Consent-gated: without `--yes` it prints the plan and stops. Light tier only for now — TLC;
+    /// heavy-tier engines report an honest "use a devcontainer" (see docs/design-c-decision.md).
+    Install {
+        /// Which engine to install (e.g. `tlc`).
+        engine: String,
+        /// Consent to the install actions the plan describes (download + write).
+        #[arg(long)]
+        yes: bool,
+    },
     /// Produce the verdict for an admitted requirement (Step 4). Runs no engine yet —
     /// reports the honest three-valued verdict (always `unknown`) with provenance.
     Verify {
@@ -190,6 +200,7 @@ async fn main() -> Result<()> {
         }
         Command::Status { path } => run_status(&path),
         Command::Engines { path } => run_engines(&path),
+        Command::Install { engine, yes } => run_install(&engine, yes).await,
         Command::Verify {
             id,
             path,
@@ -997,6 +1008,29 @@ fn run_engines(subject: &Path) -> Result<()> {
         "\nSummary: {ready_count} engine-ready, {} blocked.",
         admitted.len() - ready_count
     );
+    Ok(())
+}
+
+/// R-eng-2 install half (REQ046): provision an engine natively, consent-gated. Only the light
+/// tier is a native install today (TLC); everything else is an honest "no native recipe — use a
+/// devcontainer" per the Design-C decision. Exits non-zero only on a genuine install failure, so
+/// an honest degradation or a consent prompt is a clean exit the operator can act on.
+async fn run_install(engine: &str, yes: bool) -> Result<()> {
+    let outcome = match engine.to_ascii_lowercase().as_str() {
+        "tlc" | "tla+" | "tla" => provreq::provision::install_tlc(yes).await?,
+        // Heavy tier / not-yet-a-target: honest, not a stub that pretends.
+        other => provreq::provision::InstallOutcome::Unsupported {
+            reason: format!(
+                "no native install recipe for '{other}' yet. The light tier (TLC) installs \
+                 natively; heavy-tier engines (Creusot/Prusti/MonPoly) are dev-container-first — \
+                 see docs/design-c-decision.md."
+            ),
+        },
+    };
+    println!("{}: {}", engine, outcome.describe());
+    if outcome.is_failure() {
+        bail!("install of '{engine}' did not complete");
+    }
     Ok(())
 }
 
