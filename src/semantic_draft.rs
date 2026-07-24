@@ -19,7 +19,7 @@
 
 use crate::contract_draft::Marker;
 use crate::llm::LlmBackend;
-use crate::rust_adapter::{fn_source_at, Resolution};
+use crate::rust_adapter::{fn_source_at, CodeMatch, Resolution};
 use anyhow::Result;
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -61,6 +61,75 @@ impl<B: LlmBackend> Drafter<B> {
         resolutions: &BTreeMap<String, Resolution>,
         sources: &BTreeMap<String, String>,
     ) -> Result<Vec<ContractDraft>> {
+        self.draft_each(resolutions, sources, |fn_src, _at| {
+            build_prompt(intent, claim, fn_src, marker)
+        })
+        .await
+    }
+
+    /// Draft contracts, then verify them against the real prover and repair on `Inconclusive`, up to
+    /// [`MAX_REPAIR_ATTEMPTS`] (mirrors [`crate::formalize::Translator::translate_gated`]). `verify`
+    /// applies the round's drafts to the subject, runs the engine, and returns whether the claim now
+    /// proves — the loop stays engine-agnostic and stub-testable because that side-effecting step is
+    /// the caller's. Each repair round re-drafts *every* predicate function with the prover's own
+    /// reason fed back, since the un-discharged obligation may implicate any of them. Returns the
+    /// final drafts with the proof step they reached, even when the budget is spent still
+    /// `Inconclusive` — the caller stages and surfaces both, never a fabricated pass.
+    pub async fn draft_repaired(
+        &self,
+        intent: &str,
+        claim: &str,
+        marker: Marker,
+        resolutions: &BTreeMap<String, Resolution>,
+        sources: &BTreeMap<String, String>,
+        mut verify: impl FnMut(&[ContractDraft]) -> Result<ProofStep>,
+    ) -> Result<RepairedDrafts> {
+        let mut drafts = self
+            .draft(intent, claim, marker, resolutions, sources)
+            .await?;
+        let mut attempts = 1;
+        loop {
+            let step = verify(&drafts)?;
+            // Nothing more to try once the claim proves, the repair budget is spent, or there are no
+            // drafts to revise (the model declined every function — repair has no lever).
+            if matches!(step, ProofStep::Proved)
+                || attempts >= MAX_REPAIR_ATTEMPTS
+                || drafts.is_empty()
+            {
+                return Ok(RepairedDrafts {
+                    drafts,
+                    attempts,
+                    step,
+                });
+            }
+            let ProofStep::Inconclusive { reason } = &step else {
+                unreachable!("Proved is handled above");
+            };
+            let previous = drafts.clone();
+            drafts = self
+                .draft_each(resolutions, sources, |fn_src, at| {
+                    let prior = previous
+                        .iter()
+                        .find(|d| d.file == at.file && d.line == at.line)
+                        .map(|d| d.clauses.as_slice())
+                        .unwrap_or(&[]);
+                    build_repair_prompt(intent, claim, fn_src, prior, reason, marker)
+                })
+                .await?;
+            attempts += 1;
+        }
+    }
+
+    /// The shared per-function draft pass: for each *distinct* resolved predicate function, extract
+    /// its source, ask the backend the prompt `make_prompt` builds for it, and keep the clauses it
+    /// proposes. Dedup, skip-on-unreadable, and skip-on-empty are identical for the initial draft and
+    /// each repair round — only the prompt differs, so it is the single point of variation.
+    async fn draft_each(
+        &self,
+        resolutions: &BTreeMap<String, Resolution>,
+        sources: &BTreeMap<String, String>,
+        make_prompt: impl Fn(&str, &CodeMatch) -> String,
+    ) -> Result<Vec<ContractDraft>> {
         let mut seen = BTreeSet::new();
         let mut drafts = Vec::new();
         for res in resolutions.values() {
@@ -73,10 +142,7 @@ impl<B: LlmBackend> Drafter<B> {
             let Some(fn_src) = sources.get(&at.file).and_then(|t| fn_source_at(t, at.line)) else {
                 continue;
             };
-            let reply = self
-                .backend
-                .complete(&build_prompt(intent, claim, &fn_src, marker))
-                .await?;
+            let reply = self.backend.complete(&make_prompt(&fn_src, at)).await?;
             let clauses = parse_clauses(&reply);
             if clauses.is_empty() {
                 continue;
@@ -90,6 +156,30 @@ impl<B: LlmBackend> Drafter<B> {
         Ok(drafts)
     }
 }
+
+/// One round of the repair loop's engine verdict: the claim proved, or it did not and the prover
+/// said why. `Inconclusive` is never a refutation (a deductive prover cannot refute — see
+/// [`crate::creusot`]); `reason` is the feedback the next re-draft targets.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ProofStep {
+    Proved,
+    Inconclusive { reason: String },
+}
+
+/// The result of [`Drafter::draft_repaired`]: the final drafts, how many draft rounds it took, and
+/// the proof step they reached. A `step` of [`ProofStep::Inconclusive`] means the budget was spent
+/// without a proof — the drafts are still staged for the operator, never passed off as proven.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RepairedDrafts {
+    pub drafts: Vec<ContractDraft>,
+    pub attempts: u32,
+    pub step: ProofStep,
+}
+
+/// Total draft rounds before the repair loop gives up: one initial draft plus up to two
+/// prover-driven repairs. Bounded so a model that cannot satisfy the prover does not loop, matching
+/// [`crate::formalize`]'s `MAX_ATTEMPTS`.
+const MAX_REPAIR_ATTEMPTS: u32 = 3;
 
 /// The verifier dialect the drafted clauses target: engine name and its contracts crate, picked
 /// from the subject's marker so the prompt names the right one (pure).
@@ -115,6 +205,46 @@ reference only the function's own parameters and `result`. If the function needs
 state its behaviour, or you cannot state one faithfully, respond with NOTHING.\n\n\
 Respond with ONLY attribute lines — one `#[requires(...)]` or `#[ensures(...)]` per line — with no \
 prose, no code fences, and no function signature.\n\n\
+Requirement (intent):\n{intent}\n\n\
+Formal claim (PRL):\n{claim}\n\n\
+Function:\n{fn_src}\n"
+    )
+}
+
+/// Build a repair prompt for one function (pure): restate the drafting task, show the clauses the
+/// previous round staged for this function, and quote the prover's own reason so the model can
+/// target it. Mirrors [`crate::formalize`]'s repair prompt — specific feedback ("the prover could
+/// not discharge …"), not "try again". `previous` may be empty (the model declined this function
+/// last round but the prover still failed, so it is invited to reconsider).
+fn build_repair_prompt(
+    intent: &str,
+    claim: &str,
+    fn_src: &str,
+    previous: &[String],
+    reason: &str,
+    marker: Marker,
+) -> String {
+    let (engine, krate) = dialect(marker);
+    let prior = if previous.is_empty() {
+        "  (no clauses were drafted for this function last round)".to_string()
+    } else {
+        previous
+            .iter()
+            .map(|c| format!("  {c}"))
+            .collect::<Vec<_>>()
+            .join("\n")
+    };
+    format!(
+        "You are drafting deductive contracts for the Rust verifier {engine} ({krate}). Given a \
+software requirement and one Rust function it is grounded to, propose that function's \
+`#[requires(...)]` and `#[ensures(...)]` clauses. Use `result` for the return value and reference \
+only the function's own parameters and `result`. If the function needs no contract to state its \
+behaviour, or you cannot state one faithfully, respond with NOTHING.\n\n\
+Your previous clauses for this function were:\n{prior}\n\n\
+{engine} ran and could not prove the requirement. It reported:\n  {reason}\n\n\
+Revise this function's contract to help the prover discharge the claim. Respond with ONLY attribute \
+lines — one `#[requires(...)]` or `#[ensures(...)]` per line — with no prose, no code fences, and no \
+function signature.\n\n\
 Requirement (intent):\n{intent}\n\n\
 Formal claim (PRL):\n{claim}\n\n\
 Function:\n{fn_src}\n"
@@ -312,5 +442,136 @@ mod tests {
              #[requires(u.valid())]\n    #[ensures(result == u.ok)]\n    fn a(u: &User) -> bool { u.ok }\n    \
              #[ensures(result)]\n    fn b() -> bool { true }\n}\n"
         );
+    }
+
+    /// A backend that returns a fixed sequence of replies (one per call) and records the prompts it
+    /// saw — enough to drive and inspect the repair loop (mirrors formalize's `SeqBackend`).
+    struct SeqBackend {
+        replies: Vec<String>,
+        calls: std::sync::Mutex<usize>,
+        prompts: std::sync::Mutex<Vec<String>>,
+    }
+    impl SeqBackend {
+        fn new(replies: &[&str]) -> Self {
+            Self {
+                replies: replies.iter().map(|s| s.to_string()).collect(),
+                calls: std::sync::Mutex::new(0),
+                prompts: std::sync::Mutex::new(Vec::new()),
+            }
+        }
+    }
+    impl LlmBackend for SeqBackend {
+        async fn complete(&self, prompt: &str) -> Result<String> {
+            self.prompts.lock().unwrap().push(prompt.to_string());
+            let mut i = self.calls.lock().unwrap();
+            let idx = (*i).min(self.replies.len() - 1);
+            *i += 1;
+            Ok(self.replies[idx].clone())
+        }
+    }
+
+    fn one_predicate() -> (BTreeMap<String, Resolution>, BTreeMap<String, String>) {
+        let res = BTreeMap::from([("logged_in".to_string(), resolved("src/lib.rs", 1))]);
+        let sources = BTreeMap::from([(
+            "src/lib.rs".to_string(),
+            "fn logged_in(u: &User) -> bool { u.active }\n".to_string(),
+        )]);
+        (res, sources)
+    }
+
+    // Verifies: REQ041 — when the first-round draft already proves, the loop stops at one attempt and
+    // never re-drafts.
+    #[tokio::test]
+    async fn repair_stops_when_first_draft_proves() {
+        let (res, sources) = one_predicate();
+        let backend = SeqBackend::new(&["#[ensures(result == u.active)]"]);
+        let drafter = Drafter::new(backend);
+        let out = drafter
+            .draft_repaired("i", "c", Marker::Logic, &res, &sources, |_| {
+                Ok(ProofStep::Proved)
+            })
+            .await
+            .unwrap();
+        assert_eq!(out.attempts, 1);
+        assert_eq!(out.step, ProofStep::Proved);
+        assert_eq!(drafter.backend.prompts.lock().unwrap().len(), 1);
+    }
+
+    // Verifies: REQ041 — an inconclusive first round is repaired; the repair prompt quotes the
+    // prover's reason and the previous clauses, and a proof on the second round stops the loop.
+    #[tokio::test]
+    async fn repair_feeds_reason_back_and_recovers() {
+        let (res, sources) = one_predicate();
+        let backend = SeqBackend::new(&["#[ensures(result)]", "#[ensures(result == u.active)]"]);
+        let drafter = Drafter::new(backend);
+        let mut round = 0;
+        let out = drafter
+            .draft_repaired("i", "c", Marker::Logic, &res, &sources, |drafts| {
+                round += 1;
+                assert_eq!(drafts.len(), 1);
+                if round == 1 {
+                    Ok(ProofStep::Inconclusive {
+                        reason: "goal add_one'post unproved".into(),
+                    })
+                } else {
+                    Ok(ProofStep::Proved)
+                }
+            })
+            .await
+            .unwrap();
+        assert_eq!(out.attempts, 2);
+        assert_eq!(out.step, ProofStep::Proved);
+        assert_eq!(
+            out.drafts[0].clauses,
+            vec!["#[ensures(result == u.active)]"]
+        );
+        let prompts = drafter.backend.prompts.lock().unwrap();
+        assert_eq!(prompts.len(), 2);
+        assert!(prompts[1].contains("could not prove"));
+        assert!(prompts[1].contains("goal add_one'post unproved"));
+        assert!(prompts[1].contains("#[ensures(result)]")); // the previous clause
+    }
+
+    // Verifies: REQ041 — repair is bounded; a claim that never proves stops after MAX_REPAIR_ATTEMPTS
+    // with the last drafts and an Inconclusive step, not an infinite loop or a fabricated pass.
+    #[tokio::test]
+    async fn repair_is_bounded() {
+        let (res, sources) = one_predicate();
+        let backend = SeqBackend::new(&["#[ensures(result)]"]);
+        let mut calls = 0;
+        let out = Drafter::new(backend)
+            .draft_repaired("i", "c", Marker::Logic, &res, &sources, |_| {
+                calls += 1;
+                Ok(ProofStep::Inconclusive {
+                    reason: "still unproved".into(),
+                })
+            })
+            .await
+            .unwrap();
+        assert_eq!(out.attempts, MAX_REPAIR_ATTEMPTS);
+        assert!(matches!(out.step, ProofStep::Inconclusive { .. }));
+        // verify ran once per attempt.
+        assert_eq!(calls, MAX_REPAIR_ATTEMPTS);
+    }
+
+    // Verifies: REQ041 — when the model declines every function, there is nothing to repair: the loop
+    // returns the (empty) drafts after one attempt rather than re-drafting into the same void.
+    #[tokio::test]
+    async fn repair_gives_up_when_nothing_drafted() {
+        let (res, sources) = one_predicate();
+        let backend = SeqBackend::new(&["NOTHING"]);
+        let mut calls = 0;
+        let out = Drafter::new(backend)
+            .draft_repaired("i", "c", Marker::Logic, &res, &sources, |_| {
+                calls += 1;
+                Ok(ProofStep::Inconclusive {
+                    reason: "unproved".into(),
+                })
+            })
+            .await
+            .unwrap();
+        assert_eq!(out.attempts, 1);
+        assert!(out.drafts.is_empty());
+        assert_eq!(calls, 1, "verify runs once, then no repair without drafts");
     }
 }

@@ -1,0 +1,33 @@
+active: true
+derived: false
+header: ''
+level: 1.4
+links: []
+normative: true
+ref: ''
+reviewed: null
+text: |
+  A drafted contract (REQ040) is only a proposal, and a proposal the prover cannot discharge is of
+  no use. The logical clauses a deductive verifier reads are not checkable by an ordinary compile —
+  only the prover itself can tell whether a drafted contract lets the requirement's claim be
+  discharged. So, on request, the tool verifies each drafted contract against the real prover and
+  repairs it from the prover's own feedback, iterating a bounded number of rounds.
+
+  Each round stages the current draft into the subject and runs the same verification the operator
+  would run by hand. When the claim is discharged, the loop stops and keeps the staged draft. When
+  it is not — which for a deductive prover is never a refutation, only a failure to decide — the
+  prover's reason is fed back to the language model, which re-drafts the predicate functions'
+  contracts to target it, and the loop tries again. The number of rounds is bounded, so a model that
+  cannot satisfy the prover does not iterate forever; when the budget is spent the last draft is kept
+  and reported as still undischarged, never passed off as proven.
+
+  A repair round re-drafts from the requirement's original source each time rather than layering onto
+  the previous round's edit, so the staged result is always exactly one round's contracts, never an
+  accumulation. The staging discipline is unchanged from REQ040: the tool writes only the subject's
+  working tree, runs no version control, and the clauses remain an untrusted proposal the operator
+  reviews — the repair loop makes the proposal more likely to hold, it does not make it trusted.
+
+  Verification is an opt-in beyond the one-shot draft, because it runs the engine and needs one
+  installed. When no engine is ready the tool does not fail: it degrades to the one-shot draft and
+  says so. Contracts on the operation a requirement constrains, rather than only its predicate
+  functions, are still out of scope — the requirement language names no such operation to bind.
