@@ -652,5 +652,10 @@ install outcome gates only its own capabilities, honestly surfaced.
   (dev-container-detected branch), chosen per subject, behind one adapter interface.
 
 > Design C supersedes A's socket/agent seam and reframes B as a strategy-select branch; if C holds,
-> A collapses into "the seamless case B never had" and B into "the Dockerfile-present case." Not yet
-> decided — pressure-test the native-provisioning cost first.
+> A collapses into "the seamless case B never had" and B into "the Dockerfile-present case."
+>
+> **Decided (pressure-test done): GO — see [design-c-decision.md](design-c-decision.md).** Native
+> provisioning is tiered: the provisioner carries the light tier (TLC, Kani) as first-class native
+> installs; the heavy tier (Creusot, Prusti, MonPoly) is dev-container-branch-first. Graceful
+> degradation is load-bearing (Kani has no Windows; opam engines are Unix-only). First code slice:
+> consent-gated native install of TLC on the current platform.
