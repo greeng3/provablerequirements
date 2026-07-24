@@ -20,6 +20,7 @@ pub mod lowering;
 pub mod prl;
 pub mod prusti;
 pub mod rust_adapter;
+pub mod semantic_draft;
 pub mod server;
 pub mod source;
 pub mod status;

@@ -445,6 +445,60 @@ fn source_line(text: &str, line: usize) -> String {
         .to_string()
 }
 
+/// The full source of the function whose signature ident sits on `line` (1-based), sliced from
+/// `text`: the signature line through the closing brace of its body. `None` when the file does not
+/// parse or no such function is found. Descends into inline `mod` and `impl` blocks, matching
+/// [`find_functions`]'s reach, so a predicate declared inside one is still extractable for the
+/// semantic contract-drafting prompt (REQ040). `line` is the same value [`CodeMatch::line`] carries,
+/// so a resolved predicate's `at.line` feeds straight in.
+pub fn fn_source_at(text: &str, line: usize) -> Option<String> {
+    let file = syn::parse_file(text).ok()?;
+    let (start, end) = find_fn_span(&file.items, line)?;
+    let lines: Vec<&str> = text.lines().collect();
+    if start == 0 || start > end || end > lines.len() {
+        return None;
+    }
+    Some(lines[start - 1..end].join("\n"))
+}
+
+/// Locate the `(start_line, end_line)` span (both 1-based) of the function whose ident is on
+/// `line`, descending into inline modules and impl blocks. The end is the line of the body's
+/// closing brace, available because proc-macro2's `span-locations` feature is on (the same feature
+/// [`found`] relies on for the start line).
+fn find_fn_span(items: &[syn::Item], line: usize) -> Option<(usize, usize)> {
+    let end_line = |sig: &syn::Signature, block: &syn::Block| {
+        (sig.ident.span().start().line == line)
+            .then(|| (line, block.brace_token.span.close().end().line))
+    };
+    for item in items {
+        match item {
+            syn::Item::Fn(f) => {
+                if let Some(span) = end_line(&f.sig, &f.block) {
+                    return Some(span);
+                }
+            }
+            syn::Item::Mod(m) => {
+                if let Some((_, inner)) = &m.content {
+                    if let Some(span) = find_fn_span(inner, line) {
+                        return Some(span);
+                    }
+                }
+            }
+            syn::Item::Impl(i) => {
+                for sub in &i.items {
+                    if let syn::ImplItem::Fn(f) = sub {
+                        if let Some(span) = end_line(&f.sig, &f.block) {
+                            return Some(span);
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -504,6 +558,32 @@ pub fn nullary() -> bool { true }\n",
             vec![ParamMode::ByRef, ParamMode::ByValue]
         );
         assert!(modes("nullary", 0).is_empty());
+    }
+
+    // Verifies: REQ040 — the fn source for a resolved predicate is sliced from the signature
+    // line through its closing brace, including a multi-line body and a fn nested in an impl.
+    #[test]
+    fn fn_source_at_extracts_the_whole_function() {
+        let src = "\
+pub fn a() -> bool { true }
+
+impl Session {
+    pub fn logged_in(&self) -> bool {
+        !self.token.is_empty()
+    }
+}
+";
+        // A one-line fn.
+        assert_eq!(fn_source_at(src, 1).unwrap(), "pub fn a() -> bool { true }");
+        // A multi-line fn inside an impl, sig line (4) through its closing brace (6).
+        let got = fn_source_at(src, 4).unwrap();
+        assert!(got.starts_with("    pub fn logged_in(&self) -> bool {"));
+        assert!(got.trim_end().ends_with("}"));
+        assert!(got.contains("!self.token.is_empty()"));
+        // A line with no fn ident returns nothing.
+        assert!(fn_source_at(src, 2).is_none());
+        // An unparseable file is honestly None, never a panic.
+        assert!(fn_source_at("fn broken( {", 1).is_none());
     }
 
     // Verifies: REQ025 — a binding to a name that is not in the subject parks the
