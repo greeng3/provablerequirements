@@ -1,0 +1,22 @@
+active: true
+derived: false
+header: ''
+level: 1.44
+links: []
+normative: true
+ref: ''
+reviewed: null
+text: |
+  A verdict records the provenance it was produced against so the living loop can tell when it has
+  gone stale: the requirement revision, the subject commit, and the tool version (REQ039). But that
+  anchor omits the formalization itself — the candidate PRL and its grounding bindings. So a verdict
+  could outlive the formal claim it checked: editing the candidate, un-admitting it, discarding the
+  draft, or re-grounding a symbol all leave the prose, code, and tool untouched, and the stored
+  verdict would still read as fresh and count as verified even though its formalization is gone.
+
+  A verdict records a fingerprint of the complete formal input it was produced against — the
+  candidate PRL together with its bindings, order-independent. Freshness compares that fingerprint
+  against the formalization currently admitted for the item: a different fingerprint, or no admitted
+  formalization at all, is drift, surfaced with its own named reason and counted with the other
+  stale verdicts. A verdict produced before this anchor existed carries no fingerprint and is never
+  flagged on this axis — staleness is only ever claimed on a basis the tool can establish.

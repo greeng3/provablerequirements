@@ -109,6 +109,49 @@ impl Draft {
     }
 }
 
+/// A fingerprint of a draft's **complete formal input** — the candidate PRL plus its grounding
+/// bindings — so a verdict can record what formalization it was produced against and later detect
+/// that the formalization moved (REQ045). `None` when there is no candidate: nothing was
+/// formalized, so there is nothing to fingerprint.
+///
+/// Order-normalized: bindings are sorted, so re-grounding the same symbols in a different sequence
+/// is not a spurious change. `DefaultHasher` has fixed keys, so the digest is stable across runs of
+/// the same build; a tool upgrade that changed the algorithm would also change `tool_version`,
+/// which already drifts every verdict — so the two never disagree.
+/// `// ponytail: DefaultHasher digest — swap for a keyed/stable hash only if verdicts must compare
+/// across tool versions, which the tool_version axis already prevents.`
+pub fn formal_fingerprint(draft: &Draft) -> Option<String> {
+    use std::hash::{Hash, Hasher};
+    let candidate = draft.candidate.as_deref()?;
+    let mut bindings: Vec<String> = draft
+        .bindings
+        .iter()
+        .map(|b| {
+            format!(
+                "{}={}|{:?}|{:?}",
+                b.symbol, b.observable, b.category, b.fidelity
+            )
+        })
+        .collect();
+    bindings.sort();
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    candidate.hash(&mut hasher);
+    bindings.hash(&mut hasher);
+    Some(format!("{:016x}", hasher.finish()))
+}
+
+/// The formal fingerprint of an item's draft **only when it is currently admitted** — what a fresh
+/// verdict must still match (REQ045). `None` when the item has no draft, is not admitted, or has no
+/// candidate: in every such case there is no live admitted formalization for a stored verdict to be
+/// about, which the verdict-freshness check reads as drift.
+pub fn admitted_fingerprint(state: &DraftState, id: &str) -> Option<String> {
+    let draft = state.drafts.get(id)?;
+    if !draft.is_admitted() {
+        return None;
+    }
+    formal_fingerprint(draft)
+}
+
 /// Persisted draft state, keyed by source id.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct DraftState {

@@ -112,9 +112,13 @@ pub fn verify(subject: &Path, id: &str) -> Result<Option<VerifyOutcome>> {
     };
     // Living loop (REQ039): the verdict becomes durable state. Persist it keyed by id — the latest
     // answer replaces any earlier one — so the backlog/detail can show it and later detect when it
-    // has drifted, without re-running an engine.
+    // has drifted, without re-running an engine. Stamp the formalization fingerprint on the stored
+    // copy (REQ045) so drift can later catch the candidate or its bindings moving — a persistence
+    // concern the in-memory verdict never carries.
+    let mut report = verdict::report(&verdict);
+    report.provenance.formalization = draft::formal_fingerprint(draft);
     let store = crate::verdict_store::load(&companion)?;
-    let recorded = crate::verdict_store::record(&store, verdict::report(&verdict));
+    let recorded = crate::verdict_store::record(&store, report);
     crate::verdict_store::save(&companion, &recorded)?;
 
     Ok(Some(VerifyOutcome::Verdict {
