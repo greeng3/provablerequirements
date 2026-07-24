@@ -1,0 +1,18 @@
+active: true
+derived: false
+header: ''
+level: 1.41
+links: []
+normative: true
+ref: ''
+reviewed: null
+text: |
+  Every LLM-backed step — bulk triage, forward-translation, and contract-drafting — makes a network
+  call to an operator-configured endpoint. That endpoint may stall: a local model that wedges, a
+  connection that drops without closing. The tool bounds each request with a timeout, so a stalled
+  endpoint fails the call loudly rather than blocking the run forever.
+
+  The timeout is configurable in the LLM block, in seconds, and defaults to a generous value when
+  omitted — long enough that a slow local model finishing a large completion is never cut off, short
+  enough that a wedged endpoint does not hang a run indefinitely. A manifest written before this
+  setting existed loads unchanged and takes the default.
