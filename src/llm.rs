@@ -38,6 +38,21 @@ pub struct LlmConfig {
     /// endpoints (Ollama). The key itself never lives in the config file.
     #[serde(default)]
     pub api_key_env: Option<String>,
+    /// Per-request timeout in seconds. Bounds a hung endpoint (a local model that
+    /// stalls) so a triage/translate/draft call fails loudly instead of blocking
+    /// forever. Defaults to [`DEFAULT_TIMEOUT_SECS`] when omitted — generous, so it
+    /// catches a true hang without cutting off legitimately-slow local generation.
+    #[serde(default = "default_timeout_secs")]
+    pub timeout_seconds: u64,
+}
+
+/// Default per-request LLM timeout: 10 minutes. Long enough that a slow local model
+/// finishing a large completion is never cut off, short enough that a wedged endpoint
+/// does not block a run indefinitely.
+pub const DEFAULT_TIMEOUT_SECS: u64 = 600;
+
+fn default_timeout_secs() -> u64 {
+    DEFAULT_TIMEOUT_SECS
 }
 
 /// Anthropic requires an explicit output cap; generous enough for a JSON array
@@ -83,10 +98,14 @@ impl HttpBackend {
                 })?),
                 None => None,
             };
+        let http = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(config.timeout_seconds))
+            .build()
+            .context("building the LLM HTTP client")?;
         Ok(Self {
             config,
             api_key,
-            http: reqwest::Client::new(),
+            http,
         })
     }
 
@@ -371,6 +390,23 @@ mod tests {
         assert_eq!(cfg.provider, Provider::OpenaiCompatible);
         assert_eq!(cfg.model, "llama3");
         assert_eq!(cfg.api_key_env, None);
+        // Omitted timeout falls back to the generous default.
+        assert_eq!(cfg.timeout_seconds, DEFAULT_TIMEOUT_SECS);
+    }
+
+    // Verifies: REQ042 — an explicit `timeout_seconds` overrides the default, and the client
+    // builds with it (a bad timeout would fail the build here).
+    #[test]
+    fn load_config_honors_explicit_timeout() {
+        let tmp = tempfile::tempdir().unwrap();
+        std::fs::write(
+            tmp.path().join(crate::adopt::MANIFEST_FILE),
+            "schema: 1\nllm:\n  provider: openai-compatible\n  base_url: http://localhost:11434/v1\n  model: m\n  timeout_seconds: 42\n",
+        )
+        .unwrap();
+        let cfg = load_config(tmp.path()).unwrap().unwrap();
+        assert_eq!(cfg.timeout_seconds, 42);
+        assert!(HttpBackend::from_config(cfg).is_ok());
     }
 
     #[test]
