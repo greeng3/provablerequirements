@@ -136,6 +136,11 @@ enum Command {
         /// provreq.yml. The clauses are an untrusted proposal — the verifier re-checks them.
         #[arg(long)]
         draft_semantic: bool,
+        /// With `--draft-semantic`, verify each drafted contract against the real prover and repair
+        /// it on the prover's feedback, up to a bounded number of rounds (REQ041). Runs the engine
+        /// (slower, needs it installed); degrades to the one-shot draft when no engine is ready.
+        #[arg(long, requires = "draft_semantic")]
+        repair: bool,
     },
 }
 
@@ -190,7 +195,8 @@ async fn main() -> Result<()> {
             path,
             draft_contracts,
             draft_semantic,
-        } => run_verify(&path, &id, draft_contracts, draft_semantic).await,
+            repair,
+        } => run_verify(&path, &id, draft_contracts, draft_semantic, repair).await,
     }
 }
 
@@ -998,6 +1004,7 @@ async fn run_verify(
     id: &str,
     draft_contracts: bool,
     draft_semantic: bool,
+    repair: bool,
 ) -> Result<()> {
     let Some(outcome) = provreq::verify::verify(subject, id)? else {
         bail!("no requirement item '{id}' in the subject");
@@ -1059,7 +1066,7 @@ async fn run_verify(
     // from the marker draft; only a grounded requirement has resolved predicates to describe.
     if draft_semantic {
         if grounded {
-            stage_semantic_drafts(subject, id, &resolutions).await?;
+            stage_semantic_drafts(subject, id, &resolutions, repair).await?;
         } else {
             println!(
                 "\n--draft-semantic: nothing to draft — {id} is not grounded, so no predicate \
@@ -1153,9 +1160,10 @@ async fn stage_semantic_drafts(
     subject: &Path,
     id: &str,
     resolutions: &BTreeMap<String, Resolution>,
+    repair: bool,
 ) -> Result<()> {
     use provreq::contract_draft::marker_for_subject;
-    use provreq::semantic_draft::{apply_to_source, Drafter};
+    use provreq::semantic_draft::{apply_to_source, ContractDraft, Drafter, ProofStep};
 
     let manifest = std::fs::read_to_string(subject.join("Cargo.toml"))
         .with_context(|| format!("reading {}", subject.join("Cargo.toml").display()))?;
@@ -1191,53 +1199,134 @@ async fn stage_semantic_drafts(
         provreq::contract_draft::Marker::Logic => "Creusot",
         provreq::contract_draft::Marker::Pure => "Prusti",
     };
+    let mode = if repair {
+        "verify-and-repair"
+    } else {
+        "one-shot draft"
+    };
     println!(
-        "\n--draft-semantic: drafting {engine} contracts for {id} with {} via {} …",
+        "\n--draft-semantic ({mode}): drafting {engine} contracts for {id} with {} via {} …",
         config.model, config.base_url
     );
     let drafter = Drafter::new(provreq::llm::HttpBackend::from_config(config)?);
-    let drafts = drafter
-        .draft(&intent, &claim, marker, resolutions, &sources)
-        .await?;
+
+    // Stage a draft set FRESH from the original sources: every predicate file is rewritten from its
+    // original text plus that round's clauses, so a repair round never stacks on a prior round's edit
+    // and an undrafted file is restored to original. Runs no git.
+    let stage = |drafts: &[ContractDraft]| -> Result<()> {
+        let mut by_file: BTreeMap<&str, Vec<ContractDraft>> = BTreeMap::new();
+        for d in drafts {
+            by_file.entry(d.file.as_str()).or_default().push(d.clone());
+        }
+        for (file, original) in &sources {
+            let file_drafts = by_file.get(file.as_str()).cloned().unwrap_or_default();
+            let edited = apply_to_source(original, &file_drafts);
+            std::fs::write(subject.join(file), edited).with_context(|| {
+                format!(
+                    "staging contract draft into {}",
+                    subject.join(file).display()
+                )
+            })?;
+        }
+        Ok(())
+    };
+
+    if repair {
+        // The prover is the gate: stage this round's drafts, re-run the ensemble on the changed
+        // working tree (`verify::verify` re-reads everything), and report whether the claim now
+        // proves. The loop's repair logic lives in the Drafter; this closure is the side-effecting
+        // half. ponytail: each round re-persists a verdict via verify::verify — the final one wins.
+        let verify_round = |drafts: &[ContractDraft]| -> Result<ProofStep> {
+            stage(drafts)?;
+            match provreq::verify::verify(subject, id)? {
+                Some(VerifyOutcome::Verdict { verdict, .. }) => Ok(verdict_to_proof_step(&verdict)),
+                other => Ok(ProofStep::Inconclusive {
+                    reason: format!("re-verify produced no verdict ({other:?})"),
+                }),
+            }
+        };
+        let out = drafter
+            .draft_repaired(&intent, &claim, marker, resolutions, &sources, verify_round)
+            .await?;
+        report_semantic_drafts(id, &out.drafts, Some((out.attempts, &out.step)));
+    } else {
+        let drafts = drafter
+            .draft(&intent, &claim, marker, resolutions, &sources)
+            .await?;
+        stage(&drafts)?;
+        report_semantic_drafts(id, &drafts, None);
+    }
+    Ok(())
+}
+
+/// Map a re-verification's [`provreq::verdict::Verdict`] into the repair loop's [`ProofStep`]: the
+/// claim proved when any engine established a `holds`, else inconclusive carrying the engines' own
+/// reasons as the feedback the next re-draft targets.
+fn verdict_to_proof_step(
+    verdict: &provreq::verdict::Verdict,
+) -> provreq::semantic_draft::ProofStep {
+    use provreq::semantic_draft::ProofStep;
+    use provreq::verdict::Status;
+    if verdict.evidence.iter().any(|e| e.status == Status::Holds) {
+        return ProofStep::Proved;
+    }
+    let reason = verdict
+        .evidence
+        .iter()
+        .flat_map(|e| e.detail.iter().cloned())
+        .collect::<Vec<_>>()
+        .join("; ");
+    ProofStep::Inconclusive {
+        reason: if reason.is_empty() {
+            "the prover did not discharge the claim".to_string()
+        } else {
+            reason
+        },
+    }
+}
+
+/// Print the staged semantic drafts and, in repair mode, the proof step they reached. The A6/D12
+/// note holds either way: the staged clauses are an untrusted proposal the operator reviews.
+fn report_semantic_drafts(
+    id: &str,
+    drafts: &[provreq::semantic_draft::ContractDraft],
+    repair: Option<(u32, &provreq::semantic_draft::ProofStep)>,
+) {
+    use provreq::semantic_draft::ProofStep;
     if drafts.is_empty() {
         println!(
             "--draft-semantic: the model proposed no contracts for {id}'s predicates — nothing \
              staged (a function it cannot faithfully contract is left untouched, not guessed)."
         );
-        return Ok(());
+        return;
     }
-
-    // Group by file, apply the ordered clause block, and write the edited source back.
-    let mut by_file: BTreeMap<String, Vec<_>> = BTreeMap::new();
-    for d in &drafts {
-        by_file.entry(d.file.clone()).or_default().push(d.clone());
-    }
-    for (file, file_drafts) in &by_file {
-        let edited = apply_to_source(&sources[file], file_drafts);
-        std::fs::write(subject.join(file), edited).with_context(|| {
-            format!(
-                "staging contract draft into {}",
-                subject.join(file).display()
-            )
-        })?;
-    }
-
     let total: usize = drafts.iter().map(|d| d.clauses.len()).sum();
     println!(
         "--draft-semantic: staged {total} contract clause(s) across {} function(s) for review:",
         drafts.len()
     );
-    for d in &drafts {
+    for d in drafts {
         println!("  {}:{}", d.file, d.line);
         for c in &d.clauses {
             println!("    + {c}");
         }
     }
+    if let Some((attempts, step)) = repair {
+        match step {
+            ProofStep::Proved => println!(
+                "  ✓ the prover discharged the claim after {attempts} draft round(s) — these clauses \
+                 are proof-carrying (still review the diff before keeping them)."
+            ),
+            ProofStep::Inconclusive { reason } => println!(
+                "  ! after {attempts} round(s) the prover still could not discharge the claim \
+                 ({reason}); the drafts are staged for you to refine."
+            ),
+        }
+    }
     println!(
         "  Review the working-tree diff and re-run `verify` — the tool staged an uncommitted edit \
-         and ran no git; these clauses are an untrusted proposal the verifier must re-check."
+         and ran no git; these clauses are an untrusted proposal the verifier re-checks."
     );
-    Ok(())
 }
 
 fn run_init(subject: &Path, name: Option<&str>, yes: bool) -> Result<()> {
@@ -1282,4 +1371,51 @@ fn confirm(prompt: &str) -> Result<bool> {
         line.trim().to_ascii_lowercase().as_str(),
         "y" | "yes"
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use provreq::semantic_draft::ProofStep;
+    use provreq::verdict::{aggregate, Basis, Evidence, Provenance};
+
+    fn prov() -> Provenance {
+        Provenance {
+            requirement_revision: "r".into(),
+            subject_commit: None,
+            tool_version: "t".into(),
+        }
+    }
+
+    // Verifies: REQ041 — a re-verification where any engine established a `holds` maps to Proved, so
+    // the repair loop stops.
+    #[test]
+    fn proof_step_is_proved_when_an_engine_holds() {
+        let v = aggregate(
+            "REQ001",
+            vec![Evidence::holds("Creusot", Basis::Proven)],
+            prov(),
+        );
+        assert_eq!(verdict_to_proof_step(&v), ProofStep::Proved);
+    }
+
+    // Verifies: REQ041 — an all-inconclusive verdict maps to Inconclusive carrying the engines' own
+    // reasons, which is the feedback the next re-draft targets.
+    #[test]
+    fn proof_step_carries_reasons_when_inconclusive() {
+        let v = aggregate(
+            "REQ001",
+            vec![Evidence::inconclusive(
+                "Creusot",
+                vec!["goal foo'post unproved".into()],
+            )],
+            prov(),
+        );
+        match verdict_to_proof_step(&v) {
+            ProofStep::Inconclusive { reason } => {
+                assert!(reason.contains("goal foo'post unproved"))
+            }
+            other => panic!("expected inconclusive, got {other:?}"),
+        }
+    }
 }
