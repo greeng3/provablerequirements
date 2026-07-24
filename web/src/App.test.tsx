@@ -226,6 +226,46 @@ test("clicking Verify runs the ensemble and renders the verdict with per-engine 
   expect(within(dialog).getByText("harness would not compile")).toBeInTheDocument();
 });
 
+test("'Re-verify all stale' re-runs each drifted item then refreshes the funnel (REQ044)", async () => {
+  const user = userEvent.setup();
+  // The settled backlog the refresh returns: REQ003's verdict is fresh again, stale count is 0.
+  const AFTER: Backlog = {
+    ...SAMPLE,
+    coverage: { ...SAMPLE.coverage, stale: 0, verified: 1 },
+    items: SAMPLE.items.map((i) =>
+      i.id === "REQ003" && i.verdict
+        ? { ...i, verdict: { ...i.verdict, fresh: true, stale_reasons: [] } }
+        : i,
+    ),
+  };
+  const verified: string[] = [];
+  let listCalls = 0;
+  vi.spyOn(globalThis, "fetch").mockImplementation((input, init) => {
+    const url = typeof input === "string" ? input : (input as Request).url ?? String(input);
+    const method = (init?.method ?? "GET").toUpperCase();
+    if (url.endsWith("/verify") && method === "POST") {
+      const id = url.match(/requirements\/(.+)\/verify$/)![1];
+      verified.push(decodeURIComponent(id));
+      return Promise.resolve(json({ state: "verdict", stale: false, verdict: {} }));
+    }
+    // The list GET: stale before the sweep, settled after it.
+    listCalls += 1;
+    return Promise.resolve(json(listCalls === 1 ? SAMPLE : AFTER));
+  });
+  render(<App />);
+
+  await user.click(await screen.findByRole("button", { name: /re-verify all stale \(1\)/i }));
+
+  // Only REQ003 — the sole drifted item — is re-run; REQ001's fresh holds is left alone.
+  await waitFor(() => expect(verified).toEqual(["REQ003"]));
+  // After the refresh the funnel settled, so the action is gone.
+  await waitFor(() =>
+    expect(
+      screen.queryByRole("button", { name: /re-verify all stale/i }),
+    ).not.toBeInTheDocument(),
+  );
+});
+
 test("a failed triage write rolls back and surfaces an error", async () => {
   const user = userEvent.setup();
   vi.spyOn(globalThis, "fetch").mockImplementation((input) => {

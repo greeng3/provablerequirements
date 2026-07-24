@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import * as Tabs from "@radix-ui/react-tabs";
-import { fetchBacklog, setTriage } from "./api";
+import { fetchBacklog, setTriage, verifyRequirement } from "./api";
 import type { Backlog, Classification, ItemState } from "./types";
 import { CoverageBar } from "./components/CoverageBar";
 import { RequirementsTable } from "./components/RequirementsTable";
@@ -76,6 +76,7 @@ function Backlog({ backlog }: { backlog: Backlog }) {
   const [filter, setFilter] = useState("all");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [reverifying, setReverifying] = useState<{ done: number; total: number } | null>(null);
   const active = FILTERS.find((f) => f.key === filter) ?? FILTERS[0];
   const shown = data.items.filter(active.match);
 
@@ -96,6 +97,37 @@ function Backlog({ backlog }: { backlog: Backlog }) {
     }
   }
 
+  // Re-verify every drifted verdict, then refresh the funnel so the counts settle (REQ044). The
+  // stale set is read straight off the backlog the server already computed — a fresh verdict is
+  // never re-run. One item's failure never aborts the rest; all are surfaced together at the end.
+  async function handleReverifyStale() {
+    const staleIds = data.items.filter((i) => i.verdict && !i.verdict.fresh).map((i) => i.id);
+    if (staleIds.length === 0) return;
+    setError(null);
+    setReverifying({ done: 0, total: staleIds.length });
+    const failures: string[] = [];
+    // ponytail: sequential — each verify runs the heavy prover ensemble server-side; firing them
+    // in parallel would thrash CPU on a single-operator loopback tool. Parallelize only if a real
+    // backlog makes this slow.
+    for (const id of staleIds) {
+      try {
+        await verifyRequirement(id);
+      } catch (err: unknown) {
+        failures.push(`${id}: ${err instanceof Error ? err.message : String(err)}`);
+      }
+      setReverifying((r) => (r ? { ...r, done: r.done + 1 } : r));
+    }
+    try {
+      setData(await fetchBacklog());
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+    setReverifying(null);
+    if (failures.length > 0) {
+      setError(`Some re-verifications failed — ${failures.join("; ")}`);
+    }
+  }
+
   return (
     <div className="flex flex-col gap-8">
       {error && (
@@ -105,6 +137,23 @@ function Backlog({ backlog }: { backlog: Backlog }) {
       )}
       <div className="rounded-xl border border-border bg-surface p-5 shadow-sm">
         <CoverageBar coverage={data.coverage} />
+        {data.coverage.stale > 0 && (
+          <div className="mt-4 flex flex-wrap items-center gap-3 border-t border-border pt-4">
+            <button
+              type="button"
+              onClick={handleReverifyStale}
+              disabled={reverifying !== null}
+              className="rounded-md border border-warn/40 bg-warn/10 px-3 py-1 text-sm font-medium text-warn hover:bg-warn/20 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {reverifying
+                ? `Re-verifying ${reverifying.done}/${reverifying.total}…`
+                : `Re-verify all stale (${data.coverage.stale})`}
+            </button>
+            <span className="text-xs text-muted">
+              Re-runs the engines on every drifted verdict.
+            </span>
+          </div>
+        )}
       </div>
 
       <Tabs.Root value={filter} onValueChange={setFilter}>
