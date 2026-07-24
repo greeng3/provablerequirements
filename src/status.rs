@@ -67,7 +67,7 @@ pub fn coverage(
             Some(_) => cov.drafting += 1,
             None => {}
         }
-        if let Some(view) = verdict_view(item, verdicts, anchor) {
+        if let Some(view) = verdict_view(item, drafts, verdicts, anchor) {
             if !view.fresh {
                 cov.stale += 1;
             } else if view.status == "holds" {
@@ -80,11 +80,19 @@ pub fn coverage(
 
 /// The stored verdict for one item paired with its freshness against `anchor`, or `None` when the
 /// item has never been verified. The single seam both the funnel and the per-item row read through.
-fn verdict_view(item: &Item, verdicts: &VerdictStore, anchor: &DriftAnchor) -> Option<VerdictView> {
+/// Reads the item's *currently admitted* formalization fingerprint from `drafts` so a verdict that
+/// no longer matches the live formal input is seen as drifted (REQ045).
+fn verdict_view(
+    item: &Item,
+    drafts: &DraftState,
+    verdicts: &VerdictStore,
+    anchor: &DriftAnchor,
+) -> Option<VerdictView> {
+    let formalization = crate::draft::admitted_fingerprint(drafts, &item.id);
     verdicts
         .verdicts
         .get(&item.id)
-        .map(|stored| verdict_store::view(stored, &item.revision, anchor))
+        .map(|stored| verdict_store::view(stored, &item.revision, formalization.as_deref(), anchor))
 }
 
 /// Where one item's formalization sits (Step 3): no draft, an in-progress draft, or an admitted
@@ -136,7 +144,7 @@ pub fn backlog(
                 text: item.text.clone(),
                 classification: triage.items.get(&item.id).map(|e| e.classification),
                 formalization,
-                verdict: verdict_view(item, verdicts, anchor),
+                verdict: verdict_view(item, drafts, verdicts, anchor),
             }
         })
         .collect()
@@ -181,6 +189,7 @@ mod tests {
                 requirement_revision: revision.into(),
                 subject_commit: Some("head".into()),
                 tool_version: "0.0.1".into(),
+                formalization: None,
             },
         }
     }
@@ -291,6 +300,67 @@ mod tests {
         let b = rows[1].verdict.as_ref().expect("B has a stored verdict");
         assert!(!b.fresh, "B's prose moved");
         assert!(b.stale_reasons.iter().any(|r| r.contains("prose moved")));
+    }
+
+    // Verifies: REQ045 — a verdict verified against an admitted candidate drops out of `verified`
+    // (into `stale`) once that candidate is edited, even though prose/code/tool never moved. Drives
+    // the whole seam: coverage reads the item's live admitted fingerprint from the draft state.
+    #[test]
+    fn editing_the_admitted_candidate_drifts_its_verdict() {
+        let it = item("A");
+        let drafted = draft::set_candidate(
+            &DraftState::new(),
+            &it,
+            "requirement r { category: 1 }",
+            draft::GateStatus::Ungated,
+        );
+        let admitted = draft::admit(&drafted, "A", draft::ReviewTier::Optional, "gg", 1);
+        let fp = draft::formal_fingerprint(&admitted.drafts["A"]).unwrap();
+
+        // A holds verdict pinned to that exact formalization; every other axis is current.
+        let mut v = holds_verdict("A", "A");
+        v.provenance.formalization = Some(fp);
+        let verdicts = store(vec![v]);
+
+        // While the same candidate is admitted, the verdict is fresh and counts as verified.
+        let cov = coverage(
+            std::slice::from_ref(&it),
+            &TriageState::new(),
+            &admitted,
+            &verdicts,
+            &anchor(),
+        );
+        assert_eq!(cov.verified, 1);
+        assert_eq!(cov.stale, 0);
+
+        // Editing the candidate re-baselines the draft to pending — no live admitted formalization —
+        // so the verdict is now about a formalization that is gone: it drifts.
+        let edited = draft::set_candidate(
+            &admitted,
+            &it,
+            "requirement r { category: 2 }",
+            draft::GateStatus::Ungated,
+        );
+        let cov = coverage(
+            std::slice::from_ref(&it),
+            &TriageState::new(),
+            &edited,
+            &verdicts,
+            &anchor(),
+        );
+        assert_eq!(
+            cov.verified, 0,
+            "the edited item is no longer known to hold"
+        );
+        assert_eq!(cov.stale, 1, "its stale verdict is now re-verify work");
+
+        let rows = backlog(&[it], &TriageState::new(), &edited, &verdicts, &anchor());
+        let row = rows[0].verdict.as_ref().unwrap();
+        assert!(!row.fresh);
+        assert!(row
+            .stale_reasons
+            .iter()
+            .any(|r| r.contains("no longer admitted")));
     }
 
     // Verifies: REQ043 — a drifted verdict is stale regardless of polarity: a fresh `fails` is a

@@ -216,10 +216,13 @@ fn load_detail(
     // Living loop (REQ039): the last stored verdict + whether it has drifted since it was produced.
     let anchor =
         crate::verdict_store::DriftAnchor::current(crate::verify::subject_head_commit(subject));
+    let formalization = crate::draft::admitted_fingerprint(&drafts, id);
     let verdict = crate::verdict_store::load(&companion)?
         .verdicts
         .get(id)
-        .map(|stored| crate::verdict_store::view(stored, &item.revision, &anchor));
+        .map(|stored| {
+            crate::verdict_store::view(stored, &item.revision, formalization.as_deref(), &anchor)
+        });
     Ok(Some(crate::detail::Detail {
         grounding,
         verdict,

@@ -97,9 +97,19 @@ pub struct VerdictView {
 }
 
 /// Pair a stored verdict with its freshness against the current world. Pure over the stored
-/// verdict, the item's current revision, and the [`DriftAnchor`] — no filesystem, so it is testable
-/// without a subject. A verdict is stale when any provenance axis it was produced against has moved.
-pub fn view(stored: &VerdictReport, current_revision: &str, anchor: &DriftAnchor) -> VerdictView {
+/// verdict, the item's current revision, the current admitted formalization fingerprint, and the
+/// [`DriftAnchor`] — no filesystem, so it is testable without a subject. A verdict is stale when any
+/// provenance axis it was produced against has moved.
+///
+/// `current_formalization` is the fingerprint of the item's *currently admitted* formal input
+/// ([`crate::draft::admitted_fingerprint`]) — `None` when nothing is admitted for it right now
+/// (edited back to pending, un-admitted, or discarded), which is itself drift for a stored verdict.
+pub fn view(
+    stored: &VerdictReport,
+    current_revision: &str,
+    current_formalization: Option<&str>,
+    anchor: &DriftAnchor,
+) -> VerdictView {
     let mut stale_reasons = Vec::new();
 
     if stored.provenance.requirement_revision != current_revision {
@@ -107,6 +117,25 @@ pub fn view(stored: &VerdictReport, current_revision: &str, anchor: &DriftAnchor
             "the requirement prose moved since this verdict — re-verify against the current text"
                 .to_string(),
         );
+    }
+
+    // Formalization drift (REQ045): the verdict is only about the exact candidate + bindings it was
+    // produced against. A verdict from before this axis existed (`formalization: None`) can't be
+    // checked, so it is left alone — never flagged on a basis we cannot establish.
+    if let Some(was) = &stored.provenance.formalization {
+        match current_formalization {
+            Some(now) if now != was => stale_reasons.push(
+                "the formalization changed since this verdict (the candidate PRL or its bindings \
+                 moved) — re-verify against the current draft"
+                    .to_string(),
+            ),
+            None => stale_reasons.push(
+                "the formalization this verdict checked is no longer admitted (edited, \
+                 un-admitted, or discarded) — re-verify"
+                    .to_string(),
+            ),
+            _ => {}
+        }
     }
 
     match (&stored.provenance.subject_commit, &anchor.subject_commit) {
@@ -158,6 +187,7 @@ mod tests {
                 requirement_revision: revision.into(),
                 subject_commit: commit.map(str::to_string),
                 tool_version: tool.into(),
+                formalization: None,
             },
         }
     }
@@ -170,7 +200,7 @@ mod tests {
             subject_commit: Some("abc".into()),
             tool_version: "0.0.1".into(),
         };
-        let view = view(&v, "r1", &anchor);
+        let view = view(&v, "r1", None, &anchor);
         assert!(view.fresh);
         assert!(view.stale_reasons.is_empty());
     }
@@ -184,7 +214,7 @@ mod tests {
             subject_commit: Some("def".into()),
             tool_version: "0.0.2".into(),
         };
-        let view = view(&v, "r2", &anchor);
+        let view = view(&v, "r2", None, &anchor);
         assert!(!view.fresh);
         assert_eq!(view.stale_reasons.len(), 3, "prose + code + tool all moved");
         assert!(view.stale_reasons.iter().any(|r| r.contains("prose moved")));
@@ -193,6 +223,63 @@ mod tests {
             .stale_reasons
             .iter()
             .any(|r| r.contains("0.0.1 → 0.0.2")));
+    }
+
+    /// A verdict pinned to a formalization fingerprint (REQ045), everything else current.
+    fn formalized(fingerprint: &str) -> VerdictReport {
+        let mut v = stored("r1", Some("abc"), "0.0.1");
+        v.provenance.formalization = Some(fingerprint.into());
+        v
+    }
+
+    fn fresh_anchor() -> DriftAnchor {
+        DriftAnchor {
+            subject_commit: Some("abc".into()),
+            tool_version: "0.0.1".into(),
+        }
+    }
+
+    // Verifies: REQ045 — a verdict stays fresh only while its formalization fingerprint still
+    // matches the currently admitted one; a changed fingerprint drifts it, on that axis alone.
+    #[test]
+    fn formalization_change_drifts_the_verdict() {
+        let v = formalized("fp-1");
+        // Same fingerprint still admitted → fresh (no other axis moved).
+        let same = view(&v, "r1", Some("fp-1"), &fresh_anchor());
+        assert!(
+            same.fresh,
+            "unchanged formalization is fresh: {:?}",
+            same.stale_reasons
+        );
+
+        // The candidate or its bindings moved → a single formalization-drift reason.
+        let changed = view(&v, "r1", Some("fp-2"), &fresh_anchor());
+        assert!(!changed.fresh);
+        assert_eq!(changed.stale_reasons.len(), 1);
+        assert!(changed.stale_reasons[0].contains("formalization changed"));
+    }
+
+    // Verifies: REQ045 — a verdict whose formalization is no longer admitted (edited back to
+    // pending, un-admitted, or discarded) is stale, naming that as the reason.
+    #[test]
+    fn no_admitted_formalization_drifts_the_verdict() {
+        let v = formalized("fp-1");
+        let orphaned = view(&v, "r1", None, &fresh_anchor());
+        assert!(!orphaned.fresh);
+        assert_eq!(orphaned.stale_reasons.len(), 1);
+        assert!(orphaned.stale_reasons[0].contains("no longer admitted"));
+    }
+
+    // Verifies: REQ045 — a verdict from before this axis existed (`formalization: None`) is never
+    // flagged on the formalization axis: drift is only claimed on a basis we can establish.
+    #[test]
+    fn pre_axis_verdict_is_not_flagged_on_formalization() {
+        let v = stored("r1", Some("abc"), "0.0.1"); // formalization: None
+        let view = view(&v, "r1", Some("fp-current"), &fresh_anchor());
+        assert!(
+            view.fresh,
+            "a pre-REQ045 verdict skips the formalization axis"
+        );
     }
 
     // Verifies: REQ039 — recording a verdict then loading round-trips it, and a re-verify replaces

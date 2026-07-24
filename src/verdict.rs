@@ -389,6 +389,10 @@ pub struct ProvenanceReport {
     pub requirement_revision: String,
     pub subject_commit: Option<String>,
     pub tool_version: String,
+    /// The formalization fingerprint (REQ045). `#[serde(default)]` so a verdict persisted before
+    /// this field existed loads as `None` and simply skips the formalization drift axis.
+    #[serde(default)]
+    pub formalization: Option<String>,
 }
 
 /// A JSON-serializable view of a [`Verdict`] for the web surface (REQ038). The domain types are
@@ -431,6 +435,10 @@ pub fn report(v: &Verdict) -> VerdictReport {
             requirement_revision: v.provenance.requirement_revision.clone(),
             subject_commit: v.provenance.subject_commit.clone(),
             tool_version: v.provenance.tool_version.clone(),
+            // The formalization fingerprint is a persistence concern, not part of the in-memory
+            // verdict's identity — the verify flow stamps it on the stored copy (REQ045). A live
+            // (unpersisted) report carries none; nothing reads it off the wire.
+            formalization: None,
         },
     }
 }
