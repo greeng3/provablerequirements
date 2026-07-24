@@ -38,6 +38,7 @@ const SAMPLE: Backlog = {
     drafting: 1,
     formalized: 0,
     verified: 0,
+    stale: 1,
   },
   items: [
     { id: "REQ001", title: "Login invariant", text: "prose", classification: "formalizable-now", formalization: "drafting", verdict: { status: "holds", basis: "proven", reason: null, fresh: true, stale_reasons: [] } },
@@ -59,6 +60,9 @@ test("renders the coverage funnel and one row per requirement", async () => {
   expect(screen.getByText("REQ003")).toBeInTheDocument();
   // Coverage summary reflects the payload.
   expect(screen.getByText("3 discovered")).toBeInTheDocument();
+  // The living-loop re-verify tally is surfaced as its own funnel stat (REQ043).
+  const staleStat = screen.getByText("stale").closest("div");
+  expect(within(staleStat as HTMLElement).getByText("1")).toBeInTheDocument();
 });
 
 test("the funnel tabs filter the list", async () => {
