@@ -130,6 +130,12 @@ enum Command {
         /// commits; the tool proposes, the operator reviews the diff and the verifier re-checks.
         #[arg(long)]
         draft_contracts: bool,
+        /// Ask the configured LLM to draft `#[requires]`/`#[ensures]` clauses onto the resolved
+        /// predicate fns and stage them as an uncommitted working-tree edit (A6, REQ040). Opt-in
+        /// and separate from `--draft-contracts`; the two compose. Requires an `llm:` block in
+        /// provreq.yml. The clauses are an untrusted proposal — the verifier re-checks them.
+        #[arg(long)]
+        draft_semantic: bool,
     },
 }
 
@@ -183,7 +189,8 @@ async fn main() -> Result<()> {
             id,
             path,
             draft_contracts,
-        } => run_verify(&path, &id, draft_contracts),
+            draft_semantic,
+        } => run_verify(&path, &id, draft_contracts, draft_semantic).await,
     }
 }
 
@@ -986,7 +993,12 @@ fn run_engines(subject: &Path) -> Result<()> {
 /// live category-1 grounding dry-run, pins provenance, and renders the verdict. Runs no
 /// engine yet, so the verdict is always `unknown` (no-engine when grounded,
 /// missing-grounding when not).
-fn run_verify(subject: &Path, id: &str, draft_contracts: bool) -> Result<()> {
+async fn run_verify(
+    subject: &Path,
+    id: &str,
+    draft_contracts: bool,
+    draft_semantic: bool,
+) -> Result<()> {
     let Some(outcome) = provreq::verify::verify(subject, id)? else {
         bail!("no requirement item '{id}' in the subject");
     };
@@ -1042,6 +1054,19 @@ fn run_verify(subject: &Path, id: &str, draft_contracts: bool) -> Result<()> {
             );
         }
     }
+    // A6 semantic contract-drafting channel (REQ040): on request, ask the LLM to draft
+    // `#[requires]`/`#[ensures]` clauses onto the same resolved predicate fns. Opt-in and separate
+    // from the marker draft; only a grounded requirement has resolved predicates to describe.
+    if draft_semantic {
+        if grounded {
+            stage_semantic_drafts(subject, id, &resolutions).await?;
+        } else {
+            println!(
+                "\n--draft-semantic: nothing to draft — {id} is not grounded, so no predicate \
+                 resolves to a function to contract."
+            );
+        }
+    }
     Ok(())
 }
 
@@ -1062,18 +1087,7 @@ fn stage_marker_drafts(subject: &Path, resolutions: &BTreeMap<String, Resolution
         return Ok(());
     };
 
-    // Load every file a resolved predicate lives in, so the planner can skip already-marked fns.
-    let mut sources: BTreeMap<String, String> = BTreeMap::new();
-    for res in resolutions.values() {
-        if let Resolution::Resolved { at, .. } = res {
-            if !sources.contains_key(&at.file) {
-                let text = std::fs::read_to_string(subject.join(&at.file))
-                    .with_context(|| format!("reading {}", subject.join(&at.file).display()))?;
-                sources.insert(at.file.clone(), text);
-            }
-        }
-    }
-
+    let sources = load_predicate_sources(subject, resolutions)?;
     let drafts = plan_markers(resolutions, marker, &sources);
     if drafts.is_empty() {
         println!(
@@ -1107,6 +1121,121 @@ fn stage_marker_drafts(subject: &Path, resolutions: &BTreeMap<String, Resolution
     println!(
         "  Review the working-tree diff and re-run `verify` — the tool staged an uncommitted edit \
          and ran no git; the draft is a proposal the verifier must re-check."
+    );
+    Ok(())
+}
+
+/// Load the full text of every file a resolved predicate lives in, keyed by subject-relative path.
+/// Shared by the marker and semantic draft stagers so both read the subject's source the same way.
+fn load_predicate_sources(
+    subject: &Path,
+    resolutions: &BTreeMap<String, Resolution>,
+) -> Result<BTreeMap<String, String>> {
+    let mut sources: BTreeMap<String, String> = BTreeMap::new();
+    for res in resolutions.values() {
+        if let Resolution::Resolved { at, .. } = res {
+            if !sources.contains_key(&at.file) {
+                let text = std::fs::read_to_string(subject.join(&at.file))
+                    .with_context(|| format!("reading {}", subject.join(&at.file).display()))?;
+                sources.insert(at.file.clone(), text);
+            }
+        }
+    }
+    Ok(sources)
+}
+
+/// Ask the configured LLM to draft `#[requires]`/`#[ensures]` clauses onto each resolved predicate
+/// fn and stage them into the subject's working tree (REQ040). Reads the target dialect from the
+/// subject's manifest (Creusot vs Prusti) and the requirement's intent + formal claim from its
+/// draft, then writes the edits back as uncommitted changes for review. Runs no git; the clauses
+/// are an untrusted proposal the verifier re-checks.
+async fn stage_semantic_drafts(
+    subject: &Path,
+    id: &str,
+    resolutions: &BTreeMap<String, Resolution>,
+) -> Result<()> {
+    use provreq::contract_draft::marker_for_subject;
+    use provreq::semantic_draft::{apply_to_source, Drafter};
+
+    let manifest = std::fs::read_to_string(subject.join("Cargo.toml"))
+        .with_context(|| format!("reading {}", subject.join("Cargo.toml").display()))?;
+    let Some(marker) = marker_for_subject(&manifest) else {
+        println!(
+            "\n--draft-semantic: the subject depends on neither creusot-contracts nor \
+             prusti-contracts, so there is no verifier dialect to draft contracts in — add a \
+             contracts crate first (this is REQ032's missing-dependency inconclusive)."
+        );
+        return Ok(());
+    };
+
+    // The requirement's intent (prose) and formal claim (PRL candidate) give the model context. Both
+    // come from the admitted draft the verify run already read — reload them cheaply here rather than
+    // widen the shared verify outcome with CLI-only fields.
+    let (companion, items) = provreq::adopt::resolve(subject)?;
+    let config = provreq::llm::load_config(&companion)?.context(
+        "no `llm:` block in provreq.yml — configure a provider to use `verify --draft-semantic`",
+    )?;
+    let intent = items
+        .iter()
+        .find(|i| i.id == id)
+        .map(|i| i.text.clone())
+        .unwrap_or_default();
+    let claim = provreq::draft::load(&companion)?
+        .drafts
+        .get(id)
+        .and_then(|d| d.candidate.clone())
+        .unwrap_or_default();
+
+    let sources = load_predicate_sources(subject, resolutions)?;
+    let engine = match marker {
+        provreq::contract_draft::Marker::Logic => "Creusot",
+        provreq::contract_draft::Marker::Pure => "Prusti",
+    };
+    println!(
+        "\n--draft-semantic: drafting {engine} contracts for {id} with {} via {} …",
+        config.model, config.base_url
+    );
+    let drafter = Drafter::new(provreq::llm::HttpBackend::from_config(config)?);
+    let drafts = drafter
+        .draft(&intent, &claim, marker, resolutions, &sources)
+        .await?;
+    if drafts.is_empty() {
+        println!(
+            "--draft-semantic: the model proposed no contracts for {id}'s predicates — nothing \
+             staged (a function it cannot faithfully contract is left untouched, not guessed)."
+        );
+        return Ok(());
+    }
+
+    // Group by file, apply the ordered clause block, and write the edited source back.
+    let mut by_file: BTreeMap<String, Vec<_>> = BTreeMap::new();
+    for d in &drafts {
+        by_file.entry(d.file.clone()).or_default().push(d.clone());
+    }
+    for (file, file_drafts) in &by_file {
+        let edited = apply_to_source(&sources[file], file_drafts);
+        std::fs::write(subject.join(file), edited).with_context(|| {
+            format!(
+                "staging contract draft into {}",
+                subject.join(file).display()
+            )
+        })?;
+    }
+
+    let total: usize = drafts.iter().map(|d| d.clauses.len()).sum();
+    println!(
+        "--draft-semantic: staged {total} contract clause(s) across {} function(s) for review:",
+        drafts.len()
+    );
+    for d in &drafts {
+        println!("  {}:{}", d.file, d.line);
+        for c in &d.clauses {
+            println!("    + {c}");
+        }
+    }
+    println!(
+        "  Review the working-tree diff and re-run `verify` — the tool staged an uncommitted edit \
+         and ran no git; these clauses are an untrusted proposal the verifier must re-check."
     );
     Ok(())
 }

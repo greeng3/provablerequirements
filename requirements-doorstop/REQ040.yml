@@ -1,0 +1,34 @@
+active: true
+derived: false
+header: ''
+level: 1.39
+links: []
+normative: true
+ref: ''
+reviewed: null
+text: |
+  Marking a predicate function transparent to the prover (REQ033) lets a deductive engine read
+  inside it, but transparency alone does not state what the function guarantees. A deductive engine
+  reasons through pre- and post-conditions; when a grounded predicate's function carries none, the
+  operator may ask the tool to propose them. On request, the tool drafts semantic contract clauses —
+  the function's pre-conditions and post-conditions — onto each resolved predicate function.
+
+  The clauses drawn are in the dialect the subject's own verifier reads: Creusot's contract
+  attributes when the subject depends on its contracts crate, Prusti's when it depends on Prusti's.
+  A subject that depends on neither has no dialect to draft in, and the tool draws nothing — the
+  same missing-dependency honesty as REQ032 and REQ033. Only a grounded requirement is drafted for,
+  because only a resolved predicate names a function to describe; a function the tool cannot read, or
+  one the model proposes no faithful clause for, is left untouched rather than annotated with a
+  guess.
+
+  The draft is a proposal, not a proof — the same discipline as the marker draft (REQ033). The
+  proposal comes from an untrusted language model and carries no correctness of its own: the tool
+  stages it as an uncommitted edit in the subject's working tree, runs no version control, and never
+  claims the drafted contract holds. The operator reviews the working-tree diff and the deductive
+  verifier re-checks the annotated function on the next run — a clause the prover cannot discharge is
+  caught there, never trusted because the model wrote it.
+
+  Semantic drafting is a separate, opt-in request from marker drafting, so the marker channel is
+  unchanged and the two compose: the marker makes a predicate function transparent, and the drafted
+  clauses describe it. Drafting contracts onto the operation under test, rather than only the
+  predicate functions, is not part of this.
