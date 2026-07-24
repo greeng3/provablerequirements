@@ -657,5 +657,6 @@ install outcome gates only its own capabilities, honestly surfaced.
 > **Decided (pressure-test done): GO — see [design-c-decision.md](design-c-decision.md).** Native
 > provisioning is tiered: the provisioner carries the light tier (TLC, Kani) as first-class native
 > installs; the heavy tier (Creusot, Prusti, MonPoly) is dev-container-branch-first. Graceful
-> degradation is load-bearing (Kani has no Windows; opam engines are Unix-only). First code slice:
-> consent-gated native install of TLC on the current platform.
+> degradation is load-bearing (Kani has no Windows; opam engines are Unix-only). **Both light-tier
+> installs are shipped: `provreq install tlc` (REQ046) and `provreq install kani` (REQ047,
+> Linux/macOS only) — consent-gated, confirmed by re-detection, honest on every degradation.**

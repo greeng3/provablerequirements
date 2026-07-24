@@ -1,0 +1,26 @@
+active: true
+derived: false
+header: ''
+level: 1.46
+links: []
+normative: true
+ref: ''
+reviewed: null
+text: |
+  Native provisioning of the light tier is not uniform across platforms. Some engines have upstream
+  support only on some operating systems, so the tool treats platform support as a first-class gate
+  on installing an engine: on a platform the engine's upstream does not support, the tool reports
+  that plainly and directs the operator to the dev-container path, rather than attempting an install
+  that cannot succeed. A platform-unsupported engine is an honest unavailability, not a failure.
+
+  Where an engine is installed by driving the operator's existing toolchain rather than by fetching
+  an artifact, the tool never installs that toolchain on the operator's behalf. A missing toolchain
+  is reported as the specific prerequisite the operator must supply, and the install stops without
+  changing anything.
+
+  The consent gate, the plan disclosure, and the confirm-by-re-detection rule apply identically to
+  every light-tier engine: absent consent the tool prints the concrete commands or downloads it
+  would perform and stops; with consent it performs them and then re-detects, reporting either a
+  confirmed availability or a specific, honest failure. The decision of what an install attempt
+  should do — already present, platform-unsupported, prerequisite-missing, awaiting consent, or
+  proceed — is one shared rule over those inputs, so every light-tier engine degrades the same way.
