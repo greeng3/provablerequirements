@@ -1,4 +1,4 @@
-import type { Backlog, Classification, Detail, VerifyResponse } from "./types";
+import type { Backlog, Classification, Detail, EngineReport, VerifyResponse } from "./types";
 
 /**
  * Fetch the read-only backlog + coverage from the local backend (REQ034).
@@ -13,6 +13,20 @@ export async function fetchBacklog(signal?: AbortSignal): Promise<Backlog> {
     throw new Error(message);
   }
   return (await res.json()) as Backlog;
+}
+
+/**
+ * Fetch what every verification engine is doing right now (REQ051). The backend probes on each
+ * request — an engine that cannot start is a fact about this machine at this moment, never a
+ * stored one. Independent of the backlog, so this does not 409 on an unadopted subject.
+ */
+export async function fetchEngines(signal?: AbortSignal): Promise<EngineReport[]> {
+  const res = await fetch("/api/engines", { signal });
+  if (!res.ok) {
+    throw new Error(await errorMessage(res));
+  }
+  const body = (await res.json()) as { engines: EngineReport[] };
+  return body.engines;
 }
 
 /**

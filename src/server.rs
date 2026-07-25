@@ -35,6 +35,7 @@ type Subject = Arc<PathBuf>;
 pub fn router(subject: PathBuf) -> Router {
     Router::new()
         .route("/health", get(health))
+        .route("/api/engines", get(engines))
         .route("/api/requirements", get(requirements))
         .route("/api/requirements/{id}", get(requirement_detail))
         .route("/api/requirements/{id}/triage", post(set_triage))
@@ -62,6 +63,47 @@ async fn health() -> Response {
         crate::health_json(),
     )
         .into_response()
+}
+
+/// One engine's detected state for the UI. `state` is the kebab tag the client tones by;
+/// `detail` is the same human line the CLI prints, so the two surfaces never disagree; `reason`
+/// is the bare fault text for a client that writes its own sentence around it (`null` when the
+/// state carries no fault to explain).
+#[derive(serde::Serialize)]
+struct EngineReport {
+    category: String,
+    name: String,
+    state: String,
+    detail: String,
+    reason: Option<String>,
+}
+
+/// GET /api/engines — what the engines are doing right now (REQ051).
+///
+/// Probes rather than reads: an engine that cannot start is a fact about *this machine at this
+/// moment*, so it would be dishonest to serve it from a stored record. Needs no adopted subject —
+/// engine health is independent of the backlog, so this never 409s.
+///
+/// Implements: REQ051
+async fn engines() -> Response {
+    let reports: Vec<EngineReport> = crate::engine::registry()
+        .iter()
+        .map(|e| {
+            let status = crate::engine::detect(e);
+            let reason = match &status {
+                crate::engine::EngineStatus::Unusable { reason } => Some(reason.clone()),
+                _ => None,
+            };
+            EngineReport {
+                category: e.category.as_label().to_string(),
+                name: e.name.to_string(),
+                state: status.tag().to_string(),
+                detail: status.describe(),
+                reason,
+            }
+        })
+        .collect();
+    Json(serde_json::json!({ "engines": reports })).into_response()
 }
 
 /// The read-only backlog surface: the coverage funnel plus every item's triage + formalization
@@ -409,6 +451,33 @@ mod tests {
         // Untriaged + undrafted item reports honest "null"/"none", not a guessed state.
         assert!(body["items"][0]["classification"].is_null());
         assert_eq!(body["items"][0]["formalization"], "none");
+    }
+
+    // Verifies: REQ051 — engine health is served to the UI as its own live surface, tagged so a
+    // client can tell an engine that cannot start from one that is merely absent. Needs no adopted
+    // subject: a broken engine is a fact about the machine, not about the backlog.
+    #[tokio::test]
+    async fn engines_route_reports_every_engine_with_a_toneable_state() {
+        let empty = tempfile::tempdir().unwrap();
+        let res = get_path_on("/api/engines", empty.path().to_path_buf()).await;
+        assert_eq!(res.status(), StatusCode::OK);
+        let bytes = to_bytes(res.into_body(), usize::MAX).await.unwrap();
+        let body: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        let engines = body["engines"].as_array().expect("engines array");
+        assert_eq!(engines.len(), crate::engine::registry().len());
+        const STATES: [&str; 5] = [
+            "available",
+            "missing",
+            "unusable",
+            "incompatible",
+            "not-wired",
+        ];
+        for e in engines {
+            let state = e["state"].as_str().expect("state tag");
+            assert!(STATES.contains(&state), "unknown state {state}");
+            assert!(!e["detail"].as_str().unwrap_or("").is_empty());
+            assert!(!e["name"].as_str().unwrap_or("").is_empty());
+        }
     }
 
     // Verifies: REQ035 — an unknown id under an adopted subject is a 404, distinct from the

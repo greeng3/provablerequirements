@@ -35,6 +35,26 @@ export interface VerdictView {
   environment: string | null;
 }
 
+// Mirrors `EngineReport` from `src/server.rs` (REQ051). `state` is the tag the UI tones by;
+// `detail` is the same line the CLI prints. "unusable" is deliberately its own state: the engine
+// is installed but cannot start, so it is neither available nor something installing would fix.
+export type EngineState =
+  | "available"
+  | "missing"
+  | "unusable"
+  | "incompatible"
+  | "not-wired";
+
+export interface EngineReport {
+  category: string;
+  name: string;
+  state: EngineState;
+  /** The same human line the CLI prints. */
+  detail: string;
+  /** The bare fault text, for a state that has one to explain — null otherwise. */
+  reason: string | null;
+}
+
 export interface ItemState {
   id: string;
   title: string | null;
