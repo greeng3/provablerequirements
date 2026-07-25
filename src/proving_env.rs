@@ -215,6 +215,28 @@ mod tests {
         );
     }
 
+    // Verifies: REQ051 — an engine that cannot start contributes nothing to the record. It is
+    // neither a recorded version nor a "present but unversioned" blind spot: it did not prove
+    // anything, so a verdict must not name it as part of where it was proved.
+    #[test]
+    fn an_engine_that_cannot_start_is_not_part_of_the_proving_environment() {
+        let env = env_with(
+            None,
+            &[
+                ("Kani", available("0.67.0")),
+                (
+                    "Prusti",
+                    EngineStatus::Unusable {
+                        reason: "error while loading shared libraries".to_string(),
+                    },
+                ),
+            ],
+        );
+        assert_eq!(env.engines, vec!["Kani 0.67.0"]);
+        assert!(env.unversioned.is_empty(), "{:?}", env.unversioned);
+        assert!(!env.describe().contains("Prusti"), "{}", env.describe());
+    }
+
     // Verifies: REQ049 — an unversioned engine cannot drift a verdict. Creusot's `--version`
     // depends on the current directory, so comparing it would flap a verdict between fresh and
     // stale for a reason that has nothing to do with the subject.

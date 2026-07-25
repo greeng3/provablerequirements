@@ -938,6 +938,9 @@ fn run_engines(subject: &Path) -> Result<()> {
     // this subject's build environment offers (REQ048), so collect that alongside the probe.
     let mut missing_light: Vec<(String, &'static str)> = Vec::new();
     let mut missing_heavy: Vec<String> = Vec::new();
+    // Engines that are installed but cannot start (REQ051). Kept out of the missing buckets on
+    // purpose: they are already on disk, so an install command is the wrong advice for them.
+    let mut unusable: Vec<(String, String)> = Vec::new();
     // Collected so the proving-environment record (REQ049) is built from the statuses already
     // probed here, rather than spawning every probe a second time.
     let mut probed: Vec<(&'static str, engine::EngineStatus)> = Vec::new();
@@ -954,16 +957,33 @@ fn run_engines(subject: &Path) -> Result<()> {
         );
         // `NotWired` is ours to fix by wiring the engine, never the operator's to install, so it
         // is not something a build environment can answer.
-        if matches!(status, engine::EngineStatus::Missing) {
-            match provreq::provision::native_install_arg(e.name) {
+        match &status {
+            engine::EngineStatus::Missing => match provreq::provision::native_install_arg(e.name) {
                 Some(arg) => missing_light.push((e.name.to_string(), arg)),
                 None => missing_heavy.push(e.name.to_string()),
+            },
+            engine::EngineStatus::Unusable { reason } => {
+                unusable.push((e.name.to_string(), reason.clone()))
             }
+            _ => {}
         }
         status_by_category
             .entry(e.category)
             .or_default()
             .push(status);
+    }
+
+    // An installed engine that cannot start gets its own advice (REQ051): it is already on disk,
+    // so every install path above is the wrong door for it.
+    if !unusable.is_empty() {
+        println!("\nEngines that are installed but cannot start:");
+        for (name, reason) in &unusable {
+            println!("  {name}: {reason}");
+        }
+        println!(
+            "  Installing these again will not help — they are already present. Repair the \
+             environment they run in (a stale dev-container is the usual cause; re-pull it)."
+        );
     }
 
     // Two different facts, deliberately reported apart: what the SUBJECT offers (REQ048) and what

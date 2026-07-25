@@ -5,6 +5,7 @@ import type { Backlog, Classification, ItemState } from "./types";
 import { CoverageBar } from "./components/CoverageBar";
 import { RequirementsTable } from "./components/RequirementsTable";
 import { ItemDetailDialog } from "./components/ItemDetailDialog";
+import { EnginesPanel } from "./components/EnginesPanel";
 
 type State =
   | { kind: "loading" }
@@ -39,9 +40,15 @@ export function App() {
   return (
     <div className="min-h-screen">
       <div className="mx-auto max-w-4xl px-6 py-10">
-        <header className="mb-8">
-          <h1 className="text-2xl font-bold tracking-tight">provreq</h1>
-          <p className="text-muted">Requirement backlog &amp; coverage</p>
+        <header className="mb-8 flex flex-col gap-5">
+          <div>
+            <h1 className="text-2xl font-bold tracking-tight">provreq</h1>
+            <p className="text-muted">Requirement backlog &amp; coverage</p>
+          </div>
+          {/* Above the backlog on purpose (REQ051): what an engine can prove right now conditions
+              every verdict below it, and an engine that cannot start is worth knowing before
+              re-running one. Independent of the backlog fetch, so it renders even on a 409. */}
+          <EnginesPanel />
         </header>
         <Body state={state} />
       </div>

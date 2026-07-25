@@ -1,0 +1,25 @@
+active: true
+derived: false
+header: ''
+level: 1.51
+links: []
+normative: true
+ref: ''
+reviewed: null
+text: |
+  An engine is reported as available only on evidence that it can actually run. A probe that
+  spawns a process and then ignores what that process did establishes only that a file exists
+  under that name: an engine whose binary cannot start — a shared library it cannot load, a file
+  that is not executable — is still reported present, and every readiness answer resting on that
+  report is an overclaim of exactly the kind availability is supposed to rule out.
+
+  Detection must therefore separate an engine that ran and objected to what it was given from one
+  that never got as far as running. The first is present — it answered, and its complaint is about
+  the input, not about itself. The second is not usable, whatever is installed on the machine.
+
+  An engine in that second state is reported as its own state, distinct from both available and
+  missing, because the two ask different people for different work: an absent engine is installed,
+  an engine that cannot start is repaired, and advising an operator to install what is already
+  there sends them in the wrong direction. Such an engine never counts as readiness, is never
+  offered as something installing would fix, and is stated wherever engine status is presented to
+  an operator — not only in a stored record they would have to go looking for.

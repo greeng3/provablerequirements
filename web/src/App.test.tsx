@@ -2,7 +2,7 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, expect, test, vi } from "vitest";
 import { App } from "./App";
-import type { Backlog, Detail, VerifyResponse } from "./types";
+import type { Backlog, Detail, EngineReport, VerifyResponse } from "./types";
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -15,10 +15,21 @@ function json(body: unknown, status = 200): Response {
   });
 }
 
-/** Route fetch by URL: the list vs a per-id detail. */
-function mockRoutes(backlog: Backlog, details: Record<string, Detail> = {}) {
+/** Every engine healthy — the background the engine-fault tests vary from. */
+const ENGINES: EngineReport[] = [
+  { category: "1", name: "Kani", state: "available", detail: "available (0.67.0)", reason: null },
+  { category: "2a", name: "TLC (TLA+)", state: "available", detail: "available (2.19)", reason: null },
+];
+
+/** Route fetch by URL: the engine probe, the list, or a per-id detail. */
+function mockRoutes(
+  backlog: Backlog,
+  details: Record<string, Detail> = {},
+  engines: EngineReport[] = ENGINES,
+) {
   vi.spyOn(globalThis, "fetch").mockImplementation((input) => {
     const url = typeof input === "string" ? input : (input as Request).url ?? String(input);
+    if (url.endsWith("/api/engines")) return Promise.resolve(json({ engines }));
     const detailMatch = url.match(/\/api\/requirements\/(.+)$/);
     if (detailMatch) {
       const d = details[decodeURIComponent(detailMatch[1])];
@@ -80,12 +91,14 @@ test("the funnel tabs filter the list", async () => {
 });
 
 test("surfaces the backend error message when the subject is not adopted", async () => {
-  vi.spyOn(globalThis, "fetch").mockResolvedValue(
-    new Response(JSON.stringify({ error: "no companion tree found — run `provreq init` first" }), {
-      status: 409,
-      headers: { "Content-Type": "application/json" },
-    }),
-  );
+  vi.spyOn(globalThis, "fetch").mockImplementation((input) => {
+    const url = typeof input === "string" ? input : (input as Request).url ?? String(input);
+    // Engine health is independent of adoption, so the backend answers it even here (REQ051).
+    if (url.endsWith("/api/engines")) return Promise.resolve(json({ engines: ENGINES }));
+    return Promise.resolve(
+      json({ error: "no companion tree found — run `provreq init` first" }, 409),
+    );
+  });
   render(<App />);
 
   await waitFor(() =>
@@ -178,6 +191,40 @@ test("a stored verdict says where it was proved, or that it was never recorded",
   expect(within(dialog).queryByText(/Proved in:/)).not.toBeInTheDocument();
 });
 
+test("an engine that cannot start reads as a fault, not as one that is merely absent (REQ051)", async () => {
+  mockRoutes(SAMPLE, {}, [
+    { category: "1", name: "Kani", state: "available", detail: "available (0.67.0)", reason: null },
+    {
+      category: "1",
+      name: "Prusti",
+      state: "unusable",
+      detail: "PRESENT BUT UNUSABLE (error while loading shared libraries: libstd.so)",
+      reason: "error while loading shared libraries: libstd.so",
+    },
+    { category: "2b", name: "MonPoly", state: "not-wired", detail: "NOT WIRED (no integration yet)", reason: null },
+  ]);
+  render(<App />);
+
+  const engines = await screen.findByRole("region", { name: "Verification engines" });
+  expect(within(engines).getByText("available")).toBeInTheDocument();
+  expect(within(engines).getByText("cannot start")).toBeInTheDocument();
+  // The whole point of the distinction: it must not read as "install it".
+  expect(within(engines).queryByText("not installed")).not.toBeInTheDocument();
+  const fault = within(engines).getByRole("status");
+  expect(fault).toHaveTextContent(/Prusti is installed but cannot start/);
+  expect(fault).toHaveTextContent(/libstd\.so/);
+  expect(fault).toHaveTextContent(/Installing these again will not help/);
+});
+
+test("a healthy engine set shows no fault callout (REQ051)", async () => {
+  mockRoutes(SAMPLE);
+  render(<App />);
+
+  const engines = await screen.findByRole("region", { name: "Verification engines" });
+  expect(within(engines).getByText("Kani")).toBeInTheDocument();
+  expect(within(engines).queryByRole("status")).not.toBeInTheDocument();
+});
+
 test("changing a row's triage bucket writes and reconciles to the server state", async () => {
   const user = userEvent.setup();
   // REQ002 (untriaged) becomes stays-prose in the authoritative response.
@@ -187,6 +234,7 @@ test("changing a row's triage bucket writes and reconciles to the server state",
   };
   const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation((input) => {
     const url = typeof input === "string" ? input : (input as Request).url;
+    if (url.endsWith("/api/engines")) return Promise.resolve(json({ engines: ENGINES }));
     if (url.endsWith("/triage")) return Promise.resolve(json(after));
     return Promise.resolve(json(SAMPLE));
   });
@@ -257,6 +305,7 @@ test("clicking Verify runs the ensemble and renders the verdict with per-engine 
   // Route verify (POST) before the generic detail matcher, since both share the id prefix.
   vi.spyOn(globalThis, "fetch").mockImplementation((input) => {
     const url = typeof input === "string" ? input : (input as Request).url ?? String(input);
+    if (url.endsWith("/api/engines")) return Promise.resolve(json({ engines: ENGINES }));
     if (url.endsWith("/verify")) return Promise.resolve(json(verdict));
     if (/\/api\/requirements\/REQ001$/.test(url)) return Promise.resolve(json(detail));
     return Promise.resolve(json(SAMPLE));
@@ -291,6 +340,7 @@ test("'Re-verify all stale' re-runs each drifted item then refreshes the funnel 
   vi.spyOn(globalThis, "fetch").mockImplementation((input, init) => {
     const url = typeof input === "string" ? input : (input as Request).url ?? String(input);
     const method = (init?.method ?? "GET").toUpperCase();
+    if (url.endsWith("/api/engines")) return Promise.resolve(json({ engines: ENGINES }));
     if (url.endsWith("/verify") && method === "POST") {
       const id = url.match(/requirements\/(.+)\/verify$/)![1];
       verified.push(decodeURIComponent(id));
@@ -318,6 +368,7 @@ test("a failed triage write rolls back and surfaces an error", async () => {
   const user = userEvent.setup();
   vi.spyOn(globalThis, "fetch").mockImplementation((input) => {
     const url = typeof input === "string" ? input : (input as Request).url;
+    if (url.endsWith("/api/engines")) return Promise.resolve(json({ engines: ENGINES }));
     if (url.endsWith("/triage")) return Promise.resolve(json({ error: "disk full" }, 409));
     return Promise.resolve(json(SAMPLE));
   });

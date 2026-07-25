@@ -72,8 +72,13 @@ pub enum EngineStatus {
     /// On `PATH` and (if a minimum is set) new enough. `version` is best-effort —
     /// `"unknown"` when the probe ran but printed nothing parseable.
     Available { version: String },
-    /// Not on `PATH`, or present but unrunnable.
+    /// Not on `PATH`.
     Missing,
+    /// On `PATH` but the process never got as far as being the engine — the loader could not
+    /// start it, or it is not executable. Deliberately **not** [`EngineStatus::Missing`]:
+    /// installing it again is the wrong advice for a binary that is already there, and the
+    /// operator has to repair the environment instead (REQ051).
+    Unusable { reason: String },
     /// Present but older than the required minimum.
     Incompatible { found: String, required: String },
 }
@@ -99,9 +104,24 @@ impl EngineStatus {
             EngineStatus::NotWired => "NOT WIRED (no integration yet)".to_string(),
             EngineStatus::Available { version } => format!("available ({version})"),
             EngineStatus::Missing => "MISSING".to_string(),
+            EngineStatus::Unusable { reason } => {
+                format!("PRESENT BUT UNUSABLE ({reason})")
+            }
             EngineStatus::Incompatible { found, required } => {
                 format!("INCOMPATIBLE (found {found}, needs >= {required})")
             }
+        }
+    }
+
+    /// A stable kebab-case tag for the wire (`GET /api/engines`), so a UI can tone a status
+    /// without parsing [`EngineStatus::describe`].
+    pub fn tag(&self) -> &'static str {
+        match self {
+            EngineStatus::NotWired => "not-wired",
+            EngineStatus::Available { .. } => "available",
+            EngineStatus::Missing => "missing",
+            EngineStatus::Unusable { .. } => "unusable",
+            EngineStatus::Incompatible { .. } => "incompatible",
         }
     }
 }
@@ -240,6 +260,18 @@ fn detect_probe(probe: &EngineProbe) -> EngineStatus {
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );
+    // REQ051 — the exit status is evidence, but only this much of it. A *blanket* non-zero ⇒
+    // absent rule would be a second wrong answer: measured here, `cargo-creusot --version`
+    // exits 1 complaining about the current directory and TLC exits 1 asking for an input
+    // module, and both engines are fine. What is unambiguous is a process that never got as
+    // far as running: 126 (found, not executable) and 127 (the loader could not start it — a
+    // missing shared library, which is how a broken `cargo-prusti` fails). Those carry no
+    // information about the engine except that it cannot be one.
+    if matches!(output.status.code(), Some(126 | 127)) {
+        return EngineStatus::Unusable {
+            reason: first_line(&combined),
+        };
+    }
     // A marker that is set but absent means the host ran (e.g. `java`) but the engine is not
     // actually reachable (e.g. the jar is missing) — that is Missing, not Available.
     if let Some(marker) = &probe.version_marker {
@@ -256,6 +288,22 @@ fn detect_probe(probe: &EngineProbe) -> EngineStatus {
         _ => EngineStatus::Available {
             version: found.unwrap_or_else(|| "unknown".to_string()),
         },
+    }
+}
+
+/// The first non-blank line of probe output, as the operator-facing reason an engine cannot
+/// start. Truncated: a loader error is one line, and an engine that dumps a page of output is
+/// not owed the whole page in a status listing.
+fn first_line(output: &str) -> String {
+    const MAX: usize = 200;
+    let line = output
+        .lines()
+        .map(str::trim)
+        .find(|l| !l.is_empty())
+        .unwrap_or("no output");
+    match line.char_indices().nth(MAX) {
+        Some((cut, _)) => format!("{}…", &line[..cut]),
+        None => line.to_string(),
     }
 }
 
@@ -476,6 +524,79 @@ mod tests {
             min_version: None,
         };
         assert_eq!(detect_probe(&probe), EngineStatus::Missing);
+    }
+
+    // Verifies: REQ051 — a binary that is on PATH but cannot start (exit 127, the loader's code
+    // for a missing shared library — how a broken `cargo-prusti` fails) is NOT available. Before
+    // this, the probe looked only at "did a process spawn", so it reported `available (unknown)`
+    // for an engine that had already died.
+    #[test]
+    fn a_binary_that_cannot_start_is_not_available() {
+        let probe = EngineProbe {
+            bin: "sh".to_string(),
+            args: vec![
+                "-c".to_string(),
+                "echo 'error while loading shared libraries: libstd.so' >&2; exit 127".to_string(),
+            ],
+            version_marker: None,
+            min_version: None,
+        };
+        let status = detect_probe(&probe);
+        assert!(!status.is_ready(), "{status:?} must not back a verdict");
+        let EngineStatus::Unusable { reason } = &status else {
+            panic!("expected Unusable, got {status:?}");
+        };
+        assert!(reason.contains("shared libraries"), "{reason}");
+        assert!(status.describe().contains("UNUSABLE"), "{status:?}");
+    }
+
+    // Verifies: REQ051 — "cannot start" stays distinct from "not installed", because the two ask
+    // for different work: installing an engine that is already on disk fixes nothing.
+    #[test]
+    fn unusable_is_distinct_from_missing() {
+        let unusable = EngineStatus::Unusable {
+            reason: "cannot start".to_string(),
+        };
+        assert_ne!(unusable, EngineStatus::Missing);
+        assert_eq!(unusable.tag(), "unusable");
+        assert_ne!(unusable.tag(), EngineStatus::Missing.tag());
+    }
+
+    // Verifies: REQ051 — the rule is narrow on purpose. A non-zero exit is NOT itself evidence of
+    // a broken engine: `cargo-creusot --version` exits 1 complaining about the current directory,
+    // and TLC exits 1 asking for an input module. A blanket "non-zero ⇒ not present" would trade
+    // one wrong answer for another and mark both working engines unusable.
+    #[test]
+    fn an_engine_that_ran_and_objected_to_its_input_is_still_present() {
+        let creusot_like = EngineProbe {
+            bin: "sh".to_string(),
+            args: vec![
+                "-c".to_string(),
+                "echo 'Error: creusot-std not found in dependencies' >&2; exit 1".to_string(),
+            ],
+            version_marker: None,
+            min_version: None,
+        };
+        assert!(
+            detect_probe(&creusot_like).is_ready(),
+            "an engine complaining about the SUBJECT is present"
+        );
+
+        let tlc_like = EngineProbe {
+            bin: "sh".to_string(),
+            args: vec![
+                "-c".to_string(),
+                "echo 'TLC2 Version 2.19 of 08 August 2024'; exit 1".to_string(),
+            ],
+            version_marker: Some("TLC2 Version".to_string()),
+            min_version: None,
+        };
+        assert_eq!(
+            detect_probe(&tlc_like),
+            EngineStatus::Available {
+                version: "2.19".to_string()
+            }
+        );
     }
 
     // Verifies: REQ022 — version parsing and comparison (the compatibility machinery that
