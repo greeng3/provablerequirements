@@ -41,9 +41,9 @@ const SAMPLE: Backlog = {
     stale: 1,
   },
   items: [
-    { id: "REQ001", title: "Login invariant", text: "prose", classification: "formalizable-now", formalization: "drafting", verdict: { status: "holds", basis: "proven", reason: null, fresh: true, stale_reasons: [] } },
+    { id: "REQ001", title: "Login invariant", text: "prose", classification: "formalizable-now", formalization: "drafting", verdict: { status: "holds", basis: "proven", reason: null, fresh: true, stale_reasons: [], environment: "declared `lab-2`; Kani 0.67.0" } },
     { id: "REQ002", title: null, text: "some prose here", classification: null, formalization: "none", verdict: null },
-    { id: "REQ003", title: "A note", text: "prose", classification: "stays-prose", formalization: "none", verdict: { status: "holds", basis: "proven", reason: null, fresh: false, stale_reasons: ["the subject code moved since this verdict (commit abc → def) — re-verify"] } },
+    { id: "REQ003", title: "A note", text: "prose", classification: "stays-prose", formalization: "none", verdict: { status: "holds", basis: "proven", reason: null, fresh: false, stale_reasons: ["the subject code moved since this verdict (commit abc → def) — re-verify"], environment: null } },
   ],
 };
 
@@ -128,6 +128,54 @@ test("clicking a requirement opens its detail with the candidate and read-back",
   // The live grounding report renders its grounded status and per-binding read-back.
   expect(within(dialog).getByText("grounded")).toBeInTheDocument();
   expect(within(dialog).getByText(/resolves to src\/lib\.rs:1/)).toBeInTheDocument();
+});
+
+// Verifies: REQ050 — a verdict with no recorded environment must not read like one whose
+// environment was checked and found unchanged. Both are `fresh`, so if the surface said nothing
+// the operator would infer a guarantee the record does not carry.
+test("a stored verdict says where it was proved, or that it was never recorded", async () => {
+  const user = userEvent.setup();
+  const base: Detail = {
+    id: "REQ001",
+    title: "Login invariant",
+    text: "A logged-in user always has a session.",
+    revision: "r1",
+    stale: false,
+    classification: "formalizable-now",
+    formalization: "admitted",
+    admission: { review: "optional", by: "gg" },
+    candidate: "requirement r { category: 1 ... }",
+    gate: { status: "passed", warnings: [] },
+    readback: "At every state, if the user is logged in then the user has a session.",
+    bindings: [],
+    grounding: null,
+    verdict: {
+      status: "holds",
+      basis: "proven",
+      reason: null,
+      fresh: true,
+      stale_reasons: [],
+      environment: "declared `lab-2`; Kani 0.67.0",
+    },
+  };
+
+  mockRoutes(SAMPLE, { REQ001: base });
+  const { unmount } = render(<App />);
+  await user.click(await screen.findByRole("button", { name: "REQ001" }));
+  let dialog = await screen.findByRole("dialog");
+  expect(within(dialog).getByText(/Proved in:/)).toBeInTheDocument();
+  expect(within(dialog).getByText(/declared `lab-2`; Kani 0\.67\.0/)).toBeInTheDocument();
+  unmount();
+
+  // The same fresh verdict, but from before environment recording existed.
+  mockRoutes(SAMPLE, {
+    REQ001: { ...base, verdict: { ...base.verdict!, environment: null } },
+  });
+  render(<App />);
+  await user.click(await screen.findByRole("button", { name: "REQ001" }));
+  dialog = await screen.findByRole("dialog");
+  expect(within(dialog).getByText(/Environment not recorded/)).toBeInTheDocument();
+  expect(within(dialog).queryByText(/Proved in:/)).not.toBeInTheDocument();
 });
 
 test("changing a row's triage bucket writes and reconciles to the server state", async () => {
