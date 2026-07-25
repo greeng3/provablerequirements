@@ -399,6 +399,34 @@ fn module_header(text: &str) -> Option<String> {
     None
 }
 
+/// The full `java` argument list for one TLC run, pure so the isolation below is testable
+/// without spawning a JVM.
+///
+/// **`-Djava.io.tmpdir` is load-bearing, not tidiness.** SANY extracts the standard modules
+/// (`Naturals`, …) out of `tla2tools.jar` into the JVM's temp dir, which is process-shared by
+/// default. Two TLC runs at once race on that path: one reads a half-written module and the whole
+/// spec fails semantic analysis with `Module-Table lookup failure`, which provreq would report as
+/// an `inconclusive` **about our own scratch space rather than the subject** — a dishonest verdict.
+/// Measured at 13 failures / 240 runs at concurrency 8, and 0 / 240 once each run gets its own
+/// temp dir. Concurrent runs are reachable in production: `verify::verify` calls [`run`], and the
+/// server's verify handler serves concurrent requests.
+///
+/// The metadir doubles as the temp dir — it is already unique per run and swept with it.
+fn tlc_args(jar: &str, metadir: &Path, name: &str) -> Vec<String> {
+    vec![
+        format!("-Djava.io.tmpdir={}", metadir.display()),
+        "-cp".to_string(),
+        jar.to_string(),
+        "tlc2.TLC".to_string(),
+        // Scratch (`states/`) goes outside the subject, so the run leaves no litter.
+        "-metadir".to_string(),
+        metadir.display().to_string(),
+        "-config".to_string(),
+        format!("{name}.cfg"),
+        format!("{name}.tla"),
+    ]
+}
+
 /// Write the generated module + cfg beside the subject's spec, run TLC, and remove them again.
 ///
 /// Additive and non-destructive, the Kani discipline: nothing in the subject's spec is
@@ -445,12 +473,7 @@ pub fn run(site: &SpecSite, check: &Check) -> Outcome {
     }
 
     let output = std::process::Command::new("java")
-        .args(["-cp", &jar_path(), "tlc2.TLC"])
-        // Scratch (`states/`) goes outside the subject, so the run leaves no litter.
-        .arg("-metadir")
-        .arg(metadir.path())
-        .args(["-config", &format!("{}.cfg", check.name)])
-        .arg(format!("{}.tla", check.name))
+        .args(tlc_args(&jar_path(), metadir.path(), &check.name))
         .current_dir(&site.dir)
         .output();
 
@@ -595,6 +618,30 @@ mod tests {
         vocabulary { state accepted(m), succeeded(m) }
         require { each m: Message . accepted(m) leads_to succeeded(m) }
     }";
+
+    // Verifies: every TLC run gets its OWN JVM temp dir. Without this, concurrent runs race on
+    // SANY's shared extraction of the jar's standard modules and one of them reports a
+    // `Module-Table lookup failure` — an `inconclusive` about provreq's scratch space rather than
+    // the subject. The race is only ~5% per run, so a real-engine test cannot be trusted to catch
+    // a regression here; this asserts the isolation directly.
+    #[test]
+    fn every_run_gets_its_own_jvm_temp_dir() {
+        let metadir = Path::new("/scratch/meta-xyz");
+        let args = tlc_args("/opt/tla2tools.jar", metadir, "provreq_smoke");
+
+        assert!(
+            args.contains(&format!("-Djava.io.tmpdir={}", metadir.display())),
+            "the JVM temp dir must be redirected to the per-run metadir: {args:?}"
+        );
+        // A JVM `-D` property is only read as such before the class name; after it, it is just an
+        // argument to TLC.
+        let tmpdir_at = args.iter().position(|a| a.starts_with("-Djava.io.tmpdir"));
+        let main_class_at = args.iter().position(|a| a == "tlc2.TLC");
+        assert!(
+            tmpdir_at < main_class_at,
+            "-D must precede the main class: {args:?}"
+        );
+    }
 
     fn req(src: &str) -> Requirement {
         gate(src)
