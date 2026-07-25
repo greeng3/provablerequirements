@@ -68,15 +68,23 @@ pub fn record(store: &VerdictStore, verdict: VerdictReport) -> VerdictStore {
 pub struct DriftAnchor {
     pub subject_commit: Option<String>,
     pub tool_version: String,
+    /// The environment the tool is running in *now* (REQ049), so a stored verdict produced
+    /// somewhere else can be seen for what it is.
+    pub environment: crate::proving_env::ProvingEnv,
 }
 
 impl DriftAnchor {
-    /// The anchor for the current world: this build's version, plus the caller-supplied subject
-    /// HEAD (best-effort — `None` when the subject is not a git repo, never fabricated).
-    pub fn current(subject_commit: Option<String>) -> Self {
+    /// The anchor for the current world: this build's version, the caller-supplied subject HEAD
+    /// (best-effort — `None` when the subject is not a git repo, never fabricated), and the
+    /// caller-probed environment (passed in, so this module stays filesystem-free).
+    pub fn current(
+        subject_commit: Option<String>,
+        environment: crate::proving_env::ProvingEnv,
+    ) -> Self {
         Self {
             subject_commit,
             tool_version: env!("CARGO_PKG_VERSION").to_string(),
+            environment,
         }
     }
 }
@@ -153,6 +161,16 @@ pub fn view(
         _ => {}
     }
 
+    // Environment drift (REQ049): a verdict is only about the environment that produced it. A
+    // verdict from before this axis existed (`environment: None`) carries no environment to
+    // compare, so it is left alone — the same rule as formalization above: never flag on a basis
+    // we cannot establish.
+    if let Some(was) = &stored.provenance.environment {
+        if let Some(reason) = was.drift_from(&anchor.environment) {
+            stale_reasons.push(reason);
+        }
+    }
+
     if stored.provenance.tool_version != anchor.tool_version {
         stale_reasons.push(format!(
             "the tool changed since this verdict (provreq {} → {}) — re-verify",
@@ -184,6 +202,7 @@ mod tests {
             detail: vec![],
             evidence: vec![],
             provenance: ProvenanceReport {
+                environment: None,
                 requirement_revision: revision.into(),
                 subject_commit: commit.map(str::to_string),
                 tool_version: tool.into(),
@@ -192,11 +211,57 @@ mod tests {
         }
     }
 
+    fn env(declared: Option<&str>, engines: &[&str]) -> crate::proving_env::ProvingEnv {
+        crate::proving_env::ProvingEnv {
+            declared: declared.map(str::to_string),
+            engines: engines.iter().map(|e| e.to_string()).collect(),
+            unversioned: vec![],
+            container: false,
+        }
+    }
+
+    // Verifies: REQ049 — a verdict produced in one environment and read in another is stale, with
+    // the environment named. Without this axis the two are indistinguishable in the store.
+    #[test]
+    fn a_verdict_proved_elsewhere_is_stale() {
+        let mut v = stored("r1", Some("abc"), "0.0.1");
+        v.provenance.environment = Some(env(Some("lab-1"), &["Kani 0.67.0"]));
+        let anchor = DriftAnchor {
+            environment: env(Some("ci-runner"), &["Kani 0.67.0"]),
+            subject_commit: Some("abc".into()),
+            tool_version: "0.0.1".into(),
+        };
+
+        let view = view(&v, "r1", None, &anchor);
+        assert!(!view.fresh);
+        assert_eq!(view.stale_reasons.len(), 1, "{:?}", view.stale_reasons);
+        assert!(view.stale_reasons[0].contains("lab-1"));
+        assert!(view.stale_reasons[0].contains("ci-runner"));
+    }
+
+    // Verifies: REQ049 — a verdict persisted before this axis existed carries no environment, so
+    // it is left alone rather than flagged on a basis that cannot be established. Same rule as the
+    // formalization axis; upgrading provreq must not mark every historical verdict stale.
+    #[test]
+    fn a_verdict_predating_the_environment_axis_is_not_flagged() {
+        let v = stored("r1", Some("abc"), "0.0.1");
+        assert!(v.provenance.environment.is_none(), "the pre-axis shape");
+        let anchor = DriftAnchor {
+            environment: env(Some("lab-1"), &["Kani 0.67.0"]),
+            subject_commit: Some("abc".into()),
+            tool_version: "0.0.1".into(),
+        };
+
+        let view = view(&v, "r1", None, &anchor);
+        assert!(view.fresh, "{:?}", view.stale_reasons);
+    }
+
     // Verifies: REQ039 — a verdict produced against the current world is fresh, with no reasons.
     #[test]
     fn unmoved_verdict_is_fresh() {
         let v = stored("r1", Some("abc"), "0.0.1");
         let anchor = DriftAnchor {
+            environment: crate::proving_env::ProvingEnv::default(),
             subject_commit: Some("abc".into()),
             tool_version: "0.0.1".into(),
         };
@@ -211,6 +276,7 @@ mod tests {
     fn each_moved_axis_is_a_named_reason() {
         let v = stored("r1", Some("abc"), "0.0.1");
         let anchor = DriftAnchor {
+            environment: crate::proving_env::ProvingEnv::default(),
             subject_commit: Some("def".into()),
             tool_version: "0.0.2".into(),
         };
@@ -234,6 +300,7 @@ mod tests {
 
     fn fresh_anchor() -> DriftAnchor {
         DriftAnchor {
+            environment: crate::proving_env::ProvingEnv::default(),
             subject_commit: Some("abc".into()),
             tool_version: "0.0.1".into(),
         }

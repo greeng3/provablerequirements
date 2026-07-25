@@ -97,8 +97,10 @@ fn load_backlog(subject: &std::path::Path) -> anyhow::Result<Backlog> {
     let triage = crate::triage::load(&companion)?;
     let drafts = crate::draft::load(&companion)?;
     let verdicts = crate::verdict_store::load(&companion)?;
-    let anchor =
-        crate::verdict_store::DriftAnchor::current(crate::verify::subject_head_commit(subject));
+    let anchor = crate::verdict_store::DriftAnchor::current(
+        crate::verify::subject_head_commit(subject),
+        crate::proving_env::ProvingEnv::current(&companion),
+    );
     Ok(Backlog {
         coverage: crate::status::coverage(&items, &triage, &drafts, &verdicts, &anchor),
         items: crate::status::backlog(&items, &triage, &drafts, &verdicts, &anchor),
@@ -166,8 +168,10 @@ fn apply_triage(
     crate::triage::save(&companion, &next)?;
     let drafts = crate::draft::load(&companion)?;
     let verdicts = crate::verdict_store::load(&companion)?;
-    let anchor =
-        crate::verdict_store::DriftAnchor::current(crate::verify::subject_head_commit(subject));
+    let anchor = crate::verdict_store::DriftAnchor::current(
+        crate::verify::subject_head_commit(subject),
+        crate::proving_env::ProvingEnv::current(&companion),
+    );
     Ok(Some(Backlog {
         coverage: crate::status::coverage(&items, &next, &drafts, &verdicts, &anchor),
         items: crate::status::backlog(&items, &next, &drafts, &verdicts, &anchor),
@@ -214,8 +218,10 @@ fn load_detail(
     // Live D13 grounding dry-run: only meaningful when the candidate gates and has bindings.
     let grounding = draft.and_then(|d| grounding_report(subject, &companion, d));
     // Living loop (REQ039): the last stored verdict + whether it has drifted since it was produced.
-    let anchor =
-        crate::verdict_store::DriftAnchor::current(crate::verify::subject_head_commit(subject));
+    let anchor = crate::verdict_store::DriftAnchor::current(
+        crate::verify::subject_head_commit(subject),
+        crate::proving_env::ProvingEnv::current(&companion),
+    );
     let formalization = crate::draft::admitted_fingerprint(&drafts, id);
     let verdict = crate::verdict_store::load(&companion)?
         .verdicts

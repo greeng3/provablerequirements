@@ -393,6 +393,12 @@ pub struct ProvenanceReport {
     /// this field existed loads as `None` and simply skips the formalization drift axis.
     #[serde(default)]
     pub formalization: Option<String>,
+    /// The environment this verdict was produced in (REQ049) — where it was *proved*, not what the
+    /// subject declares it offers. `#[serde(default)]` for the same reason as `formalization`: a
+    /// verdict from before this axis existed skips it rather than being flagged on a basis that
+    /// cannot be established.
+    #[serde(default)]
+    pub environment: Option<crate::proving_env::ProvingEnv>,
 }
 
 /// A JSON-serializable view of a [`Verdict`] for the web surface (REQ038). The domain types are
@@ -435,10 +441,12 @@ pub fn report(v: &Verdict) -> VerdictReport {
             requirement_revision: v.provenance.requirement_revision.clone(),
             subject_commit: v.provenance.subject_commit.clone(),
             tool_version: v.provenance.tool_version.clone(),
-            // The formalization fingerprint is a persistence concern, not part of the in-memory
-            // verdict's identity — the verify flow stamps it on the stored copy (REQ045). A live
-            // (unpersisted) report carries none; nothing reads it off the wire.
+            // The formalization fingerprint and the proving environment are persistence concerns,
+            // not part of the in-memory verdict's identity — the verify flow stamps both on the
+            // stored copy (REQ045, REQ049). A live (unpersisted) report carries neither; nothing
+            // reads them off the wire.
             formalization: None,
+            environment: None,
         },
     }
 }
