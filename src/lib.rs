@@ -6,6 +6,7 @@
 //! Doorstop layout and scaffolds its companion tree.
 
 pub mod adopt;
+pub mod buildenv;
 pub mod contract_draft;
 pub mod creusot;
 pub mod detail;

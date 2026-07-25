@@ -137,6 +137,18 @@ impl InstallOutcome {
     }
 }
 
+/// The `provreq install` argument for a registry engine, or `None` when provreq has no native
+/// recipe for it. This is the light/heavy tier line from the Design-C decision, in one place: the
+/// heavy tier is dev-container-first **by decision**, so a missing heavy engine can only be
+/// explained in terms of the subject's build environment ([`crate::buildenv`], REQ048).
+pub fn native_install_arg(engine_name: &str) -> Option<&'static str> {
+    match engine_name {
+        "TLC (TLA+)" => Some("tlc"),
+        "Kani" => Some("kani"),
+        _ => None,
+    }
+}
+
 /// Whether a Java runtime is on PATH — TLC runs as `java -cp <jar> tlc2.TLC`, so no JVM means TLC
 /// cannot run however the jar is provisioned. Best-effort: any successful `java -version` counts.
 pub fn java_present() -> bool {
