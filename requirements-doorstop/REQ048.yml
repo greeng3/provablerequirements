@@ -1,0 +1,29 @@
+active: true
+derived: false
+header: ''
+level: 1.47
+links: []
+normative: true
+ref: ''
+reviewed: null
+text: |
+  Some verification engines have no native install by decision: they are supplied by the build
+  environment the subject itself offers, not by the tool. Reporting such an engine as merely
+  missing is not actionable — the operator cannot tell whether the answer is a command they can
+  run, an environment they already have, or an environment they must create.
+
+  The tool therefore resolves the subject's build environment and reports it alongside engine
+  detection: whether the subject offers a container-based development environment, and what that
+  environment runs — a prebuilt image or an image built from a recipe in the repository. A
+  configuration that is present but cannot be understood is reported as its own state, distinct
+  from a subject that offers no such environment at all, because the two call for different
+  operator actions.
+
+  Advice about a missing engine is grounded in that resolution rather than generic. An engine the
+  tool can install natively is answered with the command that installs it. An engine the tool will
+  not install natively is answered in terms of this subject's own environment — naming the image or
+  recipe it uses, or the absence of one — so the operator learns what to change and where.
+
+  Resolving the build environment never inspects, contacts, or requires a container runtime. It
+  reads what the subject declares and nothing more; the tool acquires no privileged access in order
+  to give this advice.

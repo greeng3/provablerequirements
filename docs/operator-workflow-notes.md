@@ -668,4 +668,8 @@ install outcome gates only its own capabilities, honestly surfaced.
 > root-equivalent seam. A5's strategy-selected build-env seam resolves to **detect and advise**, not
 > detect and exec: detect the subject's dev-container, explain heavy-tier absence concretely, and
 > ship the engine layer as an opt-in image/feature the subject adopts in its own repo. Design C's
-> deployment half now has no undeliberated piece left.
+> deployment half now has no undeliberated piece left. **The detect-and-advise half is shipped
+> (REQ048, `src/buildenv.rs`): `provreq engines` resolves the subject's dev-container — `image:`
+> first-class, JSONC and all — and explains each missing engine either as a `provreq install`
+> command (light tier) or in terms of that subject's own environment (heavy tier). No docker
+> interaction of any kind, including a reachability probe.**

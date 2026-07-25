@@ -119,14 +119,18 @@ enum Command {
     },
     /// Provision a verification engine natively into your dev env (R-eng-2 install half, REQ046).
     /// Consent-gated: without `--yes` it prints the plan and stops. Light tier only — `tlc` and
-    /// `kani` (Linux/macOS); heavy-tier engines report an honest "use a devcontainer" (see
-    /// docs/design-c-decision.md).
+    /// `kani` (Linux/macOS). An engine provreq will not install natively is explained in terms of
+    /// `--path`'s own build environment (REQ048); an unwired one says so plainly.
     Install {
         /// Which engine to install (`tlc` or `kani`).
         engine: String,
         /// Consent to the install actions the plan describes (download + write).
         #[arg(long)]
         yes: bool,
+        /// Subject repository, read only to explain an engine provreq will not install natively
+        /// in terms of that subject's own build environment (REQ048).
+        #[arg(long, default_value = ".")]
+        path: PathBuf,
     },
     /// Produce the verdict for an admitted requirement (Step 4). Runs no engine yet —
     /// reports the honest three-valued verdict (always `unknown`) with provenance.
@@ -201,7 +205,7 @@ async fn main() -> Result<()> {
         }
         Command::Status { path } => run_status(&path),
         Command::Engines { path } => run_engines(&path),
-        Command::Install { engine, yes } => run_install(&engine, yes).await,
+        Command::Install { engine, yes, path } => run_install(&engine, yes, &path).await,
         Command::Verify {
             id,
             path,
@@ -928,6 +932,11 @@ fn run_engines(subject: &Path) -> Result<()> {
         grounding::BindCategory,
         Vec<engine::EngineStatus>,
     > = std::collections::BTreeMap::new();
+    // A missing engine is only actionable once the operator knows which tier it is in and what
+    // this subject's build environment offers (REQ048), so collect that alongside the probe.
+    let mut missing_light: Vec<(String, &'static str)> = Vec::new();
+    let mut missing_heavy: Vec<String> = Vec::new();
+
     println!("Verification engines:");
     for e in engine::registry() {
         let status = engine::detect(&e);
@@ -937,10 +946,25 @@ fn run_engines(subject: &Path) -> Result<()> {
             e.name,
             status.describe()
         );
+        // `NotWired` is ours to fix by wiring the engine, never the operator's to install, so it
+        // is not something a build environment can answer.
+        if matches!(status, engine::EngineStatus::Missing) {
+            match provreq::provision::native_install_arg(e.name) {
+                Some(arg) => missing_light.push((e.name.to_string(), arg)),
+                None => missing_heavy.push(e.name.to_string()),
+            }
+        }
         status_by_category
             .entry(e.category)
             .or_default()
             .push(status);
+    }
+
+    let build_env = provreq::buildenv::detect(subject);
+    println!("\nBuild environment:");
+    println!("  {}", build_env.describe());
+    for line in provreq::buildenv::advice(&build_env, &missing_light, &missing_heavy) {
+        println!("  {line}");
     }
 
     // Coverage of formalized (admitted) requirements (R-eng-3).
@@ -1012,21 +1036,59 @@ fn run_engines(subject: &Path) -> Result<()> {
     Ok(())
 }
 
+/// The registry engine an `install` argument names, if any. `tlc` has to match `TLC (TLA+)`, so a
+/// bare-word prefix counts; nothing else in the registry is ambiguous under that rule.
+fn registry_engine_named(arg: &str) -> Option<engine::Engine> {
+    let arg = arg.to_ascii_lowercase();
+    engine::registry().into_iter().find(|e| {
+        let name = e.name.to_ascii_lowercase();
+        name == arg || name.starts_with(&format!("{arg} "))
+    })
+}
+
+/// Why provreq will not install this engine — three genuinely different answers, kept distinct
+/// because they call for different action (REQ048):
+///
+/// - **not an engine**: the operator mistyped, and needs the list.
+/// - **wired but heavy tier**: a real engine provreq deliberately does not install, so the answer
+///   is about *this subject's* build environment, not a generic "use a devcontainer".
+/// - **not wired**: provreq has no integration, so installing it would not make it usable. That is
+///   ours to fix, not the operator's, and saying so is more honest than pointing at their env.
+fn unsupported_reason(arg: &str, subject: &Path) -> String {
+    let Some(found) = registry_engine_named(arg) else {
+        let known: Vec<&str> = engine::registry().iter().map(|e| e.name).collect();
+        return format!(
+            "'{arg}' is not a verification engine provreq knows. Known engines: {}. Installable \
+             natively: tlc, kani.",
+            known.join(", ")
+        );
+    };
+    if found.probe.is_none() {
+        return format!(
+            "{} has no integration in provreq yet, so installing it would not make it usable — \
+             that gap is provreq's to close, not yours.",
+            found.name
+        );
+    }
+    format!(
+        "{} has no native install by decision (docs/design-c-decision.md) — {}.",
+        found.name,
+        provreq::buildenv::heavy_tier_advice(&provreq::buildenv::detect(subject))
+    )
+}
+
 /// R-eng-2 install half (REQ046/REQ047): provision an engine natively, consent-gated. Only the
 /// light tier is a native install (TLC, Kani); everything else is an honest "no native recipe —
 /// use a devcontainer" per the Design-C decision. Exits non-zero only on a genuine install failure,
 /// so an honest degradation or a consent prompt is a clean exit the operator can act on.
-async fn run_install(engine: &str, yes: bool) -> Result<()> {
+async fn run_install(engine: &str, yes: bool, subject: &Path) -> Result<()> {
     let outcome = match engine.to_ascii_lowercase().as_str() {
         "tlc" | "tla+" | "tla" => provreq::provision::install_tlc(yes).await?,
         "kani" => provreq::provision::install_kani(yes).await?,
-        // Heavy tier / not-yet-a-target: honest, not a stub that pretends.
+        // Everything else is honest about *which* kind of "no" it is: an engine provreq cannot
+        // run at all, one it will not install natively, or a name that is not an engine.
         other => provreq::provision::InstallOutcome::Unsupported {
-            reason: format!(
-                "no native install recipe for '{other}' yet. The light tier (TLC, Kani) installs \
-                 natively; heavy-tier engines (Creusot/Prusti/MonPoly) are dev-container-first — \
-                 see docs/design-c-decision.md."
-            ),
+            reason: unsupported_reason(other, subject),
         },
     };
     println!("{}: {}", engine, outcome.describe());
@@ -1419,6 +1481,60 @@ mod tests {
     use super::*;
     use provreq::semantic_draft::ProofStep;
     use provreq::verdict::{aggregate, Basis, Evidence, Provenance};
+
+    // Verifies: REQ048 — `install` distinguishes the three reasons it will not install, because
+    // they call for different action: fix your typo, change your build env, or wait for us.
+    #[test]
+    fn install_says_which_kind_of_no_it_is() {
+        let subject = Path::new(env!("CARGO_MANIFEST_DIR"));
+
+        // Not an engine at all: name the mistake and list what is real.
+        let unknown = unsupported_reason("creusto", subject);
+        assert!(
+            unknown.contains("is not a verification engine"),
+            "{unknown}"
+        );
+        assert!(
+            unknown.contains("Creusot"),
+            "the list must be there: {unknown}"
+        );
+
+        // A wired heavy-tier engine: answer in terms of THIS subject's environment. Run against
+        // provreq's own repo, whose dev-container names an image.
+        let heavy = unsupported_reason("creusot", subject);
+        assert!(
+            heavy.starts_with("Creusot has no native install"),
+            "{heavy}"
+        );
+        assert!(
+            heavy.contains("provreq-devcontainer"),
+            "must name this subject's own dev-container image: {heavy}"
+        );
+
+        // An unwired engine: installing it would not help, and that is provreq's gap.
+        let unwired = unsupported_reason("monpoly", subject);
+        assert!(
+            unwired.contains("no integration in provreq yet"),
+            "{unwired}"
+        );
+        assert!(
+            !unwired.contains("dev-container"),
+            "an unwired engine is not the operator's environment to fix: {unwired}"
+        );
+    }
+
+    // Verifies: REQ048 — `tlc` resolves to the registry's `TLC (TLA+)` despite the suffix, and a
+    // non-engine resolves to nothing rather than to a near-match.
+    #[test]
+    fn engine_names_resolve_from_their_cli_spelling() {
+        assert_eq!(
+            registry_engine_named("tlc").map(|e| e.name),
+            Some("TLC (TLA+)")
+        );
+        assert_eq!(registry_engine_named("KANI").map(|e| e.name), Some("Kani"));
+        assert!(registry_engine_named("tl").is_none());
+        assert!(registry_engine_named("").is_none());
+    }
 
     fn prov() -> Provenance {
         Provenance {
