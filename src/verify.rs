@@ -117,6 +117,10 @@ pub fn verify(subject: &Path, id: &str) -> Result<Option<VerifyOutcome>> {
     // concern the in-memory verdict never carries.
     let mut report = verdict::report(&verdict);
     report.provenance.formalization = draft::formal_fingerprint(draft);
+    // Stamp the environment that actually produced this verdict (REQ049) — where it was proved,
+    // not what the subject declares it offers. Without it, a verdict proved under one engine build
+    // and one proved under another are indistinguishable in the store.
+    report.provenance.environment = Some(crate::proving_env::ProvingEnv::current(&companion));
     let store = crate::verdict_store::load(&companion)?;
     let recorded = crate::verdict_store::record(&store, report);
     crate::verdict_store::save(&companion, &recorded)?;

@@ -1,0 +1,33 @@
+active: true
+derived: false
+header: ''
+level: 1.48
+links: []
+normative: true
+ref: ''
+reviewed: null
+text: |
+  A verdict is only about the environment that produced it. Two verdicts produced under different
+  verification toolchains are different claims, so a stored verdict records the environment it was
+  proved in, and a verdict whose recorded environment no longer matches the current one is reported
+  as drifted, in the same terms as every other way a verdict goes stale.
+
+  The recorded environment is the one the tool actually ran in, never the one the subject declares
+  it offers. Those two can differ, and treating a declared environment as the producing one would
+  attribute a verdict to a place it was never established.
+
+  Because the environment cannot be established fully or reliably by inspection, the record is
+  assembled from parts of differing strength and is explicit about which is which. An operator may
+  declare a stable name for their environment; the tool detects what it genuinely can, such as the
+  versions the verification engines report; and it may note coarse context that identifies nothing
+  on its own. Only the parts that are both stable and meaningful participate in deciding drift.
+
+  A component whose identity cannot be established is recorded as unestablished and excluded from
+  the comparison, never folded in as though its identity were known. This is required in both
+  directions: an unestablished identity must not silently manufacture drift, and it must not be
+  presented as though the environment were fully captured. Where the record cannot see a change,
+  it says so.
+
+  A verdict stored before the tool recorded environments carries none, and is left alone rather
+  than reported as drifted on a basis that cannot be established. No claim about the environment is
+  recorded that the tool cannot substantiate from where it runs.

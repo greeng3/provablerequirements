@@ -895,8 +895,10 @@ fn run_status(subject: &Path) -> Result<()> {
     let triage_state = triage::load(&companion)?;
     let draft_state = draft::load(&companion)?;
     let verdicts = provreq::verdict_store::load(&companion)?;
-    let anchor =
-        provreq::verdict_store::DriftAnchor::current(provreq::verify::subject_head_commit(subject));
+    let anchor = provreq::verdict_store::DriftAnchor::current(
+        provreq::verify::subject_head_commit(subject),
+        provreq::proving_env::ProvingEnv::current(&companion),
+    );
     let cov = provreq::status::coverage(&items, &triage_state, &draft_state, &verdicts, &anchor);
     println!("Coverage funnel:");
     println!("  discovered        {}", cov.discovered);
@@ -936,10 +938,14 @@ fn run_engines(subject: &Path) -> Result<()> {
     // this subject's build environment offers (REQ048), so collect that alongside the probe.
     let mut missing_light: Vec<(String, &'static str)> = Vec::new();
     let mut missing_heavy: Vec<String> = Vec::new();
+    // Collected so the proving-environment record (REQ049) is built from the statuses already
+    // probed here, rather than spawning every probe a second time.
+    let mut probed: Vec<(&'static str, engine::EngineStatus)> = Vec::new();
 
     println!("Verification engines:");
     for e in engine::registry() {
         let status = engine::detect(&e);
+        probed.push((e.name, status.clone()));
         println!(
             "  category {:<3} {:<32} {}",
             e.category.as_label(),
@@ -960,8 +966,21 @@ fn run_engines(subject: &Path) -> Result<()> {
             .push(status);
     }
 
+    // Two different facts, deliberately reported apart: what the SUBJECT offers (REQ048) and what
+    // this run would actually prove a verdict in (REQ049). Conflating them would let a verdict
+    // proved on the host claim the subject's dev-container as its provenance.
+    println!(
+        "\nVerification environment (what a verdict produced now would record):\n  {}",
+        provreq::proving_env::ProvingEnv::from_statuses(
+            provreq::proving_env::declared_label(&companion),
+            provreq::proving_env::in_container(),
+            &probed,
+        )
+        .describe()
+    );
+
     let build_env = provreq::buildenv::detect(subject);
-    println!("\nBuild environment:");
+    println!("\nBuild environment (what this subject offers):");
     println!("  {}", build_env.describe());
     for line in provreq::buildenv::advice(&build_env, &missing_light, &missing_heavy) {
         println!("  {line}");
