@@ -94,7 +94,27 @@ function StoredVerdict({ verdict }: { verdict: VerdictView }) {
           ))}
         </ul>
       )}
+      <ProvedIn environment={verdict.environment} />
     </div>
+  );
+}
+
+/// Where a stored verdict was proved (REQ050). A verdict with no recorded environment is called
+/// out rather than left to look like one whose environment was checked and found unchanged — both
+/// are `fresh`, so silence here would let the operator read a guarantee the record does not carry.
+function ProvedIn({ environment }: { environment: string | null }) {
+  if (environment === null) {
+    return (
+      <p className="ml-1 text-xs text-muted">
+        <span className="font-medium">Environment not recorded</span> — this verdict predates
+        environment recording, so where it was proved is unknown. Re-verify to record it.
+      </p>
+    );
+  }
+  return (
+    <p className="ml-1 text-xs text-muted">
+      <span className="font-medium">Proved in:</span> {environment}
+    </p>
   );
 }
 

@@ -29,6 +29,10 @@ export interface VerdictView {
   reason: string | null;
   fresh: boolean;
   stale_reasons: string[];
+  // Where this verdict was proved (REQ049/REQ050), or null when it predates environment recording.
+  // Distinct from `fresh` on purpose: an unchanged recorded environment is a checked claim, an
+  // absent one is not, and both leave `fresh` true.
+  environment: string | null;
 }
 
 export interface ItemState {

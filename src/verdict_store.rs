@@ -102,6 +102,14 @@ pub struct VerdictView {
     /// When not fresh, the concrete drifts — prose moved, code moved, tool changed — so the
     /// operator sees *why* a re-verify is owed, never just that one is.
     pub stale_reasons: Vec<String>,
+    /// Where this verdict was proved (REQ049), rendered for display — `None` when the verdict
+    /// predates the environment axis and no environment was ever recorded.
+    ///
+    /// Carried separately from `fresh` on purpose: "proved in `lab-2`, still the current
+    /// environment" is a *checked* claim, while "we do not know where this was proved" is an
+    /// unchecked one. Both leave `fresh` true, so without this the surface would render them
+    /// identically and the stronger reading would win by default.
+    pub environment: Option<String>,
 }
 
 /// Pair a stored verdict with its freshness against the current world. Pure over the stored
@@ -184,6 +192,7 @@ pub fn view(
         reason: stored.reason.clone(),
         fresh: stale_reasons.is_empty(),
         stale_reasons,
+        environment: stored.provenance.environment.as_ref().map(|e| e.describe()),
     }
 }
 
@@ -237,6 +246,34 @@ mod tests {
         assert_eq!(view.stale_reasons.len(), 1, "{:?}", view.stale_reasons);
         assert!(view.stale_reasons[0].contains("lab-1"));
         assert!(view.stale_reasons[0].contains("ci-runner"));
+    }
+
+    // Verifies: REQ050 — the view distinguishes "proved here, unchanged" from "never recorded".
+    // Both are `fresh`, so without a separate field the surface would render them identically and
+    // an operator would read a guarantee the record does not carry.
+    #[test]
+    fn a_recorded_environment_is_distinguishable_from_an_unrecorded_one() {
+        let anchor = DriftAnchor {
+            environment: env(Some("lab-1"), &["Kani 0.67.0"]),
+            subject_commit: Some("abc".into()),
+            tool_version: "0.0.1".into(),
+        };
+
+        let mut recorded = stored("r1", Some("abc"), "0.0.1");
+        recorded.provenance.environment = Some(env(Some("lab-1"), &["Kani 0.67.0"]));
+        let recorded = view(&recorded, "r1", None, &anchor);
+
+        let never = view(&stored("r1", Some("abc"), "0.0.1"), "r1", None, &anchor);
+
+        assert!(recorded.fresh && never.fresh, "both are fresh");
+        assert!(
+            recorded.environment.expect("recorded").contains("lab-1"),
+            "a recorded environment names where the verdict was proved"
+        );
+        assert_eq!(
+            never.environment, None,
+            "a verdict that never recorded one must not look like one that did"
+        );
     }
 
     // Verifies: REQ049 — a verdict persisted before this axis existed carries no environment, so

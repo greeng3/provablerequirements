@@ -1,0 +1,23 @@
+active: true
+derived: false
+header: ''
+level: 1.49
+links: []
+normative: true
+ref: ''
+reviewed: null
+text: |
+  Not every recorded claim about a verdict can be checked. Where a verdict carries the environment
+  it was produced in, that environment can be compared against the current one and confirmed
+  unchanged. Where a verdict carries no such record — because it predates the tool recording one —
+  there is nothing to compare, and the verdict is correctly not reported as drifted.
+
+  These two situations must not look alike to an operator. A verdict whose environment was recorded
+  and still matches carries a checked claim; a verdict with no record carries an unchecked one, and
+  both are equally free of drift. Presenting them identically lets the stronger reading win by
+  default, so the operator infers a guarantee the record does not carry.
+
+  Wherever a stored verdict is presented, the surface therefore states where that verdict was
+  produced, or states plainly that this was never recorded, and names re-verifying as the way to
+  record it. This changes what the operator is told, never whether a verdict counts as drifted: an
+  absent record must not be turned into a drift it cannot substantiate.
