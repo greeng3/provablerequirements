@@ -1,30 +1,34 @@
-# Operator Workflow — Working Notes (WIP)
+# Operator Workflow — Working Notes
 
-> **Status: in-progress deliberation, not a finished design.** Scratch for issue #5.
-> Captures the deployment/engine-provisioning thread worked through so far; the operator
-> journey itself is still being mulled. Nothing here is final. Builds on the merged adoption
-> model in [applying-to-existing-repos.md](applying-to-existing-repos.md).
+> **Status: the deliberation recorded here is finished; both threads are decided and shipped.**
+> Working notes for issue #1 (migrated from GitLab issue #5). The **reasoning** is the value of this
+> document and is preserved verbatim, including for directions that lost — what follows is a record
+> of how each question was settled, not a live proposal. Builds on the merged adoption model in
+> [applying-to-existing-repos.md](applying-to-existing-repos.md).
 >
-> **Three deployment designs are on the table. All are kept here deliberately:**
+> **Three deployment designs were on the table. All are kept here deliberately:**
 >
 > - **Design A — native install + dev-env agent/socket** — the earliest direction.
 >   **⚠️ SUPERSEDED / kept for reference.** Sections below marked _Design A (old)_.
 > - **Design B — dev-container scope cut + docker-socket seam** — the middle direction.
->   **🔶 UNDER CONSIDERATION, not decided.** Sections below marked _Design B (under consideration)_.
-> - **Design C — seam-free native provisioner, platform-scoped** — the current lean.
->   **🟢 CURRENT LEAN.** Design A resurrected, but with the seam removed and B folded in as one
->   build-env strategy. Section below marked _Design C (current lean)_.
+>   **🔴 REJECTED (ADR #104, 2026-07-25).** The docker-socket branch is a NO-GO; see
+>   [devcontainer-branch-decision.md](devcontainer-branch-decision.md). The seam it proposed
+>   resolves instead to **detect-and-advise** (REQ048). Sections below marked _Design B_.
+> - **Design C — seam-free native provisioner, platform-scoped** — **🟢 DECIDED (ADR #98,
+>   2026-07-24): GO, tiered.** Design A resurrected, but with the seam removed and B folded in as one
+>   build-env strategy. Shipped as the light install tier (TLC, Kani); the heavy tier is
+>   dev-container-first by decision. See [design-c-decision.md](design-c-decision.md).
 >
-> The operator-journey spine (below) is shared by all three and independent of which wins. Design C
-> is the first framing that makes the tool feel **operationally possible** rather than a non-starter —
-> but it's a lean, not a commitment.
+> The operator-journey spine (below) is shared by all three and independent of which won. Design C
+> is the first framing that made the tool **operationally possible** rather than a non-starter.
 
-## Operator-journey spine (proposed skeleton, not yet agreed)
+## Operator-journey spine
 
-> **📌 Step 1 SHIPPED (2026-07-13, issue #8).** The rest of the spine is still the unfinished
-> half — proposed skeleton, not agreed, to be worked through with the operator next. The
-> genuine open design questions live at Steps 2–3 (see below); Step 1 was fully specified by
-> the settled adoption model (A1–A3) and needed none.
+> **📌 ALL SIX STEPS SHIPPED (Step 1 on 2026-07-13 / issue #8, through Step 6 on 2026-07-22 /
+> issue #83).** What began as a proposed skeleton was worked through with the operator step by
+> step; each step's record below names the issue and PR that landed it. The genuine open design
+> questions lived at Steps 2–3 (see below); Step 1 was fully specified by the settled adoption
+> model (A1–A3) and needed none.
 
 1. **First contact** — point at a subject repo → discover its Doorstop layout → propose the
    companion tree + name → operator confirms. **✅ Implemented as `provreq init [PATH]`**
@@ -37,9 +41,11 @@
    **🟢 Designed (2026-07-14, issue #10); machinery SHIPPED (2026-07-14, issue #12)** —
    `RequirementsSource` seam + Doorstop adapter (`src/source.rs`, `src/doorstop.rs`
    `DoorstopSource`), `provreq triage` advisory state (`src/triage.rs`), and the `provreq
-status` coverage funnel (`src/status.rs`). REQ009–011. The LLM bulk pre-sort classifier
-   (R-triage-1 primary flow) is the deferred next slice; the shipped default is the honest
-   prose-floor seed. See the "Steps 2–3 design" section below.
+status` coverage funnel (`src/status.rs`). REQ009–011. **LLM bulk pre-sort classifier SHIPPED
+   (2026-07-14, issue #14 / PR #15)** — `src/llm.rs`, multi-provider and Ollama-first, with the
+   `Classifier` seam bulk + fallible + async; its output stays advisory and the honest prose-floor
+   seed remains the fallback. Triage from the UI landed later with Step 4's surface (REQ037, issue
+   #79 / PR #80). See the "Steps 2–3 design" section below.
 3. **Formalize one item** — translate → read-back confirm (D12) → validate grounding dry-run (D13).
    **🟢 Designed (2026-07-14, issue #10); draft lifecycle SHIPPED (#16); D11 translate SHIPPED
    (2026-07-15, issue #18)** — `provreq draft` persists a resumable draft (`src/draft.rs`,
@@ -70,15 +76,26 @@ most 0`, unused vocabulary), the generate-then-repair loop (`src/formalize.rs` f
    (`src/source.rs`) + Doorstop impl (`src/doorstop.rs`) stamps a `provreq:` block (status, confirmed
    PRL, review/reviewer/time, source revision) onto the subject item, preserving existing fields;
    `provreq draft <ID> --writeback` writes it (requires an admitted, non-drifted draft; a drifted
-   admission → needs-reconfirmation, surfaced in draft display/list). REQ020. Still deferred: D13
-   grounding (the axis after this). See the "Steps 2–3 design" section below.
-4. **Verify** — run one engine → inspect the verdict tree.
-5. **Annotate** — stage the working-tree proof-carrier edit; operator reviews + commits on their own forge.
-6. **Living loop** — re-run on drift, act on stale verdicts.
+   admission → needs-reconfirmation, surfaced in draft display/list). REQ020.
+   **D13 grounding SHIPPED (2026-07-22, issue #77 / PR #78)** — live grounding validation in the
+   item detail surface: each binding resolves or **parks**, and a no-match never fakes a verdict
+   (REQ036). See the "Steps 2–3 design" section below.
+4. **Verify** — run one engine → inspect the verdict tree. **🟢 SHIPPED (2026-07-22, issue #81 /
+   PR #82)** — per-item verify on demand runs the wired engine ensemble and returns the aggregate
+   verdict plus each engine's own evidence (REQ038), over the ensemble aggregation from issue #60 /
+   PR #61 (REQ030). Category 1 is a three-engine ensemble — Kani (bounded), Creusot and Prusti (both
+   deductive) — and category 2a is TLC.
+5. **Annotate** — stage the working-tree proof-carrier edit; operator reviews + commits on their own
+   forge. **🟢 SHIPPED** — A6/D14 back-write above (issue #28 / PR #29, REQ020) plus the A6
+   contract-draft channel that stages deductive markers for review (issue #71 / PR #72, REQ033) and
+   the semantic contract drafting that followed (REQ040/REQ041).
+6. **Living loop** — re-run on drift, act on stale verdicts. **🟢 SHIPPED (2026-07-22, issue #83 /
+   PR #84, REQ039)** and since **closed on five drift axes**: requirement prose, subject commit,
+   formalization (REQ045), tool version, and the environment a verdict was proved in (REQ049/REQ050).
+   With a drifted-verdict funnel stat (REQ043) and a re-verify-all-stale bulk action (REQ044).
 
 The four emerging questions (triage one-at-a-time vs bulk pre-sort; half-finished-formalization
 state; coverage display; grounding no-match) are **answered** in the Steps 2–3 design below.
-Steps 4–6 remain skeleton (tracked under the umbrella design issue #1).
 
 ## Operator journey — Steps 2–3 design (triage + formalize) [SETTLED 2026-07-14]
 
@@ -186,6 +203,10 @@ read-back and human confirm → D13 grounding dry-run → admit. Two questions w
 
 ### Build sequencing (when these land as code)
 
+> **📌 This sequence was executed as planned and is complete.** Kept as the record of the intended
+> order; the "Shipped so far" list below it grew into the full slice history in the sections that
+> follow. The reqforge adapter is the one item still waiting, on reqforge's own format.
+
 CLI-first, per the A5-B / build-order guardrail. Natural next slices, each its own issue+branch:
 draw the `RequirementsSource` seam and refactor `src/doorstop.rs` behind it (`R-src-1..4`) → a triage
 command with companion triage state (`R-triage-*`) → a `status` coverage funnel (`R-cov-1`) → the
@@ -221,8 +242,10 @@ formalize pipeline with draft persistence (`R-draft-*`, `R-ground-*`). The reqfo
   category 1 and each binding matches ≥1 span (`--dry-run`); any unbound symbol, no-match code
   binding, or non-code binding leaves it **parked** (`admitted-but-ungrounded`), honestly reported —
   no-match never fakes a verdict (R-ground-1), non-code categories are deferred until their engines
-  are wired. Real 2a/2b/3 dry-run, D6 cross-category refinement mappings, and regex/AST-precise
-  queries are later slices.
+  are wired. **Since done for 2a**: model binding against a real TLA+ spec (issue #46 / PR #47,
+  REQ028) and TLC wired behind it (issue #48 / PR #49, REQ029). 2b/3 stay unwired by decision, so
+  their bindings still park. D6 cross-category refinement mappings and regex/AST-precise queries
+  remain later slices.
 
 - **Issue #34** — engine coverage report (REQ022, R-eng-2/3). `src/engine.rs` maps each PRL category
   to one engine (R-eng-1 split: cat 1 code = toolchain-welded per-language build toolchain, R-eng-4;
@@ -248,7 +271,7 @@ formalize pipeline with draft persistence (`R-draft-*`, `R-ground-*`). The reqfo
   the subject is not a git repo — never fabricated), and renders the verdict; a stale-prose admission
   is flagged alongside it. Strength/basis scale + per-engine evidence tree land with real engines.
 
-- **Fragment check: issue #38 / PR #TBD (2026-07-16).** Found while smoke-testing #36 — and it
+- **Fragment check: issue #38 / PR #39 (2026-07-16).** Found while smoke-testing #36 — and it
   reframed the engine slice. **Category 1 is the temporal-free fragment** ("1 → the temporal-free
   fragment (pre/post/invariants) → Viper/deductive"), but the gate never compared `category` against
   the patterns used, so `category: 1` + `leads_to` gated **clean** and earned an
@@ -268,7 +291,7 @@ formalize pipeline with draft persistence (`R-draft-*`, `R-ground-*`). The reqfo
   `Missing`, the operator's to fix by installing) and never ready; the cat-1 engine is renamed to what
   it is, a **deductive verifier**. REQ024 (1.23).
 
-- **Cat-1 binding = a state predicate at a source location: issue #40 / PR #TBD (2026-07-17).**
+- **Cat-1 binding = a state predicate at a source location: issue #40 / PR #41 (2026-07-17).**
   The engine was never blocked on _which verifier_ — it was blocked on the **binding**. A cat-1
   binding was a **grep term** (`logged_in` ↦ the text `"fn login"`; `dry_run_code` was a plain
   substring search, grounded iff that text occurred anywhere), but the Adapters list requires cat-1
@@ -292,7 +315,7 @@ formalize pipeline with draft persistence (`R-draft-*`, `R-ground-*`). The reqfo
   `state logged_in` (arity 0) against `fn login(user: &str)` (arity 1) — a real mismatch the old grep
   binding matched right past.
 
-- **Sorts bind too: issue #42 / PR #TBD (2026-07-17).** The last prerequisite before Kani. #40 made a
+- **Sorts bind too: issue #42 / PR #43 (2026-07-17).** The last prerequisite before Kani. #40 made a
   cat-1 **predicate** resolve to a real function, but **sorts** — the types a quantified variable
   ranges over — had no bindings at all (`grounding.rs` said so outright: `// ponytail: predicates
 only; sort/type existence when cat-1 needs it`). Cat-1 now needs it: a harness cannot say
@@ -308,17 +331,20 @@ only; sort/type existence when cat-1 needs it`). Cat-1 now needs it: a harness c
   `User: unbound`, correctly. **Existence only** — whether a type is instantiable (Kani's `Arbitrary`)
   is the engine's question, since the binding is core-owned and shared; answering it here would bake
   one engine's shape into the core, which is exactly what "Kani is lowering #1, not the definition"
-  forbids. REQ026 (1.25). Deferred: cross-checking a typed parameter's sort against the quantifier's,
-  generics, path-qualified types.
+  forbids. REQ026 (1.25). Deferred — now tracked as **#118**: cross-checking a typed parameter's sort against
+  the quantifier's, generics, path-qualified types.
 
-- **Kani wired as cat-1 engine #1: issue #44 / PR #TBD (2026-07-17).** `verify` now produces a real
+- **Kani wired as cat-1 engine #1: issue #44 / PR #45 (2026-07-17).** `verify` now produces a real
   `holds`/`fails` for a grounded cat-1 requirement instead of only `unknown / no-engine`. **Kani is
   engine #1 — first, not only:** D2b wants a per-language **ensemble**, and the verdict object reserves a
   per-tool evidence map for tools with differing soundness directions. Kani goes first because it takes
   **additive proof harnesses** (a generated file under the subject's `tests/`, importing its public API),
   so it never forces the "does provreq write annotations into the subject's own code?" decision —
   Prusti/Creusot would force it immediately, and Verus needs the subject _written in_ its Rust subset (a
-  rewrite, against the adopt-existing-repos premise). That call stays open. **The whole harness shape was
+  rewrite, against the adopt-existing-repos premise). **That call was since made**: provreq drafts
+  contracts into the subject but never writes them unreviewed — the A6 contract-draft channel stages
+  deductive markers (REQ033) and semantic `#[requires]`/`#[ensures]` drafts (REQ040) for the operator
+  to review, with a bounded repair loop against the real prover (REQ041). **The whole harness shape was
   run against real Kani 0.67.0 BEFORE any lowering was written** — holds → `VERIFICATION:- SUCCESSFUL`,
   violated → `FAILED` + `Failed Checks`, counterexample via `-Z concrete-playback`, and a sort without
   `kani::Arbitrary` → `E0277`, exit 101 — so the design rested on observed behavior, not guesses.
@@ -333,7 +359,8 @@ only; sort/type existence when cat-1 needs it`). Cat-1 now needs it: a harness c
       `params: Vec<ParamMode>` (by-ref vs by-value, judged syntactically like everything else the adapter
       does), so the harness emits `login(&u)` or `login(u)` to match — a mismatch surfaces as a harness that
       won't compile → `unknown`, never a wrong verdict. Cross-checking a param's _type_ against the sort is
-      still deferred (#42's open item); it also lands as a compile-error `unknown`.
+      still deferred (**#118**, which absorbed this from the since-closed #42); it also lands as a
+      compile-error `unknown`.
     - **Verdict split (D7/D8/D9):** polarity (`status`) from basis (`Basis::ModelCheckedBounded` — the ONLY
       rung, because Kani is bounded; `proven` is _unrepresentable_, so an engine cannot overclaim by
       accident) from witness (the concrete counterexample as a runnable replay test — D9's re-checkable
@@ -357,11 +384,12 @@ only; sort/type existence when cat-1 needs it`). Cat-1 now needs it: a harness c
       and the path most worth proving continuously); real-engine tests are `#[ignore]`d and run by a
       **separate parallel `kani` job** (`cargo test -- --ignored`). Verified here: 164 Kani-free unit tests +
       4 real-engine tests (holds/fails-with-witness/inconclusive/no-trace) + a live CLI smoke against a real
-      cargo subject, all green. REQ027 (1.26). Deferred: default-unwind/timeout config → provreq.yml; the
-      param-type-vs-sort cross-check (#42); the D2b ensemble's second engine + per-tool evidence map +
-      cross-check.
+      cargo subject, all green. REQ027 (1.26). Deferred: default-unwind/timeout config → provreq.yml (**#117**); the
+      param-type-vs-sort cross-check (**#118**). The D2b ensemble is since **complete** — Creusot
+      (REQ031) and Prusti (REQ032) joined as engines #2 and #3, with per-tool evidence aggregated by
+      REQ030 and the shared claim-lowering core extracted in #69 / PR #70.
 
-- **Cat-2a grounding — model binding vs a TLA+ spec: issue #46 / PR #TBD (2026-07-17).** Chosen fork =
+- **Cat-2a grounding — model binding vs a TLA+ spec: issue #46 / PR #47 (2026-07-17).** Chosen fork =
   the **second category** (2a model checking). Sliced the way cat-1 was — **grounding first, engine
   (TLC) next** — so a category-2a requirement can become GROUNDED while its engine stays `NotWired`,
   exactly the state cat-1 sat in between #30 and #44.
@@ -376,19 +404,21 @@ only; sort/type existence when cat-1 needs it`). Cat-1 now needs it: a harness c
       `login`. TLA+ draws no such line: an action, a state operator, a data set, a variable, a constant are
       all just _named definitions_, so `ModelResolution{Resolved,NotFound,Ambiguous}` asks one question —
       does the spec define this name? Ambiguity (defined in two specs) never silently disambiguates.
-    - **Existence only** (like REQ026 sorts): arity/shape is the engine's question, deferred. **Structural
+    - **Existence only** (like REQ026 sorts): arity/shape is the engine's question, deferred (**#119**). **Structural
       read, not SANY** (no TLA+ parser crate exists as `syn` does for Rust): comments stripped, `VARIABLES`/
       operator forms parsed properly (not substring-matched), and the read-back states the limit
       (LET/INSTANCE/multi-line decls not seen) so a green line never implies more than was checked —
       mirroring `rust_adapter`'s "syntactic check only" honesty.
     - `grounding.rs` gained a `BindCategory::Model` arm in `verdict()` (now takes a third resolution map);
       `main.rs resolutions()` produces model resolutions for 2a bindings and threads them through
-      `verify`/`--dry-run`. `engine_verdict` still returns `no-engine` for 2a (TLC is the next issue).
+      `verify`/`--dry-run`. `engine_verdict` returned `no-engine` for 2a until TLC was wired in the
+      next slice (issue #48 / PR #49).
       REQ028 (1.27). 178 tests + a live CLI smoke (a 2a `leads_to` requirement grounds against a real
-      `Msg.tla`, and an unresolvable binding parks), all green. Deferred: wire TLC → real verdict; operator
-      arity/shape checks; a configured spec path when specs live outside the subject tree.
+      `Msg.tla`, and an unresolvable binding parks), all green. Deferred: wire TLC → real verdict (**done** — issue #48 / PR #49); operator
+      arity/shape checks (**#119**); a configured spec path when specs live outside the subject tree
+      (**#120**).
 
-- **TLC wired — cat-2a engine: issue #48 / PR #TBD (2026-07-17).** The REQ027 analog for the model world.
+- **TLC wired — cat-2a engine: issue #48 / PR #49 (2026-07-17).** The REQ027 analog for the model world.
   A grounded category-2a requirement now earns a real `holds`/`fails`, closing the `NotWired` state #46 left
   it in. Everything below was verified against real TLC 2.19 (a JRE + `tla2tools.jar`, ~2 MB — far lighter
   than Kani/CBMC), not designed in the abstract.
@@ -402,11 +432,13 @@ only; sort/type existence when cat-1 needs it`). Cat-1 now needs it: a harness c
       pattern outside that core (`precedes`/`occurs at most`/`can_reach`) → honest `NotLowerable` →
       `unknown`, never approximated (D2). The subject must define a behaviour `Spec` (located via
       `tla_adapter`); a missing/ambiguous `Spec`, an unassigned `CONSTANT`, or a parse error → honest
-      `inconclusive` — the TLC analog of Kani's uncompilable harness. Constant models deferred.
+      `inconclusive` — the TLC analog of Kani's uncompilable harness. Constant models deferred (**#121**).
     - `engine.rs` honesty: `EngineProbe` gained `args: Vec<String>` + a `version_marker`, because TLC runs as
       `java -cp <jar> tlc2.TLC` (no PATH binary) and `java` present ≠ TLC present — only the `TLC2 Version`
       banner in the output counts, so a jar-absent host reads `Missing`, not falsely `Available`. Cat-2a gets
-      a real probe and stops being `NotWired`.
+      a real probe and stops being `NotWired`. (The probe later gained the other half of that honesty:
+      REQ051 reads the **exit status**, so a binary that is on `PATH` but cannot start — exit 126/127 —
+      reports `Unusable`, distinct from both `Available` and `Missing`.)
     - `main.rs engine_verdict` now dispatches on category: 1→Kani (`kani_verdict`), 2a→TLC (`tlc_verdict`);
       2b/3 stay `no-engine`. `verdict.rs` reused as-is — TLC is bounded too, so a pass is
       `Basis::ModelCheckedBounded` (`model-checked (bounded)`, **never** `proven`) and a `fails` carries TLC's
@@ -417,11 +449,20 @@ only; sort/type existence when cat-1 needs it`). Cat-1 now needs it: a harness c
       (the `kani` job was scoped to `kani::` so it stops running the cat-2a real-engine tests it can't).
       REQ029 (1.28). 198 engine-free tests + 3 real-TLC (`#[ignore]`d) + live CLI smoke, all green.
 
-**Next slice:** the still-open **cat-1 fork** — a `proven`-capable deductive verifier (Prusti/Creusot/Verus)
-as cat-1 engine #2 — which forces the annotate-the-subject decision + the D2b per-tool evidence map +
-cross-check. Or the **cat-2b/3** engines (MonPoly runtime monitor / a UI driver), still `NotWired`. The 2b/3
-liveness-monitorability question (can a finite trace refute `eventually P`? — only the metric `leads_to …
-within T` looks decidable there) stays open; settle it with the user before narrowing 2b/3 from permissive.
+**What happened next (the cat-1 fork, since RESOLVED):** the `proven`-capable deductive verifier
+question was answered by taking **both** candidates rather than choosing — Creusot as cat-1 engine #2
+(REQ031, issue #62 / PR #63) and Prusti as #3 (REQ032, issue #64 / PR #65), each baked into the
+devcontainer image. The D2b per-tool evidence map arrived first as REQ030 (issue #60 / PR #61), so
+`aggregate` reports the stronger rung when a deductive engine and a bounded one both hold. The
+annotate-the-subject decision it forced was answered by the A6 contract-draft channel (REQ033) and
+then semantic contract drafting with a bounded repair loop (REQ040/REQ041). The three engines'
+duplicated claim-lowering was extracted to one core in #69 / PR #70.
+
+**Still `NotWired`, by decision:** the **cat-2b/3** engines (MonPoly runtime monitor / a UI driver).
+The 2b/3 liveness-monitorability question (can a finite trace refute `eventually P`? — only the metric
+`leads_to … within T` looks decidable there) **stays open**; settle it with the user before narrowing
+2b/3 from permissive. Until then a probe for them would promise a readiness nothing can honor, which
+is the REQ024 overclaim wearing a different hat.
 
 ## Packaging — Design A (old, superseded)
 
@@ -443,7 +484,7 @@ separate axis from where it runs.
 - **R-pkg-4** — single binary, multiple entry modes: headless subcommands (the CLI-first
   spine, scriptable) **and** a `serve` mode running a **local** web server hosting the
   **embedded** web UI (the A6 gate surface), co-resident in the dev env. Local-served, not
-  hosted (hosted multi-repo = deferred A5-A). `serve` foreground default; `--background` /
+  hosted (hosted multi-repo = deferred A5-A, **#122**). `serve` foreground default; `--background` /
   `--port` flags; no daemon manager yet.
 
 ## Engine provisioning — Design A (old, superseded topology)
@@ -501,11 +542,14 @@ it lives in the dev env either way → ship A5-B (Verus via a devcontainer featu
 container-agent split earns its place only when artifact-fed engines (TLA+, MonPoly) come
 online. The container topology is the **destination** for the engine zoo, not the skeleton's start.
 
-## Design B — dev-container scope cut + docker-socket seam (under consideration)
+## Design B — dev-container scope cut + docker-socket seam (rejected)
 
-> **🔶 UNDER CONSIDERATION, not decided.** Later direction. Still open whether it makes the tool
-> operationally possible — the reason for more noodling. Supersedes Design A's native-install path
-> and agent/socket topology; inherits Design A's engine split and R-eng-1..4 and R-pkg-4.
+> **🔴 REJECTED — ADR #104 (2026-07-25), [devcontainer-branch-decision.md](devcontainer-branch-decision.md).**
+> The docker-socket branch is a NO-GO; the seam it proposed resolves instead to **detect-and-advise**
+> (REQ048, `src/buildenv.rs`), which reports what the subject's build environment offers and explains
+> an engine's absence in those terms rather than reaching into a container. Kept in full because the
+> reasoning is what makes the rejection legible. Superseded Design A's native-install path and
+> agent/socket topology; its engine split and R-eng-1..4 and R-pkg-4 survive into Design C.
 
 **Scope cut (the enabling assumption):**
 
@@ -577,9 +621,12 @@ are unsupported; the derived build inherits the subject Dockerfile's needs (priv
 secrets, base images); the **docker socket is a privileged (root-equivalent) seam** — that's the
 trust cost that replaces Design A's "attractive-nuisance listening port".
 
-## Design C — seam-free native provisioner, platform-scoped (current lean)
+## Design C — seam-free native provisioner, platform-scoped (decided)
 
-> **🟢 CURRENT LEAN, not a commitment.** Design A resurrected + the platform-scoping insight, with
+> **🟢 DECIDED — ADR #98 (2026-07-24): GO, tiered.** See [design-c-decision.md](design-c-decision.md).
+> The light tier ships (`provreq install tlc` / `kani`, consent-gated, `src/provision.rs`, REQ046/REQ047);
+> the heavy tier (Prusti, Creusot) is dev-container-first by decision, with subject-grounded advice when
+> an engine is absent. Design A resurrected + the platform-scoping insight, with
 > two moves that A and B both missed: **the seam is removed**, and **B is folded in** as one build-env
 > strategy rather than a competing design. Inherits R-pkg-4 (`serve` + embedded UI) and the engine
 > split as a per-adapter concern (no longer a topology concern).
