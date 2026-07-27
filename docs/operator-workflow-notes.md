@@ -228,10 +228,18 @@ formalize pipeline with draft persistence (`R-draft-*`, `R-ground-*`). The reqfo
         base_url: http://localhost:11434/v1 # Ollama; OpenAI = https://api.openai.com/v1
         model: llama3
         api_key_env: OPENAI_API_KEY # omit for keyless endpoints like Ollama
+        timeout_seconds: 600 # per request (REQ042)
+        batch_size: 5 # requirements per request (REQ054)
     ```
 
     The API key is read only from the named env var, never the file. No `llm:` block → triage uses
     the prose-floor default and says so. Items the model omits/mislabels fall back to stays-prose.
+
+    `batch_size` is the unit everything else is bounded in: a request covers that many
+    requirements, `timeout_seconds` bounds that request, and a failure costs at most that batch.
+    Each batch is persisted as it lands, so a stopped run is resumed by re-running `triage` —
+    which then asks only about what is left. Turn it down for a slow local endpoint, up for a fast
+    hosted one.
 
 - **Issue #30** — D13 grounding, first slice (REQ021). `src/grounding.rs` binds each PRL vocabulary
   symbol to a concrete observable (`Binding { symbol, category, observable, fidelity }`, D4/D5) and

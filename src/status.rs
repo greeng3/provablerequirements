@@ -154,7 +154,7 @@ pub fn backlog(
 mod tests {
     use super::*;
     use crate::draft::{self, DraftState};
-    use crate::triage::{seed, set, ProseFloorClassifier, TriageState};
+    use crate::triage::{set, TriageState};
     use crate::verdict::{ProvenanceReport, VerdictReport};
 
     fn item(id: &str) -> Item {
@@ -224,9 +224,9 @@ mod tests {
         assert_eq!(empty.untriaged, 3);
 
         // Seed all to prose, then promote A.
-        let seeded = seed(&TriageState::new(), &items, &ProseFloorClassifier)
-            .await
-            .unwrap();
+        let seeded = items.iter().fold(TriageState::new(), |s, i| {
+            set(&s, i, Classification::StaysProse)
+        });
         let promoted = set(&seeded, &items[0], Classification::FormalizableNow);
         let cov = coverage(&items, &promoted, &no_drafts, &no_verdicts, &anchor());
         assert_eq!(cov.untriaged, 0);

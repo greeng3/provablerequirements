@@ -274,7 +274,7 @@ async fn seed_backlog(
 ) -> Result<TriageState> {
     // Decide the scope BEFORE describing it (REQ053). Announcing a model and then classifying
     // nothing is output that describes an action rather than reporting one.
-    let (base, count) = match triage::plan(state, items, reclassify) {
+    let pending = match triage::plan(state, items, reclassify) {
         triage::TriagePlan::Nothing { already } => {
             println!(
                 "{already} item(s) already triaged; nothing to classify — re-run the classifier \
@@ -282,8 +282,9 @@ async fn seed_backlog(
             );
             return Ok(state.clone());
         }
-        triage::TriagePlan::Classify { base, count } => (base, count),
+        triage::TriagePlan::Classify { pending } => pending,
     };
+    let count = pending.len();
 
     // Re-classifying replaces classifications the operator may have set by hand, so it is
     // consent-gated like every other action that overwrites their work.
@@ -297,16 +298,25 @@ async fn seed_backlog(
         return Ok(state.clone());
     }
 
-    let next = match provreq::llm::load_config(companion)? {
+    // Persisting each batch as it lands is what makes a failure cost one batch instead of the
+    // whole run, and what makes the next run a resume (REQ054).
+    let persist = |state: &TriageState, done: usize, total: usize| -> Result<()> {
+        triage::save(companion, state)?;
+        println!("  classified {done} of {total} …");
+        Ok(())
+    };
+
+    let outcome = match provreq::llm::load_config(companion)? {
         Some(config) => {
+            let batch_size = config.batch_size;
             println!(
-                "Classifying {count} of {} item(s) with {} via {} …",
+                "Classifying {count} of {} item(s) with {} via {}, {batch_size} at a time …",
                 items.len(),
                 config.model,
                 config.base_url
             );
             let classifier = LlmClassifier::new(HttpBackend::from_config(config)?);
-            triage::seed(&base, items, &classifier).await?
+            triage::seed_in_batches(state, &pending, &classifier, batch_size, persist).await?
         }
         None => {
             println!(
@@ -314,11 +324,22 @@ async fn seed_backlog(
                  prose-floor default.",
                 items.len()
             );
-            triage::seed(&base, items, &ProseFloorClassifier).await?
+            triage::seed_in_batches(state, &pending, &ProseFloorClassifier, count, persist).await?
         }
     };
-    triage::save(companion, &next)?;
-    Ok(next)
+
+    // A run that stopped early already persisted what it managed; say what did and did not get
+    // classified rather than letting the failure imply nothing happened.
+    if let Some(stopped) = outcome.stopped {
+        return Err(stopped).with_context(|| {
+            format!(
+                "classified {} of {count} item(s); {} not classified and left as they were — \
+                 re-run `provreq triage` to resume from here",
+                outcome.classified, outcome.unclassified
+            )
+        });
+    }
+    Ok(outcome.state)
 }
 
 fn print_triage(items: &[Item], state: &TriageState) {
