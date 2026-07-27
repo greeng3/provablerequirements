@@ -141,6 +141,46 @@ pub fn set(state: &TriageState, item: &Item, classification: Classification) -> 
     }
 }
 
+/// What a triage run should do, decided **before** anything is announced (REQ053).
+///
+/// Seeding is additive, so an already-classified backlog leaves nothing to ask a model about.
+/// Skipping the request is correct; announcing it anyway makes a no-op indistinguishable from a
+/// completed run whose answer happened to match what was already recorded.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TriagePlan {
+    /// Every item is already classified and the operator did not ask for a re-run.
+    Nothing { already: usize },
+    /// There is work: classify `count` items, starting from `base`. `base` is the current state
+    /// for an ordinary run (additive, so existing buckets are kept) and empty for a re-classify
+    /// (every item is put back in front of the classifier).
+    Classify { base: TriageState, count: usize },
+}
+
+/// Decide a triage run's scope. Pure, so the caller can report the decision rather than narrate an
+/// intention — the same shape as [`crate::adopt::plan`] and [`crate::provision::decide_install`].
+pub fn plan(state: &TriageState, items: &[Item], reclassify: bool) -> TriagePlan {
+    if reclassify {
+        return TriagePlan::Classify {
+            base: TriageState::new(),
+            count: items.len(),
+        };
+    }
+    let count = items
+        .iter()
+        .filter(|i| !state.items.contains_key(&i.id))
+        .count();
+    if count == 0 {
+        TriagePlan::Nothing {
+            already: items.len(),
+        }
+    } else {
+        TriagePlan::Classify {
+            base: state.clone(),
+            count,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -167,6 +207,52 @@ mod tests {
             buckets,
             vec![Classification::StaysProse, Classification::FormalizableNow]
         );
+    }
+
+    // Verifies: REQ053 — the scope of a run is decided before it is described. A fully-triaged
+    // backlog is `Nothing`, so the caller can say "nothing to classify" instead of announcing a
+    // model it is not about to ask. This is the defect: `triage` printed "Classifying backlog with
+    // <model> via <url> …" and then classified nothing, output indistinguishable from a real run.
+    #[tokio::test]
+    async fn a_fully_triaged_backlog_plans_no_work() {
+        let items = [item("A", None), item("B", None)];
+        let seeded = seed(&TriageState::new(), &items, &ProseFloorClassifier)
+            .await
+            .unwrap();
+
+        assert_eq!(
+            plan(&seeded, &items, false),
+            TriagePlan::Nothing { already: 2 }
+        );
+
+        // A partly-triaged backlog is real work, counted honestly: only the pending item.
+        let partial = set(&TriageState::new(), &items[0], Classification::StaysProse);
+        match plan(&partial, &items, false) {
+            TriagePlan::Classify { count, base } => {
+                assert_eq!(count, 1, "only the untriaged item is work");
+                assert_eq!(base, partial, "an ordinary run keeps what is already there");
+            }
+            other => panic!("expected work, got {other:?}"),
+        }
+    }
+
+    // Verifies: REQ053 — `--reclassify` is the deliberate way out of a fully-triaged state: every
+    // item goes back in front of the classifier, from an empty base, so nothing is skipped as
+    // "already done". Without it the prose floor is a one-way door.
+    #[tokio::test]
+    async fn reclassify_puts_every_item_back_in_front_of_the_classifier() {
+        let items = [item("A", None), item("B", None)];
+        let seeded = seed(&TriageState::new(), &items, &ProseFloorClassifier)
+            .await
+            .unwrap();
+
+        match plan(&seeded, &items, true) {
+            TriagePlan::Classify { count, base } => {
+                assert_eq!(count, 2, "every item is re-classified");
+                assert!(base.items.is_empty(), "nothing is treated as already done");
+            }
+            other => panic!("expected work, got {other:?}"),
+        }
     }
 
     // Verifies: REQ052 — a failed classification is not a classification: the error propagates out

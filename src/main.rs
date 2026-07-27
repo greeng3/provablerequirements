@@ -54,6 +54,14 @@ enum Command {
         /// Override one item's bucket: `--set REQ001 formalizable-now`.
         #[arg(long, num_args = 2, value_names = ["ID", "BUCKET"])]
         set: Option<Vec<String>>,
+        /// Re-run the classifier over items that are already triaged, replacing their
+        /// classifications. Without this, seeding is additive and a fully-triaged backlog is left
+        /// alone — so this is the way back out of a seeding you no longer want.
+        #[arg(long)]
+        reclassify: bool,
+        /// Skip the confirmation prompt for `--reclassify` (for scripting).
+        #[arg(long)]
+        yes: bool,
     },
     /// Open, resume, edit, gate, read back, admit, or discard a formalization draft.
     Draft {
@@ -166,7 +174,12 @@ async fn main() -> Result<()> {
             provreq::server::serve(port, path).await.map_err(Into::into)
         }
         Command::Init { path, name, yes } => run_init(&path, name.as_deref(), yes),
-        Command::Triage { path, set } => run_triage(&path, set).await,
+        Command::Triage {
+            path,
+            set,
+            reclassify,
+            yes,
+        } => run_triage(&path, set, reclassify, yes).await,
         Command::Draft {
             id,
             path,
@@ -216,7 +229,12 @@ async fn main() -> Result<()> {
     }
 }
 
-async fn run_triage(subject: &Path, set: Option<Vec<String>>) -> Result<()> {
+async fn run_triage(
+    subject: &Path,
+    set: Option<Vec<String>>,
+    reclassify: bool,
+    yes: bool,
+) -> Result<()> {
     let (companion, items) = resolve(subject)?;
     let state = triage::load(&companion)?;
 
@@ -238,7 +256,7 @@ async fn run_triage(subject: &Path, set: Option<Vec<String>>) -> Result<()> {
             println!("Set {id} = {}", classification.as_str());
             next
         }
-        None => seed_backlog(&companion, &state, &items).await?,
+        None => seed_backlog(&companion, &state, &items, reclassify, yes).await?,
     };
 
     print_triage(&items, &state);
@@ -251,19 +269,52 @@ async fn seed_backlog(
     companion: &Path,
     state: &TriageState,
     items: &[Item],
+    reclassify: bool,
+    yes: bool,
 ) -> Result<TriageState> {
+    // Decide the scope BEFORE describing it (REQ053). Announcing a model and then classifying
+    // nothing is output that describes an action rather than reporting one.
+    let (base, count) = match triage::plan(state, items, reclassify) {
+        triage::TriagePlan::Nothing { already } => {
+            println!(
+                "{already} item(s) already triaged; nothing to classify — re-run the classifier \
+                 over them with `--reclassify`."
+            );
+            return Ok(state.clone());
+        }
+        triage::TriagePlan::Classify { base, count } => (base, count),
+    };
+
+    // Re-classifying replaces classifications the operator may have set by hand, so it is
+    // consent-gated like every other action that overwrites their work.
+    if reclassify
+        && !yes
+        && !confirm(&format!(
+            "Re-classify all {count} item(s), replacing the existing classifications?"
+        ))?
+    {
+        println!("Aborted; nothing written.");
+        return Ok(state.clone());
+    }
+
     let next = match provreq::llm::load_config(companion)? {
         Some(config) => {
             println!(
-                "Classifying backlog with {} via {} …",
-                config.model, config.base_url
+                "Classifying {count} of {} item(s) with {} via {} …",
+                items.len(),
+                config.model,
+                config.base_url
             );
             let classifier = LlmClassifier::new(HttpBackend::from_config(config)?);
-            triage::seed(state, items, &classifier).await?
+            triage::seed(&base, items, &classifier).await?
         }
         None => {
-            println!("No `llm:` config in provreq.yml — seeding with the prose-floor default.");
-            triage::seed(state, items, &ProseFloorClassifier).await?
+            println!(
+                "No `llm:` config in provreq.yml — seeding {count} of {} item(s) with the \
+                 prose-floor default.",
+                items.len()
+            );
+            triage::seed(&base, items, &ProseFloorClassifier).await?
         }
     };
     triage::save(companion, &next)?;
