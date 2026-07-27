@@ -169,6 +169,38 @@ mod tests {
         );
     }
 
+    // Verifies: REQ052 — a failed classification is not a classification: the error propagates out
+    // of seeding, so the caller never reaches the save and existing buckets survive untouched. A
+    // run that could not ask the model must not be able to rewrite the operator's backlog.
+    #[tokio::test]
+    async fn a_failed_classifier_leaves_the_existing_state_untouched() {
+        struct FailingClassifier;
+        impl Classifier for FailingClassifier {
+            async fn classify(&self, _items: &[Item]) -> Result<Vec<Classification>> {
+                anyhow::bail!("the model returned no usable classification")
+            }
+        }
+
+        let items = [item("A", None), item("B", None)];
+        let before = set(
+            &TriageState::new(),
+            &items[0],
+            Classification::FormalizableNow,
+        );
+
+        let err = seed(&before, &items, &FailingClassifier)
+            .await
+            .expect_err("a failed classification must not pass as a result");
+        assert!(format!("{err:#}").contains("classif"), "{err:#}");
+
+        // The operator's own decision is still there, and B was not invented.
+        assert_eq!(
+            before.items.get("A").map(|e| e.classification),
+            Some(Classification::FormalizableNow)
+        );
+        assert!(!before.items.contains_key("B"));
+    }
+
     // Verifies: REQ010 — seeding fills only unclassified items; set overrides.
     #[tokio::test]
     async fn seed_is_additive_and_set_overrides() {

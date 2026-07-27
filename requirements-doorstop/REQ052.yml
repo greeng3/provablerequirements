@@ -1,0 +1,29 @@
+active: true
+derived: false
+header: ''
+level: 1.52
+links: []
+normative: true
+ref: ''
+reviewed: null
+text: |
+  A judgement the model failed to make is not a judgement. Where the tool delegates a
+  classification to a language model, the reply either carries assignments the tool can read or it
+  does not, and a reply that yields no usable assignment at all — a refusal, prose where a list was
+  asked for, a truncated or malformed answer, an empty response — is a failed request. Presenting
+  it as a result attributes to the model an opinion it never expressed, and does so in the one
+  place the operator has no way to check: a bucket per item, complete, with a model's name above
+  it.
+
+  The danger is specific to a default that is otherwise correct. Falling back to the most
+  conservative bucket is the right answer for a single item the model skipped, because that bucket
+  claims nothing about the requirement and leaves the work visible. Applied to an entire backlog
+  because nothing parsed, the same fallback stops being a floor and becomes a fabricated
+  classification, indistinguishable from a model that read every requirement and judged them all
+  unformalizable.
+
+  The tool therefore separates a partial answer from no answer. Where some items are classified and
+  others are omitted, the omitted ones take the conservative default. Where the reply yields nothing
+  usable, the tool reports the failure, leaves existing classifications untouched, and treats the
+  run as it treats any other failed request — no state is written on the strength of an answer that
+  was never received.
