@@ -150,19 +150,30 @@ impl HttpBackend {
 }
 
 /// Pull the assistant text out of an OpenAI-compatible chat response (pure).
+///
+/// A present-but-**empty** `content` is a failed response, not an empty answer (REQ052): providers
+/// can return `""` — a reasoning model that spent its budget thinking is one way — and passing that
+/// on as `Ok("")` walks straight into reporting a fabricated classification downstream.
 fn extract_openai(json: &serde_json::Value) -> Result<String> {
-    json["choices"][0]["message"]["content"]
+    let content = json["choices"][0]["message"]["content"]
         .as_str()
-        .map(str::to_string)
-        .context("LLM response missing choices[0].message.content")
+        .context("LLM response missing choices[0].message.content")?;
+    reject_empty(content)
 }
 
 /// Pull the assistant text out of an Anthropic messages response (pure).
 fn extract_anthropic(json: &serde_json::Value) -> Result<String> {
-    json["content"][0]["text"]
+    let text = json["content"][0]["text"]
         .as_str()
-        .map(str::to_string)
-        .context("LLM response missing content[0].text")
+        .context("LLM response missing content[0].text")?;
+    reject_empty(text)
+}
+
+fn reject_empty(text: &str) -> Result<String> {
+    if text.trim().is_empty() {
+        bail!("the LLM returned empty content — a reply with nothing in it is a failed request, not an answer");
+    }
+    Ok(text.to_string())
 }
 
 impl LlmBackend for HttpBackend {
@@ -206,7 +217,7 @@ impl<B: LlmBackend + Send + Sync> Classifier for LlmClassifier<B> {
             return Ok(Vec::new());
         }
         let raw = self.backend.complete(&build_prompt(items)).await?;
-        Ok(parse_buckets(&raw, items))
+        parse_buckets(&raw, items)
     }
 }
 
@@ -241,19 +252,46 @@ fn build_prompt(items: &[Item]) -> String {
     prompt
 }
 
-/// Map the model's reply back to one bucket per input item, in order. Any item
-/// the model omits or mislabels defaults to `stays-prose` — the honest floor,
-/// never over-claiming and never crashing triage (pure).
-fn parse_buckets(raw: &str, items: &[Item]) -> Vec<Classification> {
+/// Map the model's reply back to one bucket per input item, in order.
+///
+/// Any item the model omits or mislabels defaults to `stays-prose` — the honest floor for *that
+/// item*, which claims nothing about the requirement and leaves the work visible.
+///
+/// A reply carrying **no** usable assignment is a different event: the request failed, and the
+/// same floor applied to every item stops being a floor and becomes a fabricated classification —
+/// indistinguishable from a model that read the whole backlog and judged it all unformalizable
+/// (REQ052). So that case is an error, not a result. Pure.
+fn parse_buckets(raw: &str, items: &[Item]) -> Result<Vec<Classification>> {
     let map = parse_assignments(raw);
-    items
+    if map.is_empty() {
+        bail!(
+            "the model returned no usable classification — expected a JSON array of \
+             {{id, bucket}}, got: {}",
+            excerpt(raw)
+        );
+    }
+    Ok(items
         .iter()
         .map(|i| {
             map.get(&i.id)
                 .copied()
                 .unwrap_or(Classification::StaysProse)
         })
-        .collect()
+        .collect())
+}
+
+/// A short, single-line rendering of a reply for an error message — enough for the operator to
+/// recognise a refusal or a truncation without pasting a page of model output into the terminal.
+fn excerpt(raw: &str) -> String {
+    const MAX: usize = 200;
+    let flat = raw.split_whitespace().collect::<Vec<_>>().join(" ");
+    if flat.is_empty() {
+        return "an empty reply".to_string();
+    }
+    match flat.char_indices().nth(MAX) {
+        Some((cut, _)) => format!("`{}…`", &flat[..cut]),
+        None => format!("`{flat}`"),
+    }
 }
 
 fn parse_assignments(raw: &str) -> BTreeMap<String, Classification> {
@@ -339,6 +377,68 @@ mod tests {
                 Classification::StaysProse
             ]
         );
+    }
+
+    // Verifies: REQ052 — a reply that yields NO usable assignment is a failed request, not a
+    // classification. Before this, every one of these produced a full, confident all-prose
+    // classification of the whole backlog with the model's name printed above it — the exact
+    // overclaim the tool exists to prevent, and the worst kind, because it fabricates content
+    // rather than status.
+    #[tokio::test]
+    async fn a_reply_with_no_usable_assignment_is_an_error() {
+        let items = [item("A", "x"), item("B", "y")];
+        for (label, reply) in [
+            ("a refusal", "I cannot classify these requirements."),
+            ("prose instead of a list", "They all look like prose to me."),
+            ("truncated json", r#"[{"id":"A","bucket":"formaliz"#),
+            ("an empty reply", ""),
+            ("whitespace only", "   \n  "),
+            ("an empty array", "[]"),
+            (
+                "every bucket unknown",
+                r#"[{"id":"A","bucket":"???"},{"id":"B","bucket":"maybe"}]"#,
+            ),
+        ] {
+            let backend = StubBackend {
+                reply: reply.into(),
+            };
+            let err = LlmClassifier::new(backend)
+                .classify(&items)
+                .await
+                .expect_err(&format!("{label} must not pass as a classification"));
+            let msg = format!("{err:#}");
+            assert!(
+                msg.contains("classif"),
+                "{label}: the error must name what failed, got: {msg}"
+            );
+        }
+    }
+
+    // Verifies: REQ052 — the distinction is partial-vs-none, not perfect-vs-imperfect. One usable
+    // assignment is an answer, and the items the model skipped still take the conservative floor.
+    #[tokio::test]
+    async fn one_usable_assignment_is_still_an_answer() {
+        let items = [item("A", "x"), item("B", "y")];
+        let backend = StubBackend {
+            reply: r#"garbage before [{"id":"B","bucket":"formalizable-now"}] and after"#.into(),
+        };
+        let buckets = LlmClassifier::new(backend).classify(&items).await.unwrap();
+        assert_eq!(
+            buckets,
+            vec![Classification::StaysProse, Classification::FormalizableNow]
+        );
+    }
+
+    // Verifies: REQ052 — a present-but-empty `content` field is a failed response, not an empty
+    // answer. `extract_openai` reads a field that a provider can legitimately return as "", and
+    // returning `Ok("")` from it walks straight into the fabrication above.
+    #[test]
+    fn empty_assistant_content_is_a_failed_response() {
+        let err = extract_openai(&serde_json::json!({
+            "choices": [{ "message": { "role": "assistant", "content": "" } }]
+        }))
+        .expect_err("empty content is not an answer");
+        assert!(format!("{err:#}").contains("empty"), "{err:#}");
     }
 
     // Verifies: REQ012 — a reply wrapped in a code fence still parses.
