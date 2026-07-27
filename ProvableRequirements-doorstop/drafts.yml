@@ -1,0 +1,26 @@
+schema: 1
+drafts:
+  REQ047:
+    revision: 17cf6ac844159fbe
+    candidate: |-
+      requirement kani_install_platform_gated { category: 1
+        vocabulary { state platform_supported
+                     state install_proceeds(d, p, q, c) }
+        require { always (not install_proceeds(d, p, q, c) or platform_supported) } }
+    gate:
+      status: passed
+      warnings: []
+    admission:
+      state: admitted
+      review: optional
+      by: greeng3
+      at_unix: 1785119220
+    bindings:
+    - symbol: platform_supported
+      category: code
+      observable: kani_platform_supported
+      fidelity: definitional
+    - symbol: install_proceeds
+      category: code
+      observable: decide_install
+      fidelity: definitional

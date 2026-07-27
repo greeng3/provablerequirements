@@ -1,0 +1,24 @@
+verdicts:
+  REQ047:
+    id: REQ047
+    status: unknown
+    basis: null
+    reason: missing-grounding
+    witness: null
+    detail:
+    - 'install_proceeds: `decide_install` at src/provision.rs:79 returns `InstallDecision`, not `bool` — a state predicate must be a boolean over program state'
+    evidence: []
+    provenance:
+      requirement_revision: 17cf6ac844159fbe
+      subject_commit: 0b5a2be7dd785017d09694cf33bf46b9e075c7bd
+      tool_version: 0.0.1
+      formalization: 47923f0418f16110
+      environment:
+        declared: provreq-devcontainer
+        engines:
+        - Kani 0.67.0
+        - TLC (TLA+) 2.19
+        unversioned:
+        - Creusot
+        - Prusti
+        container: true
