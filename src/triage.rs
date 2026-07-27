@@ -91,25 +91,17 @@ impl Classifier for ProseFloorClassifier {
     }
 }
 
-/// Seed triage for items that have no entry yet, leaving existing entries
-/// untouched (re-triage is an explicit `set`, never a silent overwrite). Only the
-/// pending items are sent to the classifier. Returns a new state.
-pub async fn seed<C: Classifier>(
+/// Classify exactly `batch` and merge the buckets onto `state`, replacing any entry those items
+/// already had. Deciding *which* items to ask about is [`plan`]'s job, not this one's. Returns a
+/// new state.
+async fn classify_into<C: Classifier>(
     state: &TriageState,
-    items: &[Item],
+    batch: &[Item],
     classifier: &C,
 ) -> Result<TriageState> {
-    let pending: Vec<Item> = items
-        .iter()
-        .filter(|i| !state.items.contains_key(&i.id))
-        .cloned()
-        .collect();
-    if pending.is_empty() {
-        return Ok(state.clone());
-    }
-    let buckets = classifier.classify(&pending).await?;
+    let buckets = classifier.classify(batch).await?;
     let mut next = state.items.clone();
-    for (item, classification) in pending.iter().zip(buckets) {
+    for (item, classification) in batch.iter().zip(buckets) {
         next.insert(
             item.id.clone(),
             TriageEntry {
@@ -121,6 +113,71 @@ pub async fn seed<C: Classifier>(
     Ok(TriageState {
         schema: state.schema,
         items: next,
+    })
+}
+
+/// What a batched seed run actually accomplished (REQ054).
+///
+/// A run that stops early is still a run that did something. Reporting only the failure would
+/// throw away work the operator paid for, and reporting only the state would hide that the
+/// backlog is not fully triaged.
+pub struct SeedOutcome {
+    /// Every batch that landed, merged onto the state the run started from. Already handed to the
+    /// caller's `persist` sink.
+    pub state: TriageState,
+    /// How many of the planned items the classifier assigned a bucket to.
+    pub classified: usize,
+    /// How many the run never got to. They keep whatever they had — nothing is defaulted on their
+    /// behalf (REQ052), so an item that was untriaged stays untriaged.
+    pub unclassified: usize,
+    /// Why the run stopped, when it stopped before the end.
+    pub stopped: Option<anyhow::Error>,
+}
+
+/// Classify `pending` in batches, handing each batch's merged state to `persist` as it lands
+/// (REQ054). `state` is what the batches are merged onto and what a stopped run leaves behind.
+///
+/// One request over a whole backlog is bounded by nothing an operator can predict: it gets slower
+/// with backlog size — the one thing bulk pre-sort exists for — and a failure at any point loses
+/// every item's worth of model work. Batching makes the per-request bound a per-batch bound and
+/// turns a retry into a resume: what landed is already recorded, so [`plan`] finds only the rest.
+///
+/// Batches merge onto the *current* state, including on a re-classify. An operator who consents to
+/// replacing their classifications consents to a complete replacement, not to trading fifty of them
+/// for the two a stopped run managed — so at every point the persisted state covers every item it
+/// covered before.
+pub async fn seed_in_batches<C: Classifier>(
+    state: &TriageState,
+    pending: &[Item],
+    classifier: &C,
+    batch_size: usize,
+    mut persist: impl FnMut(&TriageState, usize, usize) -> Result<()>,
+) -> Result<SeedOutcome> {
+    let total = pending.len();
+    let mut next = state.clone();
+    let mut classified = 0;
+    // `batch_size` comes from operator config; 0 would panic in `chunks`.
+    for batch in pending.chunks(batch_size.max(1)) {
+        next = match classify_into(&next, batch, classifier).await {
+            Ok(merged) => merged,
+            Err(stopped) => {
+                return Ok(SeedOutcome {
+                    state: next,
+                    classified,
+                    unclassified: total - classified,
+                    stopped: Some(stopped),
+                })
+            }
+        };
+        // A classifier returns exactly one bucket per input item, by contract.
+        classified += batch.len();
+        persist(&next, classified, total)?;
+    }
+    Ok(SeedOutcome {
+        state: next,
+        classified,
+        unclassified: 0,
+        stopped: None,
     })
 }
 
@@ -150,10 +207,9 @@ pub fn set(state: &TriageState, item: &Item, classification: Classification) -> 
 pub enum TriagePlan {
     /// Every item is already classified and the operator did not ask for a re-run.
     Nothing { already: usize },
-    /// There is work: classify `count` items, starting from `base`. `base` is the current state
-    /// for an ordinary run (additive, so existing buckets are kept) and empty for a re-classify
-    /// (every item is put back in front of the classifier).
-    Classify { base: TriageState, count: usize },
+    /// There is work: exactly these items go in front of the classifier. An ordinary run lists
+    /// only the untriaged ones (classification is additive); a re-classify lists them all.
+    Classify { pending: Vec<Item> },
 }
 
 /// Decide a triage run's scope. Pure, so the caller can report the decision rather than narrate an
@@ -161,29 +217,44 @@ pub enum TriagePlan {
 pub fn plan(state: &TriageState, items: &[Item], reclassify: bool) -> TriagePlan {
     if reclassify {
         return TriagePlan::Classify {
-            base: TriageState::new(),
-            count: items.len(),
+            pending: items.to_vec(),
         };
     }
-    let count = items
+    let pending: Vec<Item> = items
         .iter()
         .filter(|i| !state.items.contains_key(&i.id))
-        .count();
-    if count == 0 {
+        .cloned()
+        .collect();
+    if pending.is_empty() {
         TriagePlan::Nothing {
             already: items.len(),
         }
     } else {
-        TriagePlan::Classify {
-            base: state.clone(),
-            count,
-        }
+        TriagePlan::Classify { pending }
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The whole production path in one call — decide the scope, then classify it in a single
+    /// batch — so these tests exercise what the CLI actually runs.
+    async fn seed_all<C: Classifier>(
+        state: &TriageState,
+        items: &[Item],
+        classifier: &C,
+    ) -> Result<TriageState> {
+        let TriagePlan::Classify { pending } = plan(state, items, false) else {
+            return Ok(state.clone());
+        };
+        let batch = pending.len();
+        let outcome = seed_in_batches(state, &pending, classifier, batch, |_, _, _| Ok(())).await?;
+        match outcome.stopped {
+            Some(stopped) => Err(stopped),
+            None => Ok(outcome.state),
+        }
+    }
 
     fn item(id: &str, hint: Option<Classification>) -> Item {
         Item {
@@ -216,7 +287,7 @@ mod tests {
     #[tokio::test]
     async fn a_fully_triaged_backlog_plans_no_work() {
         let items = [item("A", None), item("B", None)];
-        let seeded = seed(&TriageState::new(), &items, &ProseFloorClassifier)
+        let seeded = seed_all(&TriageState::new(), &items, &ProseFloorClassifier)
             .await
             .unwrap();
 
@@ -228,9 +299,9 @@ mod tests {
         // A partly-triaged backlog is real work, counted honestly: only the pending item.
         let partial = set(&TriageState::new(), &items[0], Classification::StaysProse);
         match plan(&partial, &items, false) {
-            TriagePlan::Classify { count, base } => {
-                assert_eq!(count, 1, "only the untriaged item is work");
-                assert_eq!(base, partial, "an ordinary run keeps what is already there");
+            TriagePlan::Classify { pending } => {
+                assert_eq!(pending.len(), 1, "only the untriaged item is work");
+                assert_eq!(pending[0].id, "B");
             }
             other => panic!("expected work, got {other:?}"),
         }
@@ -242,17 +313,62 @@ mod tests {
     #[tokio::test]
     async fn reclassify_puts_every_item_back_in_front_of_the_classifier() {
         let items = [item("A", None), item("B", None)];
-        let seeded = seed(&TriageState::new(), &items, &ProseFloorClassifier)
+        let seeded = seed_all(&TriageState::new(), &items, &ProseFloorClassifier)
             .await
             .unwrap();
 
         match plan(&seeded, &items, true) {
-            TriagePlan::Classify { count, base } => {
-                assert_eq!(count, 2, "every item is re-classified");
-                assert!(base.items.is_empty(), "nothing is treated as already done");
+            TriagePlan::Classify { pending } => {
+                assert_eq!(pending.len(), 2, "nothing is treated as already done");
             }
             other => panic!("expected work, got {other:?}"),
         }
+    }
+
+    // Verifies: REQ054 — a re-classify that stops early must not cost the operator the
+    // classifications it did not get around to replacing. Consent to a full replacement is not
+    // consent to trading a whole backlog for the one batch that landed, so batches merge onto the
+    // current state and every item stays covered throughout.
+    #[tokio::test]
+    async fn a_stopped_reclassify_still_covers_every_item() {
+        let ids: Vec<String> = (0..4).map(|n| format!("REQ{n}")).collect();
+        let items: Vec<Item> = ids.iter().map(|id| item(id, None)).collect();
+        let before = seed_all(&TriageState::new(), &items, &ProseFloorClassifier)
+            .await
+            .unwrap();
+        let TriagePlan::Classify { pending } = plan(&before, &items, true) else {
+            panic!("a reclassify is always work");
+        };
+
+        let outcome = seed_in_batches(
+            &before,
+            &pending,
+            &FlakyClassifier {
+                fail_after: 1,
+                calls: 0.into(),
+            },
+            2,
+            |_, _, _| Ok(()),
+        )
+        .await
+        .unwrap();
+
+        assert!(outcome.stopped.is_some());
+        assert_eq!(
+            outcome.state.items.len(),
+            4,
+            "no item lost its classification"
+        );
+        assert_eq!(
+            outcome.state.items["REQ0"].classification,
+            Classification::FormalizableNow,
+            "the batch that landed replaced its items"
+        );
+        assert_eq!(
+            outcome.state.items["REQ3"].classification,
+            Classification::StaysProse,
+            "an item whose batch never ran keeps what it had"
+        );
     }
 
     // Verifies: REQ052 — a failed classification is not a classification: the error propagates out
@@ -274,7 +390,7 @@ mod tests {
             Classification::FormalizableNow,
         );
 
-        let err = seed(&before, &items, &FailingClassifier)
+        let err = seed_all(&before, &items, &FailingClassifier)
             .await
             .expect_err("a failed classification must not pass as a result");
         assert!(format!("{err:#}").contains("classif"), "{err:#}");
@@ -287,11 +403,106 @@ mod tests {
         assert!(!before.items.contains_key("B"));
     }
 
+    /// Succeeds for `fail_after` calls, then fails the way a real endpoint does mid-backlog.
+    struct FlakyClassifier {
+        fail_after: usize,
+        calls: std::sync::atomic::AtomicUsize,
+    }
+    impl Classifier for FlakyClassifier {
+        async fn classify(&self, items: &[Item]) -> Result<Vec<Classification>> {
+            let n = self.calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            if n >= self.fail_after {
+                anyhow::bail!("the model returned no usable classification");
+            }
+            Ok(vec![Classification::FormalizableNow; items.len()])
+        }
+    }
+
+    // Verifies: REQ054 — a batch that lands is persisted before the next one is asked for, so a
+    // failure mid-backlog keeps the work that succeeded and a retry resumes rather than restarts.
+    // This is the defect: one request over all 51 items ran for ten minutes, timed out, and left
+    // nothing behind.
+    #[tokio::test]
+    async fn a_failed_batch_keeps_the_batches_that_landed_and_a_retry_resumes() {
+        let ids: Vec<String> = (0..5).map(|n| format!("REQ{n}")).collect();
+        let items: Vec<Item> = ids.iter().map(|id| item(id, None)).collect();
+        let classifier = FlakyClassifier {
+            fail_after: 2,
+            calls: 0.into(),
+        };
+
+        let mut persisted = Vec::new();
+        let outcome = seed_in_batches(
+            &TriageState::new(),
+            &items,
+            &classifier,
+            2,
+            |s, done, total| {
+                persisted.push((s.items.len(), done, total));
+                Ok(())
+            },
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(
+            persisted,
+            vec![(2, 2, 5), (4, 4, 5)],
+            "each batch is persisted as it lands, and progress is reported against the whole run"
+        );
+        assert!(outcome.stopped.is_some(), "the failure is still reported");
+        assert_eq!(outcome.classified, 4);
+        assert_eq!(
+            outcome.unclassified, 1,
+            "the rest is left honestly untriaged"
+        );
+        assert_eq!(outcome.state.items.len(), 4);
+
+        // A retry over the persisted state asks only about what is left, and does not redo — or
+        // undo — the work that landed.
+        let TriagePlan::Classify { pending } = plan(&outcome.state, &items, false) else {
+            panic!("one item is still untriaged, so a retry has work");
+        };
+        let resumed = seed_in_batches(
+            &outcome.state,
+            &pending,
+            &ProseFloorClassifier,
+            2,
+            |_, _, _| Ok(()),
+        )
+        .await
+        .unwrap();
+        assert!(resumed.stopped.is_none());
+        assert_eq!(resumed.classified, 1, "only the untriaged item is re-asked");
+        assert_eq!(
+            resumed.state.items["REQ0"].classification,
+            Classification::FormalizableNow,
+            "a resume does not overwrite what the earlier batches established"
+        );
+    }
+
+    // Verifies: REQ054 — the batch size is operator config, so the degenerate value must not take
+    // the run down with it (`chunks(0)` panics).
+    #[tokio::test]
+    async fn a_zero_batch_size_still_classifies_the_backlog() {
+        let items = [item("A", None), item("B", None)];
+        let outcome = seed_in_batches(
+            &TriageState::new(),
+            &items,
+            &ProseFloorClassifier,
+            0,
+            |_, _, _| Ok(()),
+        )
+        .await
+        .unwrap();
+        assert_eq!(outcome.classified, 2);
+    }
+
     // Verifies: REQ010 — seeding fills only unclassified items; set overrides.
     #[tokio::test]
     async fn seed_is_additive_and_set_overrides() {
         let items = [item("A", None), item("B", None)];
-        let seeded = seed(&TriageState::new(), &items, &ProseFloorClassifier)
+        let seeded = seed_all(&TriageState::new(), &items, &ProseFloorClassifier)
             .await
             .unwrap();
         assert_eq!(seeded.items.len(), 2);
@@ -304,7 +515,7 @@ mod tests {
         );
 
         // Re-seeding does NOT clobber the operator's override.
-        let reseeded = seed(&promoted, &items, &ProseFloorClassifier)
+        let reseeded = seed_all(&promoted, &items, &ProseFloorClassifier)
             .await
             .unwrap();
         assert_eq!(
@@ -318,7 +529,7 @@ mod tests {
     async fn state_persists_and_reloads() {
         let tmp = tempfile::tempdir().unwrap();
         let items = [item("A", Some(Classification::FalsifiableOnly))];
-        let state = seed(&TriageState::new(), &items, &ProseFloorClassifier)
+        let state = seed_all(&TriageState::new(), &items, &ProseFloorClassifier)
             .await
             .unwrap();
         save(tmp.path(), &state).unwrap();

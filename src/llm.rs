@@ -44,6 +44,12 @@ pub struct LlmConfig {
     /// catches a true hang without cutting off legitimately-slow local generation.
     #[serde(default = "default_timeout_secs")]
     pub timeout_seconds: u64,
+    /// How many requirements go into one bulk pre-sort request (REQ054). Bounding is per request,
+    /// so this is what makes `timeout_seconds` a bound the operator can reason about: it is the
+    /// unit of work a failure can cost, and the unit of prompt that has to fit a context window.
+    /// Tune it down for a slow local model, up for a fast hosted one.
+    #[serde(default = "default_batch_size")]
+    pub batch_size: usize,
 }
 
 /// Default per-request LLM timeout: 10 minutes. Long enough that a slow local model
@@ -53,6 +59,16 @@ pub const DEFAULT_TIMEOUT_SECS: u64 = 600;
 
 fn default_timeout_secs() -> u64 {
     DEFAULT_TIMEOUT_SECS
+}
+
+/// Default bulk pre-sort batch size. Chosen so the default batch finishes inside
+/// [`DEFAULT_TIMEOUT_SECS`] on a slow endpoint rather than on a fast one: measured against
+/// `qwen3:32b` on a local Ollama, five requirements classify in 5m42s — comfortably inside the ten
+/// minute bound, where ten requirements would not have been.
+pub const DEFAULT_BATCH_SIZE: usize = 5;
+
+fn default_batch_size() -> usize {
+    DEFAULT_BATCH_SIZE
 }
 
 /// Anthropic requires an explicit output cap; generous enough for a JSON array
@@ -492,6 +508,7 @@ mod tests {
         assert_eq!(cfg.api_key_env, None);
         // Omitted timeout falls back to the generous default.
         assert_eq!(cfg.timeout_seconds, DEFAULT_TIMEOUT_SECS);
+        assert_eq!(cfg.batch_size, DEFAULT_BATCH_SIZE);
     }
 
     // Verifies: REQ042 — an explicit `timeout_seconds` overrides the default, and the client
