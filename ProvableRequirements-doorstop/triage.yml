@@ -1,0 +1,8 @@
+schema: 1
+items:
+  REQ024:
+    classification: formalizable-now
+    revision: f334ca507028b616
+  REQ047:
+    classification: formalizable-now
+    revision: 17cf6ac844159fbe
