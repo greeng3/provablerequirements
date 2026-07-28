@@ -359,6 +359,7 @@ pub fn verdict(
 mod tests {
     use super::*;
     use crate::prl::gate;
+    use crate::rust_adapter::PredicateForm;
 
     fn req(src: &str) -> Requirement {
         gate(src)
@@ -458,6 +459,7 @@ mod tests {
         Resolution::Resolved {
             at: at(file),
             params: vec![],
+            form: PredicateForm::Function,
         }
     }
 

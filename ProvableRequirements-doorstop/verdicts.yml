@@ -3,16 +3,39 @@ verdicts:
     id: REQ047
     status: unknown
     basis: null
-    reason: missing-grounding
+    reason: inconclusive
     witness: null
     detail:
-    - 'install_proceeds: `decide_install` at src/provision.rs:79 returns `InstallDecision`, not `bool` — a state predicate must be a boolean over program state'
-    evidence: []
+    - 'Kani: inconclusive'
+    - '`install_proceeds` is applied to `d`, which is not the quantified variable — there is no value to give it'
+    - 'Creusot: inconclusive'
+    - '`install_proceeds` is applied to `d`, which is not the quantified variable — there is no value to give it'
+    - 'Prusti: inconclusive'
+    - '`install_proceeds` is applied to `d`, which is not the quantified variable — there is no value to give it'
+    evidence:
+    - engine: Kani
+      status: unknown
+      basis: null
+      witness: null
+      detail:
+      - '`install_proceeds` is applied to `d`, which is not the quantified variable — there is no value to give it'
+    - engine: Creusot
+      status: unknown
+      basis: null
+      witness: null
+      detail:
+      - '`install_proceeds` is applied to `d`, which is not the quantified variable — there is no value to give it'
+    - engine: Prusti
+      status: unknown
+      basis: null
+      witness: null
+      detail:
+      - '`install_proceeds` is applied to `d`, which is not the quantified variable — there is no value to give it'
     provenance:
       requirement_revision: 17cf6ac844159fbe
-      subject_commit: 0b5a2be7dd785017d09694cf33bf46b9e075c7bd
+      subject_commit: 4cbbfcab0baac99bc9b4797a94b0e005e8b1f4a1
       tool_version: 0.0.1
-      formalization: 47923f0418f16110
+      formalization: 32dddfe986949eb6
       environment:
         declared: provreq-devcontainer
         engines:

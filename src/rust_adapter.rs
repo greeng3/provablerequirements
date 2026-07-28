@@ -60,18 +60,47 @@ pub enum ParamMode {
     ByValue,
 }
 
+/// How a resolved predicate is *called* (REQ055). Well-modelled Rust keeps decisions in enums and
+/// behaviour on types, so requiring a free `fn … -> bool` at the binding boundary would mean the
+/// more carefully a subject models its states, the less of it provreq can reach. The form carries
+/// everything [`crate::lowering`] needs to emit the call, so the observable string is parsed once,
+/// here, and never re-read downstream.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PredicateForm {
+    /// A free function written `-> bool`: `prefix::<observable>(args)`. Carries no name because
+    /// for this form the observable *is* the call — only the qualified forms name something the
+    /// binding string does not already say.
+    Function,
+    /// An inherent method written `-> bool`. The receiver is the predicate's **first** argument,
+    /// so `state ready(u)` against `fn is_ready(&self)` lowers to `u.is_ready()`. Determined by
+    /// the signature having a `self` receiver, not by how the operator wrote the binding — a
+    /// method found by its bare name is still a method.
+    Method { name: String },
+    /// A function returning an enum, tested against one variant:
+    /// `matches!(prefix::name(args), prefix::enum_name::variant { .. })`. The `{ .. }` form
+    /// matches unit, tuple, and struct variants alike, so the binding does not have to restate
+    /// the variant's shape.
+    VariantTest {
+        name: String,
+        enum_name: String,
+        variant: String,
+    },
+}
+
 /// What resolving one cat-1 binding against the subject's Rust found. Every non-resolved
 /// variant is a *distinct operator action* — a typo, a name collision, a wrong predicate,
 /// or a non-boolean — so they stay distinct rather than collapsing to "not found".
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Resolution {
-    /// Exactly one function of that name, with matching arity, syntactically returning
-    /// `bool`. The only variant that grounds. `params` carries how each parameter takes its
-    /// argument, in declaration order, so [`crate::kani`] can generate a call that matches
-    /// the subject's real signature instead of guessing at `&u` versus `u`.
+    /// Exactly one predicate of that name, with matching arity, that yields a boolean — either
+    /// syntactically returning `bool` or naming one variant of the enum it returns. The only
+    /// variant that grounds. `params` carries how each parameter takes its argument, in
+    /// declaration order, so [`crate::lowering`] can generate a call that matches the subject's
+    /// real signature instead of guessing at `&u` versus `u`; `form` says how to call it.
     Resolved {
         at: CodeMatch,
         params: Vec<ParamMode>,
+        form: PredicateForm,
     },
     /// No function of that name anywhere in the subject's Rust.
     NotFound,
@@ -86,8 +115,26 @@ pub enum Resolution {
         at: CodeMatch,
     },
     /// Found with the right arity, but it is not written to return `bool`, so it cannot
-    /// stand for a state predicate.
+    /// stand for a state predicate. A function returning an enum is *not* this: name a variant
+    /// (`decide_install::Proceed`) and it becomes a boolean test (REQ055).
     NotBoolean { returns: String, at: CodeMatch },
+    /// The function resolved, but the variant named after `::` is not one of the variants of the
+    /// enum it returns (REQ055). Carries the real variants, because the useful answer to a
+    /// misspelled variant is the list it was meant to be spelled from.
+    NotAVariant {
+        returns: String,
+        variant: String,
+        variants: Vec<String>,
+        at: CodeMatch,
+    },
+    /// The type resolved, but it has no inherent method of that name (REQ055). Carries the
+    /// methods it does have, for the same reason.
+    NoSuchMethod {
+        ty: String,
+        method: String,
+        methods: Vec<String>,
+        at: CodeMatch,
+    },
 }
 
 impl Resolution {
@@ -104,15 +151,20 @@ impl Resolution {
     /// cannot perform.
     pub fn describe(&self, symbol: &str, observable: &str) -> String {
         match self {
-            Resolution::Resolved { at, .. } => format!(
-                "{symbol} → `{observable}` resolves to {}:{}  {}\n      (syntactic check \
+            Resolution::Resolved { at, form, .. } => format!(
+                "{symbol} → `{observable}` resolves to {}:{}  {}\n      ({}; syntactic check \
                  only — `syn` sees no types, so a `bool` alias or `Result<bool>` would \
                  pass here)",
-                at.file, at.line, at.text
+                at.file,
+                at.line,
+                at.text,
+                form.describe_call(symbol)
             ),
             Resolution::NotFound => format!(
-                "{symbol}: no function `{observable}` in the subject's Rust — nothing to \
-                 check it through"
+                "{symbol}: nothing named `{observable}` resolves in the subject's Rust — a \
+                 predicate binds to a function (`login`), an inherent method \
+                 (`Session::is_active`), or one variant of the enum a function returns \
+                 (`decide_install::Proceed`)"
             ),
             Resolution::Ambiguous(ats) => {
                 let places = ats
@@ -138,9 +190,64 @@ impl Resolution {
             ),
             Resolution::NotBoolean { returns, at } => format!(
                 "{symbol}: `{observable}` at {}:{} returns `{returns}`, not `bool` — a \
-                 state predicate must be a boolean over program state",
+                 state predicate must be a boolean over program state. If `{returns}` is an \
+                 enum, name the variant that makes the predicate true \
+                 (`{observable}::<Variant>`)",
                 at.file, at.line
             ),
+            Resolution::NotAVariant {
+                returns,
+                variant,
+                variants,
+                at,
+            } => format!(
+                "{symbol}: `{observable}` at {}:{} returns `{returns}`, which has no variant \
+                 `{variant}` — {}",
+                at.file,
+                at.line,
+                if variants.is_empty() {
+                    format!(
+                        "no enum `{returns}` is declared in the subject's Rust, so there is \
+                             no variant to test"
+                    )
+                } else {
+                    format!("its variants are {}", variants.join(", "))
+                }
+            ),
+            Resolution::NoSuchMethod {
+                ty,
+                method,
+                methods,
+                at,
+            } => format!(
+                "{symbol}: `{ty}` at {}:{} has no inherent method `{method}` — {}",
+                at.file,
+                at.line,
+                if methods.is_empty() {
+                    "it has no inherent methods at all".to_string()
+                } else {
+                    format!("its methods are {}", methods.join(", "))
+                }
+            ),
+        }
+    }
+}
+
+impl PredicateForm {
+    /// How the harness will call this predicate, in the operator's own terms. Part of the D13
+    /// read-back: a binding that resolves through a method or a variant test is doing something
+    /// the observable string alone does not show, so it says so.
+    fn describe_call(&self, symbol: &str) -> String {
+        match self {
+            PredicateForm::Function => "called directly".to_string(),
+            PredicateForm::Method { name } => {
+                format!("an inherent method — checked as `<first argument of {symbol}>.{name}(…)`")
+            }
+            PredicateForm::VariantTest {
+                name,
+                enum_name,
+                variant,
+            } => format!("checked as `matches!({name}(…), {enum_name}::{variant})`"),
         }
     }
 }
@@ -264,27 +371,161 @@ pub fn resolve(
     arity: usize,
 ) -> Resolution {
     let name = observable.trim();
-    if name.is_empty() {
-        return Resolution::NotFound;
+    let segments: Vec<&str> = name.split("::").map(str::trim).collect();
+    match segments[..] {
+        [one] if !one.is_empty() => resolve_bare(subject_root, companion_root, one, arity),
+        [qualifier, member] if !qualifier.is_empty() && !member.is_empty() => {
+            resolve_qualified(subject_root, companion_root, qualifier, member, arity)
+        }
+        // An empty observable, or a path deeper than `A::B`. Nothing this adapter understands
+        // takes three segments, and guessing which two were meant would bind the requirement to
+        // something the operator did not write.
+        _ => Resolution::NotFound,
     }
+}
+
+/// A bare name: a free function, or an inherent method reached without qualifying its type. The
+/// signature decides which — a `self` receiver makes it a method however it was written, because
+/// lowering a method as a free call generates code that cannot compile (REQ055).
+fn resolve_bare(
+    subject_root: &Path,
+    companion_root: &Path,
+    name: &str,
+    arity: usize,
+) -> Resolution {
     let found = find_functions(subject_root, companion_root, name);
     match found.len() {
         0 => Resolution::NotFound,
-        1 => classify(found.into_iter().next().expect("len checked"), arity),
+        1 => {
+            let f = found.into_iter().next().expect("len checked");
+            let form = if f.has_receiver {
+                PredicateForm::Method {
+                    name: name.to_string(),
+                }
+            } else {
+                PredicateForm::Function
+            };
+            classify(f, arity, form)
+        }
+        _ => Resolution::Ambiguous(found.into_iter().map(|f| f.at).collect()),
+    }
+}
+
+/// `A::B` — either a function `A` whose returned enum has a variant `B`, or a type `A` with an
+/// inherent method `B`. Which one is decided by what `A` actually is in the subject; a name that
+/// is both a function and a type is an ambiguity, never a guess.
+fn resolve_qualified(
+    subject_root: &Path,
+    companion_root: &Path,
+    qualifier: &str,
+    member: &str,
+    arity: usize,
+) -> Resolution {
+    let fns = find_functions(subject_root, companion_root, qualifier);
+    let types = find_types(subject_root, companion_root, qualifier);
+    match (fns.len(), types.len()) {
+        (0, 0) => Resolution::NotFound,
+        (1, 0) => variant_test(
+            subject_root,
+            companion_root,
+            fns.into_iter().next().expect("len checked"),
+            member,
+            arity,
+        ),
+        (0, 1) => method_on(
+            subject_root,
+            companion_root,
+            types.into_iter().next().expect("len checked"),
+            qualifier,
+            member,
+            arity,
+        ),
+        _ => Resolution::Ambiguous(fns.into_iter().map(|f| f.at).chain(types).collect()),
+    }
+}
+
+/// A function whose return type is an enum, narrowed to one variant. Arity is checked first, for
+/// the same reason it is everywhere else: it names the more fundamental mismatch.
+fn variant_test(
+    subject_root: &Path,
+    companion_root: &Path,
+    f: FoundFn,
+    variant: &str,
+    arity: usize,
+) -> Resolution {
+    if f.params.len() != arity {
+        return Resolution::WrongArity {
+            expected: arity,
+            found: f.params.len(),
+            at: f.at,
+        };
+    }
+    let variants = find_enum_variants(subject_root, companion_root, &f.returns);
+    if !variants.iter().any(|v| v == variant) {
+        return Resolution::NotAVariant {
+            returns: f.returns,
+            variant: variant.to_string(),
+            variants,
+            at: f.at,
+        };
+    }
+    Resolution::Resolved {
+        form: PredicateForm::VariantTest {
+            name: f.name,
+            enum_name: f.returns,
+            variant: variant.to_string(),
+        },
+        at: f.at,
+        params: f.params,
+    }
+}
+
+/// An inherent method on a named type. Qualifying is how an operator disambiguates a method name
+/// several types share — `is_ready` alone is an [`Resolution::Ambiguous`] as soon as two types
+/// declare it.
+fn method_on(
+    subject_root: &Path,
+    companion_root: &Path,
+    ty_at: CodeMatch,
+    ty: &str,
+    method: &str,
+    arity: usize,
+) -> Resolution {
+    let mut found = find_methods(subject_root, companion_root, ty, Some(method));
+    match found.len() {
+        0 => Resolution::NoSuchMethod {
+            ty: ty.to_string(),
+            method: method.to_string(),
+            methods: find_methods(subject_root, companion_root, ty, None)
+                .into_iter()
+                .map(|f| f.name)
+                .collect(),
+            at: ty_at,
+        },
+        1 => {
+            let f = found.pop().expect("len checked");
+            let form = PredicateForm::Method {
+                name: method.to_string(),
+            };
+            classify(f, arity, form)
+        }
         _ => Resolution::Ambiguous(found.into_iter().map(|f| f.at).collect()),
     }
 }
 
 /// One function declaration found in the subject, with the facts the check needs.
 struct FoundFn {
+    name: String,
     at: CodeMatch,
     params: Vec<ParamMode>,
     returns: String,
+    /// Whether the signature takes a `self` receiver — the syntactic fact that makes it a method.
+    has_receiver: bool,
 }
 
 /// Decide whether a single found function can stand for the predicate. Arity is checked
 /// before the return type so the message names the more fundamental mismatch first.
-fn classify(f: FoundFn, arity: usize) -> Resolution {
+fn classify(f: FoundFn, arity: usize, form: PredicateForm) -> Resolution {
     if f.params.len() != arity {
         return Resolution::WrongArity {
             expected: arity,
@@ -301,6 +542,7 @@ fn classify(f: FoundFn, arity: usize) -> Resolution {
     Resolution::Resolved {
         at: f.at,
         params: f.params,
+        form,
     }
 }
 
@@ -376,11 +618,94 @@ fn collect_fns(items: &[syn::Item], name: &str, rel: &str, text: &str, out: &mut
     }
 }
 
+/// Every variant of the enum named `name`, or empty when the subject declares no such enum —
+/// which includes the ordinary case of a function that simply returns something that is not an
+/// enum (REQ055).
+fn find_enum_variants(subject_root: &Path, companion_root: &Path, name: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    for_each_rust_file(subject_root, companion_root, |file, _, _| {
+        collect_variants(&file.items, name, &mut out);
+    });
+    out
+}
+
+fn collect_variants(items: &[syn::Item], name: &str, out: &mut Vec<String>) {
+    for item in items {
+        match item {
+            syn::Item::Enum(e) if e.ident == name => {
+                out.extend(e.variants.iter().map(|v| v.ident.to_string()));
+            }
+            syn::Item::Mod(m) => {
+                if let Some((_, inner)) = &m.content {
+                    collect_variants(inner, name, out);
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+/// Inherent methods declared in `impl <ty>` blocks — all of them when `name` is `None`, or just
+/// the ones so named. Trait impls (`impl Trait for Ty`) are skipped: a trait method is reached
+/// through the trait, and calling it on a value the harness built would depend on the trait being
+/// in scope, which `syn` cannot see (REQ055).
+fn find_methods(
+    subject_root: &Path,
+    companion_root: &Path,
+    ty: &str,
+    name: Option<&str>,
+) -> Vec<FoundFn> {
+    let mut out = Vec::new();
+    for_each_rust_file(subject_root, companion_root, |file, rel, text| {
+        collect_methods(&file.items, ty, name, rel, text, &mut out);
+    });
+    out
+}
+
+fn collect_methods(
+    items: &[syn::Item],
+    ty: &str,
+    name: Option<&str>,
+    rel: &str,
+    text: &str,
+    out: &mut Vec<FoundFn>,
+) {
+    for item in items {
+        match item {
+            syn::Item::Impl(i) if i.trait_.is_none() && self_type_is(&i.self_ty, ty) => {
+                for sub in &i.items {
+                    if let syn::ImplItem::Fn(f) = sub {
+                        if name.is_none_or(|n| f.sig.ident == n) {
+                            out.push(found(&f.sig, rel, text));
+                        }
+                    }
+                }
+            }
+            syn::Item::Mod(m) => {
+                if let Some((_, inner)) = &m.content {
+                    collect_methods(inner, ty, name, rel, text, out);
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+/// Whether an `impl` block's self type is the named type, read off the last path segment so
+/// `impl crate::engine::EngineStatus` still matches `EngineStatus`.
+fn self_type_is(self_ty: &syn::Type, ty: &str) -> bool {
+    match self_ty {
+        syn::Type::Path(p) => p.path.segments.last().is_some_and(|s| s.ident == ty),
+        _ => false,
+    }
+}
+
 /// Build the record for one matched signature: where it is, how each parameter takes its
 /// argument, and how its return type is written.
 fn found(sig: &syn::Signature, rel: &str, text: &str) -> FoundFn {
     let line = sig.ident.span().start().line;
     FoundFn {
+        name: sig.ident.to_string(),
         at: CodeMatch {
             file: rel.to_string(),
             line,
@@ -388,6 +713,7 @@ fn found(sig: &syn::Signature, rel: &str, text: &str) -> FoundFn {
         },
         params: sig.inputs.iter().map(param_mode).collect(),
         returns: return_type(sig),
+        has_receiver: matches!(sig.inputs.first(), Some(syn::FnArg::Receiver(_))),
     }
 }
 
@@ -526,13 +852,159 @@ mod tests {
     fn resolves_a_bool_function_to_its_source_location() {
         let tmp = subject("pub fn login(user: &str) -> bool { !user.is_empty() }\n");
         let r = resolve_in(&tmp, "login", 1);
-        let Resolution::Resolved { at, params } = r else {
+        let Resolution::Resolved { at, params, .. } = r else {
             panic!("should resolve, got {r:?}")
         };
         assert_eq!(at.file, "src/auth.rs");
         assert_eq!(at.line, 1);
         assert!(at.text.contains("fn login"));
         assert_eq!(params, vec![ParamMode::ByRef]);
+    }
+
+    /// The shape the dogfood run hit (#129): a decision that lives in an enum, on a type that
+    /// also carries behaviour. Nothing here is written `-> bool` except the methods.
+    const ENUM_SUBJECT: &str = "\
+pub enum Decision { AlreadyPresent, UnsupportedPlatform, Proceed }
+pub fn decide(consent: bool) -> Decision { Decision::Proceed }
+pub struct Engine;
+impl Engine {
+    pub fn is_ready(&self) -> bool { true }
+    pub fn name(&self) -> String { String::new() }
+}
+pub struct Probe;
+impl Probe { pub fn is_ready(&self) -> bool { false } }
+";
+
+    // Verifies: REQ055 — a function that returns an enum binds through one of its variants. The
+    // whole point: `decide` carries a real invariant, and before this the only way to reach it was
+    // to add a `-> bool` wrapper to the subject purely to satisfy the binder.
+    #[test]
+    fn a_function_returning_an_enum_binds_through_one_of_its_variants() {
+        let tmp = subject(ENUM_SUBJECT);
+
+        // Unqualified, it is honestly not a boolean — and the message points at the way out.
+        let bare = resolve_in(&tmp, "decide", 1);
+        assert!(matches!(bare, Resolution::NotBoolean { .. }), "{bare:?}");
+        let msg = bare.describe("proceeds", "decide");
+        assert!(msg.contains("decide::<Variant>"), "{msg}");
+
+        let r = resolve_in(&tmp, "decide::Proceed", 1);
+        let Resolution::Resolved { form, params, .. } = &r else {
+            panic!("should resolve, got {r:?}")
+        };
+        assert_eq!(
+            form,
+            &PredicateForm::VariantTest {
+                name: "decide".into(),
+                enum_name: "Decision".into(),
+                variant: "Proceed".into(),
+            }
+        );
+        assert_eq!(params, &vec![ParamMode::ByValue]);
+    }
+
+    // Verifies: REQ055 — a variant that does not exist parks, and the park names the variants the
+    // enum actually has. A misspelling is the likeliest cause, and the useful answer to one is the
+    // list it was meant to be spelled from.
+    #[test]
+    fn a_variant_that_does_not_exist_names_the_ones_that_do() {
+        let tmp = subject(ENUM_SUBJECT);
+        let r = resolve_in(&tmp, "decide::Procede", 1);
+        assert!(!r.is_resolved());
+        let msg = r.describe("proceeds", "decide::Procede");
+        assert!(msg.contains("AlreadyPresent"), "{msg}");
+        assert!(msg.contains("Proceed"), "{msg}");
+        assert!(msg.contains("no variant `Procede`"), "{msg}");
+    }
+
+    // Verifies: REQ055 — a function whose return type is not an enum the subject declares parks
+    // without pretending there was a variant list to offer.
+    #[test]
+    fn a_variant_on_a_non_enum_return_says_so() {
+        let tmp = subject("pub fn login(u: &str) -> bool { true }\n");
+        let r = resolve_in(&tmp, "login::Yes", 1);
+        let msg = r.describe("ok", "login::Yes");
+        assert!(!r.is_resolved());
+        assert!(msg.contains("no enum `bool`"), "{msg}");
+    }
+
+    // Verifies: REQ055 — a method name two types share is an ambiguity unqualified, and
+    // qualifying by type is how the operator resolves it. This is what `Type::method` is *for*;
+    // `is_ready` alone cannot say which type's state the requirement is about.
+    #[test]
+    fn qualifying_by_type_disambiguates_a_shared_method_name() {
+        let tmp = subject(ENUM_SUBJECT);
+        assert!(matches!(
+            resolve_in(&tmp, "is_ready", 1),
+            Resolution::Ambiguous(_)
+        ));
+
+        let r = resolve_in(&tmp, "Engine::is_ready", 1);
+        let Resolution::Resolved { form, at, .. } = &r else {
+            panic!("should resolve, got {r:?}")
+        };
+        assert_eq!(
+            form,
+            &PredicateForm::Method {
+                name: "is_ready".into()
+            }
+        );
+        assert!(at.text.contains("is_ready"), "{:?}", at.text);
+    }
+
+    // Verifies: REQ055 — the form follows the *signature*, not the binding syntax. A method found
+    // by its bare name is still a method, because lowering it as a free call generates a harness
+    // that cannot compile — which reaches the operator as an `unknown` rather than as the binding
+    // mistake it is.
+    #[test]
+    fn a_method_found_by_its_bare_name_is_still_a_method() {
+        let tmp = subject("pub struct S;\nimpl S { pub fn ready(&self) -> bool { true } }\n");
+        let r = resolve_in(&tmp, "ready", 1);
+        let Resolution::Resolved { form, .. } = &r else {
+            panic!("should resolve, got {r:?}")
+        };
+        assert_eq!(
+            form,
+            &PredicateForm::Method {
+                name: "ready".into()
+            }
+        );
+    }
+
+    // Verifies: REQ055 — a method the type does not have parks, naming the ones it does.
+    #[test]
+    fn a_method_the_type_does_not_have_names_the_ones_it_does() {
+        let tmp = subject(ENUM_SUBJECT);
+        let r = resolve_in(&tmp, "Engine::is_redy", 1);
+        assert!(!r.is_resolved());
+        let msg = r.describe("ready", "Engine::is_redy");
+        assert!(msg.contains("is_ready"), "{msg}");
+        assert!(msg.contains("name"), "{msg}");
+    }
+
+    // Verifies: REQ055 — a trait impl is not an inherent method. Calling one depends on the trait
+    // being in scope at the harness, which `syn` cannot see, so binding to it would generate code
+    // whose correctness this adapter never established.
+    #[test]
+    fn a_trait_method_is_not_an_inherent_method() {
+        let tmp = subject(
+            "pub struct S;\npub trait Ready { fn ready(&self) -> bool; }\n\
+             impl Ready for S { fn ready(&self) -> bool { true } }\n",
+        );
+        let r = resolve_in(&tmp, "S::ready", 1);
+        assert!(matches!(r, Resolution::NoSuchMethod { .. }), "{r:?}");
+    }
+
+    // Verifies: REQ055 — a path deeper than `A::B` names nothing this adapter understands, and
+    // guessing which two segments were meant would bind the requirement to something the operator
+    // did not write.
+    #[test]
+    fn a_path_deeper_than_two_segments_does_not_resolve() {
+        let tmp = subject(ENUM_SUBJECT);
+        let r = resolve_in(&tmp, "provreq::decide::Proceed", 1);
+        assert_eq!(r, Resolution::NotFound);
+        let msg = r.describe("proceeds", "provreq::decide::Proceed");
+        assert!(msg.contains("decide_install::Proceed"), "{msg}");
     }
 
     // Verifies: REQ027 — a resolved predicate reports how each parameter takes its

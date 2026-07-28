@@ -26,7 +26,7 @@
 
 use crate::grounding::Binding;
 use crate::prl::ast::{Atom, Expr, Pattern, Property, Quantifier, Scope};
-use crate::rust_adapter::{ParamMode, Resolution};
+use crate::rust_adapter::{ParamMode, PredicateForm, Resolution};
 use std::collections::BTreeMap;
 
 /// Why a gated category-1 requirement could not be lowered to a harness. Never an approximation —
@@ -192,7 +192,7 @@ fn lower_atom(
                 a.name
             ))
         })?;
-    let Some(Resolution::Resolved { params, .. }) = resolutions.get(&a.name) else {
+    let Some(Resolution::Resolved { params, form, .. }) = resolutions.get(&a.name) else {
         return Err(NotLowerable::new(format!(
             "`{}` did not resolve to a state predicate in the subject's source",
             a.name
@@ -228,11 +228,43 @@ fn lower_atom(
             ParamMode::ByValue => arg.to_string(),
         });
     }
-    Ok(format!(
-        "{prefix}::{}({})",
-        binding.observable,
-        args.join(", ")
-    ))
+    lower_call(form, &binding.observable, &args, prefix)
+}
+
+/// Emit the call for one resolved predicate, in the shape its form requires (REQ055).
+///
+/// A method is called *on* its receiver, not passed it: lowering `fn is_ready(&self)` as
+/// `prefix::is_ready(&u)` produces a harness that cannot compile, which reaches the operator as an
+/// `unknown` with a compiler error rather than as the binding mistake it is.
+fn lower_call(
+    form: &PredicateForm,
+    observable: &str,
+    args: &[String],
+    prefix: &str,
+) -> Result<String, NotLowerable> {
+    match form {
+        PredicateForm::Function => Ok(format!("{prefix}::{observable}({})", args.join(", "))),
+        PredicateForm::Method { name } => {
+            let (recv, rest) = args.split_first().ok_or_else(|| {
+                NotLowerable::new(format!(
+                    "`{name}` is an inherent method, so the predicate needs a first argument to \
+                     call it on, but it is applied to none"
+                ))
+            })?;
+            // The receiver takes its own reference: `u.is_ready()` auto-refs, and `(&u).is_ready()`
+            // would double it when the method takes `&self`.
+            let recv = recv.strip_prefix('&').unwrap_or(recv);
+            Ok(format!("{recv}.{name}({})", rest.join(", ")))
+        }
+        PredicateForm::VariantTest {
+            name,
+            enum_name,
+            variant,
+        } => Ok(format!(
+            "matches!({prefix}::{name}({}), {prefix}::{enum_name}::{variant} {{ .. }})",
+            args.join(", ")
+        )),
+    }
 }
 
 fn pattern_verb(pattern: &Pattern) -> &'static str {
@@ -244,5 +276,138 @@ fn pattern_verb(pattern: &Pattern) -> &'static str {
         Pattern::Precedes { .. } => "precedes",
         Pattern::OccursAtMost { .. } => "occurs at most",
         Pattern::CanReach(_) => "can_reach",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::grounding::{BindCategory, Fidelity};
+    use crate::rust_adapter::CodeMatch;
+
+    fn binding(symbol: &str, observable: &str) -> Binding {
+        Binding {
+            symbol: symbol.into(),
+            category: BindCategory::Code,
+            observable: observable.into(),
+            fidelity: Fidelity::Definitional,
+        }
+    }
+
+    fn resolved(params: Vec<ParamMode>, form: PredicateForm) -> Resolution {
+        Resolution::Resolved {
+            at: CodeMatch {
+                file: "src/lib.rs".into(),
+                line: 1,
+                text: "…".into(),
+            },
+            params,
+            form,
+        }
+    }
+
+    /// `always p(u)` for each `u: Thing`, the shape every cat-1 invariant over a sort takes.
+    fn always_p_of_u() -> Property {
+        Property {
+            quantifier: Some(Quantifier {
+                var: "u".into(),
+                sort: "Thing".into(),
+            }),
+            pattern: Pattern::Always(Expr::Atom(Atom {
+                name: "p".into(),
+                args: vec!["u".into()],
+                guard: None,
+                line: 1,
+            })),
+            scope: Scope::Globally,
+            line: 1,
+        }
+    }
+
+    fn lower_with(params: Vec<ParamMode>, form: PredicateForm, observable: &str) -> String {
+        let bindings = vec![binding("p", observable), binding("Thing", "Thing")];
+        let resolutions = BTreeMap::from([("p".to_string(), resolved(params, form))]);
+        lower_property(&always_p_of_u(), "crate", &bindings, &resolutions)
+            .expect("should lower")
+            .claim
+    }
+
+    // Verifies: REQ055 — a free function still lowers to a free call, unchanged.
+    #[test]
+    fn a_free_function_lowers_to_a_free_call() {
+        assert_eq!(
+            lower_with(vec![ParamMode::ByRef], PredicateForm::Function, "is_ok"),
+            "crate::is_ok(&u)"
+        );
+    }
+
+    // Verifies: REQ055 — a method is called *on* its receiver. Before this, an impl-block method
+    // resolved green (`collect_fns` has always descended into impls) and then lowered to
+    // `crate::ready(&u)` — a free call to a method, which cannot compile. The operator saw an
+    // `unknown` with a compiler error instead of a working check.
+    #[test]
+    fn a_method_lowers_to_a_method_call_not_a_free_call() {
+        let claim = lower_with(
+            vec![ParamMode::ByRef],
+            PredicateForm::Method {
+                name: "is_ready".into(),
+            },
+            "Engine::is_ready",
+        );
+        assert_eq!(claim, "u.is_ready()");
+        assert!(
+            !claim.contains("crate::"),
+            "a method must not be reached through a path: {claim}"
+        );
+    }
+
+    // Verifies: REQ055 — the enum decision the dogfood run could not name. `{ .. }` is used
+    // deliberately so unit, tuple, and struct variants all match without the binding restating
+    // the variant's shape.
+    #[test]
+    fn a_variant_test_lowers_to_a_matches_expression() {
+        assert_eq!(
+            lower_with(
+                vec![ParamMode::ByValue],
+                PredicateForm::VariantTest {
+                    name: "decide".into(),
+                    enum_name: "Decision".into(),
+                    variant: "Proceed".into(),
+                },
+                "decide::Proceed",
+            ),
+            "matches!(crate::decide(u), crate::Decision::Proceed { .. })"
+        );
+    }
+
+    // Verifies: REQ055 — a nullary method has no receiver to be called on. It cannot arise from
+    // the adapter (a `self` receiver counts toward arity), but lowering is public and must not
+    // depend on a caller having resolved first.
+    #[test]
+    fn a_nullary_method_is_not_lowerable() {
+        let bindings = vec![binding("p", "S::ready")];
+        let resolutions = BTreeMap::from([(
+            "p".to_string(),
+            resolved(
+                vec![],
+                PredicateForm::Method {
+                    name: "ready".into(),
+                },
+            ),
+        )]);
+        let prop = Property {
+            quantifier: None,
+            pattern: Pattern::Always(Expr::Atom(Atom {
+                name: "p".into(),
+                args: vec![],
+                guard: None,
+                line: 1,
+            })),
+            scope: Scope::Globally,
+            line: 1,
+        };
+        let err = lower_property(&prop, "crate", &bindings, &resolutions)
+            .expect_err("no receiver, nothing to call it on");
+        assert!(err.reason.contains("first argument"), "{}", err.reason);
     }
 }

@@ -301,7 +301,7 @@ pub fn apply_to_source(src: &str, drafts: &[ContractDraft]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::rust_adapter::{CodeMatch, ParamMode};
+    use crate::rust_adapter::{CodeMatch, ParamMode, PredicateForm};
 
     fn resolved(file: &str, line: usize) -> Resolution {
         Resolution::Resolved {
@@ -311,6 +311,7 @@ mod tests {
                 text: "fn p() -> bool {".to_string(),
             },
             params: vec![ParamMode::ByValue],
+            form: PredicateForm::Function,
         }
     }
 
