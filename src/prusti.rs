@@ -325,7 +325,7 @@ mod tests {
     use super::*;
     use crate::grounding::{BindCategory, Fidelity};
     use crate::prl::gate;
-    use crate::rust_adapter::{CodeMatch, ParamMode};
+    use crate::rust_adapter::{CodeMatch, ParamMode, PredicateForm};
     use crate::verdict::Provenance;
 
     const CODE_REQ: &str = "requirement r {
@@ -357,6 +357,7 @@ mod tests {
                 text: "fn f() -> bool { true }".into(),
             },
             params,
+            form: PredicateForm::Function,
         }
     }
 

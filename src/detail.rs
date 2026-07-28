@@ -235,7 +235,7 @@ mod tests {
     #[test]
     fn grounding_report_reports_per_binding_and_parks_on_any_unresolved() {
         use crate::grounding::{BindCategory, Fidelity};
-        use crate::rust_adapter::{CodeMatch, ParamMode};
+        use crate::rust_adapter::{CodeMatch, ParamMode, PredicateForm};
 
         let requirement = prl::gate(CANDIDATE).unwrap().requirement;
         let bindings = vec![
@@ -262,6 +262,7 @@ mod tests {
                     text: "fn login() -> bool { true }".into(),
                 },
                 params: vec![ParamMode::ByValue; 0],
+                form: PredicateForm::Function,
             },
         );
         by_symbol.insert("has_session".to_string(), Resolution::NotFound);

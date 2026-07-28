@@ -22,5 +22,5 @@ drafts:
       fidelity: definitional
     - symbol: install_proceeds
       category: code
-      observable: decide_install
+      observable: decide_install::Proceed
       fidelity: definitional

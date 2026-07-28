@@ -323,6 +323,36 @@ formalize pipeline with draft persistence (`R-draft-*`, `R-ground-*`). The reqfo
   `state logged_in` (arity 0) against `fn login(user: &str)` (arity 1) — a real mismatch the old grep
   binding matched right past.
 
+- **Enum-shaped and method-shaped observables: issue #129 (REQ055).** The `-> bool` requirement was
+  found by dogfooding (#125) to invert adoption: well-modelled Rust keeps decisions in enums and
+  properties on types, so the more carefully a subject models its states, the less of it provreq
+  could reach. An observable may now be:
+
+    ```text
+    login                       a free fn written `-> bool`   -> crate::login(&u)
+    decide_install::Proceed     one variant of the enum a fn returns
+                                                              -> matches!(crate::decide_install(…),
+                                                                    crate::InstallDecision::Proceed { .. })
+    Engine::is_ready            an inherent method on a type  -> u.is_ready()
+    ```
+
+    `A::B` is read from what `A` actually is in the subject — a function (variant test) or a type
+    (method). A name that is both is an `Ambiguous` park, never a guess, and a path deeper than
+    `A::B` resolves to nothing. `NotAVariant` / `NoSuchMethod` carry the real variants and methods,
+    because the useful answer to a misspelling is the list it was meant to be spelled from.
+
+    **How a predicate is called follows from its signature, not from the binding syntax.** A `self`
+    receiver makes it a method however it was named — `collect_fns` had always descended into
+    `impl` blocks, so a method already resolved green and then lowered to `crate::ready(&u)`, a
+    free call to a method, which cannot compile. That reached the operator as an `unknown` with a
+    compiler error rather than as the binding mistake it was. `PredicateForm` on
+    `Resolution::Resolved` now carries the call shape and `lowering::lower_call` emits it.
+
+    Validated on this repo: REQ047's `install_proceeds` bound to `decide_install::Proceed` and the
+    requirement reports **GROUNDED**. It still verifies `unknown` — its PRL applies the predicate
+    to four _free_ variables, and lowering only instantiates the quantified one. That is a
+    separate gap, not this one.
+
 - **Sorts bind too: issue #42 / PR #43 (2026-07-17).** The last prerequisite before Kani. #40 made a
   cat-1 **predicate** resolve to a real function, but **sorts** — the types a quantified variable
   ranges over — had no bindings at all (`grounding.rs` said so outright: `// ponytail: predicates

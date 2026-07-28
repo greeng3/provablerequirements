@@ -1,0 +1,33 @@
+active: true
+derived: false
+header: ''
+level: 1.55
+links: []
+normative: true
+ref: ''
+reviewed: null
+text: |
+  A binding reaches the subject as the subject is written. Where the tool can only bind to one
+  narrow shape, the subject must be altered to present that shape before it can be checked at all —
+  and a tool that requires its subject to be rewritten for its own convenience is not adopting that
+  subject, it is replacing it.
+
+  The shape that matters here is the boolean. A state predicate is a boolean over program state,
+  but well-modelled code rarely spells one out: a decision is carried in an enum whose variants
+  make illegal states unrepresentable, and a property of a value is carried as a method on its
+  type. That is the same discipline this tool argues for, so requiring a bare function written to
+  return a boolean would mean the more carefully a subject models its states, the less of it can be
+  reached — the exact inversion of what adoption is for.
+
+  A binding may therefore name a decision as one variant of the type a function returns, and may
+  name a property as a method of the type that carries it. Both remain syntactic and definitional:
+  the function, the enum, the variant, the type, and the method are each resolved against the
+  subject's real source, and anything not found, not unique, or not of the named shape parks the
+  requirement with its reason, exactly as an unresolved binding does today. Where a name could be
+  read two ways, that is an ambiguity for the operator to settle, never a choice for the tool to
+  make.
+
+  How a predicate is called follows from what it is, not from how the binding was written. A
+  function that takes a receiver is called on that receiver whichever way it was named, because a
+  call the subject cannot compile is not a check — it is a failure the operator has to diagnose
+  from a compiler message rather than from the tool.
