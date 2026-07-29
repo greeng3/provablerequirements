@@ -1,0 +1,31 @@
+active: true
+derived: false
+header: ''
+level: 1.57
+links: []
+normative: true
+ref: ''
+reviewed: null
+text: |
+  Grounding is the surface where an operator confirms that a binding says what they meant. A
+  mistake that grounding could have named, and does not, is not thereby prevented — it is deferred
+  to whatever runs next, and reaches the operator as that stage's failure rather than as the
+  binding error it is. A compiler message inside an inconclusive verdict is a poor way to learn
+  that two names were bound to each other by mistake.
+
+  The mistake in question is a disagreement between the requirement and the subject about what a
+  predicate is applied to. A quantified claim ranges its variable over a sort, that sort is bound
+  to a type in the subject, and the predicate applied to that variable is bound to something in the
+  subject that takes a parameter of its own written type. Where those two types differ, one of the
+  two bindings is wrong, and both are already known at the moment the binding is checked.
+
+  Grounding therefore compares them and parks the requirement when they disagree, naming both
+  sides. The comparison is of written names, the same syntactic limit every other check on this
+  surface works under, and the read-back says so — an alias for the expected type would read as a
+  mismatch here, and the operator is told that rather than left to infer it.
+
+  The check must not park a binding it cannot honestly speak for. Where the requirement does not
+  determine what a parameter's argument ranges over, where the subject's parameter has no single
+  written name to compare, or where the two sides could only be reconciled by resolving types
+  rather than reading them, nothing is claimed and the binding stands on its other checks. A false
+  park costs the operator a working binding, which is a worse failure than the one this removes.

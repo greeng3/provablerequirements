@@ -145,6 +145,37 @@ pub struct Atom {
     pub line: usize,
 }
 
+impl Property {
+    /// Visit every predicate application in this property — pattern operands and scope
+    /// boundaries alike. The one walk both the gate's name/arity check and D13 grounding use,
+    /// so neither can miss an application the other sees.
+    pub fn for_each_atom(&self, f: &mut impl FnMut(&Atom)) {
+        match &self.pattern {
+            Pattern::Never(e)
+            | Pattern::Always(e)
+            | Pattern::Eventually(e)
+            | Pattern::CanReach(e) => e.for_each_atom(f),
+            Pattern::LeadsTo { from, to, .. } => {
+                from.for_each_atom(f);
+                to.for_each_atom(f);
+            }
+            Pattern::Precedes { first, then } => {
+                first.for_each_atom(f);
+                then.for_each_atom(f);
+            }
+            Pattern::OccursAtMost { event, .. } => event.for_each_atom(f),
+        }
+        match &self.scope {
+            Scope::Globally => {}
+            Scope::Before(a) | Scope::After(a) => f(a),
+            Scope::Between(a, b) => {
+                f(a);
+                f(b);
+            }
+        }
+    }
+}
+
 impl Expr {
     /// Visit every [`Atom`] in this expression tree (for name/arity checking).
     pub fn for_each_atom(&self, f: &mut impl FnMut(&Atom)) {

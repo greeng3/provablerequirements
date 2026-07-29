@@ -369,8 +369,11 @@ only; sort/type existence when cat-1 needs it`). Cat-1 now needs it: a harness c
   `User: unbound`, correctly. **Existence only** — whether a type is instantiable (Kani's `Arbitrary`)
   is the engine's question, since the binding is core-owned and shared; answering it here would bake
   one engine's shape into the core, which is exactly what "Kani is lowering #1, not the definition"
-  forbids. REQ026 (1.25). Deferred — now tracked as **#118**: cross-checking a typed parameter's sort against
-  the quantifier's, generics, path-qualified types.
+  forbids. REQ026 (1.25). The cross-check that was deferred here is **shipped** — see
+  [Cross-checking a parameter's type against its sort](#cross-checking-a-parameters-type-against-its-sort-issue-118--req057)
+  (**#118** / REQ057). Still deferred from that same list, now split out as **#138**: **generics and
+  path-qualified types in sort resolution** (`resolve_type` matches a bare ident), which is why the
+  cross-check skips a generic parameter rather than judging it.
 
 - **Kani wired as cat-1 engine #1: issue #44 / PR #45 (2026-07-17).** `verify` now produces a real
   `holds`/`fails` for a grounded cat-1 requirement instead of only `unknown / no-engine`. **Kani is
@@ -396,8 +399,9 @@ only; sort/type existence when cat-1 needs it`). Cat-1 now needs it: a harness c
     - **The call follows the subject's real signature.** `rust_adapter::Resolution::Resolved` now carries
       `params: Vec<ParamMode>` (by-ref vs by-value, judged syntactically like everything else the adapter
       does), so the harness emits `login(&u)` or `login(u)` to match — a mismatch surfaces as a harness that
-      won't compile → `unknown`, never a wrong verdict. Cross-checking a param's _type_ against the sort is
-      still deferred (**#118**, which absorbed this from the since-closed #42); it also lands as a
+      won't compile → `unknown`, never a wrong verdict. Cross-checking a param's _type_ against the sort
+      is **shipped** (**#118** / REQ057, which absorbed this from the since-closed #42) — it happens at
+      grounding now, so only a mismatch no written-name comparison can see still lands as a
       compile-error `unknown`.
     - **Verdict split (D7/D8/D9):** polarity (`status`) from basis (`Basis::ModelCheckedBounded` — the ONLY
       rung, because Kani is bounded; `proven` is _unrepresentable_, so an engine cannot overclaim by
@@ -422,8 +426,9 @@ only; sort/type existence when cat-1 needs it`). Cat-1 now needs it: a harness c
       and the path most worth proving continuously); real-engine tests are `#[ignore]`d and run by a
       **separate parallel `kani` job** (`cargo test -- --ignored`). Verified here: 164 Kani-free unit tests +
       4 real-engine tests (holds/fails-with-witness/inconclusive/no-trace) + a live CLI smoke against a real
-      cargo subject, all green. REQ027 (1.26). Deferred: default-unwind/timeout config → provreq.yml (**#117**); the
-      param-type-vs-sort cross-check (**#118**). The D2b ensemble is since **complete** — Creusot
+      cargo subject, all green. REQ027 (1.26). Deferred: default-unwind/timeout config → provreq.yml (**#117**);
+      the param-type-vs-sort cross-check is since **shipped** (**#118** / REQ057). The D2b ensemble is
+      since **complete** — Creusot
       (REQ031) and Prusti (REQ032) joined as engines #2 and #3, with per-tool evidence aggregated by
       REQ030 and the shared claim-lowering core extracted in #69 / PR #70.
 
@@ -541,6 +546,46 @@ fix — `Usage: provreq verify [OPTIONS] <ID>` hides `--path` inside `[OPTIONS]`
 operator's own words (`--path .`). The recognition is deliberately narrow — `.`/`..`, a separator,
 or a directory that exists, never something starting with `-` — because a confident `--path` hint
 attached to an unrelated error would be worse than the bare message it replaced.
+
+### Cross-checking a parameter's type against its sort (issue #118 / REQ057)
+
+`each u: User . always logged_in(u)` bound to `fn login(s: &Session) -> bool` used to ground
+**green**: sorts resolve and predicates resolve, but nothing compared the two. The harness then
+named a `User` where the subject wanted a `Session`, so the operator learned the binding was wrong
+from a compiler error inside an `unknown` — from the wrong surface, since grounding is the surface
+built to answer exactly that question.
+
+The check lives in the adapter, because that is where every read-back already flows from:
+
+- `grounding::expected_param_types(req, bindings, symbol)` says what each parameter's argument
+  ranges over — the type the **sort's own binding** names, position by position. Pure, and on this
+  side of the seam on purpose: the sort a parameter should take is the requirement's claim, while
+  the adapter only reads what the subject wrote.
+- That vector **is** `rust_adapter::resolve`'s `params` argument, replacing the old bare `arity` —
+  its length is the arity, so the two can no longer desync.
+- A disagreement is `Resolution::WrongParamType`, an 8th variant, so `describe()` teaches it and
+  every surface (CLI dry-run, `verdict`, the UI's per-binding grounding report) shows it without
+  new plumbing.
+- Checks run coarsest-first — arity, return type, then parameter types — so the operator is never
+  sent to fix a parameter on a function that is not a predicate at all.
+
+**It skips more than it judges, on purpose.** `None` at a position means nothing is claimed: an
+argument that is not the quantified variable (the free-variable gap, **#136**), an unbound sort,
+two properties quantifying the same position over different sorts, a generic parameter (`T` names
+whatever the caller instantiates — resolving it is type inference, which `syn` does not do), a
+tuple/slice/`impl Trait`. Generic _arguments_ are ignored rather than rejected, so `Wrapper<u32>`
+still reads as `Wrapper`. A `self` receiver's type is the type its `impl` block is for, so a method
+bound to the wrong sort is caught however it was named. **A false park costs the operator a working
+binding, which is worse than the compiler error this removes** — that asymmetry is what decides
+every skip above.
+
+Comparison is by written name, the same syntactic limit the rest of the adapter works under, and
+the read-back says so: an alias for the expected type would read as a mismatch here. Generics and
+path-qualified types on the **sort's own** side stay unresolved — split out as **#138**.
+
+Also lifted: the atom walk is now `Property::for_each_atom` in `prl/ast.rs` (was private in
+`prl/check.rs`), so the gate's name/arity check and grounding cannot disagree about which
+applications exist.
 
 ## Engine provisioning — Design A (old, superseded topology)
 

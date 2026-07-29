@@ -165,10 +165,11 @@ fn lower_expr(
 /// Lower one predicate application to a call on the subject's real function, through `prefix::`.
 ///
 /// The call is generated from the signature the adapter actually resolved, so `&u` versus `u`
-/// follows the subject's code rather than a guess. What this cannot see is whether the parameter's
-/// *type* matches the quantifier's sort — `syn` reads syntax, not types, and cross-checking the two
-/// is deferred (#42). A mismatch therefore surfaces as a harness that does not compile/verify →
-/// `unknown`, never a wrong verdict.
+/// follows the subject's code rather than a guess. Whether the parameter's *type* matches the
+/// quantifier's sort is checked at **grounding** (REQ057), by comparing written type names — so a
+/// mismatch this module can reach is one no name comparison could see (a type alias, a generic
+/// parameter), and it still surfaces as a harness that does not compile → `unknown`, never a wrong
+/// verdict.
 fn lower_atom(
     a: &Atom,
     quantifier: Option<&Quantifier>,

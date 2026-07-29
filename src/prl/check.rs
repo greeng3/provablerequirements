@@ -46,7 +46,7 @@ pub fn check(req: &Requirement) -> Vec<GateError> {
 
     // Every predicate applied in `require` must resolve to a declared event/state.
     for prop in &req.require {
-        visit_property_atoms(prop, &mut |atom| match arity.get(atom.name.as_str()) {
+        prop.for_each_atom(&mut |atom| match arity.get(atom.name.as_str()) {
             None => errors.push(GateError::UndeclaredPredicate {
                 name: atom.name.clone(),
                 line: atom.line,
@@ -64,33 +64,6 @@ pub fn check(req: &Requirement) -> Vec<GateError> {
     }
 
     errors
-}
-
-/// Visit every predicate application in a property — pattern operands and scope
-/// boundaries alike.
-fn visit_property_atoms(prop: &Property, f: &mut impl FnMut(&Atom)) {
-    match &prop.pattern {
-        Pattern::Never(e) | Pattern::Always(e) | Pattern::Eventually(e) | Pattern::CanReach(e) => {
-            e.for_each_atom(f)
-        }
-        Pattern::LeadsTo { from, to, .. } => {
-            from.for_each_atom(f);
-            to.for_each_atom(f);
-        }
-        Pattern::Precedes { first, then } => {
-            first.for_each_atom(f);
-            then.for_each_atom(f);
-        }
-        Pattern::OccursAtMost { event, .. } => event.for_each_atom(f),
-    }
-    match &prop.scope {
-        Scope::Globally => {}
-        Scope::Before(a) | Scope::After(a) => f(a),
-        Scope::Between(a, b) => {
-            f(a);
-            f(b);
-        }
-    }
 }
 
 #[cfg(test)]
