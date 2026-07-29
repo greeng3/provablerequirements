@@ -170,6 +170,59 @@ pub fn predicate_arity(req: &Requirement, symbol: &str) -> Option<usize> {
     })
 }
 
+/// The Rust type each parameter of a category-1 predicate is expected to take, position by
+/// position: the type the sort of the argument standing in that position is bound to. The length
+/// is the predicate's declared arity, so it doubles as what [`crate::rust_adapter::resolve`]
+/// checks arity against (REQ057).
+///
+/// `None` wherever nothing can honestly be said, and every one of those cases is a real
+/// limit rather than an oversight:
+/// - the argument is not the quantified variable (a free variable has no sort here — #136),
+/// - the property is unquantified, or its sort is not bound to a type yet,
+/// - two properties apply the predicate to variables of *different* sorts in the same position,
+///   which is a disagreement in the requirement, not a fact about the subject's code.
+///
+/// Pure, and separate from the adapter on purpose: the sort a parameter should take is the
+/// **requirement's** claim, and the adapter's job is only to read what the subject wrote.
+pub fn expected_param_types(
+    req: &Requirement,
+    bindings: &[Binding],
+    symbol: &str,
+) -> Vec<Option<String>> {
+    let arity = predicate_arity(req, symbol).unwrap_or(0);
+    let mut expected: Vec<Option<String>> = vec![None; arity];
+    let mut conflicting = vec![false; arity];
+    for prop in &req.require {
+        let Some(q) = &prop.quantifier else { continue };
+        let Some(ty) = bindings
+            .iter()
+            .find(|b| b.symbol == q.sort)
+            .map(|b| b.observable.trim().to_string())
+            .filter(|o| !o.is_empty())
+        else {
+            continue;
+        };
+        prop.for_each_atom(&mut |atom| {
+            if atom.name != symbol {
+                return;
+            }
+            for (i, arg) in atom.args.iter().enumerate() {
+                if i >= arity || arg.trim() != q.var || conflicting[i] {
+                    continue;
+                }
+                match &expected[i] {
+                    Some(seen) if *seen != ty => {
+                        expected[i] = None;
+                        conflicting[i] = true;
+                    }
+                    _ => expected[i] = Some(ty.clone()),
+                }
+            }
+        });
+    }
+    expected
+}
+
 /// The requirement's primary binding category — its first declared category, or
 /// [`BindCategory::Code`] when none is declared (this slice's only real dry-run world).
 /// `// ponytail: one binding category per requirement; per-category multi-binding when
@@ -260,10 +313,10 @@ pub fn resolve_bindings(
         .iter()
         .filter(|b| !is_sort(requirement, &b.symbol))
         .map(|b| {
-            let arity = predicate_arity(requirement, &b.symbol).unwrap_or(0);
+            let params = expected_param_types(requirement, bindings, &b.symbol);
             (
                 b.symbol.clone(),
-                crate::rust_adapter::resolve(subject, companion, &b.observable, arity),
+                crate::rust_adapter::resolve(subject, companion, &b.observable, &params),
             )
         })
         .collect();
@@ -622,6 +675,67 @@ mod tests {
             panic!("an unresolved sort must park");
         };
         assert!(reasons.iter().any(|reason| reason.contains("NoSuchType")));
+    }
+
+    // Verifies: REQ057 — the type a parameter is expected to take comes from the sort its
+    // argument ranges over, through that sort's own binding. This is the fact the adapter cannot
+    // know: it reads the subject, and the sort is the requirement's claim.
+    #[test]
+    fn expected_param_types_follow_the_quantified_arguments_sort() {
+        let r = req(CODE_REQ);
+        let bindings = vec![
+            code_binding("logged_in", "login"),
+            sort_binding("User", "AuthUser"),
+        ];
+        assert_eq!(
+            expected_param_types(&r, &bindings, "logged_in"),
+            vec![Some("AuthUser".to_string())]
+        );
+
+        // An unbound sort says nothing about the parameter — the requirement parks on the
+        // unbound sort itself, which is the honest reason.
+        let unbound = vec![code_binding("logged_in", "login")];
+        assert_eq!(expected_param_types(&r, &unbound, "logged_in"), vec![None]);
+
+        // A predicate the requirement does not declare has no parameters to speak for.
+        assert!(expected_param_types(&r, &bindings, "not_declared").is_empty());
+    }
+
+    // Verifies: REQ057 — every position the requirement cannot speak for stays `None`, so the
+    // adapter never parks a binding on a type this module guessed at. An argument that is not the
+    // quantified variable is exactly the free-variable case (#136), and two properties quantifying
+    // the same position over different sorts is a disagreement in the requirement, not a fact
+    // about the subject's code.
+    #[test]
+    fn a_position_the_requirement_cannot_speak_for_stays_unknown() {
+        let free = req("requirement r {
+            category: 1
+            vocabulary { state pair(a, b) }
+            require { each u: User . always pair(u, other) }
+        }");
+        let bindings = vec![code_binding("pair", "pair"), sort_binding("User", "User")];
+        assert_eq!(
+            expected_param_types(&free, &bindings, "pair"),
+            vec![Some("User".to_string()), None]
+        );
+
+        let conflicting = req("requirement r {
+            category: 1
+            vocabulary { state p(x) }
+            require {
+                each u: User . always p(u)
+                each s: Session . always p(s)
+            }
+        }");
+        let two_sorts = vec![
+            code_binding("p", "p"),
+            sort_binding("User", "User"),
+            sort_binding("Session", "Session"),
+        ];
+        assert_eq!(
+            expected_param_types(&conflicting, &two_sorts, "p"),
+            vec![None]
+        );
     }
 
     // Verifies: REQ025 — the arity checked against comes from the requirement's own

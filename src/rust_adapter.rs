@@ -127,6 +127,20 @@ pub enum Resolution {
         variants: Vec<String>,
         at: CodeMatch,
     },
+    /// Found, right arity and boolean, but a parameter's written type is not the type the sort
+    /// its argument ranges over is bound to (REQ057): `each u: User . logged_in(u)` bound to
+    /// `fn login(s: &Session) -> bool`. Left unchecked this grounds green and then lowers to a
+    /// harness that names a `User` where the subject wants a `Session`, so the operator learns
+    /// the binding is wrong from a compiler error inside an `unknown` — from the wrong surface.
+    WrongParamType {
+        /// 1-based position, as the operator counts parameters.
+        param: usize,
+        /// The type the argument's sort is bound to.
+        expected: String,
+        /// The type the subject's signature actually writes there.
+        found: String,
+        at: CodeMatch,
+    },
     /// The type resolved, but it has no inherent method of that name (REQ055). Carries the
     /// methods it does have, for the same reason.
     NoSuchMethod {
@@ -213,6 +227,18 @@ impl Resolution {
                 } else {
                     format!("its variants are {}", variants.join(", "))
                 }
+            ),
+            Resolution::WrongParamType {
+                param,
+                expected,
+                found,
+                at,
+            } => format!(
+                "{symbol}: `{observable}` at {}:{} takes `{found}` as parameter {param}, but the \
+                 argument there ranges over a sort bound to `{expected}` — one of the two is \
+                 wrong (written type names are compared, so an alias for `{expected}` would read \
+                 as a mismatch here)",
+                at.file, at.line
             ),
             Resolution::NoSuchMethod {
                 ty,
@@ -360,22 +386,28 @@ fn collect_types(items: &[syn::Item], name: &str, rel: &str, text: &str, out: &m
     }
 }
 
-/// Resolve `observable` (a function name) against the subject's Rust, requiring `arity`
-/// parameters to match the PRL predicate's declared arity. Read-only over the subject and
-/// recomputed live — code moves under a binding exactly as prose moves under a draft, so a
-/// resolution is never stored.
+/// Resolve `observable` (a function name) against the subject's Rust.
+///
+/// `params` describes the PRL predicate's declared parameters, one entry per parameter in
+/// declaration order — so its **length is the arity** the subject's signature must match, and the
+/// two can never desync. Each entry is the Rust type that position's argument is expected to take
+/// (the type its sort is bound to), or `None` where the caller cannot honestly say — see
+/// [`crate::grounding::expected_param_types`], which builds it.
+///
+/// Read-only over the subject and recomputed live — code moves under a binding exactly as prose
+/// moves under a draft, so a resolution is never stored.
 pub fn resolve(
     subject_root: &Path,
     companion_root: &Path,
     observable: &str,
-    arity: usize,
+    params: &[Option<String>],
 ) -> Resolution {
     let name = observable.trim();
     let segments: Vec<&str> = name.split("::").map(str::trim).collect();
     match segments[..] {
-        [one] if !one.is_empty() => resolve_bare(subject_root, companion_root, one, arity),
+        [one] if !one.is_empty() => resolve_bare(subject_root, companion_root, one, params),
         [qualifier, member] if !qualifier.is_empty() && !member.is_empty() => {
-            resolve_qualified(subject_root, companion_root, qualifier, member, arity)
+            resolve_qualified(subject_root, companion_root, qualifier, member, params)
         }
         // An empty observable, or a path deeper than `A::B`. Nothing this adapter understands
         // takes three segments, and guessing which two were meant would bind the requirement to
@@ -391,7 +423,7 @@ fn resolve_bare(
     subject_root: &Path,
     companion_root: &Path,
     name: &str,
-    arity: usize,
+    params: &[Option<String>],
 ) -> Resolution {
     let found = find_functions(subject_root, companion_root, name);
     match found.len() {
@@ -405,7 +437,7 @@ fn resolve_bare(
             } else {
                 PredicateForm::Function
             };
-            classify(f, arity, form)
+            classify(f, params, form)
         }
         _ => Resolution::Ambiguous(found.into_iter().map(|f| f.at).collect()),
     }
@@ -419,7 +451,7 @@ fn resolve_qualified(
     companion_root: &Path,
     qualifier: &str,
     member: &str,
-    arity: usize,
+    params: &[Option<String>],
 ) -> Resolution {
     let fns = find_functions(subject_root, companion_root, qualifier);
     let types = find_types(subject_root, companion_root, qualifier);
@@ -430,7 +462,7 @@ fn resolve_qualified(
             companion_root,
             fns.into_iter().next().expect("len checked"),
             member,
-            arity,
+            params,
         ),
         (0, 1) => method_on(
             subject_root,
@@ -438,7 +470,7 @@ fn resolve_qualified(
             types.into_iter().next().expect("len checked"),
             qualifier,
             member,
-            arity,
+            params,
         ),
         _ => Resolution::Ambiguous(fns.into_iter().map(|f| f.at).chain(types).collect()),
     }
@@ -451,11 +483,11 @@ fn variant_test(
     companion_root: &Path,
     f: FoundFn,
     variant: &str,
-    arity: usize,
+    params: &[Option<String>],
 ) -> Resolution {
-    if f.params.len() != arity {
+    if f.params.len() != params.len() {
         return Resolution::WrongArity {
-            expected: arity,
+            expected: params.len(),
             found: f.params.len(),
             at: f.at,
         };
@@ -468,6 +500,9 @@ fn variant_test(
             variants,
             at: f.at,
         };
+    }
+    if let Some(mismatch) = wrong_param_type(&f, params) {
+        return mismatch;
     }
     Resolution::Resolved {
         form: PredicateForm::VariantTest {
@@ -489,7 +524,7 @@ fn method_on(
     ty_at: CodeMatch,
     ty: &str,
     method: &str,
-    arity: usize,
+    params: &[Option<String>],
 ) -> Resolution {
     let mut found = find_methods(subject_root, companion_root, ty, Some(method));
     match found.len() {
@@ -507,7 +542,7 @@ fn method_on(
             let form = PredicateForm::Method {
                 name: method.to_string(),
             };
-            classify(f, arity, form)
+            classify(f, params, form)
         }
         _ => Resolution::Ambiguous(found.into_iter().map(|f| f.at).collect()),
     }
@@ -518,17 +553,21 @@ struct FoundFn {
     name: String,
     at: CodeMatch,
     params: Vec<ParamMode>,
+    /// The comparable name of each parameter's written type, in declaration order — `None` for a
+    /// position no written-name comparison can honestly speak about (see [`param_type_ident`]).
+    param_types: Vec<Option<String>>,
     returns: String,
     /// Whether the signature takes a `self` receiver — the syntactic fact that makes it a method.
     has_receiver: bool,
 }
 
-/// Decide whether a single found function can stand for the predicate. Arity is checked
-/// before the return type so the message names the more fundamental mismatch first.
-fn classify(f: FoundFn, arity: usize, form: PredicateForm) -> Resolution {
-    if f.params.len() != arity {
+/// Decide whether a single found function can stand for the predicate. The checks run
+/// coarsest-first — arity, then return type, then parameter types — so the message names the most
+/// fundamental mismatch rather than a consequence of it.
+fn classify(f: FoundFn, params: &[Option<String>], form: PredicateForm) -> Resolution {
+    if f.params.len() != params.len() {
         return Resolution::WrongArity {
-            expected: arity,
+            expected: params.len(),
             found: f.params.len(),
             at: f.at,
         };
@@ -539,11 +578,34 @@ fn classify(f: FoundFn, arity: usize, form: PredicateForm) -> Resolution {
             at: f.at,
         };
     }
+    if let Some(mismatch) = wrong_param_type(&f, params) {
+        return mismatch;
+    }
     Resolution::Resolved {
         at: f.at,
         params: f.params,
         form,
     }
+}
+
+/// The first parameter whose written type is not the one its argument's sort is bound to, if any
+/// (REQ057). A position the caller could not speak for, and a type this adapter cannot compare by
+/// name, are both skipped — the check only ever fires on two names that are both known and differ,
+/// so it cannot turn a working binding into a park.
+fn wrong_param_type(f: &FoundFn, params: &[Option<String>]) -> Option<Resolution> {
+    f.param_types
+        .iter()
+        .zip(params)
+        .enumerate()
+        .find_map(|(i, (found, expected))| {
+            let (found, expected) = (found.as_ref()?, expected.as_ref()?);
+            (found != expected).then(|| Resolution::WrongParamType {
+                param: i + 1,
+                expected: expected.clone(),
+                found: found.clone(),
+                at: f.at.clone(),
+            })
+        })
 }
 
 /// Every function named `name` in the subject's `.rs` files, including inside inline
@@ -598,17 +660,18 @@ fn for_each_rust_file(
 fn collect_fns(items: &[syn::Item], name: &str, rel: &str, text: &str, out: &mut Vec<FoundFn>) {
     for item in items {
         match item {
-            syn::Item::Fn(f) if f.sig.ident == name => out.push(found(&f.sig, rel, text)),
+            syn::Item::Fn(f) if f.sig.ident == name => out.push(found(&f.sig, rel, text, None)),
             syn::Item::Mod(m) => {
                 if let Some((_, inner)) = &m.content {
                     collect_fns(inner, name, rel, text, out);
                 }
             }
             syn::Item::Impl(i) => {
+                let self_ty = type_ident(&i.self_ty);
                 for sub in &i.items {
                     if let syn::ImplItem::Fn(f) = sub {
                         if f.sig.ident == name {
-                            out.push(found(&f.sig, rel, text));
+                            out.push(found(&f.sig, rel, text, self_ty.as_deref()));
                         }
                     }
                 }
@@ -676,7 +739,7 @@ fn collect_methods(
                 for sub in &i.items {
                     if let syn::ImplItem::Fn(f) = sub {
                         if name.is_none_or(|n| f.sig.ident == n) {
-                            out.push(found(&f.sig, rel, text));
+                            out.push(found(&f.sig, rel, text, Some(ty)));
                         }
                     }
                 }
@@ -694,16 +757,20 @@ fn collect_methods(
 /// Whether an `impl` block's self type is the named type, read off the last path segment so
 /// `impl crate::engine::EngineStatus` still matches `EngineStatus`.
 fn self_type_is(self_ty: &syn::Type, ty: &str) -> bool {
-    match self_ty {
-        syn::Type::Path(p) => p.path.segments.last().is_some_and(|s| s.ident == ty),
-        _ => false,
-    }
+    type_ident(self_ty).is_some_and(|n| n == ty)
 }
 
 /// Build the record for one matched signature: where it is, how each parameter takes its
-/// argument, and how its return type is written.
-fn found(sig: &syn::Signature, rel: &str, text: &str) -> FoundFn {
+/// argument, what each parameter's type is written as, and how its return type is written.
+/// `impl_ty` is the type an enclosing `impl` block is for, which is what a `self` receiver's
+/// type is.
+fn found(sig: &syn::Signature, rel: &str, text: &str, impl_ty: Option<&str>) -> FoundFn {
     let line = sig.ident.span().start().line;
+    let generics: Vec<String> = sig
+        .generics
+        .type_params()
+        .map(|p| p.ident.to_string())
+        .collect();
     FoundFn {
         name: sig.ident.to_string(),
         at: CodeMatch {
@@ -712,8 +779,49 @@ fn found(sig: &syn::Signature, rel: &str, text: &str) -> FoundFn {
             text: source_line(text, line),
         },
         params: sig.inputs.iter().map(param_mode).collect(),
+        param_types: sig
+            .inputs
+            .iter()
+            .map(|arg| param_type_ident(arg, &generics, impl_ty))
+            .collect(),
         returns: return_type(sig),
         has_receiver: matches!(sig.inputs.first(), Some(syn::FnArg::Receiver(_))),
+    }
+}
+
+/// The comparable name of one parameter's written type: the last segment of a plain path, so
+/// `&mut User` and `crate::auth::User` both read as `User` (the same last-segment convention
+/// [`self_type_is`] uses), and the enclosing type for a `self` receiver.
+///
+/// `None` wherever a written-name comparison would say nothing true: a **generic parameter**
+/// (`T` names whatever the caller instantiates — resolving it is type inference, which `syn`
+/// does not do), a tuple, a slice, an `impl Trait`. Generic *arguments* are ignored rather than
+/// rejected, so `Wrapper<u32>` still reads as `Wrapper`: the sort resolver matches a bare ident,
+/// so the expected side never carries any. Path-qualification on the sort's own side stays
+/// deferred with the rest of #118's tail.
+fn param_type_ident(
+    arg: &syn::FnArg,
+    generics: &[String],
+    impl_ty: Option<&str>,
+) -> Option<String> {
+    match arg {
+        syn::FnArg::Receiver(_) => impl_ty.map(str::to_string),
+        syn::FnArg::Typed(t) => {
+            let name = type_ident(&t.ty)?;
+            (!generics.contains(&name)).then_some(name)
+        }
+    }
+}
+
+/// The last path segment of a type, looking through references. `None` for a shape that has no
+/// single name to compare — a tuple, a slice, an `impl Trait`, a qualified `<T as Trait>::Out`.
+fn type_ident(ty: &syn::Type) -> Option<String> {
+    match ty {
+        syn::Type::Reference(r) => type_ident(&r.elem),
+        syn::Type::Path(p) if p.qself.is_none() => {
+            p.path.segments.last().map(|s| s.ident.to_string())
+        }
+        _ => None,
     }
 }
 
@@ -837,13 +945,27 @@ mod tests {
         tmp
     }
 
+    /// Resolve with nothing known about the parameters' sorts — the pre-REQ057 behaviour, which
+    /// every check but the parameter-type one still works under.
     fn resolve_in(tmp: &tempfile::TempDir, observable: &str, arity: usize) -> Resolution {
+        resolve_typed(tmp, observable, &vec![None; arity])
+    }
+
+    fn resolve_typed(
+        tmp: &tempfile::TempDir,
+        observable: &str,
+        params: &[Option<String>],
+    ) -> Resolution {
         resolve(
             tmp.path(),
             &tmp.path().join("ProvableRequirements"),
             observable,
-            arity,
+            params,
         )
+    }
+
+    fn want(ty: &str) -> Option<String> {
+        Some(ty.to_string())
     }
 
     // Verifies: REQ025 — a predicate resolves to a real function at a real location, which
@@ -1032,6 +1154,110 @@ pub fn nullary() -> bool { true }\n",
         assert!(modes("nullary", 0).is_empty());
     }
 
+    // Verifies: REQ057 — a predicate whose parameter is written as a different type than the sort
+    // its argument ranges over does NOT ground. This is the whole point of the slice: before it,
+    // `each u: User . logged_in(u)` bound to a function over `Session` was green here and failed
+    // later as a compiler error inside an `unknown`.
+    #[test]
+    fn a_parameter_typed_against_a_different_sort_does_not_resolve() {
+        let tmp = subject(
+            "pub struct User;\npub struct Session;\n\
+             pub fn login(s: &Session) -> bool { true }\n",
+        );
+        let r = resolve_typed(&tmp, "login", &[want("User")]);
+        assert!(
+            matches!(&r, Resolution::WrongParamType { param: 1, expected, found, .. }
+                     if expected == "User" && found == "Session"),
+            "got {r:?}"
+        );
+        assert!(!r.is_resolved());
+        let msg = r.describe("logged_in", "login");
+        assert!(msg.contains("`Session`"), "names what the code says: {msg}");
+        assert!(
+            msg.contains("`User`"),
+            "names what the sort is bound to: {msg}"
+        );
+        // The same binding against the matching type is untouched.
+        assert!(resolve_typed(&tmp, "login", &[want("Session")]).is_resolved());
+    }
+
+    // Verifies: REQ057 — the check compares written names, and skips every position where that
+    // comparison would say nothing true. A generic parameter, a tuple, and a position the caller
+    // knows nothing about must all resolve rather than park: a false park costs the operator a
+    // real binding, which is worse than the compiler error this slice removes.
+    #[test]
+    fn positions_a_name_comparison_cannot_speak_for_are_skipped() {
+        let tmp = subject(
+            "pub fn generic<T>(t: &T) -> bool { true }
+pub fn tupled(p: (u32, u32)) -> bool { true }
+pub fn qualified(u: &crate::auth::User) -> bool { true }
+pub fn wrapped(w: &Wrapper<u32>) -> bool { true }
+pub fn unknown_side(s: &Session) -> bool { true }\n",
+        );
+        assert!(resolve_typed(&tmp, "generic", &[want("User")]).is_resolved());
+        assert!(resolve_typed(&tmp, "tupled", &[want("User")]).is_resolved());
+        // A path-qualified type is read by its last segment, as impl blocks already are.
+        assert!(resolve_typed(&tmp, "qualified", &[want("User")]).is_resolved());
+        // Generic arguments are ignored: the sort resolver matches a bare ident, so the expected
+        // side never carries any and `Wrapper<u32>` must not read as a mismatch with `Wrapper`.
+        assert!(resolve_typed(&tmp, "wrapped", &[want("Wrapper")]).is_resolved());
+        assert!(resolve_typed(&tmp, "unknown_side", &[None]).is_resolved());
+    }
+
+    // Verifies: REQ057 — a `self` receiver's type is the type its `impl` block is for, so a method
+    // bound to the wrong sort is caught exactly as a free function is. Reached both ways a method
+    // can be named (REQ055), because the check must not depend on how the operator wrote it.
+    #[test]
+    fn a_receivers_type_is_the_type_it_is_implemented_on() {
+        let tmp = subject(
+            "pub struct User;\npub struct Session;\n\
+             impl Session { pub fn is_active(&self) -> bool { true } }\n",
+        );
+        for observable in ["Session::is_active", "is_active"] {
+            let r = resolve_typed(&tmp, observable, &[want("User")]);
+            assert!(
+                matches!(&r, Resolution::WrongParamType { found, .. } if found == "Session"),
+                "{observable} should name its impl type, got {r:?}"
+            );
+            assert!(resolve_typed(&tmp, observable, &[want("Session")]).is_resolved());
+        }
+    }
+
+    // Verifies: REQ057 — the coarsest mismatch is reported first, so the operator is never sent
+    // to fix a parameter type on a function that is not a predicate at all.
+    #[test]
+    fn arity_and_return_type_are_reported_before_a_parameter_type() {
+        let tmp = subject(
+            "pub struct User;\n\
+             pub fn count(s: &Session) -> u32 { 0 }\n\
+             pub fn pair(a: &Session, b: &Session) -> bool { true }\n",
+        );
+        assert!(matches!(
+            resolve_typed(&tmp, "pair", &[want("User")]),
+            Resolution::WrongArity { .. }
+        ));
+        assert!(matches!(
+            resolve_typed(&tmp, "count", &[want("User")]),
+            Resolution::NotBoolean { .. }
+        ));
+    }
+
+    // Verifies: REQ057 — a variant-test binding (REQ055) is checked too. The parameter types of the
+    // function whose enum is tested are as real as any other predicate's.
+    #[test]
+    fn a_variant_test_checks_its_parameter_types_too() {
+        let tmp = subject(
+            "pub enum Decision { Proceed }\n\
+             pub fn decide(s: &Session) -> Decision { Decision::Proceed }\n",
+        );
+        let r = resolve_typed(&tmp, "decide::Proceed", &[want("User")]);
+        assert!(
+            matches!(&r, Resolution::WrongParamType { found, .. } if found == "Session"),
+            "got {r:?}"
+        );
+        assert!(resolve_typed(&tmp, "decide::Proceed", &[want("Session")]).is_resolved());
+    }
+
     // Verifies: REQ040 — the fn source for a resolved predicate is sliced from the signature
     // line through its closing brace, including a multi-line body and a fn nested in an impl.
     #[test]
@@ -1170,7 +1396,7 @@ impl S { fn ready(&self) -> bool { true } }\n",
         )
         .unwrap();
 
-        let r = resolve(tmp.path(), &companion, "login", 1);
+        let r = resolve(tmp.path(), &companion, "login", &[None]);
         let Resolution::Resolved { at, .. } = &r else {
             panic!("the companion/.git copies must not create an ambiguity, got {r:?}")
         };
@@ -1256,7 +1482,7 @@ impl S { fn ready(&self) -> bool { true } }\n",
         let companion = tmp.path().join("ProvableRequirements");
         // `login` is a struct here, not a fn → the predicate resolver must not find it.
         assert_eq!(
-            resolve(tmp.path(), &companion, "login", 0),
+            resolve(tmp.path(), &companion, "login", &[]),
             Resolution::NotFound
         );
         // `User` is a fn here, not a type → the sort resolver must not find it.
