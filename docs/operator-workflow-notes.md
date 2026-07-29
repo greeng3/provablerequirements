@@ -587,6 +587,37 @@ Also lifted: the atom walk is now `Property::for_each_atom` in `prl/ast.rs` (was
 `prl/check.rs`), so the gate's name/arity check and grounding cannot disagree about which
 applications exist.
 
+### Primitive sorts (issue #140 / REQ058)
+
+A sort grounded only by finding a `struct`/`enum`/`type` alias the subject declares (REQ026), so
+**`bool` could not be a sort** — and two of `decide_install`'s four parameters are `bool`. Every
+direction in #136 needs to quantify over those, so this is its prerequisite and shipped first.
+
+Two halves, and the second is the one that bites:
+
+1. `TypeResolution::Primitive(String)` — grounds, and carries **no `CodeMatch`**: nothing in the
+   subject declares `bool`, so a source location would be one the adapter invented. The read-back
+   says so instead. `rust_adapter::is_primitive` is the list; a **declared type of the same name
+   wins** (it has a location the operator can confirm, and the read-back names it — the language is
+   only the fallback).
+2. **Lowering writes it bare.** `lowering::qualify` — a declared sort is reached through the
+   harness's prefix, a primitive is not, because `crate::bool` does not compile and would reach the
+   operator as an `unknown` carrying a compiler error. The primitive list lives in `rust_adapter`
+   (the per-language adapter owns what Rust's primitives are) and lowering asks it, rather than
+   both keeping a copy.
+
+`str` is refused (unsized — a quantifier over it lowers to a harness that cannot build, the exact
+failure grounding early prevents), and so is `String` (a declared std type, not a primitive;
+admitting it opens "which std types may a subject quantify over" with no reason to answer yet).
+REQ057 needed nothing: it compares written idents, so a parameter written `bool` against a sort
+bound to `bool` already matched.
+
+**First real `holds` in this project.** A scratch cargo subject with `fn flag_settled(b: bool) ->
+bool { b || !b }`, `each b: Flag . always settled(b)`, `Flag=bool` — grounds, and Kani proves it
+(`holds — model-checked (bounded)`). Creusot and Prusti report honest inconclusives for their known
+subject-side preconditions (no `creusot-std` dependency; Prusti's pinned nightly cannot read a v4
+lockfile), which is the ensemble behaving as designed.
+
 ## Engine provisioning — Design A (old, superseded topology)
 
 > **⚠️ The engine SPLIT (artifact-fed vs toolchain-welded) and R-eng-1..4 survive into Design B.**
