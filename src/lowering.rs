@@ -17,15 +17,16 @@
 //! without any engine installed, which is what lets CI prove the engine-absent path continuously
 //! (R-eng-2).
 //!
-//! What cannot be faithfully expressed — a scope, a guard, an argument that is not the quantified
-//! variable — is a [`NotLowerable`], which each engine turns into an honest `unknown`/`inconclusive`.
+//! What cannot be faithfully expressed — a scope, a guard, an argument that is not a variable the
+//! claim ranges over — is a [`NotLowerable`], which each engine turns into an honest
+//! `unknown`/`inconclusive`.
 //! D2's rule: an out-of-fragment operator is a typed error surfaced to the author, never a silent
 //! approximation.
 //!
 //! Extracted from the three engines once Prusti made a third copy (rule of three, #69).
 
 use crate::grounding::Binding;
-use crate::prl::ast::{Atom, Expr, Pattern, Property, Quantifier, Scope};
+use crate::prl::ast::{Atom, Binder, Expr, Pattern, Property, Requirement, Scope};
 use crate::rust_adapter::{ParamMode, PredicateForm, Resolution};
 use std::collections::BTreeMap;
 
@@ -51,9 +52,10 @@ impl NotLowerable {
 pub struct LoweredClaim {
     /// The claim as a Rust boolean expression, e.g. `crate::in_range(&u)`.
     pub claim: String,
-    /// `Some` when the property is quantified. `ty` is already qualified with the prefix
-    /// (`crate::User` / `mycrate::User`), so the engine only supplies the `∀` syntax around it.
-    pub quantified: Option<Quantified>,
+    /// Every variable the claim ranges over, in the order a reader meets them — empty for a ground
+    /// claim. `ty` is already qualified as the harness must write it (`crate::User`, or a bare
+    /// `bool`), so the engine only supplies the `∀` syntax around them.
+    pub quantified: Vec<Quantified>,
 }
 
 /// A quantifier lowered for a harness: the variable and the (already prefix-qualified) sort type
@@ -79,11 +81,13 @@ pub fn harness_name(id: &str) -> String {
 /// `prefix` is how the harness reaches the subject's items: the subject's crate name for Kani's
 /// out-of-crate `tests/` harness, or `crate` for the in-crate Creusot/Prusti harnesses.
 pub fn lower_property(
+    req: &Requirement,
     prop: &Property,
     prefix: &str,
     bindings: &[Binding],
     resolutions: &BTreeMap<String, Resolution>,
 ) -> Result<LoweredClaim, NotLowerable> {
+    let binders = req.binders(prop);
     if prop.scope != Scope::Globally {
         return Err(NotLowerable::new(
             "the claim is limited to a scope (`before`/`after`/`between`), which names a \
@@ -94,13 +98,11 @@ pub fn lower_property(
     // can arrive. The match stays total anyway: this is public and must not depend on a caller
     // having gated first.
     let claim = match &prop.pattern {
-        Pattern::Always(e) => {
-            lower_expr(e, prop.quantifier.as_ref(), prefix, bindings, resolutions)?
-        }
+        Pattern::Always(e) => lower_expr(e, &binders, prefix, bindings, resolutions)?,
         // `never P` is `always not P`.
         Pattern::Never(e) => format!(
             "!({})",
-            lower_expr(e, prop.quantifier.as_ref(), prefix, bindings, resolutions)?
+            lower_expr(e, &binders, prefix, bindings, resolutions)?
         ),
         other => {
             return Err(NotLowerable::new(format!(
@@ -111,13 +113,15 @@ pub fn lower_property(
         }
     };
 
-    let quantified = match &prop.quantifier {
-        Some(q) => Some(Quantified {
-            var: q.var.clone(),
-            ty: qualify(&sort_target(q, bindings)?, prefix),
-        }),
-        None => None,
-    };
+    let quantified = binders
+        .iter()
+        .map(|b| {
+            Ok(Quantified {
+                var: b.var.clone(),
+                ty: qualify(&sort_target(b, bindings)?, prefix),
+            })
+        })
+        .collect::<Result<Vec<_>, NotLowerable>>()?;
     Ok(LoweredClaim { claim, quantified })
 }
 
@@ -133,43 +137,53 @@ fn qualify(target: &str, prefix: &str) -> String {
     }
 }
 
-/// The sort's bound Rust type (bare, unprefixed). An unbound sort cannot be ranged over — which is
-/// exactly why REQ026 made sorts bindable.
-fn sort_target(q: &Quantifier, bindings: &[Binding]) -> Result<String, NotLowerable> {
+/// The bound Rust type of a binder's sort (bare, unprefixed). Two ways a variable can fail to have
+/// a domain, and they are different mistakes: the requirement never said what it ranges over
+/// (REQ059 — the vocabulary declares no type for that parameter, or two applications disagree), or
+/// it said so and that sort is not bound to a type (which is exactly why REQ026 made sorts
+/// bindable).
+fn sort_target(binder: &Binder, bindings: &[Binding]) -> Result<String, NotLowerable> {
+    let sort = binder.sort.as_ref().ok_or_else(|| {
+        NotLowerable::new(format!(
+            "`{}` has no declared sort, so there is no domain to range over — give it one in the \
+             vocabulary (`state p({}: SomeSort)`), consistently across the predicates that take it",
+            binder.var, binder.var
+        ))
+    })?;
     bindings
         .iter()
-        .find(|b| b.symbol == q.sort)
+        .find(|b| b.symbol == *sort)
         .map(|b| b.observable.clone())
         .ok_or_else(|| {
             NotLowerable::new(format!(
-                "the sort `{}` is not bound to a type, so `{}` has no domain to range over",
-                q.sort, q.var
+                "the sort `{sort}` is not bound to a type, so `{}` has no domain to range over",
+                binder.var
             ))
         })
 }
 
 fn lower_expr(
     e: &Expr,
-    quantifier: Option<&Quantifier>,
+    binders: &[Binder],
     prefix: &str,
     bindings: &[Binding],
     resolutions: &BTreeMap<String, Resolution>,
 ) -> Result<String, NotLowerable> {
     match e {
-        Expr::Atom(a) => lower_atom(a, quantifier, prefix, bindings, resolutions),
+        Expr::Atom(a) => lower_atom(a, binders, prefix, bindings, resolutions),
         Expr::Not(inner) => Ok(format!(
             "!({})",
-            lower_expr(inner, quantifier, prefix, bindings, resolutions)?
+            lower_expr(inner, binders, prefix, bindings, resolutions)?
         )),
         Expr::And(l, r) => Ok(format!(
             "({} && {})",
-            lower_expr(l, quantifier, prefix, bindings, resolutions)?,
-            lower_expr(r, quantifier, prefix, bindings, resolutions)?
+            lower_expr(l, binders, prefix, bindings, resolutions)?,
+            lower_expr(r, binders, prefix, bindings, resolutions)?
         )),
         Expr::Or(l, r) => Ok(format!(
             "({} || {})",
-            lower_expr(l, quantifier, prefix, bindings, resolutions)?,
-            lower_expr(r, quantifier, prefix, bindings, resolutions)?
+            lower_expr(l, binders, prefix, bindings, resolutions)?,
+            lower_expr(r, binders, prefix, bindings, resolutions)?
         )),
     }
 }
@@ -184,7 +198,7 @@ fn lower_expr(
 /// verdict.
 fn lower_atom(
     a: &Atom,
-    quantifier: Option<&Quantifier>,
+    binders: &[Binder],
     prefix: &str,
     bindings: &[Binding],
     resolutions: &BTreeMap<String, Resolution>,
@@ -224,17 +238,15 @@ fn lower_atom(
     let mut args = Vec::new();
     for (arg, mode) in a.args.iter().zip(params) {
         let arg = arg.trim();
-        // Only the quantified variable can be instantiated. Any other term would compile to a
-        // name that exists in the requirement's world but not in the harness's.
-        match quantifier {
-            Some(q) if q.var == arg => {}
-            _ => {
-                return Err(NotLowerable::new(format!(
-                    "`{}` is applied to `{arg}`, which is not the quantified variable — \
-                     there is no value to give it",
-                    a.name
-                )))
-            }
+        // Only a bound variable can be instantiated. Any other term — a literal, a field access,
+        // an expression — would compile to a name that exists in the requirement's world but not
+        // in the harness's.
+        if !binders.iter().any(|b| b.var == arg) {
+            return Err(NotLowerable::new(format!(
+                "`{}` is applied to `{arg}`, which is not a variable the claim ranges over — \
+                 there is no value to give it",
+                a.name
+            )));
         }
         args.push(match mode {
             ParamMode::ByRef => format!("&{arg}"),
@@ -319,28 +331,33 @@ mod tests {
         }
     }
 
-    /// `always p(u)` for each `u: Thing`, the shape every cat-1 invariant over a sort takes.
-    fn always_p_of_u() -> Property {
-        Property {
-            quantifier: Some(Quantifier {
-                var: "u".into(),
-                sort: "Thing".into(),
-            }),
-            pattern: Pattern::Always(Expr::Atom(Atom {
-                name: "p".into(),
-                args: vec!["u".into()],
-                guard: None,
-                line: 1,
-            })),
-            scope: Scope::Globally,
-            line: 1,
-        }
+    /// Real PRL through the real gate, so these tests exercise the requirement an operator would
+    /// actually write rather than an AST hand-built to suit them.
+    fn gated(src: &str) -> Requirement {
+        crate::prl::gate(src)
+            .expect("test candidate should clear the gate")
+            .requirement
+    }
+
+    /// `always p(u)` for each `u: Thing` — an explicit binder, the only shape that lowered before
+    /// REQ059.
+    const P_OF_U: &str = "requirement r { category: 1
+        vocabulary { state p(u) }
+        require { each u: Thing . always p(u) } }";
+
+    fn lower_one(
+        req: &Requirement,
+        prefix: &str,
+        bindings: &[Binding],
+        resolutions: &BTreeMap<String, Resolution>,
+    ) -> Result<LoweredClaim, NotLowerable> {
+        lower_property(req, &req.require[0], prefix, bindings, resolutions)
     }
 
     fn lower_with(params: Vec<ParamMode>, form: PredicateForm, observable: &str) -> String {
         let bindings = vec![binding("p", observable), binding("Thing", "Thing")];
         let resolutions = BTreeMap::from([("p".to_string(), resolved(params, form))]);
-        lower_property(&always_p_of_u(), "crate", &bindings, &resolutions)
+        lower_one(&gated(P_OF_U), "crate", &bindings, &resolutions)
             .expect("should lower")
             .claim
     }
@@ -399,22 +416,20 @@ mod tests {
     #[test]
     fn a_primitive_sort_lowers_unprefixed() {
         let quantified = |sort: &str| {
-            let prop = Property {
-                quantifier: Some(Quantifier {
-                    var: "u".into(),
-                    sort: "S".into(),
-                }),
-                ..always_p_of_u()
-            };
+            let req = gated(
+                "requirement r { category: 1
+                vocabulary { state p(u) }
+                require { each u: S . always p(u) } }",
+            );
             let bindings = vec![binding("p", "is_ok"), binding("S", sort)];
             let resolutions = BTreeMap::from([(
                 "p".to_string(),
                 resolved(vec![ParamMode::ByValue], PredicateForm::Function),
             )]);
-            lower_property(&prop, "mycrate", &bindings, &resolutions)
+            lower_one(&req, "mycrate", &bindings, &resolutions)
                 .expect("should lower")
                 .quantified
-                .expect("quantified")
+                .remove(0)
                 .ty
         };
         assert_eq!(quantified("bool"), "bool");
@@ -422,11 +437,153 @@ mod tests {
         assert_eq!(quantified("Thing"), "mycrate::Thing");
     }
 
+    /// The REQ047 shape: a four-argument decision function, no `each` written, sorts declared on
+    /// the predicate. Nothing of this form could be lowered at all before REQ059.
+    const GATED_DECISION: &str = "requirement r { category: 1
+        vocabulary { state supported
+                     state proceeds(d: Decision, p: Flag, q: Flag, c: Flag) }
+        require { always (not proceeds(d, p, q, c) or supported) } }";
+
+    fn decision_bindings() -> Vec<Binding> {
+        vec![
+            binding("proceeds", "decide"),
+            binding("supported", "is_supported"),
+            binding("Decision", "InstallDecision"),
+            binding("Flag", "bool"),
+        ]
+    }
+
+    fn decision_resolutions() -> BTreeMap<String, Resolution> {
+        BTreeMap::from([
+            (
+                "proceeds".to_string(),
+                resolved(vec![ParamMode::ByValue; 4], PredicateForm::Function),
+            ),
+            (
+                "supported".to_string(),
+                resolved(vec![], PredicateForm::Function),
+            ),
+        ])
+    }
+
+    // Verifies: REQ059 — every variable a cat-1 claim applies a predicate to is quantified, over
+    // the sort the VOCABULARY declares for that parameter. The headline of #136: a predicate of
+    // arity > 1 could never be lowered before, because a property carries at most one `each`
+    // binder, so there was no formulation of this requirement a harness could be built for.
+    #[test]
+    fn free_variables_are_closed_over_their_declared_sorts() {
+        let claim = lower_one(
+            &gated(GATED_DECISION),
+            "mycrate",
+            &decision_bindings(),
+            &decision_resolutions(),
+        )
+        .expect("should lower");
+
+        // In the order a reader meets them, each over its declared sort — and a primitive stays
+        // bare while a declared type is reached through the prefix (REQ058).
+        let binders: Vec<(String, String)> = claim
+            .quantified
+            .iter()
+            .map(|q| (q.var.clone(), q.ty.clone()))
+            .collect();
+        assert_eq!(
+            binders,
+            vec![
+                ("d".to_string(), "mycrate::InstallDecision".to_string()),
+                ("p".to_string(), "bool".to_string()),
+                ("q".to_string(), "bool".to_string()),
+                ("c".to_string(), "bool".to_string()),
+            ]
+        );
+        assert!(
+            claim.claim.contains("mycrate::decide(d, p, q, c)"),
+            "{}",
+            claim.claim
+        );
+    }
+
+    // Verifies: REQ059 — a variable the vocabulary declares no sort for does not lower, and the
+    // refusal names the variable and the way out. Closing over an unknown domain would be a
+    // harness quantified over a type this tool chose, which is exactly the guess R-ground-1 forbids.
+    #[test]
+    fn a_variable_without_a_declared_sort_does_not_lower() {
+        let req = gated(
+            "requirement r { category: 1
+            vocabulary { state p(u) }
+            require { always p(u) } }",
+        );
+        let bindings = vec![binding("p", "is_ok")];
+        let resolutions = BTreeMap::from([(
+            "p".to_string(),
+            resolved(vec![ParamMode::ByValue], PredicateForm::Function),
+        )]);
+        let err = lower_one(&req, "crate", &bindings, &resolutions)
+            .expect_err("an undeclared sort has no domain");
+        assert!(
+            err.reason.contains("`u` has no declared sort"),
+            "{}",
+            err.reason
+        );
+        assert!(err.reason.contains("vocabulary"), "{}", err.reason);
+    }
+
+    // Verifies: REQ059 — an explicit `each` binder still wins over the vocabulary's declaration.
+    // The operator wrote that one deliberately, and a tool that silently preferred its own reading
+    // would be answering a question it was not asked.
+    #[test]
+    fn an_explicit_binder_wins_over_the_declared_parameter_sort() {
+        let req = gated(
+            "requirement r { category: 1
+            vocabulary { state p(u: Declared) }
+            require { each u: Written . always p(u) } }",
+        );
+        let bindings = vec![
+            binding("p", "is_ok"),
+            binding("Written", "Chosen"),
+            binding("Declared", "Ignored"),
+        ];
+        let resolutions = BTreeMap::from([(
+            "p".to_string(),
+            resolved(vec![ParamMode::ByValue], PredicateForm::Function),
+        )]);
+        let claim = lower_one(&req, "crate", &bindings, &resolutions).expect("should lower");
+        assert_eq!(claim.quantified[0].ty, "crate::Chosen");
+    }
+
+    // Verifies: REQ059 — closure binds *variables*, not values. A literal is not something a claim
+    // ranges over, and closing over one would emit `let true: bool = kani::any()`.
+    #[test]
+    fn a_literal_argument_is_not_closed_over() {
+        let req = gated(
+            "requirement r { category: 1
+            vocabulary { state p(u: Flag) }
+            require { always p(true) } }",
+        );
+        let bindings = vec![binding("p", "is_ok"), binding("Flag", "bool")];
+        let resolutions = BTreeMap::from([(
+            "p".to_string(),
+            resolved(vec![ParamMode::ByValue], PredicateForm::Function),
+        )]);
+        let err = lower_one(&req, "crate", &bindings, &resolutions)
+            .expect_err("a literal is not a variable to range over");
+        assert!(
+            err.reason.contains("not a variable the claim ranges over"),
+            "{}",
+            err.reason
+        );
+    }
+
     // Verifies: REQ055 — a nullary method has no receiver to be called on. It cannot arise from
     // the adapter (a `self` receiver counts toward arity), but lowering is public and must not
     // depend on a caller having resolved first.
     #[test]
     fn a_nullary_method_is_not_lowerable() {
+        let req = gated(
+            "requirement r { category: 1
+            vocabulary { state p }
+            require { always p } }",
+        );
         let bindings = vec![binding("p", "S::ready")];
         let resolutions = BTreeMap::from([(
             "p".to_string(),
@@ -437,18 +594,7 @@ mod tests {
                 },
             ),
         )]);
-        let prop = Property {
-            quantifier: None,
-            pattern: Pattern::Always(Expr::Atom(Atom {
-                name: "p".into(),
-                args: vec![],
-                guard: None,
-                line: 1,
-            })),
-            scope: Scope::Globally,
-            line: 1,
-        };
-        let err = lower_property(&prop, "crate", &bindings, &resolutions)
+        let err = lower_one(&req, "crate", &bindings, &resolutions)
             .expect_err("no receiver, nothing to call it on");
         assert!(err.reason.contains("first argument"), "{}", err.reason);
     }

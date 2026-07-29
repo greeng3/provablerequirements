@@ -28,7 +28,7 @@
 //! **What cannot be lowered is said, not approximated.** The gate guarantees a category-1
 //! requirement is temporal-free (REQ024), so the target is small: `always`/`never` over boolean
 //! combinations, optionally quantified. Anything this module cannot faithfully express — a scope,
-//! a guard, an argument that is not the quantified variable — is a [`NotLowerable`], which becomes
+//! a guard, an argument that is not a variable the claim ranges over — is a [`NotLowerable`], which becomes
 //! an honest `unknown`.
 //!
 //! Implements: REQ032 (wire Prusti as cat-1 engine #3 — a grounded invariant earns a real
@@ -98,7 +98,7 @@ pub fn lower(
     }
     let mut body = String::new();
     for prop in &req.require {
-        let claim = lowering::lower_property(prop, "crate", bindings, resolutions)?;
+        let claim = lowering::lower_property(req, prop, "crate", bindings, resolutions)?;
         body.push_str(&assertion(&claim));
     }
     let source = format!(
@@ -127,9 +127,16 @@ pub fn lower(
 /// closure over the sort's type (what makes it a ∀ proof rather than a spot check); an
 /// unquantified one (e.g. `never overdrawn`) asserts the ground fact directly.
 fn assertion(claim: &LoweredClaim) -> String {
-    let body = match &claim.quantified {
-        Some(q) => format!("forall(|{}: {}| {})", q.var, q.ty, claim.claim),
-        None => claim.claim.clone(),
+    let body = if claim.quantified.is_empty() {
+        claim.claim.clone()
+    } else {
+        let binders = claim
+            .quantified
+            .iter()
+            .map(|q| format!("{}: {}", q.var, q.ty))
+            .collect::<Vec<_>>()
+            .join(", ");
+        format!("forall(|{binders}| {})", claim.claim)
     };
     format!("    prusti_assert!({body});\n")
 }

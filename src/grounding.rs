@@ -146,8 +146,18 @@ pub fn bindable_sorts(req: &Requirement) -> Vec<String> {
         }
     };
     for decl in &req.vocabulary {
-        if let Decl::Sort { name, .. } = decl {
-            push(name);
+        match decl {
+            Decl::Sort { name, .. } => push(name),
+            // A type declared on a predicate's parameter is a sort like any other (REQ059): it is
+            // what the variable in that position ranges over, so it needs a binding for the same
+            // reason a quantifier's sort does — nothing can range over a domain that is not known
+            // to be real (R-ground-1).
+            Decl::Event { params, .. } | Decl::State { params, .. } => {
+                for p in params {
+                    push(p.ty.trim());
+                }
+            }
+            Decl::Identity { .. } => {}
         }
     }
     for prop in &req.require {
@@ -193,29 +203,35 @@ pub fn expected_param_types(
     let mut expected: Vec<Option<String>> = vec![None; arity];
     let mut conflicting = vec![false; arity];
     for prop in &req.require {
-        let Some(q) = &prop.quantifier else { continue };
-        let Some(ty) = bindings
-            .iter()
-            .find(|b| b.symbol == q.sort)
-            .map(|b| b.observable.trim().to_string())
-            .filter(|o| !o.is_empty())
-        else {
-            continue;
-        };
+        let binders = req.binders(prop);
         prop.for_each_atom(&mut |atom| {
             if atom.name != symbol {
                 return;
             }
             for (i, arg) in atom.args.iter().enumerate() {
-                if i >= arity || arg.trim() != q.var || conflicting[i] {
+                if i >= arity || conflicting[i] {
                     continue;
                 }
+                // The type is the one the *binder* ranges over, which is what the harness will
+                // actually instantiate — an explicit `each` overrides the vocabulary's
+                // declaration, and the check must follow the value that will exist, not the
+                // declaration it came from.
+                let Some(ty) = binders
+                    .iter()
+                    .find(|b| b.var == arg.trim())
+                    .and_then(|b| b.sort.as_ref())
+                    .and_then(|sort| bindings.iter().find(|b| b.symbol == *sort))
+                    .map(|b| b.observable.trim().to_string())
+                    .filter(|o| !o.is_empty())
+                else {
+                    continue;
+                };
                 match &expected[i] {
                     Some(seen) if *seen != ty => {
                         expected[i] = None;
                         conflicting[i] = true;
                     }
-                    _ => expected[i] = Some(ty.clone()),
+                    _ => expected[i] = Some(ty),
                 }
             }
         });
@@ -624,6 +640,46 @@ mod tests {
         assert!(!bindable_sorts(&with_decl).contains(&"sent".to_string()));
         assert!(is_sort(&with_decl, "Message"));
         assert!(!is_sort(&with_decl, "sent"));
+    }
+
+    // Verifies: REQ059 — a type declared on a predicate's parameter is a sort, so it must be bound
+    // like any other. Without this the closure could never lower: the variable's domain would name
+    // a type nothing had confirmed exists.
+    #[test]
+    fn a_declared_parameter_type_is_a_bindable_sort() {
+        let r = req("requirement r {
+            category: 1
+            vocabulary { state proceeds(d: Decision, f: Flag) }
+            require { always proceeds(d, f) }
+        }");
+        assert_eq!(bindable_sorts(&r), vec!["Decision", "Flag"]);
+        assert!(is_sort(&r, "Decision"));
+        assert!(is_bindable(&r, "Flag"));
+        // …and it parks the requirement until it is bound, exactly as a quantifier's sort does.
+        assert!(unbound_symbols(&r, &[]).contains(&"Decision".to_string()));
+    }
+
+    // Verifies: REQ057 + REQ059 — with every parameter's sort declared, the parameter-type
+    // cross-check now covers EVERY position, not only the one an `each` binder supplied.
+    #[test]
+    fn declared_parameter_sorts_type_check_every_position() {
+        let r = req("requirement r {
+            category: 1
+            vocabulary { state proceeds(d: Decision, f: Flag) }
+            require { always proceeds(d, f) }
+        }");
+        let bindings = vec![
+            code_binding("proceeds", "decide"),
+            sort_binding("Decision", "InstallDecision"),
+            sort_binding("Flag", "bool"),
+        ];
+        assert_eq!(
+            expected_param_types(&r, &bindings, "proceeds"),
+            vec![
+                Some("InstallDecision".to_string()),
+                Some("bool".to_string())
+            ]
+        );
     }
 
     // Verifies: REQ026 — an UNBOUND sort parks the requirement. A quantified claim whose
