@@ -7,35 +7,45 @@ verdicts:
     witness: null
     detail:
     - 'Kani: inconclusive'
-    - '`install_proceeds` is applied to `d`, which is not the quantified variable — there is no value to give it'
+    - |-
+      error[E0412]: cannot find type `EngineStatus` in crate `provreq`
+      error[E0425]: cannot find function `decide_install` in crate `provreq`
     - 'Creusot: inconclusive'
-    - '`install_proceeds` is applied to `d`, which is not the quantified variable — there is no value to give it'
+    - 'Error: creusot-std not found in dependencies'
     - 'Prusti: inconclusive'
-    - '`install_proceeds` is applied to `d`, which is not the quantified variable — there is no value to give it'
+    - |-
+      error: failed to parse lock file at: /workspace/Cargo.lock
+      Caused by:
+        lock file version 4 requires `-Znext-lockfile-bump`
     evidence:
     - engine: Kani
       status: unknown
       basis: null
       witness: null
       detail:
-      - '`install_proceeds` is applied to `d`, which is not the quantified variable — there is no value to give it'
+      - |-
+        error[E0412]: cannot find type `EngineStatus` in crate `provreq`
+        error[E0425]: cannot find function `decide_install` in crate `provreq`
     - engine: Creusot
       status: unknown
       basis: null
       witness: null
       detail:
-      - '`install_proceeds` is applied to `d`, which is not the quantified variable — there is no value to give it'
+      - 'Error: creusot-std not found in dependencies'
     - engine: Prusti
       status: unknown
       basis: null
       witness: null
       detail:
-      - '`install_proceeds` is applied to `d`, which is not the quantified variable — there is no value to give it'
+      - |-
+        error: failed to parse lock file at: /workspace/Cargo.lock
+        Caused by:
+          lock file version 4 requires `-Znext-lockfile-bump`
     provenance:
       requirement_revision: 17cf6ac844159fbe
-      subject_commit: 4cbbfcab0baac99bc9b4797a94b0e005e8b1f4a1
+      subject_commit: 1c35709a5b02745e5b6251ec353cb13176650bc1
       tool_version: 0.0.1
-      formalization: 32dddfe986949eb6
+      formalization: e06f8a01345dcae6
       environment:
         declared: provreq-devcontainer
         engines:

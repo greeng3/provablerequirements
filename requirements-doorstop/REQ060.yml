@@ -1,0 +1,29 @@
+active: true
+derived: false
+header: ''
+level: 1.6
+links: []
+normative: true
+ref: ''
+reviewed: null
+text: |
+  A subject repository contains more than the source its author wrote. Build outputs, fetched
+  dependencies, and version-control metadata live in the same tree, are frequently far larger than
+  the source, and are regenerable rather than authored. What the tool reads of a subject must be the
+  subject's own source, and every part of the tool that reads it must agree on where that ends.
+
+  Directories holding regenerable or vendored content are therefore excluded from every walk of a
+  subject, by one shared rule rather than a rule per traversal. Separate traversals with separate
+  opinions about which files count is a disagreement that shows up as inconsistent answers about the
+  same repository.
+
+  The exclusion is not only a matter of speed, though the difference is large enough to be felt on
+  an ordinary repository. A binding resolves against what the subject declares, and a name occurring
+  in generated or vendored content is not a declaration the author made; treating it as one turns a
+  correct binding into an ambiguity against a file the operator never wrote.
+
+  Exclusion recognises both what such directories are conventionally named and how they mark
+  themselves, since neither alone is sufficient: some carry no marker, and some are placed by
+  configuration where no name-based rule could anticipate them. Where the evidence is absent or
+  unreadable, the directory is walked — wrongly excluding a directory silently narrows what every
+  binding can resolve against, which is the more damaging of the two errors.

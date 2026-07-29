@@ -140,3 +140,130 @@ step of the spine the run did not reach, and it stays open for a follow-up once
   exercised against real data.
 - Only two of 51 items were triaged, both by hand.
 - The web UI was not driven against this subject; only the CLI was.
+
+---
+
+## Second pass (2026-07-29, issue #143)
+
+The first pass ended parked at grounding, on a predicate the binder could not name. Four slices
+later — enum/method binding ([#129](https://github.com/greeng3/provablerequirements/issues/129) /
+REQ055), the parameter-type cross-check
+([#118](https://github.com/greeng3/provablerequirements/issues/118) / REQ057), primitive sorts
+([#140](https://github.com/greeng3/provablerequirements/issues/140) / REQ058), and free-variable
+closure ([#136](https://github.com/greeng3/provablerequirements/issues/136) / REQ059) — REQ047 was
+supposed to become the first requirement this repo proves about itself.
+
+It did not. It got two steps further and stopped somewhere more interesting.
+
+### What worked
+
+**The read-back named the gap before anything ran.** The candidate as committed declares no
+parameter types, and REQ059's closure says so out loud:
+
+```text
+• for each d (no declared sort) and each p (no declared sort) and each q (no declared sort)
+  and each c (no declared sort), ((not install_proceeds(d, p, q, c)) or platform_supported)
+  always holds — every variable the claim mentions is quantified, over the sort the vocabulary
+  declares for it
+```
+
+Declaring the sorts (`install_proceeds(d: EngineState, p: Flag, q: Flag, c: Flag)`) and binding them
+(`EngineState=EngineStatus`, `Flag=bool`) grounds the requirement — a four-argument predicate, an
+enum variant test, a `&`-taking parameter, and a primitive sort, all confirmed against real code:
+
+```text
+EngineState (sort) → `EngineStatus` resolves to src/engine.rs:67  pub enum EngineStatus {
+Flag (sort) → `bool` is the Rust primitive `bool` — the language's own type, not one the subject
+    declares, so there is no source location to confirm it against
+install_proceeds → `decide_install::Proceed` resolves to src/provision.rs:79
+    (checked as `matches!(decide_install(…), InstallDecision::Proceed)`)
+REQ047: GROUNDED — every symbol binds to a confirmed observable.
+```
+
+REQ057's parameter-type cross-check passed on real code here, silently and correctly: `d` ranges
+over `EngineState`→`EngineStatus` against a parameter written `&EngineStatus`, and `p`/`q`/`c` over
+`Flag`→`bool` against three `bool` parameters.
+
+### Finding 1 — resolution walked the build directory (fixed here, REQ060)
+
+The first dry-run **timed out at two minutes**. `adopt` and `doorstop` have always pruned `.git`,
+`target`, `node_modules`, and `.venv`; the two *adapters* that resolve bindings never did, so every
+resolution traversed this repo's 2.6 GB `target/` — for 57 source files.
+
+Four walks with four opinions about which files count. Now one rule, `subject_tree::is_pruned_dir`,
+shared by all four: prune by name, **and** prune any directory carrying a `CACHEDIR.TAG` with the
+standard signature (which cargo writes into `target/`, and which catches a `CARGO_TARGET_DIR`
+pointed somewhere a name list can never anticipate).
+
+Not only speed: a name declared under a build directory is a copy or a generated artifact, and
+finding it would park a correct binding as `Ambiguous` against a file the operator never wrote.
+
+**34 s → 4.5 s** for one dry-run. The residual is a separate papercut — each lookup re-parses every
+file in the subject, roughly ten full parses for REQ047's four bindings —
+[#144](https://github.com/greeng3/provablerequirements/issues/144).
+
+### Finding 2 — lowering ignores the module path ([#145](https://github.com/greeng3/provablerequirements/issues/145))
+
+The harness that grounding earned:
+
+```rust
+let d: provreq::EngineStatus = kani::any();
+assert!(!(matches!(provreq::decide_install(&d, p, q, c), provreq::InstallDecision::Proceed { .. }))
+        || provreq::kani_platform_supported());
+```
+
+```text
+error[E0412]: cannot find type `EngineStatus` in crate `provreq`
+error[E0425]: cannot find function `decide_install` in crate `provreq`
+```
+
+The items are at `provreq::engine::EngineStatus` and `provreq::provision::decide_install`.
+`lowering::qualify` writes `{prefix}::{name}` with no module path — correct for every scratch
+subject cat-1 was validated against, because each had a flat `src/lib.rs`, and wrong for the first
+real multi-module crate it met. Verdict: `unknown (inconclusive)`, carrying the compiler error.
+Honest, and from the wrong surface.
+
+**This is the pattern the last three slices each hit in their own way**: a binding confirmed at
+grounding, then a harness that cannot be built, so the operator learns from rustc what the tool
+already knew. REQ057 fixed it for parameter types, REQ058 for primitive prefixing, and this is the
+same shape again for module paths.
+
+### Finding 3 — the requirement's formalization says something the code does not guarantee ([#146](https://github.com/greeng3/provablerequirements/issues/146))
+
+The most valuable finding, and it would have stayed hidden if #145 had not stopped the run.
+
+REQ047 is about `decide_install`'s **second argument**: it returns `Proceed` only when
+`platform_supported` is true. Written directly that is `always (not install_proceeds(d, p, q, c) or
+p)` — and `p` alone is parsed as an atom with no arguments, so the gate rejects it as an undeclared
+predicate. **A PRL atom is always a predicate applied to terms, and a predicate binds to a function
+of the subject**, so there is no way to say "this boolean variable is true".
+
+The committed formalization works around that by binding a nullary `platform_supported` to
+`kani_platform_supported()` — which reads the *host OS*. That is a different proposition, and the
+resulting claim is not true of `decide_install`: nothing stops a caller passing
+`platform_supported = true` on an unsupported host. It is true only of the call site that composes
+them, and that call site does I/O, so the cat-1 fragment cannot reach it.
+
+So REQ047's formalization has never been checkable, and the moment it becomes checkable it will
+report `fails` about a claim nobody means.
+
+**And the validation subject hid it.** The scratch subject used to prove out REQ059 contained
+`pub fn is_supported(s: bool) -> bool { s }` — an identity function existing purely so a boolean
+argument could be named as a predicate. That is the tool bending the subject, the exact thing #129
+rejected, and writing it is what made the closure work look complete.
+
+### Where REQ047 stands
+
+Left as the pass produced it: sorts declared and bound, grounded, `unknown (inconclusive)`. The
+formalization is **not** silently corrected to something weaker-but-provable — choosing an
+expressible sub-claim is a real option, but it narrows what the requirement asserts, and that is the
+operator's call to make knowingly rather than the tool's to make quietly.
+
+### What this pass did not cover
+
+- Still no requirement verified end to end about this repo, so the living loop and the five drift
+  axes remain unexercised against real data.
+- Creusot and Prusti reported their standing subject-side inconclusives (no `creusot-std`
+  dependency; Prusti's pinned nightly cannot read a v4 lockfile), so Kani was the only engine that
+  reached the claim.
+- The web UI was again not driven against this subject.

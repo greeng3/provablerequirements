@@ -13,9 +13,6 @@ use walkdir::{DirEntry, WalkDir};
 
 const DOORSTOP_CONFIG: &str = ".doorstop.yml";
 
-/// Directories never worth descending into when hunting for Doorstop docs.
-const PRUNE_DIRS: [&str; 4] = [".git", "target", "node_modules", ".venv"];
-
 /// One discovered Doorstop document: its directory, item prefix, and item IDs.
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct DoorstopDoc {
@@ -35,11 +32,7 @@ struct Settings {
 }
 
 fn is_pruned(entry: &DirEntry) -> bool {
-    entry.file_type().is_dir()
-        && entry
-            .file_name()
-            .to_str()
-            .is_some_and(|n| PRUNE_DIRS.contains(&n))
+    entry.file_type().is_dir() && crate::subject_tree::is_pruned_dir(entry.path())
 }
 
 /// Discover every Doorstop document under `subject_root`, sorted by directory.

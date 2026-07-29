@@ -5,7 +5,7 @@ drafts:
     candidate: |-
       requirement kani_install_platform_gated { category: 1
         vocabulary { state platform_supported
-                     state install_proceeds(d, p, q, c) }
+                     state install_proceeds(d: EngineState, p: Flag, q: Flag, c: Flag) }
         require { always (not install_proceeds(d, p, q, c) or platform_supported) } }
     gate:
       status: passed
@@ -14,8 +14,16 @@ drafts:
       state: admitted
       review: optional
       by: greeng3
-      at_unix: 1785119220
+      at_unix: 1785368213
     bindings:
+    - symbol: EngineState
+      category: code
+      observable: EngineStatus
+      fidelity: definitional
+    - symbol: Flag
+      category: code
+      observable: bool
+      fidelity: definitional
     - symbol: platform_supported
       category: code
       observable: kani_platform_supported

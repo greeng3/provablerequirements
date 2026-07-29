@@ -33,17 +33,11 @@ pub struct CodeMatch {
     pub text: String,
 }
 
-/// Whether a directory is pruned from the walk: the VCS metadata dir, or the companion
-/// tree (whose `drafts.yml` holds the observables themselves — resolving there would be a
-/// spurious self-hit).
+/// Whether a directory is pruned from the walk: the companion tree (whose `drafts.yml` holds the
+/// observables themselves — resolving there would be a spurious self-hit), or anything
+/// [`crate::subject_tree::is_pruned_dir`] excludes from every walk of a subject.
 fn is_skipped_dir(path: &Path, companion_root: &Path) -> bool {
-    if path == companion_root {
-        return true;
-    }
-    path.file_name()
-        .and_then(|n| n.to_str())
-        .map(|n| n == ".git")
-        .unwrap_or(false)
+    path == companion_root || crate::subject_tree::is_pruned_dir(path)
 }
 
 /// How one parameter of a resolved predicate takes its argument. The only thing an engine
