@@ -163,15 +163,11 @@ pub fn scaffold(plan: &AdoptionPlan) -> Result<PathBuf> {
 /// adopted yet. Prunes the same heavy directories discovery does and does not
 /// follow symlinks. Single companion assumption, consistent with `init`.
 pub fn find_companion(subject_root: &Path) -> Result<Option<PathBuf>> {
-    const PRUNE_DIRS: [&str; 4] = [".git", "target", "node_modules", ".venv"];
     let walker = WalkDir::new(subject_root)
         .follow_links(false)
         .into_iter()
         .filter_entry(|e| {
-            !(e.file_type().is_dir()
-                && e.file_name()
-                    .to_str()
-                    .is_some_and(|n| PRUNE_DIRS.contains(&n)))
+            !(e.file_type().is_dir() && crate::subject_tree::is_pruned_dir(e.path()))
         });
     for entry in walker {
         let entry = entry.with_context(|| format!("walking {}", subject_root.display()))?;

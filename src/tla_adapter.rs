@@ -119,17 +119,12 @@ pub fn resolve(subject_root: &Path, companion_root: &Path, observable: &str) -> 
     }
 }
 
-/// Whether a directory is pruned from the walk: the VCS metadata dir, or the companion tree
-/// (whose own files could hold a spurious self-hit). Mirrors the Rust adapter's skip rule so
-/// the two observable worlds agree on which of the subject's files count.
+/// Whether a directory is pruned from the walk: the companion tree (whose own files could hold a
+/// spurious self-hit), or anything [`crate::subject_tree::is_pruned_dir`] excludes. Shares that one
+/// rule with the Rust adapter, so the two observable worlds cannot disagree about which of the
+/// subject's files count.
 fn is_skipped_dir(path: &Path, companion_root: &Path) -> bool {
-    if path == companion_root {
-        return true;
-    }
-    path.file_name()
-        .and_then(|n| n.to_str())
-        .map(|n| n == ".git")
-        .unwrap_or(false)
+    path == companion_root || crate::subject_tree::is_pruned_dir(path)
 }
 
 /// Every TLA+ definition named `name` across the subject's `.tla` files.
