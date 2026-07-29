@@ -525,6 +525,23 @@ separate axis from where it runs.
   hosted (hosted multi-repo = deferred A5-A, **#122**). `serve` foreground default; `--background` /
   `--port` flags; no daemon manager yet.
 
+### Where the subject path goes (issue #130 / REQ056)
+
+The positional slot is each command's **own primary subject**, so it holds different things:
+
+| positional | commands | subject path |
+| --- | --- | --- |
+| the path itself | `init`, `triage`, `status`, `engines` | positional `[PATH]` |
+| an id / engine name | `verify`, `draft`, `install` | `--path` |
+
+The rule is consistent, but not self-evident from any single command, and the habit `status .`
+builds carries straight into `verify REQ047 .`. Clap's own answer named the problem without the
+fix — `Usage: provreq verify [OPTIONS] <ID>` hides `--path` inside `[OPTIONS]`. `parse_cli` in
+`src/main.rs` now recognises a stray path-shaped positional and appends the accepted form in the
+operator's own words (`--path .`). The recognition is deliberately narrow — `.`/`..`, a separator,
+or a directory that exists, never something starting with `-` — because a confident `--path` hint
+attached to an unrelated error would be worse than the bare message it replaced.
+
 ## Engine provisioning — Design A (old, superseded topology)
 
 > **⚠️ The engine SPLIT (artifact-fed vs toolchain-welded) and R-eng-1..4 survive into Design B.**

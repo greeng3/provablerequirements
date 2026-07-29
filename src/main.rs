@@ -167,9 +167,57 @@ enum Command {
     },
 }
 
+/// Whether an argument reads as a subject path rather than a mistyped flag or a bad id (REQ056).
+/// Deliberately narrow: `.`/`..`, anything with a separator, or a directory that actually exists.
+/// A wrong guess here would attach a confident, irrelevant hint to an unrelated error.
+fn looks_like_a_path(arg: &str) -> bool {
+    if arg.starts_with('-') {
+        return false;
+    }
+    arg == "." || arg == ".." || arg.contains(std::path::MAIN_SEPARATOR) || Path::new(arg).is_dir()
+}
+
+/// The path-shaped argument behind an "unexpected argument" error, if that is what happened.
+fn stray_path_argument(err: &clap::Error) -> Option<String> {
+    if err.kind() != clap::error::ErrorKind::UnknownArgument {
+        return None;
+    }
+    let arg = err
+        .get(clap::error::ContextKind::InvalidArg)?
+        .to_string()
+        .trim_matches('\'')
+        .to_string();
+    looks_like_a_path(&arg).then_some(arg)
+}
+
+/// Parse the CLI, adding the one thing clap cannot say for itself (REQ056).
+///
+/// The positional slot is each command's own primary object, so it holds the subject path for
+/// `init`/`triage`/`status`/`engines` and an id or engine name for `verify`/`draft`/`install`,
+/// where the subject moves to `--path`. That rule is coherent, but the habit `status .` builds
+/// carries straight into `verify REQ047 .` — and `Usage: provreq verify [OPTIONS] <ID>` names the
+/// problem without naming the fix, because `--path` is hidden inside `[OPTIONS]`.
+fn parse_cli() -> Cli {
+    match Cli::try_parse() {
+        Ok(cli) => cli,
+        Err(err) => {
+            let Some(arg) = stray_path_argument(&err) else {
+                err.exit()
+            };
+            let _ = err.print();
+            eprintln!(
+                "hint: `{arg}` looks like a subject path. This command's positional argument is \
+                 its own subject — an id, or an engine name — so the repository goes in a flag: \
+                 `--path {arg}`."
+            );
+            std::process::exit(err.exit_code());
+        }
+    }
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
-    match Cli::parse().command {
+    match parse_cli().command {
         Command::Serve { port, path } => {
             provreq::server::serve(port, path).await.map_err(Into::into)
         }
@@ -1592,6 +1640,55 @@ mod tests {
     use super::*;
     use provreq::semantic_draft::ProofStep;
     use provreq::verdict::{aggregate, Basis, Evidence, Provenance};
+
+    // Verifies: REQ056 — a subject path handed to an id-taking command is recognised as such, so
+    // the error can name the fix. This is the real wiring, not just the predicate: it asserts that
+    // clap reports the mistake the way the hint depends on.
+    #[test]
+    fn a_path_passed_where_an_id_belongs_is_recognised() {
+        for argv in [
+            vec!["provreq", "verify", "REQ047", "."],
+            vec!["provreq", "draft", "REQ047", ".."],
+            vec!["provreq", "install", "kani", "src"],
+        ] {
+            let Err(err) = Cli::try_parse_from(&argv) else {
+                panic!("{argv:?}: the stray path must not parse")
+            };
+            assert!(
+                stray_path_argument(&err).is_some(),
+                "{argv:?} should be recognised as a stray path, got {:?}: {err}",
+                err.kind()
+            );
+        }
+    }
+
+    // Verifies: REQ056 — the hint stays off everything else. Attaching a confident `--path`
+    // suggestion to an unrelated error would be worse than the bare message it replaced.
+    #[test]
+    fn the_path_hint_does_not_fire_on_other_mistakes() {
+        for argv in [
+            // A mistyped flag is not a path.
+            vec!["provreq", "verify", "REQ047", "--pth", "."],
+            // A second id is a real usage error, but naming `--path` would be wrong.
+            vec!["provreq", "verify", "REQ047", "REQ048"],
+            // A missing required argument reports something else entirely.
+            vec!["provreq", "verify"],
+        ] {
+            let Err(err) = Cli::try_parse_from(&argv) else {
+                panic!("{argv:?}: this must not parse either")
+            };
+            assert_eq!(
+                stray_path_argument(&err),
+                None,
+                "{argv:?} must not get a path hint"
+            );
+        }
+
+        assert!(!looks_like_a_path("REQ048"));
+        assert!(!looks_like_a_path("--path"));
+        assert!(looks_like_a_path("."));
+        assert!(looks_like_a_path("../elsewhere"));
+    }
 
     // Verifies: REQ048 — `install` distinguishes the three reasons it will not install, because
     // they call for different action: fix your typo, change your build env, or wait for us.
