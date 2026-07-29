@@ -114,11 +114,23 @@ pub fn lower_property(
     let quantified = match &prop.quantifier {
         Some(q) => Some(Quantified {
             var: q.var.clone(),
-            ty: format!("{prefix}::{}", sort_target(q, bindings)?),
+            ty: qualify(&sort_target(q, bindings)?, prefix),
         }),
         None => None,
     };
     Ok(LoweredClaim { claim, quantified })
+}
+
+/// A sort's type as the harness must write it. A type the subject declares is reached through the
+/// harness's path prefix; a **primitive** is written bare, because `crate::bool` does not compile
+/// — and a harness that does not compile reaches the operator as an `unknown` with a compiler
+/// error, which is the failure this tool exists to move earlier (REQ058).
+fn qualify(target: &str, prefix: &str) -> String {
+    if crate::rust_adapter::is_primitive(target) {
+        target.to_string()
+    } else {
+        format!("{prefix}::{target}")
+    }
 }
 
 /// The sort's bound Rust type (bare, unprefixed). An unbound sort cannot be ranged over — which is
@@ -379,6 +391,35 @@ mod tests {
             ),
             "matches!(crate::decide(u), crate::Decision::Proceed { .. })"
         );
+    }
+
+    // Verifies: REQ058 — a primitive sort is written bare, a declared one through the prefix.
+    // `crate::bool` does not compile, so getting this wrong would reach the operator as an
+    // `unknown` carrying a compiler error — exactly the failure grounding a primitive is for.
+    #[test]
+    fn a_primitive_sort_lowers_unprefixed() {
+        let quantified = |sort: &str| {
+            let prop = Property {
+                quantifier: Some(Quantifier {
+                    var: "u".into(),
+                    sort: "S".into(),
+                }),
+                ..always_p_of_u()
+            };
+            let bindings = vec![binding("p", "is_ok"), binding("S", sort)];
+            let resolutions = BTreeMap::from([(
+                "p".to_string(),
+                resolved(vec![ParamMode::ByValue], PredicateForm::Function),
+            )]);
+            lower_property(&prop, "mycrate", &bindings, &resolutions)
+                .expect("should lower")
+                .quantified
+                .expect("quantified")
+                .ty
+        };
+        assert_eq!(quantified("bool"), "bool");
+        assert_eq!(quantified("u32"), "u32");
+        assert_eq!(quantified("Thing"), "mycrate::Thing");
     }
 
     // Verifies: REQ055 — a nullary method has no receiver to be called on. It cannot arise from

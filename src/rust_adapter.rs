@@ -283,9 +283,12 @@ impl PredicateForm {
 /// can never see misstates the state space.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TypeResolution {
-    /// Exactly one `struct`, `enum`, or `type` alias of that name. The only variant that
-    /// grounds.
+    /// Exactly one `struct`, `enum`, or `type` alias of that name. Grounds.
     Resolved(CodeMatch),
+    /// One of the language's own primitive types (REQ058). Grounds, and carries **no**
+    /// [`CodeMatch`]: nothing in the subject declares `bool`, so pointing at a line of the
+    /// subject's source would be a location this adapter invented.
+    Primitive(String),
     /// No type of that name in the subject's Rust.
     NotFound,
     /// Several types share the name — never guessed between, for the same reason as
@@ -294,10 +297,13 @@ pub enum TypeResolution {
 }
 
 impl TypeResolution {
-    /// Whether this sort resolved. Only `Resolved` grounds; a quantified claim whose domain
-    /// names no real type is not grounded (R-ground-1).
+    /// Whether this sort resolved. A quantified claim whose domain names no real type is not
+    /// grounded (R-ground-1) — but a primitive is as real a domain as a declared type.
     pub fn is_resolved(&self) -> bool {
-        matches!(self, TypeResolution::Resolved(_))
+        matches!(
+            self,
+            TypeResolution::Resolved(_) | TypeResolution::Primitive(_)
+        )
     }
 
     /// The operator-facing read-back for one sort binding (D13's "is that what you meant?").
@@ -307,9 +313,14 @@ impl TypeResolution {
                 "{sort} (sort) → `{observable}` resolves to {}:{}  {}",
                 at.file, at.line, at.text
             ),
+            TypeResolution::Primitive(name) => format!(
+                "{sort} (sort) → `{observable}` is the Rust primitive `{name}` — the language's \
+                 own type, not one the subject declares, so there is no source location to \
+                 confirm it against"
+            ),
             TypeResolution::NotFound => format!(
-                "{sort} (sort): no type `{observable}` in the subject's Rust — a quantified \
-                 variable cannot range over it"
+                "{sort} (sort): no type `{observable}` in the subject's Rust, and it is not a \
+                 primitive — a quantified variable cannot range over it"
             ),
             TypeResolution::Ambiguous(ats) => {
                 let places = ats
@@ -342,10 +353,47 @@ pub fn resolve_type(
     }
     let found = find_types(subject_root, companion_root, name);
     match found.len() {
+        // The subject declares nothing by that name — but the language may. A primitive is only
+        // ever the fallback: a subject that declares its own `bool` has a source location the
+        // operator can confirm against, and the read-back names it, so the declaration wins and
+        // says so rather than being silently overruled by the language.
+        0 if is_primitive(name) => TypeResolution::Primitive(name.to_string()),
         0 => TypeResolution::NotFound,
         1 => TypeResolution::Resolved(found.into_iter().next().expect("len checked")),
         _ => TypeResolution::Ambiguous(found),
     }
+}
+
+/// Whether a name is one of Rust's own primitive types — a sort that grounds without the subject
+/// declaring anything (REQ058), and the one kind of sort a harness must write **unprefixed**
+/// (`crate::bool` does not compile), which is why [`crate::lowering`] asks this rather than
+/// keeping its own list.
+///
+/// `str` is deliberately absent: it is unsized, so a quantifier ranging over it would lower to a
+/// harness that cannot compile — an `unknown` with a compiler error, which is the failure this
+/// tool exists to move earlier. `String` is absent for a different reason: it is a declared std
+/// type, not a primitive, and admitting it would open "which std types may a subject quantify
+/// over" without a reason to answer it yet.
+pub fn is_primitive(name: &str) -> bool {
+    matches!(
+        name,
+        "bool"
+            | "char"
+            | "i8"
+            | "i16"
+            | "i32"
+            | "i64"
+            | "i128"
+            | "isize"
+            | "u8"
+            | "u16"
+            | "u32"
+            | "u64"
+            | "u128"
+            | "usize"
+            | "f32"
+            | "f64"
+    )
 }
 
 /// Every `struct`/`enum`/`type` alias named `name`, with the same walk and skip rules as
@@ -1441,6 +1489,54 @@ impl S { fn ready(&self) -> bool { true } }\n",
             assert_eq!(at.file, "src/auth.rs");
             assert!(r.is_resolved());
         }
+    }
+
+    // Verifies: REQ058 — a Rust primitive is a real domain, so it grounds as a sort even though
+    // the subject declares nothing of that name. Without this a predicate over a `bool` parameter
+    // could never be quantified, whatever the operator wrote.
+    #[test]
+    fn a_primitive_type_resolves_as_a_sort() {
+        let tmp = subject("pub struct User;\n");
+        let companion = tmp.path().join("ProvableRequirements");
+        for name in ["bool", "u32", "usize", "char", "f64", "i8"] {
+            let r = resolve_type(tmp.path(), &companion, name);
+            assert_eq!(r, TypeResolution::Primitive(name.to_string()), "{name}");
+            assert!(r.is_resolved(), "{name} must ground");
+        }
+        // The read-back says what it resolved to and why there is no location to confirm.
+        let msg = resolve_type(tmp.path(), &companion, "bool").describe("Flag", "bool");
+        assert!(msg.contains("primitive `bool`"), "{msg}");
+        assert!(msg.contains("no source location"), "{msg}");
+    }
+
+    // Verifies: REQ058 — `str` is unsized and `String` is a declared std type, so neither is
+    // admitted: a quantifier over `str` would lower to a harness that cannot compile, which is
+    // the failure this slice exists to move earlier rather than one to introduce.
+    #[test]
+    fn str_and_string_are_not_primitive_sorts() {
+        let tmp = subject("pub struct User;\n");
+        let companion = tmp.path().join("ProvableRequirements");
+        for name in ["str", "String", "Vec", "bools"] {
+            assert_eq!(
+                resolve_type(tmp.path(), &companion, name),
+                TypeResolution::NotFound,
+                "{name} must not resolve as a primitive"
+            );
+        }
+    }
+
+    // Verifies: REQ058 — a subject that declares its own type named after a primitive keeps it.
+    // The declaration has a source location the operator can confirm against and the read-back
+    // names it, which is the whole point of grounding; the language is only the fallback.
+    #[test]
+    fn a_declared_type_wins_over_the_primitive_of_the_same_name() {
+        let tmp = subject("pub struct bool { pub set: u8 }\n");
+        let r = resolve_type(tmp.path(), &tmp.path().join("ProvableRequirements"), "bool");
+        let TypeResolution::Resolved(at) = &r else {
+            panic!("the subject's own declaration must win, got {r:?}")
+        };
+        assert_eq!(at.file, "src/auth.rs");
+        assert!(r.describe("Flag", "bool").contains("src/auth.rs:1"));
     }
 
     // Verifies: REQ026 — a sort naming no real type does not resolve, so the requirement
