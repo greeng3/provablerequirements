@@ -21,7 +21,7 @@
 //! **What cannot be lowered is said, not approximated.** The gate already guarantees a
 //! category-1 requirement is temporal-free (REQ024), so the target is small: `always`/`never`
 //! over boolean combinations, optionally quantified. Anything this module cannot faithfully
-//! express — a scope, a guard, an argument that is not the quantified variable — is a
+//! express — a scope, a guard, an argument that is not a variable the claim ranges over — is a
 //! [`NotLowerable`], which becomes an honest `unknown`. D2's rule is that an out-of-fragment
 //! operator is "a typed error surfaced to the author, never a silent approximation".
 //!
@@ -115,7 +115,7 @@ pub fn lower(
     }
     let mut body = String::new();
     for prop in &req.require {
-        let claim = lowering::lower_property(prop, crate_name, bindings, resolutions)?;
+        let claim = lowering::lower_property(req, prop, crate_name, bindings, resolutions)?;
         body.push_str(&assertion(&claim));
     }
     let source = format!(
@@ -145,7 +145,7 @@ pub fn lower(
 /// (bounded) domain.
 fn assertion(claim: &LoweredClaim) -> String {
     let mut out = String::from("    {\n");
-    if let Some(q) = &claim.quantified {
+    for q in &claim.quantified {
         out.push_str(&format!("        let {}: {} = kani::any();\n", q.var, q.ty));
     }
     out.push_str(&format!("        assert!({});\n", claim.claim));
@@ -487,10 +487,11 @@ mod tests {
         assert!(e.reason.contains("has_session"), "{}", e.reason);
     }
 
-    // Verifies: REQ027 — an argument that is not the quantified variable has no value to
-    // give it, so the claim does not lower rather than emitting a free name.
+    // Verifies: REQ027/REQ059 — an argument with no domain has no value to give it, so the claim
+    // does not lower rather than emitting a free name. Since REQ059 a free variable IS quantified
+    // — but only over the sort the vocabulary declares for it, and this one declares none.
     #[test]
-    fn argument_that_is_not_the_quantified_variable_does_not_lower() {
+    fn argument_with_no_domain_does_not_lower() {
         let r = req("requirement r {
             category: 1
             vocabulary { state logged_in(u) }
@@ -503,7 +504,7 @@ mod tests {
             &BTreeMap::from([("logged_in".to_string(), resolved(vec![ParamMode::ByRef]))]),
             "h",
         )
-        .expect_err("`other` is not the quantified variable");
+        .expect_err("`other` has no declared sort to range over");
         assert!(e.reason.contains("other"), "{}", e.reason);
     }
 

@@ -570,7 +570,7 @@ The check lives in the adapter, because that is where every read-back already fl
   sent to fix a parameter on a function that is not a predicate at all.
 
 **It skips more than it judges, on purpose.** `None` at a position means nothing is claimed: an
-argument that is not the quantified variable (the free-variable gap, **#136**), an unbound sort,
+argument that is not a variable the claim ranges over, an unbound sort,
 two properties quantifying the same position over different sorts, a generic parameter (`T` names
 whatever the caller instantiates — resolving it is type inference, which `syn` does not do), a
 tuple/slice/`impl Trait`. Generic _arguments_ are ignored rather than rejected, so `Wrapper<u32>`
@@ -617,6 +617,50 @@ bool { b || !b }`, `each b: Flag . always settled(b)`, `Flag=bool` — grounds, 
 (`holds — model-checked (bounded)`). Creusot and Prusti report honest inconclusives for their known
 subject-side preconditions (no `creusot-std` dependency; Prusti's pinned nightly cannot read a v4
 lockfile), which is the ensemble behaving as designed.
+
+### Free variables are universally closed (issue #136 / REQ059)
+
+A property carried **one** binder (`Property.quantifier: Option<Quantifier>`, parser: `each <var>:
+<sort>.`), and lowering would instantiate only that variable — so a predicate of arity > 1 could
+never be lowered, whatever the operator wrote. REQ047 grounds and still died at
+`install_proceeds is applied to d, which is not the quantified variable`. Relating a function's
+inputs to its result is as ordinary as program properties get, so this was a ceiling on which true
+things could be proved.
+
+**Decided on #136 (comment there records the weighing): option 2, sorts from the vocabulary.** The
+N-variable plumbing was unavoidable in every option; the only real choice was where a sort comes
+from, and the vocabulary already parsed `state p(d: EngineStatus)` into `Param { name, ty }` with
+`ty` read by nothing.
+
+- **`Requirement::binders(prop)`** (`prl/ast.rs`) is the one derivation everything uses: the `each`
+  binder first when written, then each free variable at first application, sorted by the
+  vocabulary's declared parameter type. An explicit `each` **wins** — the operator wrote it
+  deliberately. `sort: Option<String>`, `None` when the requirement does not say (undeclared, or
+  two applications disagreeing); nothing is guessed.
+- **`LoweredClaim.quantified` is a `Vec`**, and the three wrappers take N: `let v: T =
+  kani::any();` per binder, `forall<a: A, b: B>`, `forall(|a: A, b: B|)`.
+- **The read-back states the closure** — "for each d of type Decision and each f of type Flag, …
+  — every variable the claim mentions is quantified". D12 is only faithful if the operator sees the
+  quantification the harness is actually built with, not just the binder they typed.
+- **A declared parameter type is a bindable sort** (`grounding::bindable_sorts`), so it must resolve
+  to a real type like any other — otherwise the closure would range over a domain nothing confirmed.
+- **REQ057's cross-check now covers every position**, not just the one an `each` supplied, because
+  `expected_param_types` reads the same binders.
+
+**Scoped deliberately: invariants in the code fragment only.** The readback test caught the
+overreach — in `accepted(m) leads_to (dead_lettered(m, r) with r != "")`, `r` is the reason there
+_happens to be_, not every reason there could be; and a 2a/2b claim is lowered by a path that closes
+over nothing, so advertising a closure would misdescribe the tool. `closes_over_free_variables` =
+`always`/`never` **and** routed to code (undeclared category defaults to code, the same rule
+`grounding::default_category` uses). Literals are not variables (`p(true)` binds nothing —
+otherwise the harness would emit `let true: bool = kani::any()`).
+
+Validated on the REQ047 shape end to end, both directions: `fn decide(supported, present, consent)
+-> Decision` with `always (not proceeds(s, p, c) or supported(s))` grounds, and Kani **proves** it;
+removing the platform gate from the subject turns it into **`fails`**, with the counterexample
+assertion showing all three closed-over variables instantiated. (REQ047 itself declares no parameter
+types yet — updating its candidate is an operator act for the next dogfood pass, not something this
+slice does to the companion tree.)
 
 ## Engine provisioning — Design A (old, superseded topology)
 

@@ -38,7 +38,7 @@ pub fn render(req: &Requirement) -> String {
 
     lines.push("It requires that:".to_string());
     for prop in &req.require {
-        lines.push(format!("  • {}", render_property(prop)));
+        lines.push(format!("  • {}", render_property(req, prop)));
     }
 
     if let Some(strength) = &req.strength {
@@ -61,12 +61,34 @@ fn category_word(c: &Category) -> String {
     .to_string()
 }
 
-fn render_property(p: &Property) -> String {
+/// One claim in the operator's words, including **every** variable it ranges over — the `each`
+/// binder they wrote and the free variables closed over implicitly (REQ059) alike. A read-back that
+/// showed only the written binder would understate what is checked, and D12's whole job is that the
+/// operator sees what the tool will actually do.
+fn render_property(req: &Requirement, p: &Property) -> String {
     let claim = format!("{}{}", render_pattern(&p.pattern), render_scope(&p.scope));
-    match &p.quantifier {
-        Some(q) => format!("for each {} of type {}, {claim}", q.var, q.sort),
-        None => claim,
+    let binders = req.binders(p);
+    if binders.is_empty() {
+        return claim;
     }
+    let named = binders
+        .iter()
+        .map(|b| match &b.sort {
+            Some(sort) => format!("{} of type {sort}", b.var),
+            None => format!("{} (no declared sort)", b.var),
+        })
+        .collect::<Vec<_>>()
+        .join(" and each ");
+    let closed = binders.iter().any(|b| !b.explicit);
+    format!(
+        "for each {named}, {claim}{}",
+        if closed {
+            " — every variable the claim mentions is quantified, over the sort the vocabulary \
+             declares for it"
+        } else {
+            ""
+        }
+    )
 }
 
 fn render_pattern(p: &Pattern) -> String {
@@ -178,6 +200,38 @@ mod tests {
         assert!(out.contains(
             "once accepted(m) holds, (succeeded(m) or dead_lettered(m, r) where r != \"\") eventually holds within 30s"
         ));
+    }
+
+    // Verifies: REQ059 — the read-back states the closure. A claim with no `each` still ranges
+    // over its free variables, and D12 is only faithful if the operator sees the quantification
+    // the harness will actually be built with, not just the binder they typed.
+    #[test]
+    fn readback_states_an_implicit_closure() {
+        let out = readback(
+            "requirement r { category: 1
+             vocabulary { state proceeds(d: Decision, f: Flag) }
+             require { always proceeds(d, f) } }",
+        );
+        assert!(
+            out.contains("for each d of type Decision and each f of type Flag,"),
+            "{out}"
+        );
+        assert!(
+            out.contains("every variable the claim mentions is quantified"),
+            "{out}"
+        );
+    }
+
+    // Verifies: REQ059 — a variable the requirement never types is said to be untyped rather than
+    // quietly dropped from the read-back, since it is the reason the claim will not lower.
+    #[test]
+    fn readback_names_a_variable_with_no_declared_sort() {
+        let out = readback(
+            "requirement r { category: 1
+             vocabulary { state p(u) }
+             require { always p(u) } }",
+        );
+        assert!(out.contains("for each u (no declared sort),"), "{out}");
     }
 
     #[test]
