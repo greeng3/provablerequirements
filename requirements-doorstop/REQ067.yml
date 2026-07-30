@@ -1,0 +1,29 @@
+active: true
+derived: false
+header: ''
+level: 1.67
+links: []
+normative: true
+ref: ''
+reviewed: null
+text: |
+  A checker may decline a construct of the subject's language outright — not because the claim is
+  wrong or the subject is malformed, but because translating that construct is beyond what the
+  checker does. Where the checker says so, the tool reports it as the checker's limit, and names the
+  construct.
+
+  Two things about such a refusal are not obvious from the checker's own message and must be said.
+
+  The first is its reach. Where a checker takes in the whole subject rather than only the part a
+  claim mentions, one untranslatable construct anywhere blocks every claim about that subject,
+  including claims whose subject matter is nowhere near it. An operator reading a complaint about a
+  construct their requirement never mentions will otherwise look for the connection, and there is
+  none to find.
+
+  The second is the way out, where one exists. A checker that cannot translate a construct may still
+  allow the items using it to be declared outside what is verified, and then proceed with the rest.
+  That is a decision the operator makes about their own subject — it narrows what has been checked,
+  which is theirs to weigh — so the tool states that the option exists and leaves it there. Advice
+  that would not help must not be offered in its place: where no specification the operator could
+  write would make the construct translatable, suggesting one wastes their effort and misdescribes
+  the obstacle.

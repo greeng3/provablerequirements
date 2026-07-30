@@ -191,10 +191,32 @@ RUN apt-get update \
 #     and hand it to the installer with `--external alt-ergo`.
 #   - CVC4 is archived upstream (last release 2020, x86_64 only) and is simply absent. CVC5
 #     supersedes it; `cargo creusot` tolerates it missing from why3find.json's prover list.
+#
+# The SECOND patch fixes an upstream ICE (creusot-rs/creusot#2212, reported by us with this fix):
+# `pre_sig_of` selects the closure path on `DefKind::Closure`, which also covers COROUTINES — an
+# `async fn` body answers that def-kind while its `TyKind` is `Coroutine`, so the next line's
+# `let TyKind::Closure(..) = ... else { unreachable!() }` fires and aborts the compiler. One
+# `async fn` anywhere in a crate was therefore enough to make Creusot unusable on it, whatever was
+# being verified. Measured on a scratch crate, both directions: with the patch the ICE becomes
+# Creusot's ordinary `the rvalue Coroutine(...) is not currently supported`, and marking the async
+# fn `#[trusted]` then lets the crate translate and its synchronous goal prove (`Proved ✔`);
+# WITHOUT the patch `#[trusted]` does not help, because the ICE happens in `pre_sig_of` before the
+# attribute can take effect. So the patch does not add coroutine support — it restores the ability
+# to declare coroutines out of scope.
+#
+# On THIS repo the patch got Creusot past the crash to the obstacle we expected all along:
+# `called program function 'provision::decide_install' in logic context` — the opaque-predicate
+# problem `verify --draft-contracts` (REQ033) exists for. Note what that does NOT establish:
+# compilation stops at the first error, so whether this crate's own 87 async items would then need
+# `#[trusted]` is not yet known. It is the next thing to find out, not something to assume either
+# way.
+# `master` (318615b, "Release 0.13.0") carries the identical `unreachable!()`, so bumping the tag
+# is not the fix. Drop this patch once upstream lands one.
 ARG CREUSOT_TAG=v0.12.0
 ENV CREUSOT_DATA=/root/.local/share/creusot
 ENV PATH="${CREUSOT_DATA}/bin:${CREUSOT_DATA}/_opam/bin:${PATH}"
 COPY .devcontainer/patches/creusot-linux-aarch64-provers.patch /tmp/creusot.patch
+COPY .devcontainer/patches/creusot-coroutine-ice.patch /tmp/creusot-coroutine.patch
 # `autoconf` is why3's depext and `zlib1g-dev`/`libgmp-dev` back camlzip/zarith; installing them
 # with apt up front keeps opam from trying to shell out to the system package manager mid-build.
 # `in-creusot-ci=true` is the variable Creusot's own CI sets to drop why3-ide from the dependency
@@ -213,7 +235,8 @@ RUN apt-get update \
       https://github.com/creusot-rs/creusot /opt/creusot-src \
     && cd /opt/creusot-src \
     && git apply /tmp/creusot.patch \
-    && rm -f /tmp/creusot.patch \
+    && git apply /tmp/creusot-coroutine.patch \
+    && rm -f /tmp/creusot.patch /tmp/creusot-coroutine.patch \
     # 1. The opam switch (OCaml 5.3.0, Why3, why3find). Must come first: it is the switch that
     #    the Alt-Ergo install below lands in.
     && OPAMYES=1 cargo run --bin creusot-install -- why3 </dev/null \
