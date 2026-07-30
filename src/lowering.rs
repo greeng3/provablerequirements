@@ -26,7 +26,9 @@
 //! Extracted from the three engines once Prusti made a third copy (rule of three, #69).
 //!
 //! Implements: REQ062 (what is emitted is in the intersection of what every wired checker reads —
-//! valid Rust is not sufficient when the interior of an assertion is a checker's own logic).
+//! valid Rust is not sufficient when the interior of an assertion is a checker's own logic),
+//! REQ066 (a boolean variable the claim ranges over lowers to itself as a condition, and a
+//! non-boolean one is refused here with the reason rather than left to the checker).
 
 use crate::grounding::Binding;
 use crate::prl::ast::{Atom, Binder, Expr, Pattern, Property, Requirement, Scope};
@@ -95,6 +97,13 @@ pub fn lower_property(
     sort_resolutions: &BTreeMap<String, TypeResolution>,
 ) -> Result<LoweredClaim, NotLowerable> {
     let binders = req.binders(prop);
+    // A variable standing as a condition has to BE a condition (REQ066). The gate cannot check
+    // this — it resolves names and arities, not types — so it is checked here, where the sort's
+    // real type is known, and refused with the reason rather than emitted for the compiler to
+    // reject as a harness that does not build.
+    if let Some(reason) = non_boolean_condition(prop, &binders, sort_resolutions) {
+        return Err(NotLowerable::new(reason));
+    }
     if prop.scope != Scope::Globally {
         return Err(NotLowerable::new(
             "the claim is limited to a scope (`before`/`after`/`between`), which names a \
@@ -163,6 +172,53 @@ fn item_path(prefix: &str, at: &CodeMatch, name: &str) -> Result<String, NotLowe
 /// REQ026 made sorts bindable), or it is bound but was never resolved against the subject. A
 /// **primitive** is written bare, because `crate::bool` does not compile (REQ058); a declared type
 /// is reached through its own module (REQ061).
+/// Why a variable used as a bare condition cannot be one, or `None` when every such use is fine.
+///
+/// Only the language's own `bool` qualifies. A sort bound to a declared type is refused even if
+/// that type happens to be an alias for `bool`: the adapter reads names, not types, so calling it
+/// boolean would be this tool asserting something it did not establish.
+fn non_boolean_condition(
+    prop: &Property,
+    binders: &[Binder],
+    sort_resolutions: &BTreeMap<String, TypeResolution>,
+) -> Option<String> {
+    let mut refusal = None;
+    prop.for_each_atom(&mut |a| {
+        if refusal.is_some() || !a.args.is_empty() {
+            return;
+        }
+        let Some(binder) = binders.iter().find(|b| b.var == a.name) else {
+            return;
+        };
+        let Some(sort) = &binder.sort else {
+            refusal = Some(format!(
+                "`{}` is used as a condition, but it has no declared sort, so there is no way to \
+                 tell whether it is one — declare it in the vocabulary (`state p({}: SomeSort)`)",
+                a.name, a.name
+            ));
+            return;
+        };
+        refusal = match sort_resolutions.get(sort) {
+            Some(TypeResolution::Primitive(ty)) if ty == "bool" => None,
+            Some(TypeResolution::Primitive(ty)) => Some(format!(
+                "`{}` is used as a condition, but its sort `{sort}` is `{ty}` — only a `bool` \
+                 stands as a condition on its own",
+                a.name
+            )),
+            Some(TypeResolution::Resolved(_)) => Some(format!(
+                "`{}` is used as a condition, but its sort `{sort}` is a type the subject \
+                 declares, not the language's `bool` — apply a predicate to `{}` instead of \
+                 asserting it",
+                a.name, a.name
+            )),
+            // Unresolved or ambiguous: `sort_type` refuses next, and names the sort. Saying it
+            // twice, differently, would be worse than saying it once where it belongs.
+            _ => None,
+        };
+    });
+    refusal
+}
+
 fn sort_type(
     binder: &Binder,
     prefix: &str,
@@ -244,6 +300,15 @@ fn lower_atom(
              lowering it would mean compiling text this tool never understood",
             a.name
         )));
+    }
+    // A bare name that is one of the claim's own variables is that variable, not a call: it is
+    // already in scope as a `bool`, so the condition is the variable itself (REQ066). Checked
+    // before the binding lookup because a variable has no binding of its own — its SORT is what
+    // is bound, and binding the variable would be binding a name the requirement invented.
+    if a.args.is_empty() {
+        if let Some(binder) = binders.iter().find(|b| b.var == a.name) {
+            return Ok(binder.var.clone());
+        }
     }
     let binding = bindings
         .iter()
@@ -603,6 +668,76 @@ mod tests {
             "{}",
             claim.claim
         );
+    }
+
+    /// What REQ047 actually means, and could not say until REQ066: the flag ITSELF is the
+    /// condition. Note what is absent — the `supported`/`is_supported` pair of GATED_DECISION,
+    /// which existed only so a boolean argument could be named as a predicate. That helper was the
+    /// tool bending the subject (#146).
+    const GATED_FLAG_CONDITION: &str = "requirement r { category: 1
+        vocabulary { state proceeds(d: Decision, p: Flag, q: Flag, c: Flag) }
+        require { always (not proceeds(d, p, q, c) or p) } }";
+
+    fn flag_bindings() -> Vec<Binding> {
+        vec![
+            binding("proceeds", "decide"),
+            binding("Decision", "InstallDecision"),
+            binding("Flag", "bool"),
+        ]
+    }
+
+    // Verifies: REQ066 — a boolean variable used as an atom lowers to the variable itself, with no
+    // call and no binding of its own. The claim it makes expressible is an input-to-result
+    // invariant: the result depends on an ARGUMENT, which is what REQ047 is about.
+    #[test]
+    fn a_boolean_variable_lowers_to_itself_as_a_condition() {
+        let claim = lower_one(
+            &gated(GATED_FLAG_CONDITION),
+            "mycrate",
+            &flag_bindings(),
+            &BTreeMap::from([(
+                "proceeds".to_string(),
+                resolved(vec![ParamMode::ByValue; 4], PredicateForm::Function),
+            )]),
+        )
+        .expect("should lower");
+
+        assert_eq!(
+            claim.claim, "(!(mycrate::decide(d, p, q, c)) || p)",
+            "the condition is the variable, not a call"
+        );
+        // And it is still closed over, as a `bool` — the variable has to be in scope to be one.
+        assert!(
+            claim
+                .quantified
+                .iter()
+                .any(|q| q.var == "p" && q.ty == "bool"),
+            "{:?}",
+            claim.quantified
+        );
+    }
+
+    // Verifies: REQ066 — only a `bool` stands as a condition. A variable of a declared sort is
+    // refused with the reason, not emitted for the compiler to reject: `!(…) || d` where `d` is an
+    // enum is a harness that does not build, and a build error is not an answer about the claim.
+    #[test]
+    fn a_non_boolean_variable_used_as_a_condition_does_not_lower() {
+        let src = "requirement r { category: 1
+            vocabulary { state proceeds(d: Decision, p: Flag, q: Flag, c: Flag) }
+            require { always (not proceeds(d, p, q, c) or d) } }";
+        let err = lower_one(
+            &gated(src),
+            "mycrate",
+            &flag_bindings(),
+            &BTreeMap::from([(
+                "proceeds".to_string(),
+                resolved(vec![ParamMode::ByValue; 4], PredicateForm::Function),
+            )]),
+        )
+        .expect_err("an enum is not a condition");
+        assert!(err.reason.contains("used as a condition"), "{}", err.reason);
+        assert!(err.reason.contains("`Decision`"), "{}", err.reason);
+        assert!(err.reason.contains("bool"), "{}", err.reason);
     }
 
     // Verifies: REQ059 — a variable the vocabulary declares no sort for does not lower, and the

@@ -3,10 +3,10 @@ drafts:
   REQ047:
     revision: 17cf6ac844159fbe
     candidate: |-
-      requirement install_never_proceeds_when_already_ready { category: 1
+      requirement install_gated_on_platform_and_not_already_ready { category: 1
         vocabulary { state ready(d: EngineState)
                      state install_proceeds(d: EngineState, p: Flag, q: Flag, c: Flag) }
-        require { always (not install_proceeds(d, p, q, c) or not ready(d)) } }
+        require { always (not install_proceeds(d, p, q, c) or (p and not ready(d))) } }
     gate:
       status: passed
       warnings: []
@@ -14,7 +14,7 @@ drafts:
       state: admitted
       review: optional
       by: greeng3
-      at_unix: 1785426407
+      at_unix: 1785439058
     bindings:
     - symbol: EngineState
       category: code

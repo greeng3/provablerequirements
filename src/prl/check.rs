@@ -8,7 +8,8 @@
 //! `assume` entries are a distinct environment namespace, so they are not name-checked
 //! against the domain vocabulary.
 //!
-//! Implements: REQ016 (mechanical gate part 1 — parse + type/name-check).
+//! Implements: REQ016 (mechanical gate part 1 — parse + type/name-check), REQ066 (a bare name
+//! the claim ranges over is that variable, not an undeclared predicate).
 
 use super::ast::*;
 use super::error::GateError;
@@ -44,9 +45,17 @@ pub fn check(req: &Requirement) -> Vec<GateError> {
         }
     }
 
-    // Every predicate applied in `require` must resolve to a declared event/state.
+    // Every predicate applied in `require` must resolve to a declared event/state — unless it is
+    // not a predicate application at all. A bare name that is a variable the claim already ranges
+    // over is that variable used as a condition (REQ066): `always (not proceeds(d, p, q, c) or p)`
+    // says the claim holds whenever `p` is true. Only a name the vocabulary does NOT declare is
+    // read this way, so a declared predicate always wins and nothing that used to gate stops
+    // gating. Whether the variable's sort is actually boolean is not knowable here — the gate
+    // resolves names and arities, not types — so it is enforced at lowering, against the subject.
     for prop in &req.require {
+        let bound: Vec<String> = req.binders(prop).into_iter().map(|b| b.var).collect();
         prop.for_each_atom(&mut |atom| match arity.get(atom.name.as_str()) {
+            None if atom.args.is_empty() && bound.iter().any(|v| v == &atom.name) => {}
             None => errors.push(GateError::UndeclaredPredicate {
                 name: atom.name.clone(),
                 line: atom.line,
@@ -96,6 +105,43 @@ mod tests {
         assert!(errs
             .iter()
             .any(|e| matches!(e, GateError::UndeclaredPredicate { name, .. } if name == "gone")));
+    }
+
+    // Verifies: REQ066 — a bare name that is a variable the claim ranges over is that variable
+    // used as a condition, not an undeclared predicate. This is REQ047's shape: `p` is the second
+    // argument of `install_proceeds`, so the claim already binds it.
+    #[test]
+    fn a_variable_used_as_a_condition_is_not_an_undeclared_predicate() {
+        let src = "requirement r { category: 1
+            vocabulary { state install_proceeds(d: EngineState, p: Flag) }
+            require { always (not install_proceeds(d, p) or p) }
+        }";
+        assert!(errors_of(src).is_empty(), "{:?}", errors_of(src));
+    }
+
+    // Verifies: REQ066 — the reading is narrow. A bare name the claim does NOT bind is still an
+    // undeclared predicate, so a misspelling cannot slip through as a variable.
+    #[test]
+    fn a_bare_name_the_claim_does_not_bind_is_still_undeclared() {
+        let src = "requirement r { category: 1
+            vocabulary { state install_proceeds(d: EngineState, p: Flag) }
+            require { always (not install_proceeds(d, p) or q) }
+        }";
+        assert!(errors_of(src)
+            .iter()
+            .any(|e| matches!(e, GateError::UndeclaredPredicate { name, .. } if name == "q")));
+    }
+
+    // Verifies: REQ066 — a declared predicate wins. A nullary state of that name is still a
+    // predicate application, so nothing that gated before stops gating.
+    #[test]
+    fn a_declared_nullary_predicate_is_still_a_predicate() {
+        let src = "requirement r { category: 1
+            vocabulary { state supported
+                         state install_proceeds(d: EngineState, supported: Flag) }
+            require { always (not install_proceeds(d, supported) or supported) }
+        }";
+        assert!(errors_of(src).is_empty(), "{:?}", errors_of(src));
     }
 
     #[test]
