@@ -43,6 +43,12 @@ tempfile = "3"
 # unaffected and `#[logic]`/`proof_assert!` remain available only under `cfg(creusot)`.
 creusot-std = "0.12"
 
+# `cfg(kani)` is set only by `cargo kani`, so an ordinary build has to be told it is a real cfg —
+# otherwise the `kani::Arbitrary` impl in src/engine.rs trips `unexpected_cfgs` under
+# `clippy -- -D warnings`. Declaring it is the whole fix; the impl stays inert off Kani.
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(kani)'] }
+
 [dev-dependencies]
 tower = { version = "0.5", features = ["util"] }
 

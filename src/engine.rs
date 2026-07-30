@@ -83,6 +83,39 @@ pub enum EngineStatus {
     Incompatible { found: String, required: String },
 }
 
+/// Make `EngineStatus` a sort Kani can quantify over. A cat-1 claim that ranges over an
+/// `EngineState` variable lowers to `let d: EngineStatus = kani::any();`, and Kani needs a real
+/// value per quantified variable — without this impl the harness does not compile and the verdict
+/// is an `unknown` carrying a trait-bound error rather than an answer (#148).
+///
+/// Costs nothing in an ordinary build: the `kani` crate exists only under `cfg(kani)`, which only
+/// `cargo kani` sets.
+///
+/// `// ponytail: the String payloads are FIXED, not symbolic — this quantifies over the five
+/// discriminants only. Sound for every claim that reads the discriminant (`is_ready`, and so
+/// `decide_install`, which is all of them today), and an UNDER-approximation for any future claim
+/// that inspects a version or reason string: such a claim would be proved only for the empty
+/// string. Make the payloads symbolic (bounded `[u8; N]` → `String`) if one ever does.`
+#[cfg(kani)]
+impl kani::Arbitrary for EngineStatus {
+    fn any() -> Self {
+        match kani::any::<u8>() % 5 {
+            0 => EngineStatus::NotWired,
+            1 => EngineStatus::Available {
+                version: String::new(),
+            },
+            2 => EngineStatus::Missing,
+            3 => EngineStatus::Unusable {
+                reason: String::new(),
+            },
+            _ => EngineStatus::Incompatible {
+                found: String::new(),
+                required: String::new(),
+            },
+        }
+    }
+}
+
 impl EngineStatus {
     /// Whether an engine in this state can back a verdict (R-eng-3 gate).
     ///
