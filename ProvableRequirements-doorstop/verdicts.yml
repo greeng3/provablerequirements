@@ -31,13 +31,13 @@ verdicts:
       - 'Prusti''s pinned toolchain predates this subject''s dependency graph — its 2023 cargo cannot read a v4 lock file or a dependency declaring `edition = "2024"`. This is a toolchain ceiling, not a missing annotation: Prusti can only verify a subject whose whole dependency graph builds on a 2023 nightly, and upstream has published nothing newer'
     provenance:
       requirement_revision: 17cf6ac844159fbe
-      subject_commit: 9bb779a5a4a7263d4e67e4d0125ff36bbeb85615
+      subject_commit: a30dd7bd13008429021f3c82b0f34a825fa197af
       tool_version: 0.0.1
-      formalization: 74d892345a526608
+      formalization: cf223ee274800417
       environment:
         declared: provreq-devcontainer
         engines:
-        - Creusot 0.0.1
+        - Creusot 0.17.14
         - Kani 0.67.0
         - TLC (TLA+) 2.19
         unversioned:

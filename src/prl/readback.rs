@@ -10,7 +10,8 @@
 //! compound (never changing meaning), predicate applications and raw leaves
 //! (durations, `with` guards, assume/strength/evidence) are shown as-is.
 //!
-//! Implements: REQ018 (D12 deterministic AST→CNL read-back renderer).
+//! Implements: REQ018 (D12 deterministic AST→CNL read-back renderer), REQ066 (a variable used as
+//! a condition reads as one, so it cannot be confirmed as a predicate of the same name).
 
 use super::ast::*;
 
@@ -66,8 +67,12 @@ fn category_word(c: &Category) -> String {
 /// showed only the written binder would understate what is checked, and D12's whole job is that the
 /// operator sees what the tool will actually do.
 fn render_property(req: &Requirement, p: &Property) -> String {
-    let claim = format!("{}{}", render_pattern(&p.pattern), render_scope(&p.scope));
     let binders = req.binders(p);
+    let claim = format!(
+        "{}{}",
+        render_pattern(&p.pattern, &binders),
+        render_scope(&p.scope, &binders)
+    );
     if binders.is_empty() {
         return claim;
     }
@@ -91,18 +96,18 @@ fn render_property(req: &Requirement, p: &Property) -> String {
     )
 }
 
-fn render_pattern(p: &Pattern) -> String {
+fn render_pattern(p: &Pattern, vars: &[Binder]) -> String {
     match p {
         // Pattern operands use `parenthesized` so a compound operand is bracketed and
         // never runs ambiguously into the surrounding "… always holds" phrasing.
-        Pattern::Never(e) => format!("{} never holds", parenthesized(e)),
-        Pattern::Always(e) => format!("{} always holds", parenthesized(e)),
-        Pattern::Eventually(e) => format!("eventually {} holds", parenthesized(e)),
+        Pattern::Never(e) => format!("{} never holds", parenthesized(e, vars)),
+        Pattern::Always(e) => format!("{} always holds", parenthesized(e, vars)),
+        Pattern::Eventually(e) => format!("eventually {} holds", parenthesized(e, vars)),
         Pattern::LeadsTo { from, to, within } => {
             let base = format!(
                 "once {} holds, {} eventually holds",
-                parenthesized(from),
-                parenthesized(to)
+                parenthesized(from, vars),
+                parenthesized(to, vars)
             );
             match within {
                 Some(t) => format!("{base} within {t}"),
@@ -111,51 +116,65 @@ fn render_pattern(p: &Pattern) -> String {
         }
         Pattern::Precedes { first, then } => format!(
             "every {} is preceded by {}",
-            parenthesized(then),
-            parenthesized(first)
+            parenthesized(then, vars),
+            parenthesized(first, vars)
         ),
         Pattern::OccursAtMost { event, k } => format!(
             "{} occurs at most {k} time{}",
-            parenthesized(event),
+            parenthesized(event, vars),
             if *k == 1 { "" } else { "s" }
         ),
         Pattern::CanReach(e) => {
-            format!("a state where {} holds is reachable", parenthesized(e))
+            format!(
+                "a state where {} holds is reachable",
+                parenthesized(e, vars)
+            )
         }
     }
 }
 
-fn render_scope(s: &Scope) -> String {
+fn render_scope(s: &Scope, vars: &[Binder]) -> String {
     match s {
         Scope::Globally => String::new(),
-        Scope::Before(a) => format!(", before {}", render_atom(a)),
-        Scope::After(a) => format!(", after {}", render_atom(a)),
-        Scope::Between(a, b) => format!(", between {} and {}", render_atom(a), render_atom(b)),
+        Scope::Before(a) => format!(", before {}", render_atom(a, vars)),
+        Scope::After(a) => format!(", after {}", render_atom(a, vars)),
+        Scope::Between(a, b) => format!(
+            ", between {} and {}",
+            render_atom(a, vars),
+            render_atom(b, vars)
+        ),
     }
 }
 
-fn render_expr(e: &Expr) -> String {
+fn render_expr(e: &Expr, vars: &[Binder]) -> String {
     match e {
-        Expr::Atom(a) => render_atom(a),
-        Expr::Not(inner) => format!("not {}", parenthesized(inner)),
-        Expr::And(l, r) => format!("{} and {}", parenthesized(l), parenthesized(r)),
-        Expr::Or(l, r) => format!("{} or {}", parenthesized(l), parenthesized(r)),
+        Expr::Atom(a) => render_atom(a, vars),
+        Expr::Not(inner) => format!("not {}", parenthesized(inner, vars)),
+        Expr::And(l, r) => format!("{} and {}", parenthesized(l, vars), parenthesized(r, vars)),
+        Expr::Or(l, r) => format!("{} or {}", parenthesized(l, vars), parenthesized(r, vars)),
     }
 }
 
 /// Render an operand, wrapping it in parentheses when it is compound. Atoms need no
 /// parens; anything with a connective does, so the read-back is never ambiguous about
 /// grouping.
-fn parenthesized(e: &Expr) -> String {
+fn parenthesized(e: &Expr, vars: &[Binder]) -> String {
     match e {
-        Expr::Atom(a) => render_atom(a),
-        _ => format!("({})", render_expr(e)),
+        Expr::Atom(a) => render_atom(a, vars),
+        _ => format!("({})", render_expr(e, vars)),
     }
 }
 
-fn render_atom(a: &Atom) -> String {
+/// One atom. A bare name that is one of the claim's own variables is rendered as the condition it
+/// is — `p is true`, not `p` — because `p` alone reads as a predicate the vocabulary declares, and
+/// D12 is only worth having if the operator can tell those two apart (REQ066).
+fn render_atom(a: &Atom, vars: &[Binder]) -> String {
     let base = if a.args.is_empty() {
-        a.name.clone()
+        if vars.iter().any(|b| b.var == a.name) {
+            format!("{} is true", a.name)
+        } else {
+            a.name.clone()
+        }
     } else {
         format!("{}({})", a.name, a.args.join(", "))
     };
@@ -281,6 +300,34 @@ mod tests {
         let out = readback("requirement r { require { always (a or (b and c)) } }");
         // The nested `and` is parenthesized; the outer `or` operands too.
         assert!(out.contains("(a or (b and c)) always holds"), "got: {out}");
+    }
+
+    // Verifies: REQ066 — a variable used as a condition reads as one. Rendered as a bare `p` it
+    // would be indistinguishable from a predicate the vocabulary declares, and D12 exists so the
+    // operator can tell what the tool will actually check.
+    #[test]
+    fn a_variable_used_as_a_condition_reads_as_a_condition() {
+        let out = readback(
+            "requirement r { category: 1
+                vocabulary { state proceeds(d: Decision, p: Flag) }
+                require { always (not proceeds(d, p) or p) } }",
+        );
+        assert!(out.contains("p is true"), "got: {out}");
+        // The predicate application is untouched — only the bare variable changes.
+        assert!(out.contains("proceeds(d, p)"), "got: {out}");
+    }
+
+    // Verifies: REQ066 — a bare name the claim does not bind is still rendered as itself, so this
+    // reading cannot silently restate an ordinary nullary predicate as a condition.
+    #[test]
+    fn a_nullary_predicate_still_reads_as_a_predicate() {
+        let out = readback(
+            "requirement r { category: 1
+                vocabulary { state supported }
+                require { always supported } }",
+        );
+        assert!(out.contains("supported always holds"), "got: {out}");
+        assert!(!out.contains("is true"), "got: {out}");
     }
 
     #[test]
