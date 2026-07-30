@@ -1,0 +1,25 @@
+active: true
+derived: false
+header: ''
+level: 1.64
+links: []
+normative: true
+ref: ''
+reviewed: null
+text: |
+  A checker can crash. A crash is not a negative answer and it is not a defect in the subject or in
+  the formalization: nothing at all has been learned about the claim. The tool must present it as
+  neither, and must not let it be read as the subject's failure to compile — which is what it will be
+  read as, since a crash is reported by the surrounding build in the same terms as one.
+
+  More generally, a report must not volunteer a cause the tool has not established. Where a diagnosis
+  is one possibility among several, it is offered as one; where it is stated flatly, it must be
+  something the tool actually determined. Attaching a plausible cause to every failure of a given
+  shape is the same overclaim the verdict vocabulary forbids, moved from the answer to the explanation
+  of the answer — and it is worse than saying nothing, because it sends the operator to repair
+  something that was never wrong.
+
+  A crash may also leave artifacts of its own inside the subject. A run that undertakes to leave the
+  subject as it found it owns those too. Removing them requires telling what this run produced from
+  what was already present, since an artifact that was there before belongs to the operator: a
+  cleanup that cannot tell the difference must not be written as one that can.

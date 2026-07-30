@@ -32,7 +32,8 @@
 //! [`NotLowerable`], which becomes an honest `unknown`.
 //!
 //! Implements: REQ031 (wire Creusot as cat-1 engine #2 — a grounded invariant earns a real
-//! `proven` verdict).
+//! `proven` verdict), REQ064 (a crashed prover is reported as a crash, no cause is asserted that
+//! was not established, and the crash report it drops in the subject is cleaned up — see #153).
 
 use crate::grounding::Binding;
 use crate::lowering::{self, LoweredClaim};
@@ -40,7 +41,7 @@ pub use crate::lowering::{harness_name, NotLowerable};
 use crate::prl::ast::Requirement;
 use crate::rust_adapter::{Resolution, TypeResolution};
 use crate::verdict::{Basis, Evidence};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 /// A generated Creusot proof harness. `name` is both the `proof` function name and the module
@@ -242,6 +243,10 @@ pub fn run(subject_root: &Path, harness: &Harness) -> Outcome {
     let verif_created = !verif_dir.exists();
     let cache_dir = subject_root.join(".why3find");
     let cache_created = !cache_dir.exists();
+    // A crashing prover drops a `rustc-ice-*.txt` report in the subject root, named by timestamp
+    // and pid — an artifact provreq's run caused and so must remove. Snapshotted rather than
+    // glob-deleted afterwards, because an operator's own earlier crash report is theirs to keep.
+    let ice_before = ice_reports(subject_root);
 
     // Mutate: harness file, then the `mod` line, then the prover config.
     if let Err(e) = std::fs::write(&harness_path, &harness.source) {
@@ -284,6 +289,9 @@ pub fn run(subject_root: &Path, harness: &Harness) -> Outcome {
     if cache_created {
         let _ = std::fs::remove_dir_all(&cache_dir);
     }
+    for ice in ice_reports(subject_root).difference(&ice_before) {
+        let _ = std::fs::remove_file(ice);
+    }
 
     match output {
         Ok(o) => classify(&format!(
@@ -297,6 +305,22 @@ pub fn run(subject_root: &Path, harness: &Harness) -> Outcome {
     }
 }
 
+/// The prover-crash reports (`rustc-ice-*.txt`) sitting in the subject root right now. Compared
+/// before and after a run so cleanup removes the ones this run caused and none of the operator's.
+fn ice_reports(root: &Path) -> BTreeSet<PathBuf> {
+    std::fs::read_dir(root)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| {
+            p.file_name()
+                .and_then(|n| n.to_str())
+                .is_some_and(|n| n.starts_with("rustc-ice-") && n.ends_with(".txt"))
+        })
+        .collect()
+}
+
 /// Map Creusot's output to an outcome. Pure and separately tested — the mapping is where a
 /// verdict could silently become dishonest, so it must be checkable without running Creusot.
 ///
@@ -305,6 +329,22 @@ pub fn run(subject_root: &Path, harness: &Harness) -> Outcome {
 /// is not a proof. And an unproved goal is `inconclusive`, never `fails`: a deductive prover's
 /// "could not prove" is not a counterexample.
 pub fn classify(output: &str) -> Outcome {
+    // A CRASHED prover is its own outcome, checked first: an ICE also prints `could not compile`,
+    // so the build-error branch below would otherwise claim the harness is at fault and volunteer
+    // a cause (`#[logic]`) that has nothing to do with it. Asserting a cause the tool has not
+    // established is the D8 overclaim pointed at diagnosis instead of verdicts (REQ064).
+    if output.contains("the compiler unexpectedly panicked")
+        || output.contains("internal error: entered unreachable code")
+    {
+        return Outcome::Inconclusive {
+            reason: "Creusot's compiler crashed while translating the subject (internal error) — \
+                     a defect in the prover, not a missing annotation in the subject. Measured \
+                     trigger as of Creusot 0.12/0.13: any `async fn` in the crate is enough, \
+                     because an async body reports as a closure but is a coroutine. No contract \
+                     the operator writes changes this"
+                .to_string(),
+        };
+    }
     if output.contains("Compilation failed") || output.contains("could not compile") {
         return Outcome::Inconclusive {
             reason: build_error(output),
@@ -334,7 +374,12 @@ fn build_error(output: &str) -> String {
         .map(str::trim)
         .find(|l| l.starts_with("error[") || l.starts_with("error:"))
         .map(|l| {
-            format!("the proof harness did not compile — {l} (a predicate that is not `#[logic]` is opaque to the prover)")
+            // The hint is offered as a possibility, not asserted as the cause: this branch sees
+            // every compile error, and a type mismatch is not an opaque predicate (REQ064).
+            format!(
+                "the proof harness did not compile — {l} (if that error names a call the \
+                     prover cannot see into, the predicate may need `#[logic]`)"
+            )
         })
         .unwrap_or_else(|| tail(output))
 }
@@ -611,6 +656,52 @@ mod tests {
             reason.contains("`#[logic]`"),
             "must point at the fix: {reason}"
         );
+    }
+
+    // Verifies: REQ064 — a crashed prover is reported as a crashed prover. Real output, measured
+    // on this repo 2026-07-30 (#153): an ICE also prints `could not compile`, so before this
+    // branch existed the operator was told the harness was at fault and handed a `#[logic]` cause
+    // the tool had not established. The claim under check was never even reached.
+    #[test]
+    fn a_prover_crash_is_not_reported_as_the_subjects_fault() {
+        let output = "thread 'rustc' (1223) panicked at \
+                      creusot/src/translation/specification.rs:423:61:\n\
+                      internal error: entered unreachable code\n\
+                      error: the compiler unexpectedly panicked. This is a bug\n\
+                      error: could not compile `provreq` (lib); 1 warning emitted\n\
+                      Error: Compilation failed\n";
+        let Outcome::Inconclusive { reason } = classify(output) else {
+            panic!("a crashed prover decides nothing");
+        };
+        assert!(reason.contains("crashed"), "{reason}");
+        assert!(
+            reason.contains("not a missing annotation"),
+            "must not blame the subject: {reason}"
+        );
+        assert!(
+            !reason.contains("did not compile"),
+            "must not be read as a harness build failure: {reason}"
+        );
+    }
+
+    // Verifies: REQ064 — the crash report a run causes is removed, and one the operator already
+    // had is not. `run` is what cleans up, but the discrimination is `ice_reports`' snapshot, so
+    // that is what this checks — no prover needed.
+    #[test]
+    fn crash_reports_are_told_apart_from_the_operators_own() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let theirs = tmp.path().join("rustc-ice-2026-01-01T00_00_00-1.txt");
+        std::fs::write(&theirs, "an earlier crash, the operator's").expect("write");
+        let before = ice_reports(tmp.path());
+        let ours = tmp.path().join("rustc-ice-2026-07-30T02_50_26-1222.txt");
+        std::fs::write(&ours, "caused by this run").expect("write");
+        std::fs::write(tmp.path().join("Cargo.toml"), "[package]").expect("write");
+
+        let new: Vec<_> = ice_reports(tmp.path())
+            .difference(&before)
+            .cloned()
+            .collect();
+        assert_eq!(new, vec![ours], "only the run's own report is removable");
     }
 
     // Verifies: REQ031 — unrecognised output (e.g. a prover error) is inconclusive with a
