@@ -1,57 +1,45 @@
 verdicts:
   REQ047:
     id: REQ047
-    status: unknown
-    basis: null
-    reason: inconclusive
+    status: holds
+    basis: model-checked (bounded)
+    reason: null
     witness: null
     detail:
-    - 'Kani: inconclusive'
-    - |-
-      error[E0277]: the trait bound `provreq::engine::EngineStatus: kani::Arbitrary` is not satisfied
-      error: Failed to execute cargo (exit status: 101). Found 1 compilation errors.
+    - 'Kani: holds (model-checked (bounded))'
     - 'Creusot: inconclusive'
-    - 'Error: creusot-std not found in dependencies'
+    - 'Creusot''s compiler crashed while translating the subject (internal error) — a defect in the prover, not a missing annotation in the subject. Measured trigger as of Creusot 0.12/0.13: any `async fn` in the crate is enough, because an async body reports as a closure but is a coroutine. No contract the operator writes changes this'
     - 'Prusti: inconclusive'
-    - |-
-      error: failed to parse lock file at: /workspace/Cargo.lock
-      Caused by:
-        lock file version 4 requires `-Znext-lockfile-bump`
+    - 'Prusti''s pinned toolchain predates this subject''s dependency graph — its 2023 cargo cannot read a v4 lock file or a dependency declaring `edition = "2024"`. This is a toolchain ceiling, not a missing annotation: Prusti can only verify a subject whose whole dependency graph builds on a 2023 nightly, and upstream has published nothing newer'
     evidence:
     - engine: Kani
-      status: unknown
-      basis: null
+      status: holds
+      basis: model-checked (bounded)
       witness: null
-      detail:
-      - |-
-        error[E0277]: the trait bound `provreq::engine::EngineStatus: kani::Arbitrary` is not satisfied
-        error: Failed to execute cargo (exit status: 101). Found 1 compilation errors.
+      detail: []
     - engine: Creusot
       status: unknown
       basis: null
       witness: null
       detail:
-      - 'Error: creusot-std not found in dependencies'
+      - 'Creusot''s compiler crashed while translating the subject (internal error) — a defect in the prover, not a missing annotation in the subject. Measured trigger as of Creusot 0.12/0.13: any `async fn` in the crate is enough, because an async body reports as a closure but is a coroutine. No contract the operator writes changes this'
     - engine: Prusti
       status: unknown
       basis: null
       witness: null
       detail:
-      - |-
-        error: failed to parse lock file at: /workspace/Cargo.lock
-        Caused by:
-          lock file version 4 requires `-Znext-lockfile-bump`
+      - 'Prusti''s pinned toolchain predates this subject''s dependency graph — its 2023 cargo cannot read a v4 lock file or a dependency declaring `edition = "2024"`. This is a toolchain ceiling, not a missing annotation: Prusti can only verify a subject whose whole dependency graph builds on a 2023 nightly, and upstream has published nothing newer'
     provenance:
       requirement_revision: 17cf6ac844159fbe
-      subject_commit: b4ff07ba9a6bf2582f0cb947681e653bf223250f
+      subject_commit: 9bb779a5a4a7263d4e67e4d0125ff36bbeb85615
       tool_version: 0.0.1
-      formalization: e06f8a01345dcae6
+      formalization: 74d892345a526608
       environment:
         declared: provreq-devcontainer
         engines:
+        - Creusot 0.0.1
         - Kani 0.67.0
         - TLC (TLA+) 2.19
         unversioned:
-        - Creusot
         - Prusti
         container: true

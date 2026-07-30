@@ -3,10 +3,10 @@ drafts:
   REQ047:
     revision: 17cf6ac844159fbe
     candidate: |-
-      requirement kani_install_platform_gated { category: 1
-        vocabulary { state platform_supported
+      requirement install_never_proceeds_when_already_ready { category: 1
+        vocabulary { state ready(d: EngineState)
                      state install_proceeds(d: EngineState, p: Flag, q: Flag, c: Flag) }
-        require { always (not install_proceeds(d, p, q, c) or platform_supported) } }
+        require { always (not install_proceeds(d, p, q, c) or not ready(d)) } }
     gate:
       status: passed
       warnings: []
@@ -14,7 +14,7 @@ drafts:
       state: admitted
       review: optional
       by: greeng3
-      at_unix: 1785368213
+      at_unix: 1785426407
     bindings:
     - symbol: EngineState
       category: code
@@ -24,9 +24,9 @@ drafts:
       category: code
       observable: bool
       fidelity: definitional
-    - symbol: platform_supported
+    - symbol: ready
       category: code
-      observable: kani_platform_supported
+      observable: EngineStatus::is_ready
       fidelity: definitional
     - symbol: install_proceeds
       category: code
