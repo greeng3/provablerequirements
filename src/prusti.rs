@@ -32,7 +32,8 @@
 //! an honest `unknown`.
 //!
 //! Implements: REQ032 (wire Prusti as cat-1 engine #3 — a grounded invariant earns a real
-//! `proven` verdict).
+//! `proven` verdict), REQ063 (its toolchain ceiling is reported as a ceiling, not as a build
+//! error the operator could fix — see #152).
 
 use crate::grounding::Binding;
 use crate::lowering::{self, LoweredClaim};
@@ -275,6 +276,25 @@ pub fn classify(output: &str) -> Outcome {
     // for a failure.
     if output.contains("Finished") {
         return Outcome::Holds;
+    }
+    // The toolchain ceiling, named as itself. Prusti is welded to its own nightly, and upstream's
+    // NEWEST release (`v-2023-08-22-1715`) is already the pin — so its cargo predates edition 2024
+    // by ~18 months and cannot read a current dependency graph at all. Both signatures are the same
+    // ceiling seen at two depths: the v4 lock file it cannot parse, and (once past that) the first
+    // dependency manifest declaring `edition = "2024"`. Left as its own branch above the generic
+    // build-error tail because that tail would hand the operator cargo's parse error as if it were
+    // something they could annotate their way out of. It is not — no contract fixes this.
+    if output.contains("-Znext-lockfile-bump")
+        || output.contains("this version of Cargo is older than the")
+    {
+        return Outcome::Inconclusive {
+            reason: "Prusti's pinned toolchain predates this subject's dependency graph — its \
+                     2023 cargo cannot read a v4 lock file or a dependency declaring \
+                     `edition = \"2024\"`. This is a toolchain ceiling, not a missing \
+                     annotation: Prusti can only verify a subject whose whole dependency graph \
+                     builds on a 2023 nightly, and upstream has published nothing newer"
+                .to_string(),
+        };
     }
     // A missing `prusti-contracts` dependency shows up as cargo's specific feature error (the
     // `--features prusti-contracts/prusti` cargo-prusti injects has no such dependency) or an
@@ -590,6 +610,28 @@ mod tests {
         };
         assert!(reason.contains("prusti-contracts"), "{reason}");
         assert!(reason.contains("uuid"), "names the cap it needs: {reason}");
+    }
+
+    // Verifies: REQ063 — the toolchain ceiling is reported AS a toolchain ceiling. Both real
+    // signatures are measured from this repo: the v4 lock file Prusti's 2023 cargo cannot parse,
+    // and (with the lock file downgraded) the first dependency manifest declaring edition 2024.
+    // Without this branch the operator gets cargo's parse error and no way to read it as "no
+    // annotation you write will fix this".
+    #[test]
+    fn a_toolchain_ceiling_is_named_as_one_not_as_a_build_error() {
+        for output in [
+            "error: failed to parse lock file at: /workspace/Cargo.lock\n\nCaused by:\n  \
+             lock file version 4 requires `-Znext-lockfile-bump`\n",
+            "Caused by:\n  failed to parse the `edition` key\n\nCaused by:\n  this version of \
+             Cargo is older than the `2024` edition, and only supports `2015`, `2018`, and \
+             `2021` editions.\n",
+        ] {
+            let Outcome::Inconclusive { reason } = classify(output) else {
+                panic!("a toolchain ceiling decides nothing: {output}");
+            };
+            assert!(reason.contains("toolchain ceiling"), "{reason}");
+            assert!(reason.contains("not a missing annotation"), "{reason}");
+        }
     }
 
     // Verifies: REQ032 — unrecognised output (e.g. an empty run) is inconclusive with a readable
