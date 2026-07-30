@@ -836,8 +836,9 @@ fn dry_run_candidate(
     // Live dry-run: categories 1 (code) and 2a (model) have real observable worlds. Each
     // binding reports what it resolved to (D13's "is that what you meant?"), which the
     // operator can only answer against a named observable at a named line.
-    let (by_symbol, by_sort, by_model) =
-        grounding::resolve_bindings(subject, companion, &requirement, &draft.bindings);
+    let resolved = grounding::resolve_bindings(subject, companion, &requirement, &draft.bindings);
+    let (by_symbol, by_sort, by_model) = (&resolved.code, &resolved.sorts, &resolved.model);
+    // ponytail: three names kept for the printing loop below; the run itself is one value.
     for b in &draft.bindings {
         if let Some(r) = by_sort.get(&b.symbol) {
             println!("  {}", r.describe(&b.symbol, &b.observable));
@@ -855,13 +856,7 @@ fn dry_run_candidate(
         }
     }
 
-    match grounding::verdict(
-        &requirement,
-        &draft.bindings,
-        &by_symbol,
-        &by_sort,
-        &by_model,
-    ) {
+    match grounding::verdict(&requirement, &draft.bindings, by_symbol, by_sort, by_model) {
         Grounding::Grounded => {
             println!("\n{id}: GROUNDED — every symbol binds to a confirmed observable.");
         }

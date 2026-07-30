@@ -260,6 +260,7 @@ mod tests {
                     file: "src/lib.rs".into(),
                     line: 1,
                     text: "fn login() -> bool { true }".into(),
+                    module: Some(vec![]),
                 },
                 params: vec![ParamMode::ByValue; 0],
                 form: PredicateForm::Function,

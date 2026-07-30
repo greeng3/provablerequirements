@@ -308,16 +308,26 @@ pub enum Grounding {
 /// The predicate/sort split is kept because a coincidental cross-hit (a `struct login` standing in
 /// for the predicate `login`) must never ground anything. Shared by the CLI dry-run and the serve
 /// backend so both resolve bindings the one same way.
+/// Every binding resolved against its category's observable world. One value rather than a tuple
+/// because the three maps are produced together and travel together — a resolution run is a single
+/// fact about the subject at one moment, and splitting it into positional parts only invites a
+/// caller to pass two of the three.
+#[derive(Debug, Default)]
+pub struct Resolutions {
+    /// Category-1 predicates → the state predicate each resolves to (REQ025).
+    pub code: BTreeMap<String, Resolution>,
+    /// Category-1 sorts → the type each resolves to (REQ026, REQ058).
+    pub sorts: BTreeMap<String, TypeResolution>,
+    /// Category-2a symbols → the TLA+ definition each resolves to (REQ028).
+    pub model: BTreeMap<String, ModelResolution>,
+}
+
 pub fn resolve_bindings(
     subject: &Path,
     companion: &Path,
     requirement: &Requirement,
     bindings: &[Binding],
-) -> (
-    BTreeMap<String, Resolution>,
-    BTreeMap<String, TypeResolution>,
-    BTreeMap<String, ModelResolution>,
-) {
+) -> Resolutions {
     let in_category = |cat| {
         bindings
             .iter()
@@ -355,7 +365,11 @@ pub fn resolve_bindings(
             )
         })
         .collect();
-    (predicates, sorts, model)
+    Resolutions {
+        code: predicates,
+        sorts,
+        model,
+    }
 }
 
 pub fn verdict(
@@ -519,6 +533,7 @@ mod tests {
             file: file.into(),
             line: 1,
             text: "fn f() -> bool { true }".into(),
+            module: Some(vec![]),
         }
     }
 

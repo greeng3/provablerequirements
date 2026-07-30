@@ -78,14 +78,13 @@ pub fn verify(subject: &Path, id: &str) -> Result<Option<VerifyOutcome>> {
     };
 
     // Live grounding dry-run against every wired observable world (code + model) → verdict.
-    let (by_symbol, by_sort, by_model) =
-        grounding::resolve_bindings(subject, &companion, &requirement, &draft.bindings);
+    let resolved = grounding::resolve_bindings(subject, &companion, &requirement, &draft.bindings);
     let grounding_result = grounding::verdict(
         &requirement,
         &draft.bindings,
-        &by_symbol,
-        &by_sort,
-        &by_model,
+        &resolved.code,
+        &resolved.sorts,
+        &resolved.model,
     );
 
     let provenance = Provenance {
@@ -104,7 +103,7 @@ pub fn verify(subject: &Path, id: &str) -> Result<Option<VerifyOutcome>> {
             id,
             &requirement,
             &draft.bindings,
-            &by_symbol,
+            &resolved,
             provenance,
         )
     } else {
@@ -129,7 +128,7 @@ pub fn verify(subject: &Path, id: &str) -> Result<Option<VerifyOutcome>> {
         verdict,
         stale: draft::is_stale(draft, item),
         grounded,
-        resolutions: by_symbol,
+        resolutions: resolved.code,
     }))
 }
 
@@ -145,7 +144,7 @@ pub fn run_ensemble(
     id: &str,
     requirement: &Requirement,
     bindings: &[Binding],
-    resolutions: &BTreeMap<String, Resolution>,
+    resolved: &grounding::Resolutions,
     provenance: Provenance,
 ) -> Verdict {
     let category = grounding::default_category(requirement);
@@ -176,9 +175,9 @@ pub fn run_ensemble(
     let evidence = ready
         .iter()
         .map(|e| match e.name {
-            "Kani" => kani_evidence(subject, id, requirement, bindings, resolutions),
-            "Creusot" => creusot_evidence(subject, id, requirement, bindings, resolutions),
-            "Prusti" => prusti_evidence(subject, id, requirement, bindings, resolutions),
+            "Kani" => kani_evidence(subject, id, requirement, bindings, resolved),
+            "Creusot" => creusot_evidence(subject, id, requirement, bindings, resolved),
+            "Prusti" => prusti_evidence(subject, id, requirement, bindings, resolved),
             "TLC (TLA+)" => tlc_evidence(subject, companion, id, requirement, bindings),
             // A ready engine with no lowering wired here is a gap in provreq, recorded as
             // inconclusive rather than silently skipped.
@@ -201,7 +200,7 @@ fn kani_evidence(
     id: &str,
     requirement: &Requirement,
     bindings: &[Binding],
-    resolutions: &BTreeMap<String, Resolution>,
+    resolved: &grounding::Resolutions,
 ) -> verdict::Evidence {
     let Some(crate_name) = crate::kani::subject_crate_name(subject) else {
         return verdict::Evidence::inconclusive(
@@ -217,7 +216,8 @@ fn kani_evidence(
         requirement,
         &crate_name,
         bindings,
-        resolutions,
+        &resolved.code,
+        &resolved.sorts,
         &crate::kani::harness_name(id),
     ) {
         Ok(h) => h,
@@ -234,12 +234,13 @@ fn creusot_evidence(
     id: &str,
     requirement: &Requirement,
     bindings: &[Binding],
-    resolutions: &BTreeMap<String, Resolution>,
+    resolved: &grounding::Resolutions,
 ) -> verdict::Evidence {
     let harness = match crate::creusot::lower(
         requirement,
         bindings,
-        resolutions,
+        &resolved.code,
+        &resolved.sorts,
         &crate::creusot::harness_name(id),
     ) {
         Ok(h) => h,
@@ -256,12 +257,13 @@ fn prusti_evidence(
     id: &str,
     requirement: &Requirement,
     bindings: &[Binding],
-    resolutions: &BTreeMap<String, Resolution>,
+    resolved: &grounding::Resolutions,
 ) -> verdict::Evidence {
     let harness = match crate::prusti::lower(
         requirement,
         bindings,
-        resolutions,
+        &resolved.code,
+        &resolved.sorts,
         &crate::prusti::harness_name(id),
     ) {
         Ok(h) => h,

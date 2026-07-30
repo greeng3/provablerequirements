@@ -27,7 +27,7 @@
 
 use crate::grounding::Binding;
 use crate::prl::ast::{Atom, Binder, Expr, Pattern, Property, Requirement, Scope};
-use crate::rust_adapter::{ParamMode, PredicateForm, Resolution};
+use crate::rust_adapter::{CodeMatch, ParamMode, PredicateForm, Resolution, TypeResolution};
 use std::collections::BTreeMap;
 
 /// Why a gated category-1 requirement could not be lowered to a harness. Never an approximation —
@@ -76,16 +76,20 @@ pub fn harness_name(id: &str) -> String {
     format!("provreq_{}", sanitized.to_ascii_lowercase())
 }
 
-/// Lower one `require` claim to its boolean expression plus optional quantifier.
+/// Lower one `require` claim to its boolean expression plus its binders.
 ///
 /// `prefix` is how the harness reaches the subject's items: the subject's crate name for Kani's
-/// out-of-crate `tests/` harness, or `crate` for the in-crate Creusot/Prusti harnesses.
+/// out-of-crate `tests/` harness, or `crate` for the in-crate Creusot/Prusti harnesses. The rest of
+/// each path comes from where the adapter **found** the item, so `sort_resolutions` is needed for
+/// the same reason `resolutions` is: a sort's module is a fact about the subject, not about the
+/// binding (REQ061).
 pub fn lower_property(
     req: &Requirement,
     prop: &Property,
     prefix: &str,
     bindings: &[Binding],
     resolutions: &BTreeMap<String, Resolution>,
+    sort_resolutions: &BTreeMap<String, TypeResolution>,
 ) -> Result<LoweredClaim, NotLowerable> {
     let binders = req.binders(prop);
     if prop.scope != Scope::Globally {
@@ -118,31 +122,50 @@ pub fn lower_property(
         .map(|b| {
             Ok(Quantified {
                 var: b.var.clone(),
-                ty: qualify(&sort_target(b, bindings)?, prefix),
+                ty: sort_type(b, prefix, bindings, sort_resolutions)?,
             })
         })
         .collect::<Result<Vec<_>, NotLowerable>>()?;
     Ok(LoweredClaim { claim, quantified })
 }
 
-/// A sort's type as the harness must write it. A type the subject declares is reached through the
-/// harness's path prefix; a **primitive** is written bare, because `crate::bool` does not compile
-/// — and a harness that does not compile reaches the operator as an `unknown` with a compiler
-/// error, which is the failure this tool exists to move earlier (REQ058).
-fn qualify(target: &str, prefix: &str) -> String {
-    if crate::rust_adapter::is_primitive(target) {
-        target.to_string()
-    } else {
-        format!("{prefix}::{target}")
-    }
+/// How the harness names an item the subject declares: the path prefix, then the module the adapter
+/// found it in, then the item (REQ061). `provreq::provision::decide_install`, not
+/// `provreq::decide_install` — which is what this emitted before, correct only for a crate whose
+/// every item sits in `src/lib.rs`.
+///
+/// A `None` module is a refusal, not a root: the item exists (grounding was right to say so) but no
+/// path a harness can write reaches it — a separate crate target such as `tests/`, or a binary. That
+/// is an honest `inconclusive` naming the file, rather than a guessed path that fails to compile.
+fn item_path(prefix: &str, at: &CodeMatch, name: &str) -> Result<String, NotLowerable> {
+    let module = at.module.as_ref().ok_or_else(|| {
+        NotLowerable::new(format!(
+            "`{name}` is declared in {}, which is not part of the crate a harness can import — a \
+             separate target (`tests/`, `benches/`, `examples/`), a binary, or a crate root this \
+             tool cannot locate. Nothing a harness writes would reach it.",
+            at.file
+        ))
+    })?;
+    Ok(std::iter::once(prefix)
+        .chain(module.iter().map(String::as_str))
+        .chain(std::iter::once(name))
+        .collect::<Vec<_>>()
+        .join("::"))
 }
 
-/// The bound Rust type of a binder's sort (bare, unprefixed). Two ways a variable can fail to have
-/// a domain, and they are different mistakes: the requirement never said what it ranges over
-/// (REQ059 — the vocabulary declares no type for that parameter, or two applications disagree), or
-/// it said so and that sort is not bound to a type (which is exactly why REQ026 made sorts
-/// bindable).
-fn sort_target(binder: &Binder, bindings: &[Binding]) -> Result<String, NotLowerable> {
+/// The type a binder ranges over, as the harness must write it.
+///
+/// Three ways this fails, and they are three different mistakes: the requirement never said what the
+/// variable ranges over (REQ059), it said so but that sort is not bound to a type (which is why
+/// REQ026 made sorts bindable), or it is bound but was never resolved against the subject. A
+/// **primitive** is written bare, because `crate::bool` does not compile (REQ058); a declared type
+/// is reached through its own module (REQ061).
+fn sort_type(
+    binder: &Binder,
+    prefix: &str,
+    bindings: &[Binding],
+    sort_resolutions: &BTreeMap<String, TypeResolution>,
+) -> Result<String, NotLowerable> {
     let sort = binder.sort.as_ref().ok_or_else(|| {
         NotLowerable::new(format!(
             "`{}` has no declared sort, so there is no domain to range over — give it one in the \
@@ -150,16 +173,25 @@ fn sort_target(binder: &Binder, bindings: &[Binding]) -> Result<String, NotLower
             binder.var, binder.var
         ))
     })?;
-    bindings
+    let observable = bindings
         .iter()
         .find(|b| b.symbol == *sort)
-        .map(|b| b.observable.clone())
+        .map(|b| b.observable.trim().to_string())
         .ok_or_else(|| {
             NotLowerable::new(format!(
                 "the sort `{sort}` is not bound to a type, so `{}` has no domain to range over",
                 binder.var
             ))
-        })
+        })?;
+    match sort_resolutions.get(sort) {
+        Some(TypeResolution::Primitive(name)) => Ok(name.clone()),
+        Some(TypeResolution::Resolved(at)) => item_path(prefix, at, &observable),
+        _ => Err(NotLowerable::new(format!(
+            "the sort `{sort}` did not resolve to a type in the subject's source, so there is no \
+             type to range `{}` over",
+            binder.var
+        ))),
+    }
 }
 
 fn lower_expr(
@@ -253,7 +285,10 @@ fn lower_atom(
             ParamMode::ByValue => arg.to_string(),
         });
     }
-    lower_call(form, &binding.observable, &args, prefix)
+    let Some(Resolution::Resolved { at, .. }) = resolutions.get(&a.name) else {
+        unreachable!("the resolution was matched as Resolved just above")
+    };
+    lower_call(form, &binding.observable, &args, prefix, at)
 }
 
 /// Emit the call for one resolved predicate, in the shape its form requires (REQ055).
@@ -266,9 +301,14 @@ fn lower_call(
     observable: &str,
     args: &[String],
     prefix: &str,
+    at: &CodeMatch,
 ) -> Result<String, NotLowerable> {
     match form {
-        PredicateForm::Function => Ok(format!("{prefix}::{observable}({})", args.join(", "))),
+        PredicateForm::Function => Ok(format!(
+            "{}({})",
+            item_path(prefix, at, observable)?,
+            args.join(", ")
+        )),
         PredicateForm::Method { name } => {
             let (recv, rest) = args.split_first().ok_or_else(|| {
                 NotLowerable::new(format!(
@@ -285,10 +325,21 @@ fn lower_call(
             name,
             enum_name,
             variant,
-        } => Ok(format!(
-            "matches!({prefix}::{name}({}), {prefix}::{enum_name}::{variant} {{ .. }})",
-            args.join(", ")
-        )),
+            enum_module,
+        } => {
+            // The function and the enum are named independently: the enum it returns need not be
+            // declared in the same module, and often is not (REQ061).
+            let enum_at = CodeMatch {
+                module: enum_module.clone(),
+                ..at.clone()
+            };
+            Ok(format!(
+                "matches!({}({}), {}::{variant} {{ .. }})",
+                item_path(prefix, at, name)?,
+                args.join(", "),
+                item_path(prefix, &enum_at, enum_name)?
+            ))
+        }
     }
 }
 
@@ -325,6 +376,7 @@ mod tests {
                 file: "src/lib.rs".into(),
                 line: 1,
                 text: "…".into(),
+                module: Some(vec![]),
             },
             params,
             form,
@@ -345,13 +397,55 @@ mod tests {
         vocabulary { state p(u) }
         require { each u: Thing . always p(u) } }";
 
+    /// Sort resolutions matching the fixtures' bindings: every declared sort is a type at the
+    /// crate root, so a harness names it `<prefix>::<observable>` (REQ061). `bool` and friends
+    /// resolve as primitives, which lower bare (REQ058).
+    fn sorts(names: &[&str]) -> BTreeMap<String, TypeResolution> {
+        names
+            .iter()
+            .map(|sort| {
+                (
+                    sort.to_string(),
+                    TypeResolution::Resolved(CodeMatch {
+                        file: "src/lib.rs".into(),
+                        line: 1,
+                        text: "pub struct T;".into(),
+                        module: Some(vec![]),
+                    }),
+                )
+            })
+            .collect()
+    }
+
     fn lower_one(
         req: &Requirement,
         prefix: &str,
         bindings: &[Binding],
         resolutions: &BTreeMap<String, Resolution>,
     ) -> Result<LoweredClaim, NotLowerable> {
-        lower_property(req, &req.require[0], prefix, bindings, resolutions)
+        let declared: Vec<&str> = bindings
+            .iter()
+            .map(|b| b.symbol.as_str())
+            .filter(|s| !resolutions.contains_key(*s))
+            .collect();
+        let mut by_sort = sorts(&declared);
+        // A binding whose observable is a primitive resolves as one, not as a declared type.
+        for b in bindings {
+            if crate::rust_adapter::is_primitive(b.observable.trim()) {
+                by_sort.insert(
+                    b.symbol.clone(),
+                    TypeResolution::Primitive(b.observable.trim().to_string()),
+                );
+            }
+        }
+        lower_property(
+            req,
+            &req.require[0],
+            prefix,
+            bindings,
+            resolutions,
+            &by_sort,
+        )
     }
 
     fn lower_with(params: Vec<ParamMode>, form: PredicateForm, observable: &str) -> String {
@@ -403,6 +497,7 @@ mod tests {
                     name: "decide".into(),
                     enum_name: "Decision".into(),
                     variant: "Proceed".into(),
+                    enum_module: Some(vec![]),
                 },
                 "decide::Proceed",
             ),
@@ -572,6 +667,155 @@ mod tests {
             "{}",
             err.reason
         );
+    }
+
+    // Verifies: REQ061 — every path a harness writes carries the module the adapter found the item
+    // in. Before this, all three shapes emitted `{prefix}::{name}`, correct only for a crate whose
+    // every item sits in `src/lib.rs` — and wrong for the first real multi-module crate provreq met
+    // (its own, #143).
+    #[test]
+    fn a_call_is_named_through_the_module_it_was_found_in() {
+        let at_module = |module: &[&str]| Resolution::Resolved {
+            at: CodeMatch {
+                file: "src/provision.rs".into(),
+                line: 79,
+                text: "pub fn decide_install(".into(),
+                module: Some(module.iter().map(|s| s.to_string()).collect()),
+            },
+            params: vec![ParamMode::ByValue],
+            form: PredicateForm::Function,
+        };
+        let claim = |res: Resolution| {
+            let bindings = vec![binding("p", "decide_install"), binding("Thing", "Thing")];
+            let resolutions = BTreeMap::from([("p".to_string(), res)]);
+            lower_one(&gated(P_OF_U), "subject", &bindings, &resolutions)
+                .expect("should lower")
+                .claim
+        };
+        assert_eq!(
+            claim(at_module(&["provision"])),
+            "subject::provision::decide_install(u)"
+        );
+        // An inline `mod` inside the file is one segment deeper, and the crate root has none.
+        assert_eq!(
+            claim(at_module(&["provision", "inner"])),
+            "subject::provision::inner::decide_install(u)"
+        );
+        assert_eq!(claim(at_module(&[])), "subject::decide_install(u)");
+    }
+
+    // Verifies: REQ061 — the enum of a variant test is named through ITS module, which need not be
+    // the function's. A single module for both would be a guess that happens to hold only when the
+    // two are declared together.
+    #[test]
+    fn a_variant_test_names_the_enum_through_its_own_module() {
+        let bindings = vec![binding("p", "decide"), binding("Thing", "Thing")];
+        let resolutions = BTreeMap::from([(
+            "p".to_string(),
+            Resolution::Resolved {
+                at: CodeMatch {
+                    file: "src/provision.rs".into(),
+                    line: 1,
+                    text: "…".into(),
+                    module: Some(vec!["provision".into()]),
+                },
+                params: vec![ParamMode::ByValue],
+                form: PredicateForm::VariantTest {
+                    name: "decide".into(),
+                    enum_name: "Decision".into(),
+                    variant: "Proceed".into(),
+                    enum_module: Some(vec!["engine".into()]),
+                },
+            },
+        )]);
+        let claim = lower_one(&gated(P_OF_U), "subject", &bindings, &resolutions)
+            .expect("should lower")
+            .claim;
+        assert_eq!(
+            claim,
+            "matches!(subject::provision::decide(u), subject::engine::Decision::Proceed { .. })"
+        );
+    }
+
+    // Verifies: REQ061 — an item no harness can name does not lower, and the refusal names the file
+    // rather than emitting a path this tool invented. It RESOLVED, so grounding was green: the
+    // predicate is really declared there, just not where a harness can reach it.
+    #[test]
+    fn an_item_with_no_module_path_does_not_lower() {
+        let bindings = vec![binding("p", "ready"), binding("Thing", "Thing")];
+        let resolutions = BTreeMap::from([(
+            "p".to_string(),
+            Resolution::Resolved {
+                at: CodeMatch {
+                    file: "tests/helpers.rs".into(),
+                    line: 3,
+                    text: "pub fn ready(u: &Thing) -> bool {".into(),
+                    module: None,
+                },
+                params: vec![ParamMode::ByValue],
+                form: PredicateForm::Function,
+            },
+        )]);
+        let err = lower_one(&gated(P_OF_U), "subject", &bindings, &resolutions)
+            .expect_err("no path reaches a separate crate target");
+        assert!(err.reason.contains("tests/helpers.rs"), "{}", err.reason);
+        assert!(err.reason.contains("harness"), "{}", err.reason);
+    }
+
+    // Verifies: REQ061/REQ058 — a sort is named through its own module too, and a primitive is
+    // still written bare (there is no module to reach `bool` through).
+    #[test]
+    fn a_sort_is_named_through_its_module_and_a_primitive_stays_bare() {
+        let req = gated(
+            "requirement r { category: 1
+            vocabulary { state p(u) }
+            require { each u: S . always p(u) } }",
+        );
+        let bindings = vec![binding("p", "is_ok"), binding("S", "EngineStatus")];
+        let resolutions = BTreeMap::from([(
+            "p".to_string(),
+            resolved(vec![ParamMode::ByValue], PredicateForm::Function),
+        )]);
+        let by_sort = BTreeMap::from([(
+            "S".to_string(),
+            TypeResolution::Resolved(CodeMatch {
+                file: "src/engine.rs".into(),
+                line: 67,
+                text: "pub enum EngineStatus {".into(),
+                module: Some(vec!["engine".into()]),
+            }),
+        )]);
+        let ty = lower_property(
+            &req,
+            &req.require[0],
+            "subject",
+            &bindings,
+            &resolutions,
+            &by_sort,
+        )
+        .expect("should lower")
+        .quantified
+        .remove(0)
+        .ty;
+        assert_eq!(ty, "subject::engine::EngineStatus");
+
+        let primitive = BTreeMap::from([(
+            "S".to_string(),
+            TypeResolution::Primitive("bool".to_string()),
+        )]);
+        let bare = lower_property(
+            &req,
+            &req.require[0],
+            "subject",
+            &[binding("p", "is_ok"), binding("S", "bool")],
+            &resolutions,
+            &primitive,
+        )
+        .expect("should lower")
+        .quantified
+        .remove(0)
+        .ty;
+        assert_eq!(bare, "bool");
     }
 
     // Verifies: REQ055 — a nullary method has no receiver to be called on. It cannot arise from

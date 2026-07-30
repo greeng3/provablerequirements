@@ -176,6 +176,7 @@ mod tests {
                 file: file.to_string(),
                 line,
                 text: "fn p(u: &User) -> bool {".to_string(),
+                module: Some(vec![]),
             },
             params: vec![ParamMode::ByRef],
             form: PredicateForm::Function,

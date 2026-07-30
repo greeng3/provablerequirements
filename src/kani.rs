@@ -32,7 +32,7 @@ use crate::grounding::Binding;
 use crate::lowering::{self, LoweredClaim};
 pub use crate::lowering::{harness_name, NotLowerable};
 use crate::prl::ast::Requirement;
-use crate::rust_adapter::Resolution;
+use crate::rust_adapter::{Resolution, TypeResolution};
 use crate::verdict::{Basis, Evidence};
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -106,6 +106,7 @@ pub fn lower(
     crate_name: &str,
     bindings: &[Binding],
     resolutions: &BTreeMap<String, Resolution>,
+    sort_resolutions: &BTreeMap<String, TypeResolution>,
     name: &str,
 ) -> Result<Harness, NotLowerable> {
     if req.require.is_empty() {
@@ -115,7 +116,14 @@ pub fn lower(
     }
     let mut body = String::new();
     for prop in &req.require {
-        let claim = lowering::lower_property(req, prop, crate_name, bindings, resolutions)?;
+        let claim = lowering::lower_property(
+            req,
+            prop,
+            crate_name,
+            bindings,
+            resolutions,
+            sort_resolutions,
+        )?;
         body.push_str(&assertion(&claim));
     }
     let source = format!(
@@ -339,12 +347,27 @@ mod tests {
         }
     }
 
+    /// Sort resolutions for the fixtures: `User` is a type at the crate root, so the harness names
+    /// it `<prefix>::User` (REQ061 — the module comes from where the adapter found it).
+    fn sorts() -> BTreeMap<String, TypeResolution> {
+        BTreeMap::from([(
+            "User".to_string(),
+            TypeResolution::Resolved(CodeMatch {
+                file: "src/lib.rs".into(),
+                line: 1,
+                text: "pub struct User;".into(),
+                module: Some(vec![]),
+            }),
+        )])
+    }
+
     fn resolved(params: Vec<ParamMode>) -> Resolution {
         Resolution::Resolved {
             at: CodeMatch {
                 file: "src/auth.rs".into(),
                 line: 1,
                 text: "fn f() -> bool { true }".into(),
+                module: Some(vec![]),
             },
             params,
             form: PredicateForm::Function,
@@ -373,6 +396,7 @@ mod tests {
             "subject",
             &standard_bindings(),
             &by_ref_resolutions(),
+            &sorts(),
             "provreq_req001",
         )
     }
@@ -422,6 +446,7 @@ mod tests {
             "subject",
             &standard_bindings(),
             &by_value,
+            &sorts(),
             "h",
         )
         .expect("should lower");
@@ -442,6 +467,7 @@ mod tests {
             "subject",
             &[binding("overdrawn", "is_overdrawn")],
             &BTreeMap::from([("overdrawn".to_string(), resolved(vec![]))]),
+            &sorts(),
             "h",
         )
         .expect("should lower");
@@ -465,6 +491,7 @@ mod tests {
                 binding("has_session", "has_session"),
             ],
             &by_ref_resolutions(),
+            &sorts(),
             "h",
         )
         .expect_err("an unbound sort has no domain");
@@ -481,6 +508,7 @@ mod tests {
             "subject",
             &standard_bindings(),
             &BTreeMap::from([("logged_in".to_string(), resolved(vec![ParamMode::ByRef]))]),
+            &sorts(),
             "h",
         )
         .expect_err("has_session never resolved");
@@ -502,6 +530,7 @@ mod tests {
             "subject",
             &[binding("logged_in", "login"), binding("User", "User")],
             &BTreeMap::from([("logged_in".to_string(), resolved(vec![ParamMode::ByRef]))]),
+            &sorts(),
             "h",
         )
         .expect_err("`other` has no declared sort to range over");
@@ -517,7 +546,7 @@ mod tests {
             vocabulary { state p, q }
             require { p leads_to q }
         }");
-        let e = lower(&r, "subject", &[], &BTreeMap::new(), "h")
+        let e = lower(&r, "subject", &[], &BTreeMap::new(), &sorts(), "h")
             .expect_err("liveness is not an invariant");
         assert!(e.reason.contains("leads_to"), "{}", e.reason);
         assert!(e.reason.contains("temporal-free"), "{}", e.reason);
@@ -662,6 +691,7 @@ For more information about this error, try `rustc --explain E0277`.
             "smoke",
             &standard_bindings(),
             &by_ref_resolutions(),
+            &sorts(),
             "provreq_smoke",
         )
         .expect("the fixture must lower")

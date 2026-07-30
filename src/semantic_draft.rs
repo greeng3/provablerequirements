@@ -309,6 +309,7 @@ mod tests {
                 file: file.to_string(),
                 line,
                 text: "fn p() -> bool {".to_string(),
+                module: Some(vec![]),
             },
             params: vec![ParamMode::ByValue],
             form: PredicateForm::Function,
