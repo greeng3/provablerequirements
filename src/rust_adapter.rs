@@ -31,6 +31,15 @@ pub struct CodeMatch {
     pub file: String,
     pub line: usize,
     pub text: String,
+    /// The item's module path within its crate — `Some(vec![])` at the crate root,
+    /// `Some(vec!["provision"])` for an item in `src/provision.rs`, and **`None` when this adapter
+    /// cannot say** (REQ061).
+    ///
+    /// A harness has to name the item through this path, so `None` is not "the root": it is the
+    /// refusal that keeps lowering from emitting a path it invented. Existence and reachability are
+    /// separate questions, which is why this does not stop a binding from **resolving** — the item
+    /// is really there, at that line, and grounding is right to say so.
+    pub module: Option<Vec<String>>,
 }
 
 /// Whether a directory is pruned from the walk: the companion tree (whose `drafts.yml` holds the
@@ -78,6 +87,10 @@ pub enum PredicateForm {
         name: String,
         enum_name: String,
         variant: String,
+        /// The module the **enum** is declared in, which need not be the function's — the harness
+        /// names the two independently (REQ061). `None` for the same reason
+        /// [`CodeMatch::module`] is: nothing a harness can write would reach it.
+        enum_module: Option<Vec<String>>,
     },
 }
 
@@ -267,6 +280,7 @@ impl PredicateForm {
                 name,
                 enum_name,
                 variant,
+                ..
             } => format!("checked as `matches!({name}(…), {enum_name}::{variant})`"),
         }
     }
@@ -394,14 +408,21 @@ pub fn is_primitive(name: &str) -> bool {
 /// the predicate resolver.
 fn find_types(subject_root: &Path, companion_root: &Path, name: &str) -> Vec<CodeMatch> {
     let mut out = Vec::new();
-    for_each_rust_file(subject_root, companion_root, |file, rel, text| {
-        collect_types(&file.items, name, rel, text, &mut out);
+    for_each_rust_file(subject_root, companion_root, |file, rel, text, module| {
+        collect_types(&file.items, name, rel, text, module, &mut out);
     });
     out
 }
 
 /// Walk items for a type named `name`, descending into inline modules.
-fn collect_types(items: &[syn::Item], name: &str, rel: &str, text: &str, out: &mut Vec<CodeMatch>) {
+fn collect_types(
+    items: &[syn::Item],
+    name: &str,
+    rel: &str,
+    text: &str,
+    module: &Option<Vec<String>>,
+    out: &mut Vec<CodeMatch>,
+) {
     for item in items {
         let ident = match item {
             syn::Item::Struct(s) => Some(&s.ident),
@@ -409,7 +430,7 @@ fn collect_types(items: &[syn::Item], name: &str, rel: &str, text: &str, out: &m
             syn::Item::Type(t) => Some(&t.ident),
             syn::Item::Mod(m) => {
                 if let Some((_, inner)) = &m.content {
-                    collect_types(inner, name, rel, text, out);
+                    collect_types(inner, name, rel, text, &inside(module, &m.ident), out);
                 }
                 None
             }
@@ -417,14 +438,30 @@ fn collect_types(items: &[syn::Item], name: &str, rel: &str, text: &str, out: &m
         };
         if let Some(ident) = ident {
             if ident == name {
-                let line = ident.span().start().line;
-                out.push(CodeMatch {
-                    file: rel.to_string(),
-                    line,
-                    text: source_line(text, line),
-                });
+                out.push(at_ident(ident, rel, text, module));
             }
         }
+    }
+}
+
+/// The module path inside an inline `mod` block — one segment deeper, or still nothing when the
+/// enclosing file has no path a harness could use.
+fn inside(module: &Option<Vec<String>>, ident: &syn::Ident) -> Option<Vec<String>> {
+    module.as_ref().map(|m| {
+        let mut deeper = m.clone();
+        deeper.push(ident.to_string());
+        deeper
+    })
+}
+
+/// The [`CodeMatch`] for an item named by `ident`.
+fn at_ident(ident: &syn::Ident, rel: &str, text: &str, module: &Option<Vec<String>>) -> CodeMatch {
+    let line = ident.span().start().line;
+    CodeMatch {
+        file: rel.to_string(),
+        line,
+        text: source_line(text, line),
+        module: module.clone(),
     }
 }
 
@@ -534,7 +571,17 @@ fn variant_test(
             at: f.at,
         };
     }
-    let variants = find_enum_variants(subject_root, companion_root, &f.returns);
+    let mut enums = find_enums(subject_root, companion_root, &f.returns);
+    // Two enums of that name is the same unanswerable question as two functions: the variants would
+    // have to be pooled from declarations in different modules, and the harness can only name one.
+    if enums.len() > 1 {
+        return Resolution::Ambiguous(enums.into_iter().map(|e| e.at).collect());
+    }
+    let declared = enums.pop();
+    let variants = declared
+        .as_ref()
+        .map(|e| e.variants.clone())
+        .unwrap_or_default();
     if !variants.iter().any(|v| v == variant) {
         return Resolution::NotAVariant {
             returns: f.returns,
@@ -551,6 +598,9 @@ fn variant_test(
             name: f.name,
             enum_name: f.returns,
             variant: variant.to_string(),
+            // The enum need not live where the function does, so the harness cannot reuse the
+            // function's module for it (REQ061).
+            enum_module: declared.and_then(|e| e.at.module),
         },
         at: f.at,
         params: f.params,
@@ -654,10 +704,44 @@ fn wrong_param_type(f: &FoundFn, params: &[Option<String>]) -> Option<Resolution
 /// `mod` blocks and `impl` blocks.
 fn find_functions(subject_root: &Path, companion_root: &Path, name: &str) -> Vec<FoundFn> {
     let mut out = Vec::new();
-    for_each_rust_file(subject_root, companion_root, |file, rel, text| {
-        collect_fns(&file.items, name, rel, text, &mut out);
+    for_each_rust_file(subject_root, companion_root, |file, rel, text, module| {
+        collect_fns(&file.items, name, rel, text, module, &mut out);
     });
     out
+}
+
+/// The module path a file's top-level items sit at, from the crate root — the standard cargo
+/// layout, read off the path (REQ061).
+///
+/// `None` means **no harness can name items in this file**, and the three cases are different
+/// reasons for the same answer:
+/// - outside `src/` — `tests/`, `benches/`, `examples/` and the like are separate crate targets,
+///   and a subject whose `[lib] path` is somewhere non-default is not something a path convention
+///   can be trusted to know;
+/// - `src/main.rs` or `src/bin/*.rs` — a binary target, which no harness can import;
+/// - a path that is not valid UTF-8 or whose components are not usable as identifiers.
+///
+/// `src/lib.rs` is the crate root (`Some(vec![])`), `src/a/mod.rs` is `a`, and `src/a/b.rs` is
+/// `a::b`.
+fn file_module_path(rel: &str) -> Option<Vec<String>> {
+    let rest = rel
+        .strip_prefix("src/")
+        .or_else(|| rel.strip_prefix("src\\"))?;
+    if rest == "main.rs" || rest.starts_with("bin/") || rest.starts_with("bin\\") {
+        return None;
+    }
+    let mut parts: Vec<String> = rest
+        .split(['/', '\\'])
+        .map(|s| s.trim_end_matches(".rs").to_string())
+        .collect();
+    // The crate root and a directory's own module file contribute no segment of their own.
+    if let Some("lib" | "mod") = parts.last().map(String::as_str) {
+        parts.pop();
+    }
+    parts
+        .iter()
+        .all(|p| !p.is_empty() && p.chars().all(|c| c.is_alphanumeric() || c == '_'))
+        .then_some(parts)
 }
 
 /// Visit every parseable `.rs` file under the subject, handing the callback its parsed
@@ -671,7 +755,7 @@ fn find_functions(subject_root: &Path, companion_root: &Path, name: &str) -> Vec
 fn for_each_rust_file(
     subject_root: &Path,
     companion_root: &Path,
-    mut visit: impl FnMut(&syn::File, &str, &str),
+    mut visit: impl FnMut(&syn::File, &str, &str, &Option<Vec<String>>),
 ) {
     for entry in WalkDir::new(subject_root)
         .into_iter()
@@ -693,19 +777,29 @@ fn for_each_rust_file(
             .unwrap_or(entry.path())
             .display()
             .to_string();
-        visit(&file, &rel, &text);
+        let module = file_module_path(&rel);
+        visit(&file, &rel, &text, &module);
     }
 }
 
 /// Walk items for functions named `name`, descending into inline modules and impl blocks
 /// so a predicate declared inside one is still found.
-fn collect_fns(items: &[syn::Item], name: &str, rel: &str, text: &str, out: &mut Vec<FoundFn>) {
+fn collect_fns(
+    items: &[syn::Item],
+    name: &str,
+    rel: &str,
+    text: &str,
+    module: &Option<Vec<String>>,
+    out: &mut Vec<FoundFn>,
+) {
     for item in items {
         match item {
-            syn::Item::Fn(f) if f.sig.ident == name => out.push(found(&f.sig, rel, text, None)),
+            syn::Item::Fn(f) if f.sig.ident == name => {
+                out.push(found(&f.sig, rel, text, None, module))
+            }
             syn::Item::Mod(m) => {
                 if let Some((_, inner)) = &m.content {
-                    collect_fns(inner, name, rel, text, out);
+                    collect_fns(inner, name, rel, text, &inside(module, &m.ident), out);
                 }
             }
             syn::Item::Impl(i) => {
@@ -713,7 +807,7 @@ fn collect_fns(items: &[syn::Item], name: &str, rel: &str, text: &str, out: &mut
                 for sub in &i.items {
                     if let syn::ImplItem::Fn(f) = sub {
                         if f.sig.ident == name {
-                            out.push(found(&f.sig, rel, text, self_ty.as_deref()));
+                            out.push(found(&f.sig, rel, text, self_ty.as_deref(), module));
                         }
                     }
                 }
@@ -723,26 +817,40 @@ fn collect_fns(items: &[syn::Item], name: &str, rel: &str, text: &str, out: &mut
     }
 }
 
-/// Every variant of the enum named `name`, or empty when the subject declares no such enum —
-/// which includes the ordinary case of a function that simply returns something that is not an
-/// enum (REQ055).
-fn find_enum_variants(subject_root: &Path, companion_root: &Path, name: &str) -> Vec<String> {
+/// One enum declaration found in the subject: where it is (so a harness can name it through its
+/// module, REQ061) and the variants it offers.
+struct FoundEnum {
+    at: CodeMatch,
+    variants: Vec<String>,
+}
+
+/// Every enum named `name` — empty when the subject declares none, which includes the ordinary case
+/// of a function that simply returns something that is not an enum (REQ055).
+fn find_enums(subject_root: &Path, companion_root: &Path, name: &str) -> Vec<FoundEnum> {
     let mut out = Vec::new();
-    for_each_rust_file(subject_root, companion_root, |file, _, _| {
-        collect_variants(&file.items, name, &mut out);
+    for_each_rust_file(subject_root, companion_root, |file, rel, text, module| {
+        collect_enums(&file.items, name, rel, text, module, &mut out);
     });
     out
 }
 
-fn collect_variants(items: &[syn::Item], name: &str, out: &mut Vec<String>) {
+fn collect_enums(
+    items: &[syn::Item],
+    name: &str,
+    rel: &str,
+    text: &str,
+    module: &Option<Vec<String>>,
+    out: &mut Vec<FoundEnum>,
+) {
     for item in items {
         match item {
-            syn::Item::Enum(e) if e.ident == name => {
-                out.extend(e.variants.iter().map(|v| v.ident.to_string()));
-            }
+            syn::Item::Enum(e) if e.ident == name => out.push(FoundEnum {
+                at: at_ident(&e.ident, rel, text, module),
+                variants: e.variants.iter().map(|v| v.ident.to_string()).collect(),
+            }),
             syn::Item::Mod(m) => {
                 if let Some((_, inner)) = &m.content {
-                    collect_variants(inner, name, out);
+                    collect_enums(inner, name, rel, text, &inside(module, &m.ident), out);
                 }
             }
             _ => {}
@@ -761,8 +869,8 @@ fn find_methods(
     name: Option<&str>,
 ) -> Vec<FoundFn> {
     let mut out = Vec::new();
-    for_each_rust_file(subject_root, companion_root, |file, rel, text| {
-        collect_methods(&file.items, ty, name, rel, text, &mut out);
+    for_each_rust_file(subject_root, companion_root, |file, rel, text, module| {
+        collect_methods(&file.items, ty, name, rel, text, module, &mut out);
     });
     out
 }
@@ -773,6 +881,7 @@ fn collect_methods(
     name: Option<&str>,
     rel: &str,
     text: &str,
+    module: &Option<Vec<String>>,
     out: &mut Vec<FoundFn>,
 ) {
     for item in items {
@@ -781,14 +890,14 @@ fn collect_methods(
                 for sub in &i.items {
                     if let syn::ImplItem::Fn(f) = sub {
                         if name.is_none_or(|n| f.sig.ident == n) {
-                            out.push(found(&f.sig, rel, text, Some(ty)));
+                            out.push(found(&f.sig, rel, text, Some(ty), module));
                         }
                     }
                 }
             }
             syn::Item::Mod(m) => {
                 if let Some((_, inner)) = &m.content {
-                    collect_methods(inner, ty, name, rel, text, out);
+                    collect_methods(inner, ty, name, rel, text, &inside(module, &m.ident), out);
                 }
             }
             _ => {}
@@ -806,8 +915,13 @@ fn self_type_is(self_ty: &syn::Type, ty: &str) -> bool {
 /// argument, what each parameter's type is written as, and how its return type is written.
 /// `impl_ty` is the type an enclosing `impl` block is for, which is what a `self` receiver's
 /// type is.
-fn found(sig: &syn::Signature, rel: &str, text: &str, impl_ty: Option<&str>) -> FoundFn {
-    let line = sig.ident.span().start().line;
+fn found(
+    sig: &syn::Signature,
+    rel: &str,
+    text: &str,
+    impl_ty: Option<&str>,
+    module: &Option<Vec<String>>,
+) -> FoundFn {
     let generics: Vec<String> = sig
         .generics
         .type_params()
@@ -815,11 +929,7 @@ fn found(sig: &syn::Signature, rel: &str, text: &str, impl_ty: Option<&str>) -> 
         .collect();
     FoundFn {
         name: sig.ident.to_string(),
-        at: CodeMatch {
-            file: rel.to_string(),
-            line,
-            text: source_line(text, line),
-        },
+        at: at_ident(&sig.ident, rel, text, module),
         params: sig.inputs.iter().map(param_mode).collect(),
         param_types: sig
             .inputs
@@ -1062,6 +1172,9 @@ impl Probe { pub fn is_ready(&self) -> bool { false } }
                 name: "decide".into(),
                 enum_name: "Decision".into(),
                 variant: "Proceed".into(),
+                // The fixture lives in `src/auth.rs`, so that is the module a harness must
+                // name the enum through (REQ061).
+                enum_module: Some(vec!["auth".into()]),
             }
         );
         assert_eq!(params, &vec![ParamMode::ByValue]);
@@ -1464,6 +1577,92 @@ impl S { fn ready(&self) -> bool { true } }\n",
         )
         .unwrap();
         assert!(resolve_in(&tmp, "login", 1).is_resolved());
+    }
+
+    // Verifies: REQ061 — an item's module path comes from where it was found, so a harness can name
+    // it. The standard cargo layout, read off the file path; `src/lib.rs` is the crate root, a
+    // `mod.rs` contributes its directory only, and an inline `mod` block adds its own segment.
+    #[test]
+    fn module_path_follows_the_cargo_layout() {
+        for (file, expected) in [
+            ("src/lib.rs", Some(vec![])),
+            ("src/provision.rs", Some(vec!["provision".to_string()])),
+            ("src/a/b.rs", Some(vec!["a".to_string(), "b".to_string()])),
+            ("src/a/mod.rs", Some(vec!["a".to_string()])),
+        ] {
+            assert_eq!(file_module_path(file), expected, "{file}");
+        }
+        // No path a harness can write reaches these: separate crate targets and binaries.
+        for file in [
+            "tests/it.rs",
+            "benches/b.rs",
+            "examples/e.rs",
+            "src/main.rs",
+            "src/bin/tool.rs",
+            "build.rs",
+        ] {
+            assert_eq!(file_module_path(file), None, "{file}");
+        }
+    }
+
+    // Verifies: REQ061 — the module a predicate resolves in is recorded, for a top-level item and
+    // for one nested in an inline `mod`. Before this, lowering wrote `crate_name::item` for
+    // everything, which is right only for a crate whose every item sits in `src/lib.rs`.
+    #[test]
+    fn resolution_records_the_module_it_found_the_item_in() {
+        let tmp = subject(
+            "pub fn login(u: &str) -> bool { true }
+mod session { pub fn active(id: u32) -> bool { true } }\n",
+        );
+        let module_of = |name: &str, arity: usize| match resolve_in(&tmp, name, arity) {
+            Resolution::Resolved { at, .. } => at.module,
+            other => panic!("{name} should resolve, got {other:?}"),
+        };
+        // `src/auth.rs` → the `auth` module…
+        assert_eq!(module_of("login", 1), Some(vec!["auth".to_string()]));
+        // …and an inline `mod` inside it is one segment deeper.
+        assert_eq!(
+            module_of("active", 1),
+            Some(vec!["auth".to_string(), "session".to_string()])
+        );
+    }
+
+    // Verifies: REQ061 — an item in a separate crate target still RESOLVES. Existence and
+    // reachability are different questions: the predicate really is declared there, grounding is
+    // right to say so, and it is lowering's job to refuse to name it.
+    #[test]
+    fn an_item_outside_the_crate_resolves_but_has_no_module() {
+        let tmp = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(tmp.path().join("tests")).unwrap();
+        std::fs::write(
+            tmp.path().join("tests/helpers.rs"),
+            "pub fn ready(u: &str) -> bool { true }\n",
+        )
+        .unwrap();
+        let r = resolve(
+            tmp.path(),
+            &tmp.path().join("ProvableRequirements"),
+            "ready",
+            &[None],
+        );
+        let Resolution::Resolved { at, .. } = &r else {
+            panic!("it is really declared there, so it resolves: {r:?}")
+        };
+        assert_eq!(at.module, None, "but no harness can name it");
+    }
+
+    // Verifies: REQ061 — two enums of one name are an ambiguity, not a pooled variant list. The
+    // harness can only name one module, and picking would depend on walk order — the same rule
+    // every other duplicate follows.
+    #[test]
+    fn duplicate_enums_are_ambiguous_never_pooled() {
+        let tmp = subject(
+            "pub enum Decision { Proceed }
+mod other { pub enum Decision { Proceed } }
+pub fn decide(u: u32) -> Decision { Decision::Proceed }\n",
+        );
+        let r = resolve_in(&tmp, "decide::Proceed", 1);
+        assert!(matches!(r, Resolution::Ambiguous(_)), "got {r:?}");
     }
 
     // Verifies: REQ026 — a sort resolves to a real Rust type, so a quantified variable has

@@ -8,8 +8,8 @@ verdicts:
     detail:
     - 'Kani: inconclusive'
     - |-
-      error[E0412]: cannot find type `EngineStatus` in crate `provreq`
-      error[E0425]: cannot find function `decide_install` in crate `provreq`
+      error[E0277]: the trait bound `provreq::engine::EngineStatus: kani::Arbitrary` is not satisfied
+      error: Failed to execute cargo (exit status: 101). Found 1 compilation errors.
     - 'Creusot: inconclusive'
     - 'Error: creusot-std not found in dependencies'
     - 'Prusti: inconclusive'
@@ -24,8 +24,8 @@ verdicts:
       witness: null
       detail:
       - |-
-        error[E0412]: cannot find type `EngineStatus` in crate `provreq`
-        error[E0425]: cannot find function `decide_install` in crate `provreq`
+        error[E0277]: the trait bound `provreq::engine::EngineStatus: kani::Arbitrary` is not satisfied
+        error: Failed to execute cargo (exit status: 101). Found 1 compilation errors.
     - engine: Creusot
       status: unknown
       basis: null
@@ -43,7 +43,7 @@ verdicts:
           lock file version 4 requires `-Znext-lockfile-bump`
     provenance:
       requirement_revision: 17cf6ac844159fbe
-      subject_commit: 1c35709a5b02745e5b6251ec353cb13176650bc1
+      subject_commit: b4ff07ba9a6bf2582f0cb947681e653bf223250f
       tool_version: 0.0.1
       formalization: e06f8a01345dcae6
       environment:

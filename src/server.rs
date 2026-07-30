@@ -290,14 +290,14 @@ fn grounding_report(
         return None;
     }
     let requirement = crate::prl::gate(candidate).ok()?.requirement;
-    let (by_symbol, by_sort, by_model) =
+    let resolved =
         crate::grounding::resolve_bindings(subject, companion, &requirement, &draft.bindings);
     Some(crate::detail::grounding_report(
         &requirement,
         &draft.bindings,
-        &by_symbol,
-        &by_sort,
-        &by_model,
+        &resolved.code,
+        &resolved.sorts,
+        &resolved.model,
     ))
 }
 

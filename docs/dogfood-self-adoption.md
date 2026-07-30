@@ -267,3 +267,38 @@ operator's call to make knowingly rather than the tool's to make quietly.
   dependency; Prusti's pinned nightly cannot read a v4 lockfile), so Kani was the only engine that
   reached the claim.
 - The web UI was again not driven against this subject.
+
+### Follow-up: module paths fixed (#145 / REQ061)
+
+`lowering` now names every item through the module the adapter found it in, so the harness for
+REQ047 against this repo writes `provreq::provision::decide_install` and
+`provreq::engine::EngineStatus`. The module comes from where the item was **resolved**, not from a
+convention applied at generation time, and each named thing carries its own placement — the enum a
+variant test checks need not live where the function does.
+
+Three things this deliberately does not paper over:
+
+- An item in a separate crate target (`tests/`, `benches/`, `examples/`) or a binary still
+  **resolves** — it really is declared there — but no path a harness can write reaches it, so
+  lowering declines and names the file. Existence and reachability are different questions, and
+  confirming the first does not answer the second.
+- Two enums of one name are now an `Ambiguous` park rather than a pooled variant list. Each would be
+  reachable by a different path, so pooling described something that exists in neither place.
+- Nothing guesses at `pub use` re-exports or `#[path]` attributes; `syn` cannot resolve either, and a
+  subject that relies on them degrades honestly.
+
+**The verdict moved one stage further, to a third real reason:**
+
+```text
+error[E0277]: the trait bound `provreq::engine::EngineStatus: kani::Arbitrary` is not satisfied
+```
+
+`EngineStatus` carries an `Available { version: String }` variant, and Kani needs a *value* for every
+quantified variable. Nothing is wrong with the binding, the sort, or the claim — this is Kani's own
+precondition, and a deductive engine's logical `forall` would not need it. Tracked as
+[#148](https://github.com/greeng3/provablerequirements/issues/148), which is about saying so in the
+operator's terms instead of handing them the trait error.
+
+So REQ047 has now been `unknown` for three distinct reasons in sequence — the free-variable gap
+(#136), the module path (#145), and instantiability (#148) — and every one of them was real. That
+sequence is what a tool that refuses to guess looks like from the outside.
