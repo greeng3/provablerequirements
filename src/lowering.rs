@@ -24,6 +24,9 @@
 //! approximation.
 //!
 //! Extracted from the three engines once Prusti made a third copy (rule of three, #69).
+//!
+//! Implements: REQ062 (what is emitted is in the intersection of what every wired checker reads —
+//! valid Rust is not sufficient when the interior of an assertion is a checker's own logic).
 
 use crate::grounding::Binding;
 use crate::prl::ast::{Atom, Binder, Expr, Pattern, Property, Requirement, Scope};
@@ -333,8 +336,12 @@ fn lower_call(
                 module: enum_module.clone(),
                 ..at.clone()
             };
+            // Written as a `match`, not the `matches!` macro it is sugar for: Pearlite (Creusot's
+            // logic language) rejects every macro but `pearlite!`/`proof_assert!`/`seq!`, so a
+            // `matches!` here reaches the operator as "unsupported expression" instead of a verdict.
+            // The desugared form is what `matches!` expands to, so Kani and Prusti see no change.
             Ok(format!(
-                "matches!({}({}), {}::{variant} {{ .. }})",
+                "match {}({}) {{ {}::{variant} {{ .. }} => true, _ => false }}",
                 item_path(prefix, at, name)?,
                 args.join(", "),
                 item_path(prefix, &enum_at, enum_name)?
@@ -489,7 +496,7 @@ mod tests {
     // deliberately so unit, tuple, and struct variants all match without the binding restating
     // the variant's shape.
     #[test]
-    fn a_variant_test_lowers_to_a_matches_expression() {
+    fn a_variant_test_lowers_to_a_match_expression() {
         assert_eq!(
             lower_with(
                 vec![ParamMode::ByValue],
@@ -501,7 +508,7 @@ mod tests {
                 },
                 "decide::Proceed",
             ),
-            "matches!(crate::decide(u), crate::Decision::Proceed { .. })"
+            "match crate::decide(u) { crate::Decision::Proceed { .. } => true, _ => false }"
         );
     }
 
@@ -733,7 +740,8 @@ mod tests {
             .claim;
         assert_eq!(
             claim,
-            "matches!(subject::provision::decide(u), subject::engine::Decision::Proceed { .. })"
+            "match subject::provision::decide(u) { subject::engine::Decision::Proceed { .. } \
+             => true, _ => false }"
         );
     }
 
