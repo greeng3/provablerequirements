@@ -33,7 +33,9 @@
 //!
 //! Implements: REQ031 (wire Creusot as cat-1 engine #2 — a grounded invariant earns a real
 //! `proven` verdict), REQ064 (a crashed prover is reported as a crash, no cause is asserted that
-//! was not established, and the crash report it drops in the subject is cleaned up — see #153).
+//! was not established, and the crash report it drops in the subject is cleaned up — see #153),
+//! REQ067 (a construct Creusot cannot translate is the prover's limit, is whole-crate in reach,
+//! and carries the `#[trusted]` way out rather than a contract that cannot help).
 
 use crate::grounding::Binding;
 use crate::lowering::{self, LoweredClaim};
@@ -345,6 +347,23 @@ pub fn classify(output: &str) -> Outcome {
                 .to_string(),
         };
     }
+    // A construct Creusot cannot translate is the checker's own limit, not a defect in the subject
+    // or the claim (REQ067) — and it is whole-crate, so it blocks claims that never go near it.
+    // Above the build-error branch because it also prints `could not compile`, and the generic
+    // branch would offer a `#[logic]` hint that cannot help: no contract makes an untranslatable
+    // construct translatable. What CAN help is `#[trusted]`, so the message says so.
+    if let Some(construct) = unsupported_construct(output) {
+        return Outcome::Inconclusive {
+            reason: format!(
+                "Creusot cannot translate a construct this crate uses — {construct}. It is a \
+                 limit of the prover, not something wrong with the claim or its bindings, and it \
+                 blocks every claim about this crate because Creusot translates the whole crate \
+                 rather than only what the claim mentions. Mark the items using that construct \
+                 `#[trusted]` to declare them out of scope, and the rest of the crate verifies \
+                 normally"
+            ),
+        };
+    }
     if output.contains("Compilation failed") || output.contains("could not compile") {
         return Outcome::Inconclusive {
             reason: build_error(output),
@@ -364,6 +383,21 @@ pub fn classify(output: &str) -> Outcome {
     Outcome::Inconclusive {
         reason: tail(output),
     }
+}
+
+/// The construct Creusot refused to translate, read off its own `is not currently supported`
+/// diagnostic and trimmed to the part that names it. `None` when the run failed some other way.
+fn unsupported_construct(output: &str) -> Option<String> {
+    output
+        .lines()
+        .map(str::trim)
+        .find(|l| l.contains("is not currently supported"))
+        .map(|l| {
+            l.trim_start_matches("error: ")
+                .trim_end_matches("is not currently supported")
+                .trim()
+                .to_string()
+        })
 }
 
 /// The first compiler error line, which names the actionable cause (a predicate that is not
@@ -702,6 +736,36 @@ mod tests {
             .cloned()
             .collect();
         assert_eq!(new, vec![ours], "only the run's own report is removable");
+    }
+
+    // Verifies: REQ067 — a construct Creusot cannot translate is reported as the prover's limit,
+    // with the escape hatch. Real output, measured 2026-07-30 against a patched driver (the same
+    // crate ICEs without the patch, which is #153 / creusot-rs/creusot#2212).
+    #[test]
+    fn an_untranslatable_construct_is_the_provers_limit_not_the_subjects_fault() {
+        let output = "error: the rvalue Coroutine(DefId(0:6 ~ cr_async[2fe3]::an_async_fn::\
+                      {closure#0}), [(), std::future::ResumeTy, (), u32, (u32,)]) is not \
+                      currently supported\n\
+                      error: could not compile `cr_async` (lib) due to 1 previous error\n";
+        let Outcome::Inconclusive { reason } = classify(output) else {
+            panic!("an untranslatable construct decides nothing");
+        };
+        assert!(
+            reason.contains("Coroutine"),
+            "names the construct: {reason}"
+        );
+        assert!(
+            reason.contains("limit of the prover"),
+            "does not blame the subject: {reason}"
+        );
+        assert!(
+            reason.contains("`#[trusted]`"),
+            "offers the escape hatch: {reason}"
+        );
+        assert!(
+            !reason.contains("`#[logic]`"),
+            "no contract makes it translatable: {reason}"
+        );
     }
 
     // Verifies: REQ031 — unrecognised output (e.g. a prover error) is inconclusive with a

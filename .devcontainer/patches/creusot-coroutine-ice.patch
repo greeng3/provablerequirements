@@ -1,0 +1,24 @@
+diff --git a/creusot/src/translation/specification.rs b/creusot/src/translation/specification.rs
+index d31d82c..b13d474 100644
+--- a/creusot/src/translation/specification.rs
++++ b/creusot/src/translation/specification.rs
+@@ -418,8 +418,17 @@ pub(crate) fn pre_sig_of<'tcx>(ctx: &TranslationCtx<'tcx>, def_id: DefId) -> Pre
+ 
+     let mut presig = contract_of(ctx, def_id);
+ 
+-    if ctx.def_kind(def_id) == DefKind::Closure {
+-        let fn_ty = ctx.type_of(def_id).instantiate_identity().skip_normalization();
++    // `DefKind::Closure` also covers coroutines (the body of an `async fn`, an `async` block, a
++    // generator) and coroutine-closures. Their type is not `TyKind::Closure` and they have no
++    // closure environment for the substitutions below to rewrite `self` into, so the closure
++    // handling simply does not apply to them. Selecting on the TYPE rather than the def-kind lets
++    // them fall through with their signature unchanged; without it, any crate containing an
++    // `async fn` reaches the `unreachable!()` below and aborts the compiler.
++    let closure_ty = (ctx.def_kind(def_id) == DefKind::Closure)
++        .then(|| ctx.type_of(def_id).instantiate_identity().skip_normalization())
++        .filter(|ty| matches!(ty.kind(), TyKind::Closure(..)));
++
++    if let Some(fn_ty) = closure_ty {
+         let TyKind::Closure(_, subst) = fn_ty.kind() else { unreachable!() };
+ 
+         let kind = subst.as_closure().kind();
