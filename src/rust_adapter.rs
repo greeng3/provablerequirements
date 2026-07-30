@@ -80,9 +80,10 @@ pub enum PredicateForm {
     /// method found by its bare name is still a method.
     Method { name: String },
     /// A function returning an enum, tested against one variant:
-    /// `matches!(prefix::name(args), prefix::enum_name::variant { .. })`. The `{ .. }` form
-    /// matches unit, tuple, and struct variants alike, so the binding does not have to restate
-    /// the variant's shape.
+    /// `match prefix::name(args) { prefix::enum_name::variant { .. } => true, _ => false }`. The
+    /// `{ .. }` form matches unit, tuple, and struct variants alike, so the binding does not have
+    /// to restate the variant's shape. Written out rather than as `matches!`, which is the same
+    /// thing but unreadable to a checker whose assertions are its own logic language (REQ062).
     VariantTest {
         name: String,
         enum_name: String,
@@ -281,7 +282,10 @@ impl PredicateForm {
                 enum_name,
                 variant,
                 ..
-            } => format!("checked as `matches!({name}(…), {enum_name}::{variant})`"),
+            } => format!(
+                "checked as `match {name}(…) {{ {enum_name}::{variant} {{ .. }} => true, _ => \
+                 false }}`"
+            ),
         }
     }
 }
