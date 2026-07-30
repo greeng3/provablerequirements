@@ -1,0 +1,34 @@
+active: true
+derived: false
+header: ''
+level: 1.65
+links: []
+normative: true
+ref: ''
+reviewed: null
+text: |
+  A checker may require something of the subject before it can consider a claim at all — not a
+  stronger specification, but a capacity the subject must supply for the checker's own method to
+  apply to it. Where the tool can recognize such a requirement in what the checker reports, it must
+  state it as the precondition it is, and name the thing the precondition is about, rather than pass
+  along the underlying tool's complaint and leave the operator to infer all of that.
+
+  The distinction the operator needs is that nothing is wrong: not the claim, not the binding, not
+  the confirmation that the binding names a real thing. A report that reads as a defect sends them
+  to re-examine work that is already correct.
+
+  Meeting such a precondition is the subject's to do, not the tool's to fabricate. The tool does not
+  write into the subject what a checker demands of it, for the same reason it does not write
+  specifications there: what a checker is given to work with is the operator's statement about their
+  own system, and a tool that supplies it has verified its own assumption. It names what is missing
+  and leaves the decision.
+
+  A precondition of one checker is not a limit on the claim. Where checkers of different methods are
+  available, a requirement that arises from one method may not arise under another at all — a method
+  that reasons over a domain need not be able to construct anything in it. Saying only what is
+  blocked invites the conclusion that the claim is unreachable when only one route to it is, so what
+  is not blocked belongs in the answer too.
+
+  Recognition is keyed on what actually identifies the case, not on an incidental feature of how the
+  underlying tool happened to report it, so that an unrelated failure sharing that feature is not
+  dressed up as this one.

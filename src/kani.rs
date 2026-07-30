@@ -26,7 +26,8 @@
 //! operator is "a typed error surfaced to the author, never a silent approximation".
 //!
 //! Implements: REQ027 (wire Kani as cat-1 engine #1 — a grounded invariant earns a real
-//! verdict).
+//! verdict), REQ065 (a sort Kani cannot instantiate is reported as the subject-side precondition
+//! it is, along with what it does not block — see #148).
 
 use crate::grounding::Binding;
 use crate::lowering::{self, LoweredClaim};
@@ -266,6 +267,23 @@ pub fn classify(output: &str) -> Outcome {
 /// --explain` footer, while the line that tells the operator what to do — "the trait bound
 /// `User: kani::Arbitrary` is not satisfied" — has already scrolled past.
 fn diagnostic(output: &str) -> String {
+    // A sort Kani cannot instantiate is a PRECONDITION on the subject, not a defect in the
+    // binding, the sort, or the claim — and the tool knows that, so it must not hand over the
+    // raw trait-bound error and let the operator infer it (REQ065). It is also a precondition of
+    // *this* engine only: a deductive `forall` ranges over a type without ever constructing a
+    // value, so saying nothing about that invites the conclusion that the claim is unreachable
+    // when only this route to it is.
+    if let Some(sort) = uninstantiable_sort(output) {
+        return format!(
+            "the sort `{sort}` cannot be instantiated by Kani — a bounded model checker needs a \
+             concrete value for every quantified variable, so a type it cannot enumerate stops \
+             the harness before the claim is reached. Nothing is wrong with the binding, the \
+             sort, or the claim. Either implement `kani::Arbitrary` for `{sort}` in the subject \
+             (an adoption step the subject owns, like a contracts dependency — provreq will not \
+             write it for you), or reach this claim through a deductive engine, whose `forall` is \
+             logical and needs no value at all"
+        );
+    }
     let errors: Vec<&str> = output
         .lines()
         .map(str::trim)
@@ -282,6 +300,21 @@ fn diagnostic(output: &str) -> String {
 /// How many compiler error lines an `inconclusive` carries. The first names the cause; the
 /// rest are usually "could not compile" noise.
 const ERROR_LINES: usize = 2;
+
+/// The type Kani demanded an [`Arbitrary`](https://model-checking.github.io/kani/) impl for, read
+/// off its own `E0277`. Matched on the trait rather than on the message shape, so an unrelated
+/// unsatisfied bound (the far more common `E0277`) is left to the generic diagnostic.
+fn uninstantiable_sort(output: &str) -> Option<&str> {
+    output
+        .lines()
+        .map(str::trim)
+        .filter(|l| l.starts_with("error[E0277]"))
+        .find_map(|l| {
+            let (bound, _) = l.split_once("the trait bound `")?.1.split_once('`')?;
+            let (ty, bounded_by) = bound.rsplit_once(": ")?;
+            (bounded_by == "kani::Arbitrary").then_some(ty)
+        })
+}
 
 /// Kani's own description of the violated assertion.
 fn failed_check(output: &str) -> Option<String> {
@@ -623,8 +656,12 @@ For more information about this error, try `rustc --explain E0277`.
         let Outcome::Inconclusive { reason } = classify(compile_error) else {
             panic!("a harness that does not compile decides nothing");
         };
+        // REQ065 moved this one case past "quote the first error line": an unsatisfied
+        // `kani::Arbitrary` bound is now explained as a precondition. What the test has always
+        // been about is unchanged — the reason names what the operator has to act on, and the
+        // tail of the log is not it.
         assert!(
-            reason.contains("`User: kani::Arbitrary` is not satisfied"),
+            reason.contains("`User`") && reason.contains("kani::Arbitrary"),
             "must name what the operator has to fix, not the tail of the log: {reason}"
         );
         assert!(
@@ -641,6 +678,46 @@ For more information about this error, try `rustc --explain E0277`.
             panic!("no output decides nothing");
         };
         assert!(reason.contains("no recognisable verdict"), "{reason}");
+    }
+
+    // Verifies: REQ065 — an uninstantiable sort is explained as the subject-side precondition it
+    // is. The error line is the real one measured against this repo (#148), back when
+    // `EngineStatus` had no `Arbitrary` impl.
+    #[test]
+    fn an_uninstantiable_sort_is_explained_as_a_precondition_not_a_compiler_error() {
+        let output = "error[E0277]: the trait bound `provreq::engine::EngineStatus: \
+                      kani::Arbitrary` is not satisfied\n\
+                      error: Failed to execute cargo (exit status: 101). Found 1 compilation \
+                      errors.\n";
+        let Outcome::Inconclusive { reason } = classify(output) else {
+            panic!("a harness that cannot compile decides nothing");
+        };
+        assert!(
+            reason.contains("`provreq::engine::EngineStatus`"),
+            "names the sort: {reason}"
+        );
+        assert!(
+            reason.contains("Nothing is wrong with the binding, the sort, or the claim"),
+            "does not blame the formalization: {reason}"
+        );
+        assert!(
+            reason.contains("deductive engine"),
+            "says what is NOT blocked: {reason}"
+        );
+    }
+
+    // Verifies: REQ065 — the branch keys on the trait, not on the error code. `E0277` is the
+    // ordinary unsatisfied-bound error, so a different one must fall through to the generic
+    // diagnostic rather than be dressed up as an instantiability precondition.
+    #[test]
+    fn an_unrelated_unsatisfied_bound_is_not_read_as_an_instantiability_problem() {
+        let output = "error[E0277]: the trait bound `Session: std::fmt::Display` is not \
+                      satisfied\n";
+        let Outcome::Inconclusive { reason } = classify(output) else {
+            panic!("a harness that cannot compile decides nothing");
+        };
+        assert!(!reason.contains("cannot be instantiated"), "{reason}");
+        assert!(reason.contains("std::fmt::Display"), "{reason}");
     }
 
     // Verifies: REQ027 — the harness name is a valid Rust identifier derived from the
@@ -757,7 +834,20 @@ For more information about this error, try `rustc --explain E0277`.
         let Outcome::Inconclusive { reason } = outcome else {
             panic!("an uncompilable harness decides nothing, got {outcome:?}");
         };
-        assert!(reason.contains("Arbitrary"), "{reason}");
+        // Against the REAL engine, so it is Kani's actual `E0277` wording being recognised and
+        // not just the unit fixture's (REQ065). If Kani ever restates that error, this is what
+        // catches it — and the reason degrades to the raw diagnostic rather than becoming wrong.
+        assert!(reason.contains("kani::Arbitrary"), "{reason}");
+        // `smoke::User`, not `User`: the sort is named as the harness reaches it, which is the
+        // form the operator has to write the impl against.
+        assert!(
+            reason.contains("`smoke::User` cannot be instantiated by Kani"),
+            "the real error must reach the precondition branch, naming the sort: {reason}"
+        );
+        assert!(
+            reason.contains("deductive engine"),
+            "and must say what is not blocked: {reason}"
+        );
     }
 
     // Verifies: REQ027 — provreq leaves no litter in someone else's repo. The harness file
