@@ -36,6 +36,12 @@ proc-macro2 = { version = "1", features = ["span-locations"] }
 # metadir outside the subject, so `run` needs tempfile at runtime, not just in tests. Already
 # in Cargo.lock as a dev-dep, so this promotes it rather than adding weight.
 tempfile = "3"
+# `cargo creusot` refuses any subject that does not depend on `creusot-std` — the refusal comes
+# from cargo-creusot itself, so this is what makes provreq verifiable by its own Creusot engine
+# rather than a dependency provreq's code uses. Measured inert on a stable build: it and its eight
+# transitive crates are pure Rust with no nightly-only requirement, so the release matrix is
+# unaffected and `#[logic]`/`proof_assert!` remain available only under `cfg(creusot)`.
+creusot-std = "0.12"
 
 [dev-dependencies]
 tower = { version = "0.5", features = ["util"] }
