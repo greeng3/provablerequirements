@@ -41,7 +41,7 @@ use crate::grounding::Binding;
 use crate::lowering::{self, LoweredClaim};
 pub use crate::lowering::{harness_name, NotLowerable};
 use crate::prl::ast::Requirement;
-use crate::rust_adapter::{Resolution, TypeResolution};
+use crate::rust_adapter::{PredicateForm, Resolution, TypeResolution};
 use crate::verdict::{Basis, Evidence};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
@@ -127,6 +127,83 @@ pub fn lower(
         name: name.to_string(),
         source,
     })
+}
+
+/// Redirect every predicate that has a **logic mirror** staged in the subject onto that mirror.
+///
+/// This is the Creusot-only half of [`crate::mirror_draft`], and it cannot be shared with Kani or
+/// Prusti: Kani *executes* the subject's functions, so it must keep calling the real program items,
+/// while Creusot's pearlite may only call `#[logic]` ones. Both engines lower the same claim from
+/// the same grounding, so the difference has to live here rather than in [`crate::lowering`].
+///
+/// The seam is that a mirror is a *resolution* detail — which item a predicate resolves to — so
+/// redirecting is a rewrite of the bindings and resolutions that `lower_property` already takes.
+/// Nothing in the shared lowering core changes, and neither does the harness shape.
+///
+/// A mirror is used only when it is actually **present** in the subject's source (the operator
+/// staged and kept it). An absent mirror leaves the predicate pointing at the program function,
+/// which then fails as it does today — *called program function `f` in logic context* — rather than
+/// producing a harness that names something that does not exist.
+///
+/// The mirror is a free function appended at module level in the *same file*, so the resolution's
+/// `CodeMatch` (and hence its module path, REQ061) stays correct as-is.
+pub fn with_mirrors(
+    bindings: &[Binding],
+    resolutions: &BTreeMap<String, Resolution>,
+    sources: &BTreeMap<String, String>,
+) -> (Vec<Binding>, BTreeMap<String, Resolution>) {
+    let mut out_bindings = bindings.to_vec();
+    let mut out_resolutions = resolutions.clone();
+    for (symbol, res) in resolutions {
+        let Resolution::Resolved { at, params, form } = res else {
+            continue;
+        };
+        let Some(binding) = bindings.iter().find(|b| b.symbol == *symbol) else {
+            continue;
+        };
+        // The program item's own name, per form: the observable names it only for a free function.
+        let program_name = match form {
+            PredicateForm::Function => binding.observable.as_str(),
+            PredicateForm::Method { name } => name.as_str(),
+            PredicateForm::VariantTest { name, .. } => name.as_str(),
+        };
+        let mirror = crate::mirror_draft::mirror_name(program_name);
+        let staged = sources
+            .get(&at.file)
+            .is_some_and(|src| src.contains(&format!("fn {mirror}")));
+        if !staged {
+            continue;
+        }
+        // A method's mirror is a FREE function taking the receiver as its first parameter, so the
+        // form changes as well as the name: `d.is_ready()` becomes `is_ready_logic(&d)`. A variant
+        // test keeps its shape and only redirects the function it tests.
+        let new_form = match form {
+            PredicateForm::Function | PredicateForm::Method { .. } => PredicateForm::Function,
+            PredicateForm::VariantTest {
+                enum_name,
+                variant,
+                enum_module,
+                ..
+            } => PredicateForm::VariantTest {
+                name: mirror.clone(),
+                enum_name: enum_name.clone(),
+                variant: variant.clone(),
+                enum_module: enum_module.clone(),
+            },
+        };
+        out_resolutions.insert(
+            symbol.clone(),
+            Resolution::Resolved {
+                at: at.clone(),
+                params: params.clone(),
+                form: new_form,
+            },
+        );
+        if let Some(b) = out_bindings.iter_mut().find(|b| b.symbol == *symbol) {
+            b.observable = mirror;
+        }
+    }
+    (out_bindings, out_resolutions)
 }
 
 /// Wrap one lowered claim as a Creusot `proof_assert!`. A quantified claim becomes a pearlite

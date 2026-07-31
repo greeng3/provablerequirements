@@ -236,10 +236,16 @@ fn creusot_evidence(
     bindings: &[Binding],
     resolved: &grounding::Resolutions,
 ) -> verdict::Evidence {
+    // Redirect any predicate whose logic mirror is staged in the subject onto that mirror, since
+    // pearlite may only call `#[logic]` items. Creusot-only: Kani executes these functions and must
+    // keep calling the program ones. A predicate with no staged mirror is left pointing at the
+    // program function and fails as before, naming it — never silently.
+    let sources = predicate_sources(subject, &resolved.code);
+    let (bindings, code) = crate::creusot::with_mirrors(bindings, &resolved.code, &sources);
     let harness = match crate::creusot::lower(
         requirement,
-        bindings,
-        &resolved.code,
+        &bindings,
+        &code,
         &resolved.sorts,
         &crate::creusot::harness_name(id),
     ) {
@@ -247,6 +253,26 @@ fn creusot_evidence(
         Err(e) => return verdict::Evidence::inconclusive("Creusot", vec![e.reason]),
     };
     crate::creusot::run(subject, &harness).into_evidence()
+}
+
+/// The text of every file a resolved predicate lives in, keyed by subject-relative path. Used to
+/// see which logic mirrors are actually staged. A file that cannot be read is simply absent, which
+/// reads as "no mirror here" — the conservative answer, since it keeps the program function.
+fn predicate_sources(
+    subject: &Path,
+    resolutions: &BTreeMap<String, Resolution>,
+) -> BTreeMap<String, String> {
+    let mut sources = BTreeMap::new();
+    for res in resolutions.values() {
+        if let Resolution::Resolved { at, .. } = res {
+            if !sources.contains_key(&at.file) {
+                if let Ok(text) = std::fs::read_to_string(subject.join(&at.file)) {
+                    sources.insert(at.file.clone(), text);
+                }
+            }
+        }
+    }
+    sources
 }
 
 /// Category 1 → Prusti (REQ032): the ensemble's second deductive member. Lower to an additive
