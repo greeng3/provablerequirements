@@ -142,12 +142,23 @@ fn observable_of(at: &CodeMatch, symbol: &str) -> String {
         .unwrap_or_else(|| symbol.to_string())
 }
 
-/// Build the mirror-drafting prompt for one function (pure).
+/// The pearlite rules every drafted clause must obey, shared with
+/// [`crate::semantic_draft`] so the contract channel states them too.
 ///
-/// The dialect rules are not decoration: each one is a failure measured against a live model. It
-/// proposed `matches!(…)` (pearlite rejects every macro but `pearlite!`/`proof_assert!`/`seq!`), and
-/// it wrote contracts calling the program function from inside a spec, which is the very thing a
-/// mirror exists to avoid. Stating the rules costs nothing and removes a whole repair round.
+/// These are not decoration: each is a failure measured against a live model. It proposed
+/// `matches!(…)` — pearlite rejects every macro but `pearlite!`/`proof_assert!`/`seq!` — and it
+/// wrote specs calling the program function, which is the very thing a mirror exists to avoid.
+/// Stating them costs nothing and saves a repair round that could not have succeeded anyway: no
+/// amount of repair turns a program call in a logic context into a legal one.
+pub const PEARLITE_RULES: &str = "\
+Pearlite rules you must obey:\n\
+- NO macros. `matches!`, `assert!`, `println!` and friends are rejected outright. Write a `match` \
+expression instead of `matches!`.\n\
+- Do NOT call the program function, or any other ordinary (non-`#[logic]`) function, from inside a \
+specification. Only `#[logic]` functions and pure pearlite are available there.\n\
+- Use `==>` for implication.\n";
+
+/// Build the mirror-drafting prompt for one function (pure).
 fn build_prompt(intent: &str, claim: &str, fn_src: &str, mirror_name: &str) -> String {
     format!(
         "You are writing a Creusot LOGIC MIRROR for one Rust function. A mirror is a `#[logic]` \
@@ -156,18 +167,15 @@ function means. The program function is then linked to it by a post-condition, a
 CHECKS the mirror against the real body — so state the function's actual meaning, never a guess.\n\n\
 Respond with EXACTLY two things and nothing else — no prose, no code fences, no explanation:\n\
 1. The mirror item, beginning `#[logic]`, named EXACTLY `{mirror_name}`, taking the same parameters \
-as the function (a method's receiver becomes an ordinary first parameter of the same type) and \
-returning the same type. Its body must be `pearlite! {{ ... }}`.\n\
+as the function and returning the same type. A method's receiver becomes an ordinary first \
+parameter of the SAME type INCLUDING its reference (`&self` becomes `s: &Thing`, not `Thing`) — and \
+it must NOT be called `self`, which is legal only in an associated function. Its body must be \
+`pearlite! {{ ... }}`.\n\
 2. On its own line, the linking clause `#[ensures(result == {mirror_name}(...))]`, applying the \
 mirror to the program function's own parameters (use `self` for a method receiver).\n\n\
-Pearlite rules you must obey:\n\
-- NO macros. `matches!`, `assert!`, `println!` and friends are rejected. Write a `match` expression \
-instead of `matches!`.\n\
+{PEARLITE_RULES}\
 - A logic function is a single EXPRESSION. No `return`, no statements, no `let mut`, no loops. \
-Express a chain of guards as nested `if … {{ … }} else if … {{ … }} else {{ … }}`.\n\
-- Do NOT call the program function, or any other ordinary (non-`#[logic]`) function. Only other \
-mirrors and pure pearlite are available.\n\
-- Use `==>` for implication.\n\n\
+Express a chain of guards as nested `if … {{ … }} else if … {{ … }} else {{ … }}`.\n\n\
 If you cannot state the function's meaning faithfully under these rules, respond with NOTHING.\n\n\
 Requirement (intent):\n{intent}\n\n\
 Formal claim (PRL):\n{claim}\n\n\
@@ -426,6 +434,22 @@ mod tests {
             "the whole point of a mirror"
         );
         assert!(p.contains("f_logic"), "the required name must be stated");
+    }
+
+    // Verifies: the receiver rule is explicit about BOTH things a live model got wrong — it named
+    // the parameter `self` (legal only in an associated function, so the staged edit would not
+    // compile) and dropped the reference from the type.
+    #[test]
+    fn the_prompt_forbids_naming_a_free_function_parameter_self() {
+        let p = build_prompt("i", "c", "fn f(&self) -> bool { true }", "f_logic");
+        assert!(
+            p.contains("must NOT be called `self`"),
+            "measured failure: `fn is_ready_logic(self: EngineStatus)`"
+        );
+        assert!(
+            p.contains("INCLUDING its reference"),
+            "the receiver keeps its `&`"
+        );
     }
 
     // Verifies: predicates resolving to the SAME function are mirrored once, matching the dedup the

@@ -38,6 +38,56 @@ impl Marker {
             Marker::Pure => "#[pure]",
         }
     }
+
+    /// The `use` line that brings this dialect's attributes into scope, exactly as the generated
+    /// harnesses already write it.
+    pub fn prelude_import(self) -> &'static str {
+        match self {
+            Marker::Logic => "use creusot_std::prelude::*;",
+            Marker::Pure => "use prusti_contracts::*;",
+        }
+    }
+}
+
+/// Ensure `src` imports the dialect's prelude, returning the text unchanged when it already does.
+///
+/// Staging a contract into a file writes `#[requires]`/`#[ensures]`/`#[logic]`/`pearlite!` into it,
+/// and none of those are in scope unless the file imports them. Measured: staging into
+/// `src/engine.rs`, which names `creusot_std` nowhere, failed with *cannot find attribute `ensures`
+/// in this scope* — a staged edit that cannot compile, before any prover saw the claim. The subject
+/// having the dependency is not enough; each *file* needs the import.
+///
+/// Placement is the fiddly part and is why this is a function rather than a `push_str`. A `use` is
+/// an item, and Rust requires inner attributes (`#![…]`) and inner doc comments (`//!`) to precede
+/// every item in a file — so prepending blindly turns a documented module into a syntax error. The
+/// import therefore goes after that leading block, which is also where a human would put it.
+pub fn ensure_prelude(src: &str, marker: Marker) -> String {
+    let import = marker.prelude_import();
+    if src.lines().any(|l| l.trim() == import) {
+        return src.to_string();
+    }
+    let lines: Vec<&str> = src.lines().collect();
+    // Skip the leading run of inner attributes, inner docs, blank lines and ordinary comments —
+    // everything that may (or must) precede the first item.
+    let at = lines
+        .iter()
+        .position(|l| {
+            let t = l.trim_start();
+            !(t.is_empty()
+                || t.starts_with("//!")
+                || t.starts_with("#![")
+                || t.starts_with("//")
+                || t.starts_with("/*"))
+        })
+        .unwrap_or(lines.len());
+    let mut out: Vec<String> = lines[..at].iter().map(|s| s.to_string()).collect();
+    out.push(import.to_string());
+    out.extend(lines[at..].iter().map(|s| s.to_string()));
+    let mut text = out.join("\n");
+    if src.ends_with('\n') || src.is_empty() {
+        text.push('\n');
+    }
+    text
 }
 
 /// One staged edit: insert `attribute` on its own line directly above the predicate fn at
@@ -169,6 +219,49 @@ pub fn apply_to_source(src: &str, drafts: &[MarkerDraft]) -> String {
 mod tests {
     use super::*;
     use crate::rust_adapter::{CodeMatch, ParamMode, PredicateForm};
+
+    // Verifies: a file that does not import the dialect's prelude gets the import. Measured
+    // failure this guards: staging into `src/engine.rs` (which names `creusot_std` nowhere) gave
+    // `cannot find attribute 'ensures' in this scope` — a staged edit that cannot compile.
+    #[test]
+    fn staging_into_a_file_without_the_prelude_adds_the_import() {
+        let src = "pub struct S;\n";
+        let out = ensure_prelude(src, Marker::Logic);
+        assert_eq!(out, "use creusot_std::prelude::*;\npub struct S;\n");
+    }
+
+    // Verifies: the import lands AFTER inner docs and inner attributes. Rust requires those to
+    // precede every item, and a `use` is an item — prepending blindly turns a documented module
+    // into a syntax error, which is precisely the file shape this codebase uses everywhere.
+    #[test]
+    fn the_import_goes_after_inner_docs_and_attributes_not_before_them() {
+        let src = "//! Module docs.\n//! More docs.\n#![allow(unused)]\n\npub struct S;\n";
+        let out = ensure_prelude(src, Marker::Logic);
+        let lines: Vec<&str> = out.lines().collect();
+        assert_eq!(lines[0], "//! Module docs.");
+        assert_eq!(lines[2], "#![allow(unused)]");
+        assert_eq!(
+            lines[4], "use creusot_std::prelude::*;",
+            "the import follows the leading block: {out}"
+        );
+        assert_eq!(lines[5], "pub struct S;");
+    }
+
+    // Verifies: an existing import is not duplicated — staging runs fresh from the original source
+    // on every repair round, so a duplicate would accumulate one per round.
+    #[test]
+    fn an_existing_prelude_import_is_not_duplicated() {
+        let src = "//! Docs.\nuse creusot_std::prelude::*;\npub struct S;\n";
+        assert_eq!(ensure_prelude(src, Marker::Logic), src);
+    }
+
+    // Verifies: the import follows the dialect, never a hardcoded Creusot one.
+    #[test]
+    fn the_import_follows_the_subjects_dialect() {
+        assert!(
+            ensure_prelude("pub struct S;\n", Marker::Pure).starts_with("use prusti_contracts::*;")
+        );
+    }
 
     fn resolved(file: &str, line: usize) -> Resolution {
         Resolution::Resolved {

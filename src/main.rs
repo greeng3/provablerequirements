@@ -1419,7 +1419,7 @@ async fn stage_semantic_drafts(
     resolutions: &BTreeMap<String, Resolution>,
     repair: bool,
 ) -> Result<()> {
-    use provreq::contract_draft::marker_for_subject;
+    use provreq::contract_draft::{ensure_prelude, marker_for_subject};
     use provreq::mirror_draft::{append_items, link_clauses, MirrorDraft, Mirrorer};
     use provreq::semantic_draft::{apply_to_source, ContractDraft, Drafter, ProofStep};
 
@@ -1509,6 +1509,15 @@ async fn stage_semantic_drafts(
             let edited = apply_to_source(original, &file_drafts);
             let file_mirrors = items_by_file.get(file).cloned().unwrap_or_default();
             let edited = append_items(&edited, &file_mirrors);
+            // A file that gains contract syntax must import the dialect that defines it, or the
+            // staged edit cannot compile — measured, `cannot find attribute 'ensures' in this
+            // scope` from a file that names `creusot_std` nowhere. Only touched when something
+            // was actually staged into this file, so an undrafted file stays byte-identical.
+            let edited = if file_drafts.is_empty() && file_mirrors.is_empty() {
+                edited
+            } else {
+                ensure_prelude(&edited, marker)
+            };
             std::fs::write(subject.join(file), edited).with_context(|| {
                 format!(
                     "staging contract draft into {}",
