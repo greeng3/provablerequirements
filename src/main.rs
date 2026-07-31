@@ -1420,6 +1420,7 @@ async fn stage_semantic_drafts(
     repair: bool,
 ) -> Result<()> {
     use provreq::contract_draft::marker_for_subject;
+    use provreq::mirror_draft::{append_items, link_clauses, MirrorDraft, Mirrorer};
     use provreq::semantic_draft::{apply_to_source, ContractDraft, Drafter, ProofStep};
 
     let manifest = std::fs::read_to_string(subject.join("Cargo.toml"))
@@ -1467,17 +1468,47 @@ async fn stage_semantic_drafts(
     );
     let drafter = Drafter::new(provreq::llm::HttpBackend::from_config(config)?);
 
+    // A Creusot subject additionally needs LOGIC MIRRORS, and without them the contracts alone
+    // cannot reach a proof: pearlite may only call `#[logic]` items, so a contract mentioning a
+    // resolved predicate is rejected as *called program function `f` in logic context*. Drafted
+    // once, before any repair round, because a mirror states what a function MEANS — that does not
+    // change when the prover fails to discharge a claim, whereas a contract does. Prusti has no
+    // such split (its `#[pure]` program functions are callable from specs), so this is Creusot-only.
+    let mirrors = if matches!(marker, provreq::contract_draft::Marker::Logic) {
+        Mirrorer::new(provreq::llm::HttpBackend::from_config(
+            provreq::llm::load_config(&companion)?.expect("config loaded above"),
+        )?)
+        .draft(&intent, &claim, resolutions, &sources)
+        .await?
+    } else {
+        Vec::new()
+    };
+    report_mirror_drafts(id, &mirrors);
+
     // Stage a draft set FRESH from the original sources: every predicate file is rewritten from its
     // original text plus that round's clauses, so a repair round never stacks on a prior round's edit
     // and an undrafted file is restored to original. Runs no git.
+    //
+    // The mirror links stage in the SAME pass as the drafted clauses because both are keyed to line
+    // numbers in the original text; the mirror items are appended afterwards, which inserts no lines
+    // and so cannot disturb them.
     let stage = |drafts: &[ContractDraft]| -> Result<()> {
-        let mut by_file: BTreeMap<&str, Vec<ContractDraft>> = BTreeMap::new();
-        for d in drafts {
-            by_file.entry(d.file.as_str()).or_default().push(d.clone());
+        let mut by_file: BTreeMap<String, Vec<ContractDraft>> = BTreeMap::new();
+        for d in drafts.iter().cloned().chain(link_clauses(&mirrors)) {
+            by_file.entry(d.file.clone()).or_default().push(d);
+        }
+        let mut items_by_file: BTreeMap<String, Vec<MirrorDraft>> = BTreeMap::new();
+        for m in &mirrors {
+            items_by_file
+                .entry(m.file.clone())
+                .or_default()
+                .push(m.clone());
         }
         for (file, original) in &sources {
-            let file_drafts = by_file.get(file.as_str()).cloned().unwrap_or_default();
+            let file_drafts = by_file.get(file).cloned().unwrap_or_default();
             let edited = apply_to_source(original, &file_drafts);
+            let file_mirrors = items_by_file.get(file).cloned().unwrap_or_default();
+            let edited = append_items(&edited, &file_mirrors);
             std::fs::write(subject.join(file), edited).with_context(|| {
                 format!(
                     "staging contract draft into {}",
@@ -1514,6 +1545,34 @@ async fn stage_semantic_drafts(
         report_semantic_drafts(id, &drafts, None);
     }
     Ok(())
+}
+
+/// Print the staged logic mirrors. Reported separately from the contracts because they are a
+/// different kind of proposal and carry a different risk: a contract clause the prover cannot
+/// discharge merely fails, whereas a mirror asserts what a function *means*. The prover does check
+/// each mirror against the real body — a wrong one fails at its own linking clause, naming the
+/// function — but that check is only as good as the operator's reading of the mirror it kept.
+fn report_mirror_drafts(id: &str, mirrors: &[provreq::mirror_draft::MirrorDraft]) {
+    if mirrors.is_empty() {
+        return;
+    }
+    println!(
+        "\n--draft-semantic: staged {} logic mirror(s) for {id} — REVIEW THESE FIRST:",
+        mirrors.len()
+    );
+    for m in mirrors {
+        println!("  {}:{}  → {}", m.file, m.line, m.name);
+        println!("    + {}", m.link);
+        for line in m.item.lines() {
+            println!("      {line}");
+        }
+    }
+    println!(
+        "  A mirror states what a function MEANS, in the prover's own language. The linking \
+         #[ensures] makes the prover check it against the real body, so a wrong mirror fails \
+         rather than proving something false — but a mirror you keep without reading is a claim \
+         you have not reviewed."
+    );
 }
 
 /// Map a re-verification's [`provreq::verdict::Verdict`] into the repair loop's [`ProofStep`]: the
