@@ -198,14 +198,27 @@ pub fn registry() -> Vec<Engine> {
             // executions) where Kani earns bounded `model-checked`; `aggregate` reports the
             // stronger rung when both hold ("proven by Creusot, corroborated bounded by
             // Kani"). Toolchain-welded like Kani (R-eng-4). `cargo-creusot` is the binary
-            // `cargo creusot` needs on PATH; it runs (exit 0) even outside a subject, so its
-            // presence is the honest readiness signal (there is no clean --version to parse).
+            // `cargo creusot` needs on PATH.
+            //
+            // The args are `creusot version`, and the leading `creusot` is load-bearing.
+            // `cargo-creusot` parses with `parse_from(args().skip(1))` because cargo invokes it
+            // as `cargo-creusot creusot …` — `skip(1)` drops the binary name and clap then
+            // consumes the *next* word as argv[0]. Given `cargo-creusot --version` that leaves
+            // NO arguments at all, which selects the default subcommand: a full compile-and-
+            // prove of the subject. That is how a status probe came to build the operator's
+            // crate and report the *subject's* version (`Checking provreq v0.0.1`) as Creusot's.
+            // `creusot version` reaches the real subcommand, prints `cargo-creusot <version>`,
+            // exits 0, and touches no subject.
+            //
+            // The marker is what keeps that honest: without it `parse_version` returns the first
+            // version-shaped token from *any* line of whatever the command emitted, which is
+            // exactly how an unrelated build log became an engine version.
             category: BindCategory::Code,
             name: "Creusot",
             probe: Some(EngineProbe {
                 bin: "cargo-creusot".to_string(),
-                args: vec!["--version".to_string()],
-                version_marker: None,
+                args: vec!["creusot".to_string(), "version".to_string()],
+                version_marker: Some("cargo-creusot".to_string()),
                 min_version: None,
             }),
         },
@@ -307,12 +320,20 @@ fn detect_probe(probe: &EngineProbe) -> EngineStatus {
     }
     // A marker that is set but absent means the host ran (e.g. `java`) but the engine is not
     // actually reachable (e.g. the jar is missing) — that is Missing, not Available.
-    if let Some(marker) = &probe.version_marker {
-        if !combined.contains(marker) {
-            return EngineStatus::Missing;
-        }
-    }
-    let found = parse_version(&combined);
+    //
+    // A marker that IS present additionally scopes the version scan to the line carrying it
+    // (#159). `parse_version` returns the first version-shaped token it meets, and probe output
+    // is routinely prefixed with noise a build emitted, so scanning the whole text lets a
+    // version belonging to something else be reported as the engine's. A version read off a line
+    // that does not name the engine is a version of some other thing.
+    let scan = match &probe.version_marker {
+        Some(marker) => match combined.lines().find(|l| l.contains(marker.as_str())) {
+            Some(line) => line,
+            None => return EngineStatus::Missing,
+        },
+        None => combined.as_str(),
+    };
+    let found = parse_version(scan);
     match (probe.min_version.as_deref(), &found) {
         (Some(min), Some(v)) if !version_meets_min(v, min) => EngineStatus::Incompatible {
             found: v.clone(),
@@ -596,9 +617,10 @@ mod tests {
     }
 
     // Verifies: REQ051 — the rule is narrow on purpose. A non-zero exit is NOT itself evidence of
-    // a broken engine: `cargo-creusot --version` exits 1 complaining about the current directory,
-    // and TLC exits 1 asking for an input module. A blanket "non-zero ⇒ not present" would trade
-    // one wrong answer for another and mark both working engines unusable.
+    // a broken engine: TLC exits 1 asking for an input module, and a deductive verifier exits 1
+    // complaining about the subject it was pointed at. A blanket "non-zero ⇒ not present" would
+    // trade one wrong answer for another and mark working engines unusable. (Creusot's own probe
+    // now exits 0 — see #159 — but the rule it motivated still holds for the rest.)
     #[test]
     fn an_engine_that_ran_and_objected_to_its_input_is_still_present() {
         let creusot_like = EngineProbe {
@@ -630,6 +652,54 @@ mod tests {
                 version: "2.19".to_string()
             }
         );
+    }
+
+    // Verifies: REQ049/#159 — an engine's reported version must come from a line that names the
+    // engine. This is the exact shape that corrupted the proving-environment stamp: the probe
+    // emitted a build log for the SUBJECT before anything about the engine, and the version scan
+    // took the first version-shaped token it met — so `provreq engines` reported provreq's own
+    // 0.0.1 as Creusot's. A wrong engine version is worse than none: REQ049 exists to detect
+    // engine drift, and a stamp that tracks the subject never drifts when the engine changes and
+    // always drifts when it does not.
+    #[test]
+    fn a_version_is_never_read_off_a_line_that_does_not_name_the_engine() {
+        let noisy = EngineProbe {
+            bin: "sh".to_string(),
+            args: vec![
+                "-c".to_string(),
+                "echo '    Checking provreq v0.0.1 (/workspace)'; \
+                 echo 'cargo-creusot 0.12.0'"
+                    .to_string(),
+            ],
+            version_marker: Some("cargo-creusot".to_string()),
+            min_version: None,
+        };
+        assert_eq!(
+            detect_probe(&noisy),
+            EngineStatus::Available {
+                version: "0.12.0".to_string()
+            },
+            "the version must come from the engine's own line, not the subject's build log"
+        );
+    }
+
+    // Verifies: REQ051/#159 — the marker still decides presence. Output that never names the
+    // engine is Missing, even when it is full of version-shaped tokens: those belong to whatever
+    // else ran, and inventing an engine version from them is the bug this guards.
+    #[test]
+    fn output_that_never_names_the_engine_is_missing_not_a_guessed_version() {
+        let subject_build_only = EngineProbe {
+            bin: "sh".to_string(),
+            args: vec![
+                "-c".to_string(),
+                "echo '    Checking provreq v0.0.1 (/workspace)'; \
+                 echo 'error: could not compile provreq'"
+                    .to_string(),
+            ],
+            version_marker: Some("cargo-creusot".to_string()),
+            min_version: None,
+        };
+        assert_eq!(detect_probe(&subject_build_only), EngineStatus::Missing);
     }
 
     // Verifies: REQ022 — version parsing and comparison (the compatibility machinery that
