@@ -205,10 +205,26 @@ reference only the function's own parameters and `result`. If the function needs
 state its behaviour, or you cannot state one faithfully, respond with NOTHING.\n\n\
 Respond with ONLY attribute lines — one `#[requires(...)]` or `#[ensures(...)]` per line — with no \
 prose, no code fences, and no function signature.\n\n\
+{rules}\n\
 Requirement (intent):\n{intent}\n\n\
 Formal claim (PRL):\n{claim}\n\n\
-Function:\n{fn_src}\n"
+Function:\n{fn_src}\n",
+        rules = pearlite_rules(marker),
     )
+}
+
+/// The dialect rules to state in a prompt, or nothing when the dialect has none worth stating.
+///
+/// Creusot's are shared with [`crate::mirror_draft`] rather than restated, because they are the
+/// same rules and they were learned the same way — from a live model that produced `matches!` in a
+/// contract, and a contract that called the program function it was attached to. Prusti draws the
+/// line elsewhere (its `#[pure]` program functions *are* callable from specs), so it gets none: a
+/// rule that does not apply to a dialect is noise that would push the model away from valid output.
+fn pearlite_rules(marker: Marker) -> &'static str {
+    match marker {
+        Marker::Logic => crate::mirror_draft::PEARLITE_RULES,
+        Marker::Pure => "",
+    }
 }
 
 /// Build a repair prompt for one function (pure): restate the drafting task, show the clauses the
@@ -245,9 +261,11 @@ Your previous clauses for this function were:\n{prior}\n\n\
 Revise this function's contract to help the prover discharge the claim. Respond with ONLY attribute \
 lines — one `#[requires(...)]` or `#[ensures(...)]` per line — with no prose, no code fences, and no \
 function signature.\n\n\
+{rules}\n\
 Requirement (intent):\n{intent}\n\n\
 Formal claim (PRL):\n{claim}\n\n\
-Function:\n{fn_src}\n"
+Function:\n{fn_src}\n",
+        rules = pearlite_rules(marker),
     )
 }
 
@@ -380,6 +398,38 @@ mod tests {
         assert!(p.contains("fn logged_in(u: &User) -> bool { u.active }"));
         // The Creusot dialect is named for a Logic subject.
         assert!(build_prompt("i", "c", "s", Marker::Logic).contains("Creusot"));
+    }
+
+    // Verifies: the CONTRACT prompt carries the pearlite rules, not just the mirror prompt. The gap
+    // was measured twice against a live model, which drafted
+    // `#[ensures(result == matches!(self, EngineStatus::Available { .. }))]` — pearlite rejects
+    // every macro, so no repair round could ever have rescued it.
+    #[test]
+    fn the_creusot_contract_prompt_states_the_pearlite_rules() {
+        let p = build_prompt("i", "c", "fn f() -> bool { true }", Marker::Logic);
+        assert!(p.contains("NO macros"), "measured failure: `matches!`");
+        assert!(p.contains("matches!"));
+        assert!(p.contains("Do NOT call the program function"));
+        // And so does the repair prompt — a repair round that forgot them would undo the fix.
+        let r = build_repair_prompt(
+            "i",
+            "c",
+            "fn f() {}",
+            &[],
+            "could not discharge",
+            Marker::Logic,
+        );
+        assert!(r.contains("NO macros"));
+    }
+
+    // Verifies: the rules are Creusot's, not universal. Prusti's `#[pure]` program functions ARE
+    // callable from specs, so stating a ban that does not apply would push the model off valid
+    // output — a rule for the wrong dialect is worse than no rule.
+    #[test]
+    fn prusti_is_not_given_creusots_restrictions() {
+        let p = build_prompt("i", "c", "fn f() -> bool { true }", Marker::Pure);
+        assert!(!p.contains("NO macros"));
+        assert!(!p.contains("Do NOT call the program function"));
     }
 
     // Verifies: REQ040 — the drafter proposes clauses per resolved function, dedups predicates that
