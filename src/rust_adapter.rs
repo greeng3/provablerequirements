@@ -45,8 +45,8 @@ pub struct CodeMatch {
 /// Whether a directory is pruned from the walk: the companion tree (whose `drafts.yml` holds the
 /// observables themselves — resolving there would be a spurious self-hit), or anything
 /// [`crate::subject_tree::is_pruned_dir`] excludes from every walk of a subject.
-fn is_skipped_dir(path: &Path, companion_root: &Path) -> bool {
-    path == companion_root || crate::subject_tree::is_pruned_dir(path)
+fn is_skipped_dir(path: &Path, depth: usize, companion_root: &Path) -> bool {
+    path == companion_root || crate::subject_tree::is_pruned_dir(path, depth)
 }
 
 /// How one parameter of a resolved predicate takes its argument. The only thing an engine
@@ -763,7 +763,7 @@ fn for_each_rust_file(
 ) {
     for entry in WalkDir::new(subject_root)
         .into_iter()
-        .filter_entry(|e| !is_skipped_dir(e.path(), companion_root))
+        .filter_entry(|e| !is_skipped_dir(e.path(), e.depth(), companion_root))
     {
         let Ok(entry) = entry else { continue };
         if !entry.file_type().is_file() || entry.path().extension().is_none_or(|x| x != "rs") {

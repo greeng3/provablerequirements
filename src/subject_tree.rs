@@ -14,9 +14,10 @@
 
 use std::path::Path;
 
-/// Directories pruned by name: version control, and the build/dependency trees of the ecosystems a
-/// subject is likely to be written in.
-const PRUNE_DIRS: [&str; 4] = [".git", "target", "node_modules", ".venv"];
+/// Directories pruned by name: the build/dependency trees of the ecosystems a subject is likely to
+/// be written in. Version control and virtualenv directories are hidden, so [`is_pruned_dir`]'s
+/// dot-rule already covers them.
+const PRUNE_DIRS: [&str; 2] = ["target", "node_modules"];
 
 /// The Cache Directory Tagging Specification's signature — the first line of a `CACHEDIR.TAG` in a
 /// directory whose contents are regenerable cache. Cargo writes one into `target/`.
@@ -24,16 +25,30 @@ const CACHEDIR_SIGNATURE: &[u8] = b"Signature: 8a477f597d28d172789f06886806bc55"
 
 /// Whether a directory is pruned from a walk of the subject.
 ///
-/// Two rules, because neither covers the other. **By name** catches `node_modules` and `.venv`,
-/// which carry no marker. **By `CACHEDIR.TAG`** catches a cache whatever it is called — including a
-/// cargo target directory relocated by `CARGO_TARGET_DIR`, which a name list can never anticipate,
-/// and the build directory of an ecosystem this list has never heard of.
-pub fn is_pruned_dir(path: &Path) -> bool {
-    let named = path
-        .file_name()
-        .and_then(|n| n.to_str())
-        .is_some_and(|n| PRUNE_DIRS.contains(&n));
-    named || is_cache_dir(path)
+/// Three rules, because none covers the others. **Hidden** (a leading `.`) catches the tooling a
+/// repository accumulates — `.git`, `.venv`, `.github`, an agent's home — none of which is source
+/// the operator wrote, and no name list can enumerate them; a crate never keeps its source in one.
+/// **By name** catches `node_modules` and `target`, which are neither hidden nor always tagged.
+/// **By `CACHEDIR.TAG`** catches a cache whatever it is called — including a cargo target directory
+/// relocated by `CARGO_TARGET_DIR`, which a name list can never anticipate, and the build directory
+/// of an ecosystem this list has never heard of.
+///
+/// The hidden rule was added after a live run grounded nothing: this repo exposes the agent's home
+/// as `.claude-home/`, holding scratch *copies of provreq's own source*, so every binding in REQ047
+/// parked as `Ambiguous` against six candidates — five of them files nobody wrote here.
+///
+/// `depth` is the entry's distance from the root of the walk, and **the root itself is never
+/// pruned**: `walkdir` applies a `filter_entry` predicate to depth 0 as well, so a subject checked
+/// out at a dotted path (`~/.local/src/thing`) would otherwise prune its own root and resolve every
+/// binding against nothing at all.
+pub fn is_pruned_dir(path: &Path, depth: usize) -> bool {
+    if depth == 0 {
+        return false;
+    }
+    let name = path.file_name().and_then(|n| n.to_str());
+    let hidden = name.is_some_and(|n| n.starts_with('.'));
+    let named = name.is_some_and(|n| PRUNE_DIRS.contains(&n));
+    hidden || named || is_cache_dir(path)
 }
 
 /// Whether a directory is tagged as regenerable cache. A missing or unreadable tag simply means
@@ -56,12 +71,12 @@ mod tests {
         for name in [".git", "target", "node_modules", ".venv"] {
             let dir = tmp.path().join(name);
             std::fs::create_dir_all(&dir).unwrap();
-            assert!(is_pruned_dir(&dir), "{name} should be pruned");
+            assert!(is_pruned_dir(&dir, 1), "{name} should be pruned");
         }
         for name in ["src", "tests", "requirements-doorstop"] {
             let dir = tmp.path().join(name);
             std::fs::create_dir_all(&dir).unwrap();
-            assert!(!is_pruned_dir(&dir), "{name} should be walked");
+            assert!(!is_pruned_dir(&dir, 1), "{name} should be walked");
         }
     }
 
@@ -72,14 +87,17 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let dir = tmp.path().join("build-output");
         std::fs::create_dir_all(&dir).unwrap();
-        assert!(!is_pruned_dir(&dir), "untagged, so it is the subject's own");
+        assert!(
+            !is_pruned_dir(&dir, 1),
+            "untagged, so it is the subject's own"
+        );
 
         std::fs::write(
             dir.join("CACHEDIR.TAG"),
             "Signature: 8a477f597d28d172789f06886806bc55\n# created by cargo\n",
         )
         .unwrap();
-        assert!(is_pruned_dir(&dir), "tagged as cache, so pruned");
+        assert!(is_pruned_dir(&dir, 1), "tagged as cache, so pruned");
     }
 
     // Verifies: REQ060 — a file that merely happens to be named `CACHEDIR.TAG`-adjacent, or one
@@ -91,6 +109,37 @@ mod tests {
         let dir = tmp.path().join("src");
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join("CACHEDIR.TAG"), "not the signature\n").unwrap();
-        assert!(!is_pruned_dir(&dir));
+        assert!(!is_pruned_dir(&dir, 1));
+    }
+
+    // Verifies: REQ060 — a hidden directory is pruned whatever it is called. The case that found
+    // this: `.claude-home/` exposes an agent's scratch copies of the subject's *own* source, so
+    // every binding in a real run parked as `Ambiguous` against files nobody wrote in the subject.
+    #[test]
+    fn prunes_hidden_directories_no_name_list_could_enumerate() {
+        let tmp = tempfile::tempdir().unwrap();
+        for name in [".claude-home", ".github", ".cargo", ".anything-at-all"] {
+            let dir = tmp.path().join(name);
+            std::fs::create_dir_all(&dir).unwrap();
+            assert!(
+                is_pruned_dir(&dir, 1),
+                "{name} is tooling, not subject source"
+            );
+        }
+    }
+
+    // Verifies: REQ060 — the root of the walk is never pruned, however it is named. `walkdir` hands
+    // its `filter_entry` predicate the depth-0 entry too, so without this a subject checked out at
+    // a dotted path would prune itself and resolve every binding against an empty tree.
+    #[test]
+    fn never_prunes_the_root_of_the_walk() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path().join(".dotfiles");
+        std::fs::create_dir_all(&root).unwrap();
+        assert!(
+            !is_pruned_dir(&root, 0),
+            "the subject's own root is never pruned"
+        );
+        assert!(is_pruned_dir(&root, 1), "the same name below the root is");
     }
 }

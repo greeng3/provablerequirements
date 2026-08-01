@@ -167,7 +167,7 @@ pub fn find_companion(subject_root: &Path) -> Result<Option<PathBuf>> {
         .follow_links(false)
         .into_iter()
         .filter_entry(|e| {
-            !(e.file_type().is_dir() && crate::subject_tree::is_pruned_dir(e.path()))
+            !(e.file_type().is_dir() && crate::subject_tree::is_pruned_dir(e.path(), e.depth()))
         });
     for entry in walker {
         let entry = entry.with_context(|| format!("walking {}", subject_root.display()))?;
