@@ -39,11 +39,19 @@ impl Marker {
         }
     }
 
-    /// The `use` line that brings this dialect's attributes into scope, exactly as the generated
-    /// harnesses already write it.
+    /// The `use` line that brings this dialect's attributes into scope.
+    ///
+    /// Creusot's own guide says to glob `creusot_std::prelude::*`, and that is right for a file
+    /// **written** for Creusot — but staging imports into a file the subject already had, and that
+    /// prelude deliberately shadows `vec!`, `Clone`, `PartialEq` and `Default` with Creusot's
+    /// versions. Its source says so outright: rustc "will either shadow the old identifier or
+    /// complain about the ambiguity". Measured — staging into `src/engine.rs`, which uses `vec!`
+    /// eleven times, gave `error[E0659]: 'vec' is ambiguous` and no prover ever ran. So import the
+    /// **macros** module instead: it carries every attribute provreq stages (`requires`, `ensures`,
+    /// `logic`, `pearlite`, `proof_assert`) and shadows nothing the subject already uses.
     pub fn prelude_import(self) -> &'static str {
         match self {
-            Marker::Logic => "use creusot_std::prelude::*;",
+            Marker::Logic => "use creusot_std::macros::*;",
             Marker::Pure => "use prusti_contracts::*;",
         }
     }
@@ -227,7 +235,7 @@ mod tests {
     fn staging_into_a_file_without_the_prelude_adds_the_import() {
         let src = "pub struct S;\n";
         let out = ensure_prelude(src, Marker::Logic);
-        assert_eq!(out, "use creusot_std::prelude::*;\npub struct S;\n");
+        assert_eq!(out, "use creusot_std::macros::*;\npub struct S;\n");
     }
 
     // Verifies: the import lands AFTER inner docs and inner attributes. Rust requires those to
@@ -241,7 +249,7 @@ mod tests {
         assert_eq!(lines[0], "//! Module docs.");
         assert_eq!(lines[2], "#![allow(unused)]");
         assert_eq!(
-            lines[4], "use creusot_std::prelude::*;",
+            lines[4], "use creusot_std::macros::*;",
             "the import follows the leading block: {out}"
         );
         assert_eq!(lines[5], "pub struct S;");
@@ -251,8 +259,22 @@ mod tests {
     // on every repair round, so a duplicate would accumulate one per round.
     #[test]
     fn an_existing_prelude_import_is_not_duplicated() {
-        let src = "//! Docs.\nuse creusot_std::prelude::*;\npub struct S;\n";
+        let src = "//! Docs.\nuse creusot_std::macros::*;\npub struct S;\n";
         assert_eq!(ensure_prelude(src, Marker::Logic), src);
+    }
+
+    // Verifies: the Creusot import does NOT glob the prelude. That prelude deliberately shadows
+    // `vec!`, `Clone`, `PartialEq` and `Default`, so globbing it into a subject file that already
+    // uses any of them is `error[E0659]: 'vec' is ambiguous` — measured on `src/engine.rs`, which
+    // killed a live run before the prover was reached.
+    #[test]
+    fn the_creusot_import_does_not_glob_the_shadowing_prelude() {
+        let out = ensure_prelude("pub struct S;\n", Marker::Logic);
+        assert!(
+            !out.contains("prelude::*"),
+            "the prelude shadows std names the subject already uses: {out}"
+        );
+        assert!(out.contains("macros::*"), "attributes still come in: {out}");
     }
 
     // Verifies: the import follows the dialect, never a hardcoded Creusot one.
