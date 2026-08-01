@@ -123,8 +123,8 @@ pub fn resolve(subject_root: &Path, companion_root: &Path, observable: &str) -> 
 /// spurious self-hit), or anything [`crate::subject_tree::is_pruned_dir`] excludes. Shares that one
 /// rule with the Rust adapter, so the two observable worlds cannot disagree about which of the
 /// subject's files count.
-fn is_skipped_dir(path: &Path, companion_root: &Path) -> bool {
-    path == companion_root || crate::subject_tree::is_pruned_dir(path)
+fn is_skipped_dir(path: &Path, depth: usize, companion_root: &Path) -> bool {
+    path == companion_root || crate::subject_tree::is_pruned_dir(path, depth)
 }
 
 /// Every TLA+ definition named `name` across the subject's `.tla` files.
@@ -132,7 +132,7 @@ fn find_definitions(subject_root: &Path, companion_root: &Path, name: &str) -> V
     let mut out = Vec::new();
     for entry in WalkDir::new(subject_root)
         .into_iter()
-        .filter_entry(|e| !is_skipped_dir(e.path(), companion_root))
+        .filter_entry(|e| !is_skipped_dir(e.path(), e.depth(), companion_root))
     {
         let Ok(entry) = entry else { continue };
         if !entry.file_type().is_file() || entry.path().extension().is_none_or(|x| x != "tla") {

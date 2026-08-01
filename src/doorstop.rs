@@ -32,7 +32,7 @@ struct Settings {
 }
 
 fn is_pruned(entry: &DirEntry) -> bool {
-    entry.file_type().is_dir() && crate::subject_tree::is_pruned_dir(entry.path())
+    entry.file_type().is_dir() && crate::subject_tree::is_pruned_dir(entry.path(), entry.depth())
 }
 
 /// Discover every Doorstop document under `subject_root`, sorted by directory.
