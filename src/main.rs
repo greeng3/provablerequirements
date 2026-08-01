@@ -1484,6 +1484,16 @@ async fn stage_semantic_drafts(
         Vec::new()
     };
     report_mirror_drafts(id, &mirrors);
+    // The contract channel shares the mirror channel's wall — a spec may call no program function —
+    // so it is told which mirrors exist. Without this it proposed `result <==> self.is_available()`:
+    // a prohibition with no stated alternative just gets broken.
+    let mirror_note = provreq::mirror_draft::mirror_note(&mirrors);
+    let ctx = provreq::semantic_draft::DraftContext {
+        intent: &intent,
+        claim: &claim,
+        marker,
+        mirrors: &mirror_note,
+    };
 
     // Stage a draft set FRESH from the original sources: every predicate file is rewritten from its
     // original text plus that round's clauses, so a repair round never stacks on a prior round's edit
@@ -1536,20 +1546,20 @@ async fn stage_semantic_drafts(
         let verify_round = |drafts: &[ContractDraft]| -> Result<ProofStep> {
             stage(drafts)?;
             match provreq::verify::verify(subject, id)? {
-                Some(VerifyOutcome::Verdict { verdict, .. }) => Ok(verdict_to_proof_step(&verdict)),
+                Some(VerifyOutcome::Verdict { verdict, .. }) => {
+                    Ok(verdict_to_proof_step(&verdict, engine))
+                }
                 other => Ok(ProofStep::Inconclusive {
                     reason: format!("re-verify produced no verdict ({other:?})"),
                 }),
             }
         };
         let out = drafter
-            .draft_repaired(&intent, &claim, marker, resolutions, &sources, verify_round)
+            .draft_repaired(ctx, resolutions, &sources, verify_round)
             .await?;
         report_semantic_drafts(id, &out.drafts, Some((out.attempts, &out.step)));
     } else {
-        let drafts = drafter
-            .draft(&intent, &claim, marker, resolutions, &sources)
-            .await?;
+        let drafts = drafter.draft(ctx, resolutions, &sources).await?;
         stage(&drafts)?;
         report_semantic_drafts(id, &drafts, None);
     }
@@ -1584,26 +1594,36 @@ fn report_mirror_drafts(id: &str, mirrors: &[provreq::mirror_draft::MirrorDraft]
     );
 }
 
-/// Map a re-verification's [`provreq::verdict::Verdict`] into the repair loop's [`ProofStep`]: the
-/// claim proved when any engine established a `holds`, else inconclusive carrying the engines' own
-/// reasons as the feedback the next re-draft targets.
+/// Map a re-verification's [`provreq::verdict::Verdict`] into the repair loop's [`ProofStep`], as
+/// judged by **the engine whose contracts are being drafted** — and no other.
+///
+/// Any-engine was wrong, and measurably so. REQ047 has a standing bounded `holds` from Kani, which
+/// no drafted Creusot clause affects either way; on that evidence the loop stopped after one round
+/// and printed *"the prover discharged the claim — these clauses are proof-carrying"* while Creusot
+/// had failed to compile the harness and never saw them. A clause is proof-carrying only if the
+/// prover it was written for discharged it, so a corroborating verdict from a different engine —
+/// however welcome in the verdict itself — is not evidence about these drafts.
+///
+/// The inconclusive reason likewise narrows to that engine: feeding a repair round Prusti's
+/// toolchain ceiling as the thing to fix would send it revising contracts against a message that
+/// has nothing to do with them.
 fn verdict_to_proof_step(
     verdict: &provreq::verdict::Verdict,
+    engine: &str,
 ) -> provreq::semantic_draft::ProofStep {
     use provreq::semantic_draft::ProofStep;
     use provreq::verdict::Status;
-    if verdict.evidence.iter().any(|e| e.status == Status::Holds) {
+    let mine = || verdict.evidence.iter().filter(|e| e.engine == engine);
+    if mine().any(|e| e.status == Status::Holds) {
         return ProofStep::Proved;
     }
-    let reason = verdict
-        .evidence
-        .iter()
+    let reason = mine()
         .flat_map(|e| e.detail.iter().cloned())
         .collect::<Vec<_>>()
         .join("; ");
     ProofStep::Inconclusive {
         reason: if reason.is_empty() {
-            "the prover did not discharge the claim".to_string()
+            format!("{engine} did not discharge the claim")
         } else {
             reason
         },
@@ -1815,16 +1835,40 @@ mod tests {
         }
     }
 
-    // Verifies: REQ041 — a re-verification where any engine established a `holds` maps to Proved, so
-    // the repair loop stops.
+    // Verifies: REQ041 — a re-verification where the DRAFTING engine established a `holds` maps to
+    // Proved, so the repair loop stops.
     #[test]
-    fn proof_step_is_proved_when_an_engine_holds() {
+    fn proof_step_is_proved_when_the_drafting_engine_holds() {
         let v = aggregate(
             "REQ001",
             vec![Evidence::holds("Creusot", Basis::Proven)],
             prov(),
         );
-        assert_eq!(verdict_to_proof_step(&v), ProofStep::Proved);
+        assert_eq!(verdict_to_proof_step(&v, "Creusot"), ProofStep::Proved);
+    }
+
+    // Verifies: another engine's `holds` is NOT evidence about these drafts. Measured on REQ047:
+    // Kani's standing bounded `holds` — which no Creusot clause affects — made the loop stop after
+    // one round and print "the prover discharged the claim … proof-carrying" while Creusot had
+    // failed to compile the harness and never saw a single drafted clause. A clause is
+    // proof-carrying only if the prover it was written for discharged it.
+    #[test]
+    fn another_engines_holds_is_not_evidence_about_these_drafts() {
+        let v = aggregate(
+            "REQ001",
+            vec![
+                Evidence::holds("Kani", Basis::ModelCheckedBounded),
+                Evidence::inconclusive("Creusot", vec!["the proof harness did not compile".into()]),
+            ],
+            prov(),
+        );
+        match verdict_to_proof_step(&v, "Creusot") {
+            ProofStep::Inconclusive { reason } => assert!(
+                reason.contains("did not compile"),
+                "the repair round must be fed Creusot's own reason, got {reason:?}"
+            ),
+            other => panic!("Kani's bounded holds must not pass off as a Creusot proof: {other:?}"),
+        }
     }
 
     // Verifies: REQ041 — an all-inconclusive verdict maps to Inconclusive carrying the engines' own
@@ -1839,7 +1883,7 @@ mod tests {
             )],
             prov(),
         );
-        match verdict_to_proof_step(&v) {
+        match verdict_to_proof_step(&v, "Creusot") {
             ProofStep::Inconclusive { reason } => {
                 assert!(reason.contains("goal foo'post unproved"))
             }

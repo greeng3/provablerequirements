@@ -36,6 +36,22 @@ pub struct ContractDraft {
     pub clauses: Vec<String>,
 }
 
+/// What every drafted clause is written against: the requirement, the dialect, and the mirrors a
+/// spec is allowed to call. These four always travel together — the initial draft and every repair
+/// round each need all of them — so they are one value rather than four positions to keep in step.
+#[derive(Debug, Clone, Copy)]
+pub struct DraftContext<'a> {
+    /// The requirement's prose.
+    pub intent: &'a str,
+    /// The PRL claim candidate.
+    pub claim: &'a str,
+    /// Which verifier dialect to write for.
+    pub marker: Marker,
+    /// The `#[logic]` mirrors a specification may legally call, already rendered for the prompt by
+    /// [`crate::mirror_draft::mirror_note`]. Empty when there are none.
+    pub mirrors: &'a str,
+}
+
 /// Proposes deductive contracts for a requirement's resolved predicate functions. Generic over its
 /// backend so tests inject a stub, mirroring [`crate::formalize::Translator`].
 pub struct Drafter<B: LlmBackend> {
@@ -55,14 +71,12 @@ impl<B: LlmBackend> Drafter<B> {
     /// verifier dialect, and `sources` maps each resolved file to its full text.
     pub async fn draft(
         &self,
-        intent: &str,
-        claim: &str,
-        marker: Marker,
+        ctx: DraftContext<'_>,
         resolutions: &BTreeMap<String, Resolution>,
         sources: &BTreeMap<String, String>,
     ) -> Result<Vec<ContractDraft>> {
         self.draft_each(resolutions, sources, |fn_src, _at| {
-            build_prompt(intent, claim, fn_src, marker)
+            build_prompt(ctx, fn_src)
         })
         .await
     }
@@ -77,16 +91,12 @@ impl<B: LlmBackend> Drafter<B> {
     /// `Inconclusive` — the caller stages and surfaces both, never a fabricated pass.
     pub async fn draft_repaired(
         &self,
-        intent: &str,
-        claim: &str,
-        marker: Marker,
+        ctx: DraftContext<'_>,
         resolutions: &BTreeMap<String, Resolution>,
         sources: &BTreeMap<String, String>,
         mut verify: impl FnMut(&[ContractDraft]) -> Result<ProofStep>,
     ) -> Result<RepairedDrafts> {
-        let mut drafts = self
-            .draft(intent, claim, marker, resolutions, sources)
-            .await?;
+        let mut drafts = self.draft(ctx, resolutions, sources).await?;
         let mut attempts = 1;
         loop {
             let step = verify(&drafts)?;
@@ -113,7 +123,7 @@ impl<B: LlmBackend> Drafter<B> {
                         .find(|d| d.file == at.file && d.line == at.line)
                         .map(|d| d.clauses.as_slice())
                         .unwrap_or(&[]);
-                    build_repair_prompt(intent, claim, fn_src, prior, reason, marker)
+                    build_repair_prompt(ctx, fn_src, prior, reason)
                 })
                 .await?;
             attempts += 1;
@@ -194,7 +204,13 @@ fn dialect(marker: Marker) -> (&'static str, &'static str) {
 /// the requirement's intent and formal claim for context, and shows the function's own source so
 /// the model states the function's real contract rather than guessing from a signature alone. The
 /// "respond with NOTHING" escape is what lets [`parse_clauses`] honestly skip a function.
-fn build_prompt(intent: &str, claim: &str, fn_src: &str, marker: Marker) -> String {
+fn build_prompt(ctx: DraftContext<'_>, fn_src: &str) -> String {
+    let DraftContext {
+        intent,
+        claim,
+        marker,
+        mirrors,
+    } = ctx;
     let (engine, krate) = dialect(marker);
     format!(
         "You are drafting deductive contracts for the Rust verifier {engine} ({krate}). Given a \
@@ -206,6 +222,7 @@ state its behaviour, or you cannot state one faithfully, respond with NOTHING.\n
 Respond with ONLY attribute lines — one `#[requires(...)]` or `#[ensures(...)]` per line — with no \
 prose, no code fences, and no function signature.\n\n\
 {rules}\n\
+{mirrors}\
 Requirement (intent):\n{intent}\n\n\
 Formal claim (PRL):\n{claim}\n\n\
 Function:\n{fn_src}\n",
@@ -233,13 +250,17 @@ fn pearlite_rules(marker: Marker) -> &'static str {
 /// not discharge …"), not "try again". `previous` may be empty (the model declined this function
 /// last round but the prover still failed, so it is invited to reconsider).
 fn build_repair_prompt(
-    intent: &str,
-    claim: &str,
+    ctx: DraftContext<'_>,
     fn_src: &str,
     previous: &[String],
     reason: &str,
-    marker: Marker,
 ) -> String {
+    let DraftContext {
+        intent,
+        claim,
+        marker,
+        mirrors,
+    } = ctx;
     let (engine, krate) = dialect(marker);
     let prior = if previous.is_empty() {
         "  (no clauses were drafted for this function last round)".to_string()
@@ -262,6 +283,7 @@ Revise this function's contract to help the prover discharge the claim. Respond 
 lines — one `#[requires(...)]` or `#[ensures(...)]` per line — with no prose, no code fences, and no \
 function signature.\n\n\
 {rules}\n\
+{mirrors}\
 Requirement (intent):\n{intent}\n\n\
 Formal claim (PRL):\n{claim}\n\n\
 Function:\n{fn_src}\n",
@@ -319,6 +341,22 @@ pub fn apply_to_source(src: &str, drafts: &[ContractDraft]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A [`DraftContext`] for tests: the four inputs a prompt is built from, defaulted so each test
+    /// states only the one it is about.
+    fn ctx<'a>(
+        intent: &'a str,
+        claim: &'a str,
+        marker: Marker,
+        mirrors: &'a str,
+    ) -> DraftContext<'a> {
+        DraftContext {
+            intent,
+            claim,
+            marker,
+            mirrors,
+        }
+    }
     use crate::rust_adapter::{CodeMatch, ParamMode, PredicateForm};
 
     fn resolved(file: &str, line: usize) -> Resolution {
@@ -386,10 +424,13 @@ mod tests {
     #[test]
     fn prompt_carries_dialect_intent_claim_and_source() {
         let p = build_prompt(
-            "users stay logged in",
-            "requirement r { require { always logged_in(u) } }",
+            ctx(
+                "users stay logged in",
+                "requirement r { require { always logged_in(u) } }",
+                Marker::Pure,
+                "",
+            ),
             "fn logged_in(u: &User) -> bool { u.active }",
-            Marker::Pure,
         );
         assert!(p.contains("Prusti"));
         assert!(p.contains("prusti-contracts"));
@@ -397,7 +438,7 @@ mod tests {
         assert!(p.contains("always logged_in(u)"));
         assert!(p.contains("fn logged_in(u: &User) -> bool { u.active }"));
         // The Creusot dialect is named for a Logic subject.
-        assert!(build_prompt("i", "c", "s", Marker::Logic).contains("Creusot"));
+        assert!(build_prompt(ctx("i", "c", Marker::Logic, ""), "s").contains("Creusot"));
     }
 
     // Verifies: the CONTRACT prompt carries the pearlite rules, not just the mirror prompt. The gap
@@ -406,20 +447,42 @@ mod tests {
     // every macro, so no repair round could ever have rescued it.
     #[test]
     fn the_creusot_contract_prompt_states_the_pearlite_rules() {
-        let p = build_prompt("i", "c", "fn f() -> bool { true }", Marker::Logic);
+        let p = build_prompt(ctx("i", "c", Marker::Logic, ""), "fn f() -> bool { true }");
         assert!(p.contains("NO macros"), "measured failure: `matches!`");
         assert!(p.contains("matches!"));
         assert!(p.contains("Do NOT call the program function"));
         // And so does the repair prompt — a repair round that forgot them would undo the fix.
         let r = build_repair_prompt(
-            "i",
-            "c",
+            ctx("i", "c", Marker::Logic, ""),
             "fn f() {}",
             &[],
             "could not discharge",
-            Marker::Logic,
         );
         assert!(r.contains("NO macros"));
+    }
+
+    // Verifies: the contract prompt offers the drafted mirrors — both on the first draft and on a
+    // repair round. Measured: told only "do not call the program function", a live model wrote
+    // `#[ensures(result <==> self.is_available())]`; a prohibition with no stated alternative just
+    // gets broken, and the staged harness then fails to compile before any prover runs.
+    #[test]
+    fn the_contract_prompt_offers_the_mirrors_it_may_call_instead() {
+        let note = "- `is_ready` → call `is_ready_logic(…)`\n";
+        let p = build_prompt(
+            ctx("i", "c", Marker::Logic, note),
+            "fn f() -> bool { true }",
+        );
+        assert!(p.contains("is_ready_logic"), "the mirror is offered: {p}");
+        let r = build_repair_prompt(
+            ctx("i", "c", Marker::Logic, note),
+            "fn f() {}",
+            &[],
+            "could not discharge",
+        );
+        assert!(
+            r.contains("is_ready_logic"),
+            "a repair round that forgot the mirrors would re-break it: {r}"
+        );
     }
 
     // Verifies: the rules are Creusot's, not universal. Prusti's `#[pure]` program functions ARE
@@ -427,7 +490,7 @@ mod tests {
     // output — a rule for the wrong dialect is worse than no rule.
     #[test]
     fn prusti_is_not_given_creusots_restrictions() {
-        let p = build_prompt("i", "c", "fn f() -> bool { true }", Marker::Pure);
+        let p = build_prompt(ctx("i", "c", Marker::Pure, ""), "fn f() -> bool { true }");
         assert!(!p.contains("NO macros"));
         assert!(!p.contains("Do NOT call the program function"));
     }
@@ -453,7 +516,7 @@ mod tests {
             ("fn quiet", "NOTHING"),
         ]);
         let drafts = Drafter::new(backend)
-            .draft("intent", "claim", Marker::Pure, &res, &sources)
+            .draft(ctx("intent", "claim", Marker::Pure, ""), &res, &sources)
             .await
             .unwrap();
         assert_eq!(
@@ -539,7 +602,7 @@ mod tests {
         let backend = SeqBackend::new(&["#[ensures(result == u.active)]"]);
         let drafter = Drafter::new(backend);
         let out = drafter
-            .draft_repaired("i", "c", Marker::Logic, &res, &sources, |_| {
+            .draft_repaired(ctx("i", "c", Marker::Logic, ""), &res, &sources, |_| {
                 Ok(ProofStep::Proved)
             })
             .await
@@ -558,7 +621,7 @@ mod tests {
         let drafter = Drafter::new(backend);
         let mut round = 0;
         let out = drafter
-            .draft_repaired("i", "c", Marker::Logic, &res, &sources, |drafts| {
+            .draft_repaired(ctx("i", "c", Marker::Logic, ""), &res, &sources, |drafts| {
                 round += 1;
                 assert_eq!(drafts.len(), 1);
                 if round == 1 {
@@ -592,7 +655,7 @@ mod tests {
         let backend = SeqBackend::new(&["#[ensures(result)]"]);
         let mut calls = 0;
         let out = Drafter::new(backend)
-            .draft_repaired("i", "c", Marker::Logic, &res, &sources, |_| {
+            .draft_repaired(ctx("i", "c", Marker::Logic, ""), &res, &sources, |_| {
                 calls += 1;
                 Ok(ProofStep::Inconclusive {
                     reason: "still unproved".into(),
@@ -614,7 +677,7 @@ mod tests {
         let backend = SeqBackend::new(&["NOTHING"]);
         let mut calls = 0;
         let out = Drafter::new(backend)
-            .draft_repaired("i", "c", Marker::Logic, &res, &sources, |_| {
+            .draft_repaired(ctx("i", "c", Marker::Logic, ""), &res, &sources, |_| {
                 calls += 1;
                 Ok(ProofStep::Inconclusive {
                     reason: "unproved".into(),
