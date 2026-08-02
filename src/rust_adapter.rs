@@ -354,16 +354,12 @@ impl TypeResolution {
 /// name (REQ026). Existence only — whether the type can be *instantiated* (Kani's
 /// `Arbitrary`) is an engine's question, and the binding is core-owned, so answering it
 /// here would bake one engine's shape into the core.
-pub fn resolve_type(
-    subject_root: &Path,
-    companion_root: &Path,
-    observable: &str,
-) -> TypeResolution {
+pub fn resolve_type(subject: &ParsedSubject, observable: &str) -> TypeResolution {
     let name = observable.trim();
     if name.is_empty() {
         return TypeResolution::NotFound;
     }
-    let found = find_types(subject_root, companion_root, name);
+    let found = find_types(subject, name);
     match found.len() {
         // The subject declares nothing by that name — but the language may. A primitive is only
         // ever the fallback: a subject that declares its own `bool` has a source location the
@@ -410,9 +406,9 @@ pub fn is_primitive(name: &str) -> bool {
 
 /// Every `struct`/`enum`/`type` alias named `name`, with the same walk and skip rules as
 /// the predicate resolver.
-fn find_types(subject_root: &Path, companion_root: &Path, name: &str) -> Vec<CodeMatch> {
+fn find_types(subject: &ParsedSubject, name: &str) -> Vec<CodeMatch> {
     let mut out = Vec::new();
-    for_each_rust_file(subject_root, companion_root, |file, rel, text, module| {
+    subject.each(|file, rel, text, module| {
         collect_types(&file.items, name, rel, text, module, &mut out);
     });
     out
@@ -479,18 +475,13 @@ fn at_ident(ident: &syn::Ident, rel: &str, text: &str, module: &Option<Vec<Strin
 ///
 /// Read-only over the subject and recomputed live — code moves under a binding exactly as prose
 /// moves under a draft, so a resolution is never stored.
-pub fn resolve(
-    subject_root: &Path,
-    companion_root: &Path,
-    observable: &str,
-    params: &[Option<String>],
-) -> Resolution {
+pub fn resolve(subject: &ParsedSubject, observable: &str, params: &[Option<String>]) -> Resolution {
     let name = observable.trim();
     let segments: Vec<&str> = name.split("::").map(str::trim).collect();
     match segments[..] {
-        [one] if !one.is_empty() => resolve_bare(subject_root, companion_root, one, params),
+        [one] if !one.is_empty() => resolve_bare(subject, one, params),
         [qualifier, member] if !qualifier.is_empty() && !member.is_empty() => {
-            resolve_qualified(subject_root, companion_root, qualifier, member, params)
+            resolve_qualified(subject, qualifier, member, params)
         }
         // An empty observable, or a path deeper than `A::B`. Nothing this adapter understands
         // takes three segments, and guessing which two were meant would bind the requirement to
@@ -502,13 +493,8 @@ pub fn resolve(
 /// A bare name: a free function, or an inherent method reached without qualifying its type. The
 /// signature decides which — a `self` receiver makes it a method however it was written, because
 /// lowering a method as a free call generates code that cannot compile (REQ055).
-fn resolve_bare(
-    subject_root: &Path,
-    companion_root: &Path,
-    name: &str,
-    params: &[Option<String>],
-) -> Resolution {
-    let found = find_functions(subject_root, companion_root, name);
+fn resolve_bare(subject: &ParsedSubject, name: &str, params: &[Option<String>]) -> Resolution {
+    let found = find_functions(subject, name);
     match found.len() {
         0 => Resolution::NotFound,
         1 => {
@@ -530,26 +516,23 @@ fn resolve_bare(
 /// inherent method `B`. Which one is decided by what `A` actually is in the subject; a name that
 /// is both a function and a type is an ambiguity, never a guess.
 fn resolve_qualified(
-    subject_root: &Path,
-    companion_root: &Path,
+    subject: &ParsedSubject,
     qualifier: &str,
     member: &str,
     params: &[Option<String>],
 ) -> Resolution {
-    let fns = find_functions(subject_root, companion_root, qualifier);
-    let types = find_types(subject_root, companion_root, qualifier);
+    let fns = find_functions(subject, qualifier);
+    let types = find_types(subject, qualifier);
     match (fns.len(), types.len()) {
         (0, 0) => Resolution::NotFound,
         (1, 0) => variant_test(
-            subject_root,
-            companion_root,
+            subject,
             fns.into_iter().next().expect("len checked"),
             member,
             params,
         ),
         (0, 1) => method_on(
-            subject_root,
-            companion_root,
+            subject,
             types.into_iter().next().expect("len checked"),
             qualifier,
             member,
@@ -562,8 +545,7 @@ fn resolve_qualified(
 /// A function whose return type is an enum, narrowed to one variant. Arity is checked first, for
 /// the same reason it is everywhere else: it names the more fundamental mismatch.
 fn variant_test(
-    subject_root: &Path,
-    companion_root: &Path,
+    subject: &ParsedSubject,
     f: FoundFn,
     variant: &str,
     params: &[Option<String>],
@@ -575,7 +557,7 @@ fn variant_test(
             at: f.at,
         };
     }
-    let mut enums = find_enums(subject_root, companion_root, &f.returns);
+    let mut enums = find_enums(subject, &f.returns);
     // Two enums of that name is the same unanswerable question as two functions: the variants would
     // have to be pooled from declarations in different modules, and the harness can only name one.
     if enums.len() > 1 {
@@ -615,19 +597,18 @@ fn variant_test(
 /// several types share — `is_ready` alone is an [`Resolution::Ambiguous`] as soon as two types
 /// declare it.
 fn method_on(
-    subject_root: &Path,
-    companion_root: &Path,
+    subject: &ParsedSubject,
     ty_at: CodeMatch,
     ty: &str,
     method: &str,
     params: &[Option<String>],
 ) -> Resolution {
-    let mut found = find_methods(subject_root, companion_root, ty, Some(method));
+    let mut found = find_methods(subject, ty, Some(method));
     match found.len() {
         0 => Resolution::NoSuchMethod {
             ty: ty.to_string(),
             method: method.to_string(),
-            methods: find_methods(subject_root, companion_root, ty, None)
+            methods: find_methods(subject, ty, None)
                 .into_iter()
                 .map(|f| f.name)
                 .collect(),
@@ -706,9 +687,9 @@ fn wrong_param_type(f: &FoundFn, params: &[Option<String>]) -> Option<Resolution
 
 /// Every function named `name` in the subject's `.rs` files, including inside inline
 /// `mod` blocks and `impl` blocks.
-fn find_functions(subject_root: &Path, companion_root: &Path, name: &str) -> Vec<FoundFn> {
+fn find_functions(subject: &ParsedSubject, name: &str) -> Vec<FoundFn> {
     let mut out = Vec::new();
-    for_each_rust_file(subject_root, companion_root, |file, rel, text, module| {
+    subject.each(|file, rel, text, module| {
         collect_fns(&file.items, name, rel, text, module, &mut out);
     });
     out
@@ -748,41 +729,74 @@ fn file_module_path(rel: &str) -> Option<Vec<String>> {
         .then_some(parts)
 }
 
-/// Visit every parseable `.rs` file under the subject, handing the callback its parsed
-/// syntax tree, its path relative to the subject root, and its raw text.
+/// Every parseable `.rs` file under the subject, walked and parsed **once**.
 ///
-/// The single walk both resolvers use, so a predicate and a sort can never disagree about
+/// The single walk every resolver uses, so a predicate and a sort can never disagree about
 /// which files count — the skip rules are the binding's semantics, not an implementation
 /// detail. Unparseable files are skipped rather than failing the run: a subject may
 /// legitimately hold a Rust file this parser cannot read (a newer edition, a generated
 /// fixture), and one bad file must not blind the whole resolution.
-fn for_each_rust_file(
-    subject_root: &Path,
-    companion_root: &Path,
-    mut visit: impl FnMut(&syn::File, &str, &str, &Option<Vec<String>>),
-) {
-    for entry in WalkDir::new(subject_root)
-        .into_iter()
-        .filter_entry(|e| !is_skipped_dir(e.path(), e.depth(), companion_root))
-    {
-        let Ok(entry) = entry else { continue };
-        if !entry.file_type().is_file() || entry.path().extension().is_none_or(|x| x != "rs") {
-            continue;
+///
+/// It is a value the caller holds rather than a walk each lookup starts for itself, because each
+/// lookup used to re-walk *and re-parse* the whole subject: one `A::B` binding costs three lookups
+/// on its own (the qualifier as a function, the qualifier as a type, then the returned enum), so a
+/// four-binding requirement came to roughly ten full parses of the same tree (#144). Resolution is
+/// still recomputed live — code moves under a binding exactly as prose moves under a draft — and
+/// that stays true whether the parse happens once or ten times; the freshness boundary is now the
+/// [`load`](ParsedSubject::load) call, which is one grounding pass.
+pub struct ParsedSubject {
+    files: Vec<ParsedFile>,
+}
+
+/// One walked-and-parsed source file: its syntax tree, the text the tree's spans index into, its
+/// subject-relative path, and the module path a harness would name it through (REQ061).
+struct ParsedFile {
+    ast: syn::File,
+    rel: String,
+    text: String,
+    module: Option<Vec<String>>,
+}
+
+impl ParsedSubject {
+    /// Walk and parse the subject once.
+    pub fn load(subject_root: &Path, companion_root: &Path) -> Self {
+        let mut files = Vec::new();
+        for entry in WalkDir::new(subject_root)
+            .into_iter()
+            .filter_entry(|e| !is_skipped_dir(e.path(), e.depth(), companion_root))
+        {
+            let Ok(entry) = entry else { continue };
+            if !entry.file_type().is_file() || entry.path().extension().is_none_or(|x| x != "rs") {
+                continue;
+            }
+            let Ok(text) = std::fs::read_to_string(entry.path()) else {
+                continue;
+            };
+            let Ok(ast) = syn::parse_file(&text) else {
+                continue;
+            };
+            let rel = entry
+                .path()
+                .strip_prefix(subject_root)
+                .unwrap_or(entry.path())
+                .display()
+                .to_string();
+            let module = file_module_path(&rel);
+            files.push(ParsedFile {
+                ast,
+                rel,
+                text,
+                module,
+            });
         }
-        let Ok(text) = std::fs::read_to_string(entry.path()) else {
-            continue;
-        };
-        let Ok(file) = syn::parse_file(&text) else {
-            continue;
-        };
-        let rel = entry
-            .path()
-            .strip_prefix(subject_root)
-            .unwrap_or(entry.path())
-            .display()
-            .to_string();
-        let module = file_module_path(&rel);
-        visit(&file, &rel, &text, &module);
+        Self { files }
+    }
+
+    /// Visit every parsed file. The finders differ only in what they collect, so they share this.
+    fn each(&self, mut visit: impl FnMut(&syn::File, &str, &str, &Option<Vec<String>>)) {
+        for f in &self.files {
+            visit(&f.ast, &f.rel, &f.text, &f.module);
+        }
     }
 }
 
@@ -830,9 +844,9 @@ struct FoundEnum {
 
 /// Every enum named `name` — empty when the subject declares none, which includes the ordinary case
 /// of a function that simply returns something that is not an enum (REQ055).
-fn find_enums(subject_root: &Path, companion_root: &Path, name: &str) -> Vec<FoundEnum> {
+fn find_enums(subject: &ParsedSubject, name: &str) -> Vec<FoundEnum> {
     let mut out = Vec::new();
-    for_each_rust_file(subject_root, companion_root, |file, rel, text, module| {
+    subject.each(|file, rel, text, module| {
         collect_enums(&file.items, name, rel, text, module, &mut out);
     });
     out
@@ -866,14 +880,9 @@ fn collect_enums(
 /// the ones so named. Trait impls (`impl Trait for Ty`) are skipped: a trait method is reached
 /// through the trait, and calling it on a value the harness built would depend on the trait being
 /// in scope, which `syn` cannot see (REQ055).
-fn find_methods(
-    subject_root: &Path,
-    companion_root: &Path,
-    ty: &str,
-    name: Option<&str>,
-) -> Vec<FoundFn> {
+fn find_methods(subject: &ParsedSubject, ty: &str, name: Option<&str>) -> Vec<FoundFn> {
     let mut out = Vec::new();
-    for_each_rust_file(subject_root, companion_root, |file, rel, text, module| {
+    subject.each(|file, rel, text, module| {
         collect_methods(&file.items, ty, name, rel, text, module, &mut out);
     });
     out
@@ -1112,12 +1121,12 @@ mod tests {
         observable: &str,
         params: &[Option<String>],
     ) -> Resolution {
-        resolve(
-            tmp.path(),
-            &tmp.path().join("ProvableRequirements"),
-            observable,
-            params,
-        )
+        resolve(&parsed(tmp), observable, params)
+    }
+
+    /// The subject, walked and parsed — what every resolver now takes.
+    fn parsed(tmp: &tempfile::TempDir) -> ParsedSubject {
+        ParsedSubject::load(tmp.path(), &tmp.path().join("ProvableRequirements"))
     }
 
     fn want(ty: &str) -> Option<String> {
@@ -1137,6 +1146,25 @@ mod tests {
         assert_eq!(at.line, 1);
         assert!(at.text.contains("fn login"));
         assert_eq!(params, vec![ParamMode::ByRef]);
+    }
+
+    // Verifies (#144): ONE walk-and-parse answers every kind of lookup a binding set makes — a
+    // free function, a sort, and a qualified `A::B` (which alone consults functions, types and
+    // enums). The tree is shared, not consumed, so a grounding pass pays for it once; before this,
+    // each of these started its own walk and re-parsed the whole subject.
+    #[test]
+    fn one_parse_of_the_subject_answers_every_lookup() {
+        let tmp = subject(ENUM_SUBJECT);
+        let subject = parsed(&tmp);
+        assert!(
+            resolve(&subject, "decide::Proceed", &[None]).is_resolved(),
+            "qualified variant test"
+        );
+        assert!(
+            resolve(&subject, "Engine::is_ready", &[None]).is_resolved(),
+            "qualified method"
+        );
+        assert!(resolve_type(&subject, "Decision").is_resolved(), "sort");
     }
 
     /// The shape the dogfood run hit (#129): a decision that lives in an enum, on a type that
@@ -1555,7 +1583,11 @@ impl S { fn ready(&self) -> bool { true } }\n",
         )
         .unwrap();
 
-        let r = resolve(tmp.path(), &companion, "login", &[None]);
+        let r = resolve(
+            &ParsedSubject::load(tmp.path(), &companion),
+            "login",
+            &[None],
+        );
         let Resolution::Resolved { at, .. } = &r else {
             panic!("the companion/.git copies must not create an ambiguity, got {r:?}")
         };
@@ -1643,12 +1675,7 @@ mod session { pub fn active(id: u32) -> bool { true } }\n",
             "pub fn ready(u: &str) -> bool { true }\n",
         )
         .unwrap();
-        let r = resolve(
-            tmp.path(),
-            &tmp.path().join("ProvableRequirements"),
-            "ready",
-            &[None],
-        );
+        let r = resolve(&parsed(&tmp), "ready", &[None]);
         let Resolution::Resolved { at, .. } = &r else {
             panic!("it is really declared there, so it resolves: {r:?}")
         };
@@ -1679,7 +1706,7 @@ pub fn decide(u: u32) -> Decision { Decision::Proceed }\n",
             ("pub type User = u32;\n", "User"),
         ] {
             let tmp = subject(src);
-            let r = resolve_type(tmp.path(), &tmp.path().join("ProvableRequirements"), name);
+            let r = resolve_type(&parsed(&tmp), name);
             let TypeResolution::Resolved(at) = &r else {
                 panic!("{name} should resolve from {src:?}, got {r:?}")
             };
@@ -1696,12 +1723,13 @@ pub fn decide(u: u32) -> Decision { Decision::Proceed }\n",
         let tmp = subject("pub struct User;\n");
         let companion = tmp.path().join("ProvableRequirements");
         for name in ["bool", "u32", "usize", "char", "f64", "i8"] {
-            let r = resolve_type(tmp.path(), &companion, name);
+            let r = resolve_type(&ParsedSubject::load(tmp.path(), &companion), name);
             assert_eq!(r, TypeResolution::Primitive(name.to_string()), "{name}");
             assert!(r.is_resolved(), "{name} must ground");
         }
         // The read-back says what it resolved to and why there is no location to confirm.
-        let msg = resolve_type(tmp.path(), &companion, "bool").describe("Flag", "bool");
+        let msg = resolve_type(&ParsedSubject::load(tmp.path(), &companion), "bool")
+            .describe("Flag", "bool");
         assert!(msg.contains("primitive `bool`"), "{msg}");
         assert!(msg.contains("no source location"), "{msg}");
     }
@@ -1715,7 +1743,7 @@ pub fn decide(u: u32) -> Decision { Decision::Proceed }\n",
         let companion = tmp.path().join("ProvableRequirements");
         for name in ["str", "String", "Vec", "bools"] {
             assert_eq!(
-                resolve_type(tmp.path(), &companion, name),
+                resolve_type(&ParsedSubject::load(tmp.path(), &companion), name),
                 TypeResolution::NotFound,
                 "{name} must not resolve as a primitive"
             );
@@ -1728,7 +1756,7 @@ pub fn decide(u: u32) -> Decision { Decision::Proceed }\n",
     #[test]
     fn a_declared_type_wins_over_the_primitive_of_the_same_name() {
         let tmp = subject("pub struct bool { pub set: u8 }\n");
-        let r = resolve_type(tmp.path(), &tmp.path().join("ProvableRequirements"), "bool");
+        let r = resolve_type(&parsed(&tmp), "bool");
         let TypeResolution::Resolved(at) = &r else {
             panic!("the subject's own declaration must win, got {r:?}")
         };
@@ -1741,11 +1769,7 @@ pub fn decide(u: u32) -> Decision { Decision::Proceed }\n",
     #[test]
     fn unknown_sort_does_not_resolve() {
         let tmp = subject("pub struct User;\n");
-        let r = resolve_type(
-            tmp.path(),
-            &tmp.path().join("ProvableRequirements"),
-            "Session",
-        );
+        let r = resolve_type(&parsed(&tmp), "Session");
         assert_eq!(r, TypeResolution::NotFound);
         assert!(!r.is_resolved());
         assert!(r
@@ -1758,7 +1782,7 @@ pub fn decide(u: u32) -> Decision { Decision::Proceed }\n",
     #[test]
     fn duplicate_sorts_are_ambiguous_never_guessed() {
         let tmp = subject("pub struct User;\nmod admin { pub struct User; }\n");
-        let r = resolve_type(tmp.path(), &tmp.path().join("ProvableRequirements"), "User");
+        let r = resolve_type(&parsed(&tmp), "User");
         let TypeResolution::Ambiguous(ats) = &r else {
             panic!("should be ambiguous, got {r:?}")
         };
@@ -1775,12 +1799,12 @@ pub fn decide(u: u32) -> Decision { Decision::Proceed }\n",
         let companion = tmp.path().join("ProvableRequirements");
         // `login` is a struct here, not a fn → the predicate resolver must not find it.
         assert_eq!(
-            resolve(tmp.path(), &companion, "login", &[]),
+            resolve(&ParsedSubject::load(tmp.path(), &companion), "login", &[]),
             Resolution::NotFound
         );
         // `User` is a fn here, not a type → the sort resolver must not find it.
         assert_eq!(
-            resolve_type(tmp.path(), &companion, "User"),
+            resolve_type(&ParsedSubject::load(tmp.path(), &companion), "User"),
             TypeResolution::NotFound
         );
     }
@@ -1794,7 +1818,7 @@ pub fn decide(u: u32) -> Decision { Decision::Proceed }\n",
         let companion = tmp.path().join("ProvableRequirements");
         std::fs::create_dir_all(&companion).unwrap();
         std::fs::write(companion.join("shadow.rs"), "pub struct User;\n").unwrap();
-        assert!(resolve_type(tmp.path(), &companion, "User").is_resolved());
+        assert!(resolve_type(&ParsedSubject::load(tmp.path(), &companion), "User").is_resolved());
     }
 
     // Verifies: REQ025 — the resolved read-back names the limit of what was checked, so a

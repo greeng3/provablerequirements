@@ -334,6 +334,11 @@ pub fn resolve_bindings(
             .filter(move |b| b.category == cat)
             .collect::<Vec<_>>()
     };
+    // Walk and parse the subject ONCE for the whole binding set: every code lookup below reads this
+    // one tree instead of starting its own walk, which is where a four-binding requirement's ten
+    // full parses of the same source went (#144).
+    let parsed = crate::rust_adapter::ParsedSubject::load(subject, companion);
+    let specs = crate::tla_adapter::SubjectSpecs::load(subject, companion);
     let code = in_category(BindCategory::Code);
     let predicates = code
         .iter()
@@ -342,7 +347,7 @@ pub fn resolve_bindings(
             let params = expected_param_types(requirement, bindings, &b.symbol);
             (
                 b.symbol.clone(),
-                crate::rust_adapter::resolve(subject, companion, &b.observable, &params),
+                crate::rust_adapter::resolve(&parsed, &b.observable, &params),
             )
         })
         .collect();
@@ -352,7 +357,7 @@ pub fn resolve_bindings(
         .map(|b| {
             (
                 b.symbol.clone(),
-                crate::rust_adapter::resolve_type(subject, companion, &b.observable),
+                crate::rust_adapter::resolve_type(&parsed, &b.observable),
             )
         })
         .collect();
@@ -361,7 +366,7 @@ pub fn resolve_bindings(
         .map(|b| {
             (
                 b.symbol.clone(),
-                crate::tla_adapter::resolve(subject, companion, &b.observable),
+                crate::tla_adapter::resolve(&specs, &b.observable),
             )
         })
         .collect();
