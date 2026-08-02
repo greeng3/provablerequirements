@@ -1,7 +1,11 @@
 //! The A6 **proof-carrier draft channel** (Slice B2): when a grounded category-1 predicate
 //! resolves to an *opaque* function — an ordinary `fn`, not a deductive marker — Creusot and
 //! Prusti cannot see inside it and honestly report `inconclusive` (REQ032). This module drafts
-//! the missing marker (`#[logic]` for Creusot, `#[pure]` for Prusti) so the operator can stage it.
+//! the missing marker so the operator can stage it.
+//!
+//! The channel is **Prusti-only** ([`Marker::drafts_markers`], #158): `#[pure]` makes a function
+//! transparent in place, while `#[logic]` would remove it from the program and break every call
+//! site. Creusot's route to the same predicate is a mirror ([`crate::mirror_draft`]).
 //!
 //! It is the one row of the A6 annotation table whose target is the *subject's source* rather than
 //! the requirement item or the companion tree: "proof carriers → subject source → tool proposes
@@ -56,6 +60,31 @@ impl Marker {
     /// Prusti has no such exposure: its `#[pure]` functions are spec-callable, so there are no
     /// mirrors and no links for a precondition to weaken. Contracts are its whole mechanism.
     pub fn drafts_contracts(self) -> bool {
+        match self {
+            Marker::Logic => false,
+            Marker::Pure => true,
+        }
+    }
+
+    /// Whether **drafting this marker onto the subject's own predicate function** is a route to a
+    /// proof in this dialect. It is for Prusti and is not for Creusot (#158).
+    ///
+    /// The premise of the marker channel is that the marker makes an ordinary function transparent
+    /// *in place*. Prusti's `#[pure]` does exactly that: the function stays in the program, keeps
+    /// its callers, and becomes callable from a specification as well.
+    ///
+    /// `#[logic]` does not. It declares a **logical** function, which moves the item out of the
+    /// program namespace — so every real call site stops compiling. Measured on this repo:
+    /// `#[logic]` on `provision::decide_install` and `EngineStatus::is_ready` gave `E0425`/`E0599`
+    /// at six call sites. That is not a prover bug; it is what `#[logic]` means, and it applies to
+    /// exactly the case a category-1 predicate normally resolves to — an ordinary function the
+    /// subject calls.
+    ///
+    /// Creusot reaches such a function through a `#[logic]` **mirror** instead
+    /// ([`crate::mirror_draft`], REQ068): the program function is left alone and gains only a
+    /// linking postcondition. So there is nothing left for the marker channel to do there, and
+    /// staging one would break the subject's build before any prover ran.
+    pub fn drafts_markers(self) -> bool {
         match self {
             Marker::Logic => false,
             Marker::Pure => true,
@@ -308,6 +337,47 @@ mod tests {
             Marker::Pure.drafts_contracts(),
             "Prusti's `#[pure]` fns are spec-callable, so contracts ARE the mechanism there"
         );
+    }
+
+    // Verifies (#158): the marker channel is Prusti-only. `#[logic]` declares a LOGICAL function, so
+    // staging it onto the program function a predicate resolved to takes that item out of the
+    // program namespace — measured on this repo as `E0425`/`E0599` at six call sites, a working
+    // tree that compiles in no configuration at all. Creusot's route is a mirror (REQ068), which
+    // leaves the program function alone.
+    #[test]
+    fn markers_are_drafted_for_prusti_and_never_for_creusot() {
+        assert!(
+            !Marker::Logic.drafts_markers(),
+            "`#[logic]` on a called program function breaks every call site; Creusot's route to it \
+             is a mirror"
+        );
+        assert!(
+            Marker::Pure.drafts_markers(),
+            "`#[pure]` makes a function transparent in place — callers and body both survive"
+        );
+    }
+
+    // Verifies (#158): a staged marker arrives with the attribute in scope. The channel wrote a bare
+    // `#[pure]` into a file that imports nothing, giving `cannot find attribute` — a proposal that
+    // cannot parse is not reviewable. Order matters: the markers go in first (bottom-up), then the
+    // import, which adds a line above them all.
+    #[test]
+    fn a_staged_marker_arrives_with_its_attribute_in_scope() {
+        let src = "//! Docs.\n\npub fn ready(n: u32) -> bool {\n    n > 0\n}\n";
+        let drafts = [MarkerDraft {
+            file: "src/lib.rs".into(),
+            line: 3,
+            attribute: Marker::Pure.attribute().to_string(),
+        }];
+        let out = ensure_prelude(&apply_to_source(src, &drafts), Marker::Pure);
+        let lines: Vec<&str> = out.lines().collect();
+        assert_eq!(lines[0], "//! Docs.");
+        assert_eq!(lines[2], "use prusti_contracts::*;");
+        assert_eq!(
+            lines[3], "#[pure]",
+            "the marker still sits above its fn: {out}"
+        );
+        assert_eq!(lines[4], "pub fn ready(n: u32) -> bool {");
     }
 
     // Verifies: the import goes BEFORE an outer doc comment, not between it and its item. `///`

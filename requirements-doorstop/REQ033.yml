@@ -5,7 +5,7 @@ level: 1.32
 links: []
 normative: true
 ref: ''
-reviewed: wTkkgu2xVWXvOWdKS5soMgy-R49ytZ3zHo4gRpKfuWM=
+reviewed: null
 text: |
   A category-1 requirement is verified deductively only when the predicate functions it is
   grounded to are transparent to the prover — marked as logical or pure functions. When a
@@ -13,12 +13,19 @@ text: |
   honest inconclusive (REQ032). On the operator's request, the tool drafts the missing
   transparency marker onto that function so a deductive engine can then see inside it.
 
-  The marker drawn is the one the subject's own verifier reads: the logical-function marker when
-  the subject depends on Creusot's contracts crate, the pure-function marker when it depends on
-  Prusti's. A subject that depends on neither has no deductive marker to draft, and the tool draws
-  none — that remains the missing-dependency inconclusive, never a guess. Only a grounded
-  requirement is drafted for, because only a resolved predicate names a function to annotate, and a
-  predicate that already carries the marker is left untouched.
+  This channel applies only where the marker makes a function transparent **where it stands** —
+  where the annotated function keeps its body, its callers, and its place in the program the
+  subject compiles. A checker whose transparency marker instead declares a separate logical
+  function is not drafted for here at all: annotating the subject's own function would remove it
+  from the program and stop every call site building, so the tool stages nothing, says why, and
+  names the channel that does reach such a function — the logical twin and its linking
+  post-condition. A subject that depends on no deductive checker at all likewise has no marker to
+  draft, and the tool draws none: that remains the missing-dependency inconclusive, never a guess.
+
+  Only a grounded requirement is drafted for, because only a resolved predicate names a function to
+  annotate, and a predicate that already carries the marker is left untouched. A staged marker
+  arrives with the annotation in scope in the file it was written into, because a proposal the
+  operator cannot compile is not one they can review.
 
   The draft is a proposal, not a proof. The tool stages it as an uncommitted edit in the subject's
   working tree and stops there: it runs no version control, holds no commit rights, and never

@@ -1310,7 +1310,7 @@ async fn run_verify(
     // requirement has resolved predicates to annotate.
     if draft_contracts {
         if grounded {
-            stage_marker_drafts(subject, &resolutions)?;
+            stage_marker_drafts(subject, id, &resolutions)?;
         } else {
             println!(
                 "\n--draft-contracts: nothing to draft — {id} is not grounded, so no predicate \
@@ -1337,8 +1337,14 @@ async fn run_verify(
 /// Stage the A6 deductive-marker drafts into the subject's working tree (REQ033). Reads the target
 /// marker from the subject's manifest, drafts it onto each resolved predicate fn that lacks it, and
 /// writes the edits back as uncommitted changes for the operator to review. Runs no git.
-fn stage_marker_drafts(subject: &Path, resolutions: &BTreeMap<String, Resolution>) -> Result<()> {
-    use provreq::contract_draft::{apply_to_source, marker_for_subject, plan_markers};
+fn stage_marker_drafts(
+    subject: &Path,
+    id: &str,
+    resolutions: &BTreeMap<String, Resolution>,
+) -> Result<()> {
+    use provreq::contract_draft::{
+        apply_to_source, ensure_prelude, marker_for_subject, plan_markers,
+    };
 
     let manifest = std::fs::read_to_string(subject.join("Cargo.toml"))
         .with_context(|| format!("reading {}", subject.join("Cargo.toml").display()))?;
@@ -1350,6 +1356,23 @@ fn stage_marker_drafts(subject: &Path, resolutions: &BTreeMap<String, Resolution
         );
         return Ok(());
     };
+
+    // **The marker channel is Prusti-only** (#158). `#[pure]` makes a function transparent where it
+    // stands; `#[logic]` declares a *logical* function, which removes the item from the program
+    // namespace and breaks every call site — exactly the case a category-1 predicate normally
+    // resolves to. Refusing is the honest answer, and Creusot already has the other one: a mirror
+    // (REQ068), drafted by `--draft-semantic`, which leaves the program function untouched.
+    if !marker.drafts_markers() {
+        println!(
+            "\n--draft-contracts: nothing staged — this subject is a Creusot subject, and \
+             `{}` cannot go on a program function: it declares a *logical* function, so the item \
+             leaves the program namespace and every call site stops compiling.\n  Creusot reaches \
+             such a function through a `#[logic]` mirror that leaves it untouched — run `verify \
+             {id} --draft-semantic` instead.",
+            marker.attribute()
+        );
+        return Ok(());
+    }
 
     let sources = load_predicate_sources(subject, resolutions)?;
     let drafts = plan_markers(resolutions, marker, &sources);
@@ -1368,7 +1391,12 @@ fn stage_marker_drafts(subject: &Path, resolutions: &BTreeMap<String, Resolution
     }
     for (file, file_drafts) in &by_file {
         let original = &sources[file];
-        let edited = apply_to_source(original, file_drafts);
+        // Insert the markers first (bottom-up, so line numbers hold), then the import — which adds
+        // a line near the top and would otherwise shift every target. A file that gains `#[pure]`
+        // must import the dialect that defines it or the staged edit cannot compile at all
+        // (measured: `cannot find attribute` from a file that names the contracts crate nowhere),
+        // and a draft that cannot parse is not a reviewable proposal (#158).
+        let edited = ensure_prelude(&apply_to_source(original, file_drafts), marker);
         std::fs::write(subject.join(file), edited).with_context(|| {
             format!("staging marker draft into {}", subject.join(file).display())
         })?;
