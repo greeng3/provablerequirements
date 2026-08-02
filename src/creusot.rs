@@ -1007,7 +1007,12 @@ mod tests {
     /// the wrong-mirror case. Nothing here uses `format!`, `panic!` or `async`: those are what stop
     /// Creusot translating provreq itself (#153), and a fixture that tripped them would measure the
     /// translator rather than the mirror channel.
-    fn mirror_subject(ready_body: &str) -> tempfile::TempDir {
+    fn mirror_subject(
+        ready_body: &str,
+        extra_clause_on_is_ready: &str,
+        decide_body: &str,
+        extra_clause_on_decide: &str,
+    ) -> tempfile::TempDir {
         let tmp = tempfile::tempdir().expect("tempdir");
         std::fs::write(
             tmp.path().join("Cargo.toml"),
@@ -1032,6 +1037,7 @@ mod tests {
                  pub enum Status {{ Ready, Missing }}\n\n\
                  impl Status {{\n\
                  \x20   #[ensures(result == crate::status::is_ready_logic(self))]\n\
+                 {extra_clause_on_is_ready}\
                  \x20   pub fn is_ready(&self) -> bool {{ matches!(self, Status::Ready) }}\n\
                  }}\n\n\
                  #[logic(open)]\n\
@@ -1041,23 +1047,22 @@ mod tests {
         .expect("status.rs");
         std::fs::write(
             tmp.path().join("src/decide.rs"),
-            "use creusot_std::macros::*;\n\
-             use crate::status::Status;\n\n\
-             pub enum Outcome { Proceed, AlreadyThere, Blocked }\n\n\
-             #[ensures(result == crate::decide::decide_logic(s, allowed))]\n\
-             pub fn decide(s: &Status, allowed: bool) -> Outcome {\n\
-             \x20   if s.is_ready() { Outcome::AlreadyThere }\n\
-             \x20   else if !allowed { Outcome::Blocked }\n\
-             \x20   else { Outcome::Proceed }\n\
-             }\n\n\
-             #[logic(open)]\n\
-             pub fn decide_logic(s: &Status, allowed: bool) -> Outcome {\n\
-             \x20   pearlite! {\n\
-             \x20       if crate::status::is_ready_logic(s) { Outcome::AlreadyThere }\n\
-             \x20       else if !allowed { Outcome::Blocked }\n\
-             \x20       else { Outcome::Proceed }\n\
-             \x20   }\n\
-             }\n",
+            format!(
+                "use creusot_std::macros::*;\n\
+                 use crate::status::Status;\n\n\
+                 pub enum Outcome {{ Proceed, AlreadyThere, Blocked }}\n\n\
+                 #[ensures(result == crate::decide::decide_logic(s, allowed))]\n\
+                 {extra_clause_on_decide}\
+                 pub fn decide(s: &Status, allowed: bool) -> Outcome {{\n\
+                 \x20   if s.is_ready() {{ Outcome::AlreadyThere }}\n\
+                 \x20   else if !allowed {{ Outcome::Blocked }}\n\
+                 \x20   else {{ Outcome::Proceed }}\n\
+                 }}\n\n\
+                 #[logic(open)]\n\
+                 pub fn decide_logic(s: &Status, allowed: bool) -> Outcome {{\n\
+                 \x20   pearlite! {{ {decide_body} }}\n\
+                 }}\n"
+            ),
         )
         .expect("decide.rs");
         tmp
@@ -1166,7 +1171,12 @@ mod tests {
     #[ignore = "needs Creusot installed — run via `cargo test -- --ignored` (the CI `creusot` job)"]
     fn real_creusot_proves_a_claim_over_ordinary_functions_through_their_mirrors() {
         // The honest mirror: `is_ready` is true exactly on `Ready`.
-        let tmp = mirror_subject("match s { Status::Ready => true, _ => false }");
+        let tmp = mirror_subject(
+            "match s { Status::Ready => true, _ => false }",
+            "",
+            "if crate::status::is_ready_logic(s) { Outcome::AlreadyThere } else if !allowed { Outcome::Blocked } else { Outcome::Proceed }",
+            "",
+        );
         let outcome = run(tmp.path(), &mirror_harness(tmp.path()));
         assert_eq!(
             outcome,
@@ -1186,11 +1196,56 @@ mod tests {
     #[ignore = "needs Creusot installed — run via `cargo test -- --ignored` (the CI `creusot` job)"]
     fn real_creusot_will_not_prove_a_claim_through_a_mirror_that_lies() {
         // Deliberately inverted: this mirror says `is_ready` means `Missing`.
-        let tmp = mirror_subject("match s { Status::Missing => true, _ => false }");
+        let tmp = mirror_subject(
+            "match s { Status::Missing => true, _ => false }",
+            "",
+            "if crate::status::is_ready_logic(s) { Outcome::AlreadyThere } else if !allowed { Outcome::Blocked } else { Outcome::Proceed }",
+            "",
+        );
         let outcome = run(tmp.path(), &mirror_harness(tmp.path()));
         assert!(
             matches!(outcome, Outcome::Inconclusive { .. }),
             "a lying mirror must fail at its link, never yield a proof, got {outcome:?}"
+        );
+    }
+
+    // Verifies (#164) — WHY provreq must never draft a contract clause onto a mirrored function.
+    // This test asserts a **false** `proven`, deliberately, because the configuration is one a
+    // prover will happily accept and only provreq can decline to produce.
+    //
+    // The linking `#[ensures(result == mirror(..))]` is discharged *assuming the function's
+    // preconditions*. A precondition therefore narrows the domain on which the mirror was ever
+    // checked, while the harness's `forall` ranges over all of it. Nothing below is contrived:
+    //
+    //   * `#[requires(!allowed)]` is an ordinary precondition, of exactly the kind the contract
+    //     channel was prompted to propose.
+    //   * The mirror is GENUINELY CORRECT under `!allowed`, so its link discharges honestly. There
+    //     is no vacuity and no trick — the mirror really was checked against the real body.
+    //   * But the harness also quantifies over `allowed = true`, where this mirror says `Blocked`
+    //     and so never `Proceed`, making the invariant vacuously true.
+    //
+    // Creusot returns `Holds`. The requirement is false of the program — `decide` does return
+    // `Proceed` when `allowed` and not ready — so a verdict built on this would be a false `proven`,
+    // the one outcome the whole channel exists to make impossible.
+    //
+    // Nothing in the prover is wrong here; it discharged what it was asked. The defence has to be
+    // that provreq never writes a precondition onto a function carrying a mirror link, which is why
+    // contracts are now a Prusti-only channel. If this test ever stops returning `Holds`, the
+    // reasoning behind that rule has changed and the rule should be re-derived, not assumed.
+    #[test]
+    #[ignore = "needs Creusot installed — run via `cargo test -- --ignored` (the CI `creusot` job)"]
+    fn a_precondition_on_a_mirrored_function_can_prove_something_false() {
+        let tmp = mirror_subject(
+            "match s { Status::Ready => true, _ => false }",
+            "",
+            "if crate::status::is_ready_logic(s) { Outcome::AlreadyThere } else { Outcome::Blocked }",
+            "#[requires(!allowed)]\n",
+        );
+        let outcome = run(tmp.path(), &mirror_harness(tmp.path()));
+        assert_eq!(
+            outcome,
+            Outcome::Holds,
+            "the prover accepts this — the defence is that provreq must not generate it"
         );
     }
 
