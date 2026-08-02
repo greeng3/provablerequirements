@@ -1538,6 +1538,27 @@ async fn stage_semantic_drafts(
         Ok(())
     };
 
+    // **Contracts are a Prusti-only channel.** On the Creusot route a drafted clause cannot help and
+    // can do real harm, both measured against the real prover (#164):
+    //
+    // * It cannot help. After `with_mirrors` the harness is a `proof_assert!` over the **mirrors**
+    //   and calls no program function, so an `#[ensures]` on one is discharged where nothing reads
+    //   it. Probe E proved REQ047 with mirrors and no contract clauses at all.
+    // * It can produce a FALSE `proven`. The linking `#[ensures(result == mirror(..))]` is
+    //   discharged *assuming the function's preconditions*, so a drafted `#[requires]` narrows the
+    //   domain on which the mirror was ever checked — while the harness's `forall` ranges over all
+    //   of it. Measured: `#[requires(!allowed)]` plus a mirror that is genuinely correct under
+    //   `!allowed` (its link discharges honestly) yields `Holds` for a claim that is false of the
+    //   program. See `probe_a_precondition_on_a_mirrored_function` in `crate::creusot`.
+    //
+    // Prusti has no such exposure: its `#[pure]` functions are spec-callable, so there are no
+    // mirrors and no links for a precondition to weaken — contracts are the whole mechanism there.
+    if !marker.drafts_contracts() {
+        stage(&[])?;
+        report_mirrors_are_the_whole_draft(id, &mirrors, repair, subject, engine)?;
+        return Ok(());
+    }
+
     if repair {
         // The prover is the gate: stage this round's drafts, re-run the ensemble on the changed
         // working tree (`verify::verify` re-reads everything), and report whether the claim now
@@ -1563,6 +1584,58 @@ async fn stage_semantic_drafts(
         stage(&drafts)?;
         report_semantic_drafts(id, &drafts, None);
     }
+    Ok(())
+}
+
+/// Report a Creusot draft, where the mirrors **are** the whole proposal.
+///
+/// With no contract clauses there is nothing for a repair round to revise — a mirror states what a
+/// function *means*, and prover failure does not change its meaning, which is why mirrors are
+/// drafted once (#160). So `--repair` here means what it can honestly mean: verify the staged
+/// mirrors against the real prover once, and say whether the claim proved.
+fn report_mirrors_are_the_whole_draft(
+    id: &str,
+    mirrors: &[provreq::mirror_draft::MirrorDraft],
+    repair: bool,
+    subject: &std::path::Path,
+    engine: &str,
+) -> Result<()> {
+    use provreq::semantic_draft::ProofStep;
+    if mirrors.is_empty() {
+        println!(
+            "\n--draft-semantic: nothing staged for {id} — no predicate got a usable mirror, so \
+             there is no proposal to review. {engine} cannot reach an ordinary program function \
+             without one."
+        );
+        return Ok(());
+    }
+    if !repair {
+        println!(
+            "\n--draft-semantic: the mirrors above are the whole proposal — {engine} needs no \
+             contract clauses to reach them. Re-run `verify` to check them against the prover."
+        );
+        return Ok(());
+    }
+    let step = match provreq::verify::verify(subject, id)? {
+        Some(VerifyOutcome::Verdict { verdict, .. }) => verdict_to_proof_step(&verdict, engine),
+        other => ProofStep::Inconclusive {
+            reason: format!("re-verify produced no verdict ({other:?})"),
+        },
+    };
+    match step {
+        ProofStep::Proved => println!(
+            "\n  ✓ {engine} discharged the claim from the mirrors alone — proof-carrying (still \
+             read the mirror bodies above: they are where meaning entered)."
+        ),
+        ProofStep::Inconclusive { reason } => println!(
+            "\n  ! {engine} did not discharge the claim ({reason}). The mirrors are staged for you \
+             to refine; a mirror is re-drafted only by re-running the draft."
+        ),
+    }
+    println!(
+        "  Review the working-tree diff and re-run `verify` — the tool staged an uncommitted edit \
+         and ran no git."
+    );
     Ok(())
 }
 
