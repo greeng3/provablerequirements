@@ -77,15 +77,21 @@ pub fn ensure_prelude(src: &str, marker: Marker) -> String {
     let lines: Vec<&str> = src.lines().collect();
     // Skip the leading run of inner attributes, inner docs, blank lines and ordinary comments —
     // everything that may (or must) precede the first item.
+    //
+    // An **outer** doc comment (`///`) stops the scan even though it also starts with `//`: it
+    // belongs to the item beneath it, so stepping past it silently re-attaches the operator's
+    // documentation to provreq's import. Measured on a live subject, whose `Status` enum lost its
+    // own doc comment to the `use` line inserted under it.
     let at = lines
         .iter()
         .position(|l| {
             let t = l.trim_start();
-            !(t.is_empty()
+            let skippable = t.is_empty()
                 || t.starts_with("//!")
                 || t.starts_with("#![")
-                || t.starts_with("//")
-                || t.starts_with("/*"))
+                || (t.starts_with("//") && !t.starts_with("///"))
+                || t.starts_with("/*");
+            !skippable
         })
         .unwrap_or(lines.len());
     let mut out: Vec<String> = lines[..at].iter().map(|s| s.to_string()).collect();
@@ -261,6 +267,31 @@ mod tests {
     fn an_existing_prelude_import_is_not_duplicated() {
         let src = "//! Docs.\nuse creusot_std::macros::*;\npub struct S;\n";
         assert_eq!(ensure_prelude(src, Marker::Logic), src);
+    }
+
+    // Verifies: the import goes BEFORE an outer doc comment, not between it and its item. `///`
+    // also starts with `//`, so the ordinary-comment skip stepped past it — measured on a live
+    // subject, where a documented `pub enum Status` had provreq's `use` line inserted between the
+    // doc comment and the enum, silently re-attaching the operator's documentation to the import.
+    #[test]
+    fn the_import_does_not_separate_an_outer_doc_comment_from_its_item() {
+        let src = "/// Whether the engine is present.\npub enum Status { Ready }\n";
+        let out = ensure_prelude(src, Marker::Logic);
+        let lines: Vec<&str> = out.lines().collect();
+        assert_eq!(lines[0], "use creusot_std::macros::*;");
+        assert_eq!(lines[1], "/// Whether the engine is present.");
+        assert_eq!(lines[2], "pub enum Status { Ready }");
+    }
+
+    // Verifies: an ordinary leading comment is still skipped past — a licence header is attached to
+    // nothing, so the import belongs after it, where a human would put it.
+    #[test]
+    fn an_ordinary_leading_comment_is_still_skipped() {
+        let src = "// SPDX-License-Identifier: MIT\n\npub struct S;\n";
+        let out = ensure_prelude(src, Marker::Logic);
+        let lines: Vec<&str> = out.lines().collect();
+        assert_eq!(lines[0], "// SPDX-License-Identifier: MIT");
+        assert_eq!(lines[2], "use creusot_std::macros::*;");
     }
 
     // Verifies: the Creusot import does NOT glob the prelude. That prelude deliberately shadows

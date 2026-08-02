@@ -138,7 +138,12 @@ impl<B: LlmBackend> Mirrorer<B> {
             let Some((item, _)) = parse_mirror(&reply, name) else {
                 continue;
             };
-            let item = make_visible(&item, name, mirror_visibility(fn_src));
+            let item = make_open(&make_visible(&item, name, mirror_visibility(fn_src)));
+            // A mirror that is not a well-formed function is not staged at all (see
+            // [`is_well_formed_item`]).
+            if !is_well_formed_item(&item) {
+                continue;
+            }
             // provreq builds the link, never the model — and a mirror it cannot link is dropped
             // rather than staged unchecked (see [`link_for`]).
             let Some(link) = link_for(fn_src, path) else {
@@ -297,7 +302,8 @@ function that states, in Creusot's specification language (pearlite), exactly wh
 function means. The program function is then linked to it by a post-condition, and the prover \
 CHECKS the mirror against the real body — so state the function's actual meaning, never a guess.\n\n\
 Respond with EXACTLY two things and nothing else — no prose, no code fences, no explanation:\n\
-1. The mirror item, beginning `#[logic]`, named EXACTLY `{mirror_name}`, taking the same parameters \
+1. The mirror item, beginning `#[logic]` (provreq sets the attribute's modifiers and the item's \
+visibility itself — write the plain form), named EXACTLY `{mirror_name}`, taking the same parameters \
 as the function and returning the same type. A method's receiver becomes an ordinary first \
 parameter of the SAME type INCLUDING its reference (`&self` becomes `s: &Thing`, not `Thing`) — and \
 it must NOT be called `self`, which is legal only in an associated function. Its body must be \
@@ -400,6 +406,54 @@ fn make_visible(item: &str, mirror_name: &str, vis: &str) -> String {
         })
         .collect::<Vec<_>>()
         .join("\n")
+}
+
+/// Whether the drafted item actually parses as a Rust function (pure).
+///
+/// [`parse_mirror`] checks that the item declares the right name and that its braces balance, and
+/// that is not enough. Measured against a live model: it emitted
+/// `#[logic] pub fn decide_logic(s: &Status, allowed: bool) -> Outcome pearlite! { … }` — the body's
+/// outer braces simply missing. The `pearlite!` block balanced, so the brace check passed, and the
+/// malformed item was spliced into the subject's source, where it cost the whole run.
+///
+/// `syn` settles it in one call, and the same call already underwrites [`link_for`]. Pearlite's own
+/// syntax inside `pearlite! { … }` is not a problem: a macro invocation only has to be a balanced
+/// token tree, so `==>` and the rest pass through untouched.
+///
+/// An unparseable item means the mirror is dropped — honest silence, the same rule as a mirror that
+/// cannot be linked. Staging source that cannot compile helps nobody and hides the real answer
+/// behind a build error.
+fn is_well_formed_item(item: &str) -> bool {
+    syn::parse_str::<syn::ItemFn>(item).is_ok()
+}
+
+/// Make the mirror's `#[logic]` **transparent beyond its own module** (pure).
+///
+/// Visibility and transparency are different things in Creusot, and a mirror needs both. A `pub`
+/// `#[logic]` item is *callable* everywhere, but its **body** is unfoldable only where it is
+/// transparent, and `mk_opacity` in `creusot/src/ctx.rs` defaults that to
+/// `Visibility::Restricted(parent_module)`. The generated harness is a different module, so a bare
+/// `#[logic]` mirror reaches the prover as an **uninterpreted function**: everything compiles, the
+/// prover runs, and the goal simply cannot be discharged.
+///
+/// Measured exactly that way — the fixture in [`crate::creusot`] compiled and ran and returned
+/// `Inconclusive` until its mirrors became `#[logic(open)]`, whereupon it proved. That failure mode
+/// is worth naming because it looks like a false claim rather than a missing attribute.
+///
+/// Like the link and the visibility, this is provreq's to get right rather than the model's: the
+/// mirror is opaque only because provreq chose to put it in a module the harness does not share.
+fn make_open(item: &str) -> String {
+    if item.contains("#[logic(") {
+        // An explicit modifier list the model wrote: add `open` unless it is already asking for it.
+        // `opaque` is left alone — Creusot rejects `open` and `opaque` together, and a mirror the
+        // model deliberately sealed is not something to quietly reopen.
+        return if item.contains("open") || item.contains("opaque") {
+            item.to_string()
+        } else {
+            item.replacen("#[logic(", "#[logic(open, ", 1)
+        };
+    }
+    item.replacen("#[logic]", "#[logic(open)]", 1)
 }
 
 /// Drop a trailing `pub` / `pub(…)` from the text preceding a `fn`, keeping the spacing before it.
@@ -617,6 +671,52 @@ mod tests {
             link_for("this is not a function", "m").is_none(),
             "an unreadable signature links to nothing"
         );
+    }
+
+    // Verifies: an item that balances its braces but is not a function is refused. Measured against
+    // a live model: `pub fn decide_logic(…) -> Outcome pearlite! { … }` — the body's outer braces
+    // missing. `parse_mirror`'s brace count was satisfied by the `pearlite!` block, so the malformed
+    // item reached the subject's source and cost the whole run.
+    #[test]
+    fn a_mirror_that_is_not_a_well_formed_function_is_refused() {
+        assert!(
+            !is_well_formed_item("#[logic(open)] pub fn f_logic(x: bool) -> bool pearlite! { x }"),
+            "the body's braces are missing — balanced elsewhere is not the same as well formed"
+        );
+        assert!(is_well_formed_item(
+            "#[logic(open)]\npub fn f_logic(x: bool) -> bool { pearlite! { x } }"
+        ));
+        // Pearlite syntax inside the macro is a balanced token tree, so it must not be rejected.
+        assert!(
+            is_well_formed_item(
+                "#[logic(open)]\npub fn f_logic(a: bool, b: bool) -> bool { pearlite! { a ==> b } }"
+            ),
+            "`==>` is not Rust, but a macro body only has to balance"
+        );
+    }
+
+    // Verifies: a staged mirror is `#[logic(open)]`, not bare `#[logic]`. Creusot defaults a logic
+    // function's TRANSPARENCY to its own module, so a bare mirror is an uninterpreted function to
+    // the harness — it compiles, the prover runs, and the goal cannot be discharged. Measured: the
+    // real-Creusot fixture returned `Inconclusive` until the mirrors were opened, then proved.
+    #[test]
+    fn a_staged_mirror_is_transparent_beyond_its_own_module() {
+        assert_eq!(
+            make_open("#[logic]\npub fn f_logic(x: bool) -> bool { x }"),
+            "#[logic(open)]\npub fn f_logic(x: bool) -> bool { x }"
+        );
+        // An explicit modifier list gains `open` alongside what the model asked for.
+        assert_eq!(
+            make_open("#[logic(inline)]\npub fn f_logic() -> bool { true }"),
+            "#[logic(open, inline)]\npub fn f_logic() -> bool { true }"
+        );
+        // Idempotent, so a re-staged mirror does not accumulate modifiers.
+        let opened = "#[logic(open)]\npub fn f_logic() -> bool { true }";
+        assert_eq!(make_open(opened), opened);
+        // `opaque` is left alone — Creusot rejects it together with `open`, and a mirror the model
+        // deliberately sealed is not something to quietly reopen.
+        let sealed = "#[logic(opaque)]\npub fn f_logic() -> bool { true }";
+        assert_eq!(make_open(sealed), sealed);
     }
 
     // Verifies: a mirror is offered to its siblings by its full crate path, not its bare name. The
