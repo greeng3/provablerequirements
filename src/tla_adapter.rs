@@ -106,12 +106,12 @@ impl ModelResolution {
 /// Resolve a PRL symbol to a definition named `observable` in the subject's TLA+ (REQ028).
 /// Read-only over the subject and recomputed live — the model moves under a binding exactly
 /// as code and prose do, so a resolution is never stored.
-pub fn resolve(subject_root: &Path, companion_root: &Path, observable: &str) -> ModelResolution {
+pub fn resolve(subject: &SubjectSpecs, observable: &str) -> ModelResolution {
     let name = observable.trim();
     if name.is_empty() {
         return ModelResolution::NotFound;
     }
-    let found = find_definitions(subject_root, companion_root, name);
+    let found = find_definitions(subject, name);
     match found.len() {
         0 => ModelResolution::NotFound,
         1 => ModelResolution::Resolved(found.into_iter().next().expect("len checked")),
@@ -127,27 +127,45 @@ fn is_skipped_dir(path: &Path, depth: usize, companion_root: &Path) -> bool {
     path == companion_root || crate::subject_tree::is_pruned_dir(path, depth)
 }
 
-/// Every TLA+ definition named `name` across the subject's `.tla` files.
-fn find_definitions(subject_root: &Path, companion_root: &Path, name: &str) -> Vec<SpecMatch> {
-    let mut out = Vec::new();
-    for entry in WalkDir::new(subject_root)
-        .into_iter()
-        .filter_entry(|e| !is_skipped_dir(e.path(), e.depth(), companion_root))
-    {
-        let Ok(entry) = entry else { continue };
-        if !entry.file_type().is_file() || entry.path().extension().is_none_or(|x| x != "tla") {
-            continue;
+/// Every `.tla` file under the subject, walked and read **once** — the model-side peer of
+/// [`crate::rust_adapter::ParsedSubject`], and held by the caller for the same reason (#144): a
+/// binding set used to re-walk the whole subject tree once per model symbol.
+pub struct SubjectSpecs {
+    specs: Vec<(String, String)>,
+}
+
+impl SubjectSpecs {
+    /// Walk and read the subject's specs once.
+    pub fn load(subject_root: &Path, companion_root: &Path) -> Self {
+        let mut specs = Vec::new();
+        for entry in WalkDir::new(subject_root)
+            .into_iter()
+            .filter_entry(|e| !is_skipped_dir(e.path(), e.depth(), companion_root))
+        {
+            let Ok(entry) = entry else { continue };
+            if !entry.file_type().is_file() || entry.path().extension().is_none_or(|x| x != "tla") {
+                continue;
+            }
+            let Ok(text) = std::fs::read_to_string(entry.path()) else {
+                continue;
+            };
+            let rel = entry
+                .path()
+                .strip_prefix(subject_root)
+                .unwrap_or(entry.path())
+                .display()
+                .to_string();
+            specs.push((rel, text));
         }
-        let Ok(text) = std::fs::read_to_string(entry.path()) else {
-            continue;
-        };
-        let rel = entry
-            .path()
-            .strip_prefix(subject_root)
-            .unwrap_or(entry.path())
-            .display()
-            .to_string();
-        collect_definitions(&text, name, &rel, &mut out);
+        Self { specs }
+    }
+}
+
+/// Every TLA+ definition named `name` across the subject's `.tla` files.
+fn find_definitions(subject: &SubjectSpecs, name: &str) -> Vec<SpecMatch> {
+    let mut out = Vec::new();
+    for (rel, text) in &subject.specs {
+        collect_definitions(text, name, rel, &mut out);
     }
     out
 }
@@ -249,8 +267,7 @@ mod tests {
 
     fn resolve_in(tmp: &tempfile::TempDir, observable: &str) -> ModelResolution {
         resolve(
-            tmp.path(),
-            &tmp.path().join("ProvableRequirements"),
+            &SubjectSpecs::load(tmp.path(), &tmp.path().join("ProvableRequirements")),
             observable,
         )
     }
@@ -369,7 +386,9 @@ Init == queue = <<>>
         std::fs::create_dir_all(tmp.path().join(".git")).unwrap();
         std::fs::write(tmp.path().join(".git/x.tla"), "Accept(m) == FALSE\n").unwrap();
 
-        let ModelResolution::Resolved(at) = resolve(tmp.path(), &companion, "Accept") else {
+        let ModelResolution::Resolved(at) =
+            resolve(&SubjectSpecs::load(tmp.path(), &companion), "Accept")
+        else {
             panic!("the companion/.git copies must not create an ambiguity");
         };
         assert_eq!(at.file, "spec.tla");

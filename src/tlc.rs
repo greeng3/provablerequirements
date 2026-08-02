@@ -345,7 +345,10 @@ pub fn jar_path() -> String {
 /// generated beside it. `Err` when there is no single `Spec` to check against — an honest
 /// `inconclusive`, never a guess at `Init`/`Next`.
 pub fn locate_spec(subject_root: &Path, companion_root: &Path) -> Result<SpecSite, String> {
-    let at = match tla_adapter::resolve(subject_root, companion_root, SPEC_OPERATOR) {
+    // One lookup, so this loads the specs for itself rather than taking a shared read (#144) — the
+    // sharing that matters is a binding set's many symbols, which is `grounding::resolve_bindings`.
+    let specs = tla_adapter::SubjectSpecs::load(subject_root, companion_root);
+    let at = match tla_adapter::resolve(&specs, SPEC_OPERATOR) {
         ModelResolution::Resolved(at) => at,
         ModelResolution::NotFound => {
             return Err(format!(
