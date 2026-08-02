@@ -994,6 +994,206 @@ mod tests {
         );
     }
 
+    /// A subject shaped like a real one, unlike [`cargo_subject`]: its predicates are **ordinary
+    /// program functions** the crate calls, not `#[logic]` items written for a prover. That is the
+    /// case [`real_creusot_is_inconclusive_on_opaque_predicates`] shows Creusot cannot reach — and
+    /// the case [`with_mirrors`] exists to bridge.
+    ///
+    /// Two modules on purpose. A single-module subject cannot exercise a mirror calling a sibling
+    /// mirror across files, and that gap hid a real defect until a live run found it
+    /// (`error[E0425]: cannot find function 'is_ready_logic' in this scope`).
+    ///
+    /// `ready_body` is the `is_ready` mirror's body, so one fixture serves both the honest case and
+    /// the wrong-mirror case. Nothing here uses `format!`, `panic!` or `async`: those are what stop
+    /// Creusot translating provreq itself (#153), and a fixture that tripped them would measure the
+    /// translator rather than the mirror channel.
+    fn mirror_subject(ready_body: &str) -> tempfile::TempDir {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        std::fs::write(
+            tmp.path().join("Cargo.toml"),
+            "[package]\nname = \"mirrorsmoke\"\nversion = \"0.1.0\"\nedition = \"2024\"\n\n\
+             [dependencies]\ncreusot-std = \"0.12.0\"\n\n\
+             [lints.rust]\nunexpected_cfgs = { level = \"warn\", check-cfg = ['cfg(creusot)'] }\n",
+        )
+        .expect("manifest");
+        std::fs::create_dir_all(tmp.path().join("src")).expect("src");
+        std::fs::write(
+            tmp.path().join("src/lib.rs"),
+            "pub mod decide;\npub mod status;\n",
+        )
+        .expect("lib.rs");
+        // The mirror and its linking `#[ensures]` are exactly what `--draft-semantic` stages:
+        // `use creusot_std::macros::*`, a `pub` mirror named `<fn>_logic`, and the link applying it
+        // to the function's own parameters.
+        std::fs::write(
+            tmp.path().join("src/status.rs"),
+            format!(
+                "use creusot_std::macros::*;\n\n\
+                 pub enum Status {{ Ready, Missing }}\n\n\
+                 impl Status {{\n\
+                 \x20   #[ensures(result == crate::status::is_ready_logic(self))]\n\
+                 \x20   pub fn is_ready(&self) -> bool {{ matches!(self, Status::Ready) }}\n\
+                 }}\n\n\
+                 #[logic(open)]\n\
+                 pub fn is_ready_logic(s: &Status) -> bool {{ pearlite! {{ {ready_body} }} }}\n"
+            ),
+        )
+        .expect("status.rs");
+        std::fs::write(
+            tmp.path().join("src/decide.rs"),
+            "use creusot_std::macros::*;\n\
+             use crate::status::Status;\n\n\
+             pub enum Outcome { Proceed, AlreadyThere, Blocked }\n\n\
+             #[ensures(result == crate::decide::decide_logic(s, allowed))]\n\
+             pub fn decide(s: &Status, allowed: bool) -> Outcome {\n\
+             \x20   if s.is_ready() { Outcome::AlreadyThere }\n\
+             \x20   else if !allowed { Outcome::Blocked }\n\
+             \x20   else { Outcome::Proceed }\n\
+             }\n\n\
+             #[logic(open)]\n\
+             pub fn decide_logic(s: &Status, allowed: bool) -> Outcome {\n\
+             \x20   pearlite! {\n\
+             \x20       if crate::status::is_ready_logic(s) { Outcome::AlreadyThere }\n\
+             \x20       else if !allowed { Outcome::Blocked }\n\
+             \x20       else { Outcome::Proceed }\n\
+             \x20   }\n\
+             }\n",
+        )
+        .expect("decide.rs");
+        tmp
+    }
+
+    /// The claim over [`mirror_subject`], in REQ047's shape: a decision that reaches `Proceed` only
+    /// from a state that is not already ready. Binders come from the vocabulary's parameter types
+    /// and are closed automatically.
+    const MIRROR_REQ: &str = "requirement proceed_only_when_not_ready {
+        category: 1
+        vocabulary { state ready(s: Stat)
+                     state proceeds(s: Stat, a: Flag) }
+        require { always (not proceeds(s, a) or not ready(s)) }
+    }";
+
+    /// Bindings and resolutions for [`mirror_subject`] as the adapter would report them: `ready` is
+    /// a **method**, `proceeds` is a **variant test** on a free function in another module, and
+    /// `Flag` is the language's own `bool` (REQ058), which carries no `CodeMatch`.
+    fn mirror_bindings() -> (
+        Vec<Binding>,
+        BTreeMap<String, Resolution>,
+        BTreeMap<String, TypeResolution>,
+    ) {
+        let at = |file: &str, module: &str, text: &str| CodeMatch {
+            file: file.into(),
+            line: 1,
+            text: text.into(),
+            module: Some(vec![module.to_string()]),
+        };
+        let bindings = vec![
+            binding("ready", "Status::is_ready"),
+            binding("proceeds", "decide::Proceed"),
+            binding("Stat", "Status"),
+            binding("Flag", "bool"),
+        ];
+        let resolutions = BTreeMap::from([
+            (
+                "ready".to_string(),
+                Resolution::Resolved {
+                    at: at("src/status.rs", "status", "pub fn is_ready(&self) -> bool"),
+                    params: vec![ParamMode::ByRef],
+                    form: PredicateForm::Method {
+                        name: "is_ready".into(),
+                    },
+                },
+            ),
+            (
+                "proceeds".to_string(),
+                Resolution::Resolved {
+                    at: at(
+                        "src/decide.rs",
+                        "decide",
+                        "pub fn decide(s: &Status, allowed: bool) -> Outcome",
+                    ),
+                    params: vec![ParamMode::ByRef, ParamMode::ByValue],
+                    form: PredicateForm::VariantTest {
+                        name: "decide".into(),
+                        enum_name: "Outcome".into(),
+                        variant: "Proceed".into(),
+                        enum_module: Some(vec!["decide".into()]),
+                    },
+                },
+            ),
+        ]);
+        let sorts = BTreeMap::from([
+            (
+                "Stat".to_string(),
+                TypeResolution::Resolved(at("src/status.rs", "status", "pub enum Status")),
+            ),
+            ("Flag".to_string(), TypeResolution::Primitive("bool".into())),
+        ]);
+        (bindings, resolutions, sorts)
+    }
+
+    /// Lower [`MIRROR_REQ`] against the subject **through the mirror seam**, exactly as
+    /// `verify` does: the bindings still name the program functions, and [`with_mirrors`]
+    /// redirects them onto the staged mirrors before anything is lowered.
+    fn mirror_harness(tmp: &std::path::Path) -> Harness {
+        let (bindings, resolutions, sorts) = mirror_bindings();
+        let read = |rel: &str| {
+            (
+                rel.to_string(),
+                std::fs::read_to_string(tmp.join(rel)).expect("subject source"),
+            )
+        };
+        let sources = BTreeMap::from([read("src/status.rs"), read("src/decide.rs")]);
+        let (bindings, resolutions) = with_mirrors(&bindings, &resolutions, &sources);
+        lower(
+            &req(MIRROR_REQ),
+            &bindings,
+            &resolutions,
+            &sorts,
+            "provreq_mirror",
+        )
+        .expect("the mirrored fixture must lower")
+    }
+
+    // Verifies: REQ068 — THE POINT OF THE MIRROR CHANNEL, against the real prover. The same
+    // ordinary program predicates that `real_creusot_is_inconclusive_on_opaque_predicates` shows
+    // Creusot cannot reach become **provable** once each carries a checked `#[logic]` mirror, with
+    // the existing `proof_assert!` harness unchanged (probe E).
+    //
+    // This is the first `proven` the tool produces end to end. It could not be measured on provreq
+    // itself: Creusot cannot translate that crate at all (#153).
+    #[test]
+    #[ignore = "needs Creusot installed — run via `cargo test -- --ignored` (the CI `creusot` job)"]
+    fn real_creusot_proves_a_claim_over_ordinary_functions_through_their_mirrors() {
+        // The honest mirror: `is_ready` is true exactly on `Ready`.
+        let tmp = mirror_subject("match s { Status::Ready => true, _ => false }");
+        let outcome = run(tmp.path(), &mirror_harness(tmp.path()));
+        assert_eq!(
+            outcome,
+            Outcome::Holds,
+            "a claim over ordinary program functions must be PROVED once they carry mirrors"
+        );
+    }
+
+    // Verifies: REQ068 (the honesty crux) — a WRONG mirror does not prove something false. The
+    // linking `#[ensures]` makes the prover discharge the mirror against the real body, so a mirror
+    // that misstates its function fails at its own link. Probe D, reproduced through provreq's own
+    // seam rather than by hand.
+    //
+    // provreq emits only the mirror's NAME; the meaning behind it is the operator's to review and
+    // the prover's to check. This test is what makes that claim more than a slogan.
+    #[test]
+    #[ignore = "needs Creusot installed — run via `cargo test -- --ignored` (the CI `creusot` job)"]
+    fn real_creusot_will_not_prove_a_claim_through_a_mirror_that_lies() {
+        // Deliberately inverted: this mirror says `is_ready` means `Missing`.
+        let tmp = mirror_subject("match s { Status::Missing => true, _ => false }");
+        let outcome = run(tmp.path(), &mirror_harness(tmp.path()));
+        assert!(
+            matches!(outcome, Outcome::Inconclusive { .. }),
+            "a lying mirror must fail at its link, never yield a proof, got {outcome:?}"
+        );
+    }
+
     // Verifies: REQ031 — provreq leaves no litter in someone else's repo. The harness file,
     // the appended `mod` line, and Creusot's verif//.why3find outputs are gone afterward, and
     // the crate root is byte-for-byte what it was.
