@@ -39,6 +39,29 @@ impl Marker {
         }
     }
 
+    /// Whether **semantic contracts** (`#[requires]`/`#[ensures]` drafted from the requirement) are
+    /// part of this dialect's route to a proof. They are for Prusti and are not for Creusot (#164).
+    ///
+    /// Creusot reaches an ordinary program function through a `#[logic]` **mirror**
+    /// ([`crate::mirror_draft`]), and once it does, a drafted contract clause is all risk:
+    ///
+    /// * It cannot help. The harness is a `proof_assert!` over the mirrors and calls no program
+    ///   function, so an `#[ensures]` on one is discharged where nothing reads it.
+    /// * It can produce a **false `proven`**. The mirror's linking `#[ensures]` is discharged
+    ///   *assuming the function's preconditions*, so a drafted `#[requires]` narrows the domain on
+    ///   which the mirror was ever checked while the harness's `forall` ranges over all of it.
+    ///   Measured against the real prover in
+    ///   `crate::creusot::tests::a_precondition_on_a_mirrored_function_can_prove_something_false`.
+    ///
+    /// Prusti has no such exposure: its `#[pure]` functions are spec-callable, so there are no
+    /// mirrors and no links for a precondition to weaken. Contracts are its whole mechanism.
+    pub fn drafts_contracts(self) -> bool {
+        match self {
+            Marker::Logic => false,
+            Marker::Pure => true,
+        }
+    }
+
     /// The `use` line that brings this dialect's attributes into scope.
     ///
     /// Creusot's own guide says to glob `creusot_std::prelude::*`, and that is right for a file
@@ -267,6 +290,24 @@ mod tests {
     fn an_existing_prelude_import_is_not_duplicated() {
         let src = "//! Docs.\nuse creusot_std::macros::*;\npub struct S;\n";
         assert_eq!(ensure_prelude(src, Marker::Logic), src);
+    }
+
+    // Verifies (#164): contracts are a Prusti-only channel. On the Creusot route a drafted
+    // `#[requires]` on a mirrored function weakens the very link that makes a mirror trustworthy —
+    // measured as a real `Holds` for a claim that is false of the program, in
+    // `crate::creusot::tests::a_precondition_on_a_mirrored_function_can_prove_something_false`.
+    // The rule lives on the dialect because that is what decides it, not a flag the operator sets.
+    #[test]
+    fn contracts_are_drafted_for_prusti_and_never_for_creusot() {
+        assert!(
+            !Marker::Logic.drafts_contracts(),
+            "Creusot reaches a program function through a mirror; a drafted clause cannot help it \
+             and a drafted precondition can prove something false"
+        );
+        assert!(
+            Marker::Pure.drafts_contracts(),
+            "Prusti's `#[pure]` fns are spec-callable, so contracts ARE the mechanism there"
+        );
     }
 
     // Verifies: the import goes BEFORE an outer doc comment, not between it and its item. `///`
