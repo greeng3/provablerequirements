@@ -52,9 +52,10 @@ const SAMPLE: Backlog = {
     stale: 1,
   },
   items: [
-    { id: "REQ001", title: "Login invariant", text: "prose", classification: "formalizable-now", formalization: "drafting", verdict: { status: "holds", basis: "proven", reason: null, fresh: true, stale_reasons: [], environment: "declared `lab-2`; Kani 0.67.0" } },
-    { id: "REQ002", title: null, text: "some prose here", classification: null, formalization: "none", verdict: null },
-    { id: "REQ003", title: "A note", text: "prose", classification: "stays-prose", formalization: "none", verdict: { status: "holds", basis: "proven", reason: null, fresh: false, stale_reasons: ["the subject code moved since this verdict (commit abc → def) — re-verify"], environment: null } },
+    { id: "REQ001", title: "Login invariant", text: "prose", classification: "formalizable-now", classified_by: "classified", formalization: "drafting", verdict: { status: "holds", basis: "proven", reason: null, fresh: true, stale_reasons: [], environment: "declared `lab-2`; Kani 0.67.0" } },
+    { id: "REQ002", title: null, text: "some prose here", classification: null, classified_by: null, formalization: "none", verdict: null },
+    // A seeded `stays-prose`: the exact pair #180 is about — same bucket as a judged one, worth less.
+    { id: "REQ003", title: "A note", text: "prose", classification: "stays-prose", classified_by: "seeded", formalization: "none", verdict: { status: "holds", basis: "proven", reason: null, fresh: false, stale_reasons: ["the subject code moved since this verdict (commit abc → def) — re-verify"], environment: null } },
   ],
 };
 
@@ -74,6 +75,26 @@ test("renders the coverage funnel and one row per requirement", async () => {
   // The living-loop re-verify tally is surfaced as its own funnel stat (REQ043).
   const staleStat = screen.getByText("stale").closest("div");
   expect(within(staleStat as HTMLElement).getByText("1")).toBeInTheDocument();
+});
+
+// Verifies: #180 — the browser distinguishes a bucket a classifier judged from one seeded because
+// nothing could. #172 landed this on the record, the CLI and the API row and stopped there, so the
+// one surface built for reading a whole backlog at once showed the two identically. Only the
+// origins worth less than the bucket looks are annotated: a judgement carries no note, or the note
+// would be decoration rather than a signal.
+test("a seeded classification is annotated in the backlog, a judged one is not", async () => {
+  mockBacklog(SAMPLE);
+  render(<App />);
+  await screen.findByText("REQ001");
+
+  const table = screen.getByRole("table");
+  const seeded = within(table).getByText("REQ003").closest("tr") as HTMLElement;
+  expect(within(seeded).getByText("seeded — no classifier ran")).toBeInTheDocument();
+
+  const judged = within(table).getByText("REQ001").closest("tr") as HTMLElement;
+  expect(within(judged).queryByText(/no classifier ran/)).not.toBeInTheDocument();
+  const untriaged = within(table).getByText("REQ002").closest("tr") as HTMLElement;
+  expect(within(untriaged).queryByText(/no classifier ran/)).not.toBeInTheDocument();
 });
 
 test("the funnel tabs filter the list", async () => {
@@ -115,6 +136,7 @@ test("clicking a requirement opens its detail with the candidate and read-back",
     revision: "r1",
     stale: false,
     classification: "formalizable-now",
+    classified_by: "classified",
     formalization: "admitted",
     admission: { review: "optional", by: "gg" },
     candidate: "requirement r { category: 1 ... }",
@@ -155,6 +177,7 @@ test("a stored verdict says where it was proved, or that it was never recorded",
     revision: "r1",
     stale: false,
     classification: "formalizable-now",
+    classified_by: "classified",
     formalization: "admitted",
     admission: { review: "optional", by: "gg" },
     candidate: "requirement r { category: 1 ... }",
@@ -276,6 +299,7 @@ test("clicking Verify runs the ensemble and renders the verdict with per-engine 
     revision: "r1",
     stale: false,
     classification: "formalizable-now",
+    classified_by: "classified",
     formalization: "admitted",
     admission: { review: "optional", by: "gg" },
     candidate: "requirement r { category: 1 ... }",

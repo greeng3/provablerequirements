@@ -1,4 +1,4 @@
-import type { Classification, ItemState } from "../types";
+import type { Classification, ItemState, Origin } from "../types";
 import * as labels from "../labels";
 import { Badge } from "./Badge";
 import { VerdictBadge } from "./VerdictBadge";
@@ -60,6 +60,7 @@ export function RequirementsTable({ items, onSelect, onTriage }: Props) {
               </td>
               <td className="py-3 pr-4">
                 <TriageSelect item={item} onTriage={onTriage} />
+                <OriginNote origin={item.classified_by} />
               </td>
               <td className="py-3 pr-4">
                 <Badge label={formal.label} tone={formal.tone} />
@@ -77,6 +78,18 @@ export function RequirementsTable({ items, onSelect, onTriage }: Props) {
       </tbody>
     </table>
   );
+}
+
+/**
+ * What produced this row's bucket, rendered only when that is worth less than the bucket looks
+ * (#180). A `stays-prose` nothing judged means *this will not be formalized*, reached because
+ * nothing could decide — and the backlog is the one surface where a whole set of buckets is read
+ * at a glance, so it is where the distinction is worth most.
+ */
+function OriginNote({ origin }: { origin: Origin | null }) {
+  const note = labels.origin(origin);
+  if (!note) return null;
+  return <p className="mt-1 text-xs italic text-muted">{note}</p>;
 }
 
 type TriageSelectProps = {

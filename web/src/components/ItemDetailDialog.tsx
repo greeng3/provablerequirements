@@ -85,6 +85,11 @@ function Body({ state }: { state: State }) {
         {d.title && <p className="text-muted">{d.title}</p>}
         <div className="flex flex-wrap items-center gap-2">
           <Badge label={triage.label} tone={triage.tone} />
+          {/* Only origins worth less than the bucket looks are annotated (#180) — a judgement
+              needs no note, and annotating it too would make the note decoration. */}
+          {labels.origin(d.classified_by) && (
+            <span className="text-xs italic text-muted">{labels.origin(d.classified_by)}</span>
+          )}
           <Badge label={formal.label} tone={formal.tone} />
           {d.stale && <Badge label="prose moved" tone="warn" />}
           {d.admission && (

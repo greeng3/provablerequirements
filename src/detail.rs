@@ -39,6 +39,11 @@ pub struct Detail {
     /// `verify` flags. `false` when there is no draft to be stale against.
     pub stale: bool,
     pub classification: Option<Classification>,
+    /// What produced that classification (#172), carried wherever the classification is (#180).
+    /// A bucket a classifier judged and one seeded because nothing could are different facts, and
+    /// `stays-prose` — the lifecycle state meaning *this will not be formalized* — is the one where
+    /// the difference costs most. `None` when the item is untriaged.
+    pub classified_by: Option<crate::triage::Origin>,
     pub formalization: Formalization,
     pub admission: Option<AdmissionInfo>,
     /// The candidate PRL, hand-authored or LLM-proposed; `None` until one is written.
@@ -130,8 +135,16 @@ pub fn grounding_report(
     }
 }
 
-/// Assemble one item's detail from its persisted draft (if any) and its triage classification.
-pub fn build(item: &Item, classification: Option<Classification>, draft: Option<&Draft>) -> Detail {
+/// Assemble one item's detail from its persisted draft (if any) and its triage entry.
+///
+/// Takes the whole [`crate::triage::TriageEntry`] rather than a bare classification: the bucket and
+/// what produced it are one record, and splitting them at this seam is how the origin came to exist
+/// on the API row and nowhere else (#180).
+pub fn build(
+    item: &Item,
+    triage: Option<&crate::triage::TriageEntry>,
+    draft: Option<&Draft>,
+) -> Detail {
     let stale = draft.map(|d| draft::is_stale(d, item)).unwrap_or(false);
     let formalization = match draft {
         Some(d) if d.is_admitted() => Formalization::Admitted,
@@ -159,7 +172,8 @@ pub fn build(item: &Item, classification: Option<Classification>, draft: Option<
         text: item.text.clone(),
         revision: item.revision.clone(),
         stale,
-        classification,
+        classification: triage.map(|e| e.classification),
+        classified_by: triage.map(|e| e.origin),
         formalization,
         admission,
         candidate,
@@ -216,18 +230,52 @@ mod tests {
         );
         let admitted = draft::admit(&drafts, "REQ001", ReviewTier::Mandatory, "gg", 1);
 
+        let judged = crate::triage::set(
+            &crate::triage::TriageState::new(),
+            &it,
+            Classification::FormalizableNow,
+        );
         let d = build(
             &it,
-            Some(Classification::FormalizableNow),
+            judged.items.get("REQ001"),
             admitted.drafts.get("REQ001"),
         );
         assert_eq!(d.formalization, Formalization::Admitted);
+        assert_eq!(d.classification, Some(Classification::FormalizableNow));
         assert_eq!(d.candidate.as_deref(), Some(CANDIDATE));
         assert!(matches!(d.gate, Some(GateStatus::Passed { .. })));
         // The read-back is the deterministic CNL of the claim, not the raw PRL.
         let readback = d.readback.expect("a gated candidate renders a read-back");
         assert!(!readback.is_empty());
         assert_eq!(d.admission.map(|a| a.by), Some("gg".to_string()));
+    }
+
+    // Verifies: #180 — the detail carries what produced the classification, not just the bucket.
+    // The origin reached the CLI, the record, and the backlog API row and stopped there, so the one
+    // surface built for reading a whole backlog showed a seeded `stays-prose` and a judged one
+    // identically. Untriaged carries neither half: there is no classification to have an origin.
+    #[test]
+    fn the_detail_carries_what_produced_the_classification() {
+        let it = item("REQ001");
+        let seeded = crate::triage::TriageEntry {
+            classification: Classification::StaysProse,
+            revision: it.revision.clone(),
+            origin: crate::triage::Origin::Seeded,
+        };
+        let d = build(&it, Some(&seeded), None);
+        assert_eq!(d.classification, Some(Classification::StaysProse));
+        assert_eq!(
+            d.classified_by,
+            Some(crate::triage::Origin::Seeded),
+            "a bucket nothing judged must not read as one a classifier decided"
+        );
+
+        let untriaged = build(&it, None, None);
+        assert_eq!(untriaged.classification, None);
+        assert_eq!(
+            untriaged.classified_by, None,
+            "no classification, so nothing produced one"
+        );
     }
 
     // Verifies: REQ036 — the grounding report resolves each binding and parks the whole when any

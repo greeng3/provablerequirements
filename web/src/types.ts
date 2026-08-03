@@ -8,6 +8,12 @@ export type Classification =
 
 export type Formalization = "none" | "drafting" | "admitted";
 
+// Mirrors `triage::Origin` from src/triage.rs (#172): what produced a classification. A bucket a
+// classifier judged and one seeded because nothing could are different facts — and "unrecorded" is
+// deliberately neither, since an entry written before the field existed may have been either and
+// guessing is the thing the enum exists to stop.
+export type Origin = "classified" | "seeded" | "operator" | "unrecorded";
+
 export interface Coverage {
   discovered: number;
   untriaged: number;
@@ -60,6 +66,8 @@ export interface ItemState {
   title: string | null;
   text: string;
   classification: Classification | null;
+  /** What produced that classification (#172); null when the item is untriaged. */
+  classified_by: Origin | null;
   formalization: Formalization;
   verdict: VerdictView | null;
 }
@@ -109,6 +117,8 @@ export interface Detail {
   revision: string;
   stale: boolean;
   classification: Classification | null;
+  /** What produced that classification (#172); null when the item is untriaged. */
+  classified_by: Origin | null;
   formalization: Formalization;
   admission: AdmissionInfo | null;
   candidate: string | null;

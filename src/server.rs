@@ -254,9 +254,8 @@ fn load_detail(
     };
     let triage = crate::triage::load(&companion)?;
     let drafts = crate::draft::load(&companion)?;
-    let classification = triage.items.get(id).map(|e| e.classification);
     let draft = drafts.drafts.get(id);
-    let base = crate::detail::build(item, classification, draft);
+    let base = crate::detail::build(item, triage.items.get(id), draft);
     // Live D13 grounding dry-run: only meaningful when the candidate gates and has bindings.
     let grounding = draft.and_then(|d| grounding_report(subject, &companion, d));
     // Living loop (REQ039): the last stored verdict + whether it has drifted since it was produced.
