@@ -71,6 +71,11 @@ pub struct Quantified {
     pub ty: String,
 }
 
+/// What every generated harness's name begins with, so it cannot collide with the subject's own
+/// items — and so a file named in a compiler diagnostic can be told apart from the operator's own
+/// source (see `crate::creusot::is_generated_harness`).
+pub const HARNESS_PREFIX: &str = "provreq_";
+
 /// The harness function/module name for a requirement id — a valid Rust identifier, prefixed so it
 /// cannot collide with the subject's own items.
 pub fn harness_name(id: &str) -> String {
@@ -78,7 +83,7 @@ pub fn harness_name(id: &str) -> String {
         .chars()
         .map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
         .collect();
-    format!("provreq_{}", sanitized.to_ascii_lowercase())
+    format!("{HARNESS_PREFIX}{}", sanitized.to_ascii_lowercase())
 }
 
 /// Lower one `require` claim to its boolean expression plus its binders.
