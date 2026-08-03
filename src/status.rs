@@ -115,6 +115,10 @@ pub struct ItemState {
     pub title: Option<String>,
     pub text: String,
     pub classification: Option<Classification>,
+    /// What produced that classification (#172). Carried alongside it so a browse surface can tell
+    /// a bucket a classifier judged from one seeded because nothing could — they are different
+    /// facts and used to serialize identically. `None` when the item is untriaged.
+    pub classified_by: Option<crate::triage::Origin>,
     pub formalization: Formalization,
     /// The last stored verdict + its drift status; `None` when the item has never been verified.
     pub verdict: Option<VerdictView>,
@@ -143,6 +147,7 @@ pub fn backlog(
                 title: item.title.clone(),
                 text: item.text.clone(),
                 classification: triage.items.get(&item.id).map(|e| e.classification),
+                classified_by: triage.items.get(&item.id).map(|e| e.origin),
                 formalization,
                 verdict: verdict_view(item, drafts, verdicts, anchor),
             }
