@@ -365,6 +365,15 @@ fn observable_of(at: &CodeMatch, symbol: &str) -> String {
 /// `error: expected term` naming no cause. Stating them costs nothing and saves a repair round that
 /// could not have succeeded anyway: no amount of repair turns a program call in a logic context
 /// into a legal one.
+///
+/// The last two are the typing rules, and they matter more than their size suggests, because a
+/// mirror is drafted **once** — it states what a function means, and prover failure does not change
+/// its meaning, so there is no repair round to absorb a type error. On the simplest numeric
+/// predicate a live model can write (`*failures == 0`) both fire in turn: matching `s: &Session`
+/// binds `failures: &u32`, and then an unsuffixed literal is `Int`, so correcting the obvious
+/// mistake reproduces `error[E0308]` at the next column and only `*failures == 0u32` compiles
+/// (#181). Neither is something a Rust programmer would guess; both are mechanical facts about the
+/// language the model is being asked to write.
 pub const PEARLITE_RULES: &str = "\
 Pearlite rules you must obey:\n\
 - NO macros. `matches!`, `assert!`, `println!` and friends are rejected outright. Write a `match` \
@@ -372,7 +381,12 @@ expression instead of `matches!`.\n\
 - Do NOT call the program function, or any other ordinary (non-`#[logic]`) function, from inside a \
 specification. Only `#[logic]` functions and pure pearlite are available there.\n\
 - Use `==>` for implication. There is NO `<==>` operator — for a biconditional between two \
-booleans write `==`.\n";
+booleans write `==`.\n\
+- An integer literal in pearlite is `Int`, the mathematical integer — NOT the type beside it. \
+Comparing against a sized integer needs that type's suffix: write `n == 0u32`, never `n == 0`.\n\
+- A `match` on a REFERENCE binds its fields by reference, so reading one needs a deref. Matching \
+`s: &Session` on `Session::SignedIn { failures }` binds `failures: &u32`, and the comparison is \
+`*failures == 0u32`.\n";
 
 /// Build the mirror-drafting prompt for one function (pure).
 fn build_prompt(intent: &str, claim: &str, fn_src: &str, mirror_name: &str, peers: &str) -> String {
@@ -384,10 +398,12 @@ CHECKS the mirror against the real body — so state the function's actual meani
 Respond with EXACTLY ONE thing and nothing else — no prose, no code fences, no explanation:\n\
 the mirror item, beginning `#[logic]` (provreq sets the attribute's modifiers and the item's \
 visibility itself — write the plain form), named EXACTLY `{mirror_name}`, taking the same parameters \
-as the function and returning the same type. A method's receiver becomes an ordinary first \
-parameter of the SAME type INCLUDING its reference (`&self` becomes `s: &Thing`, not `Thing`) — and \
-it must NOT be called `self`, which is legal only in an associated function. Its body must be \
-`pearlite! {{ ... }}`.\n\
+as the function and returning the same type. The mirror is a FREE function at MODULE level, outside \
+any `impl` block — so `Self` is not in scope there and neither is a `self` receiver. A method's \
+receiver becomes an ordinary first parameter of the SAME type INCLUDING its reference, written with \
+the type's REAL NAME: `&self` on `impl Thing` becomes `s: &Thing` — never `&Self`, and never \
+`Thing`. That parameter must NOT be called `self`, which is legal only in an associated function. \
+Its body must be `pearlite! {{ ... }}`.\n\
 Write nothing else: provreq builds the linking post-condition itself, from the function's own \
 signature.\n\n\
 {PEARLITE_RULES}\
@@ -941,6 +957,27 @@ mod tests {
         assert!(p.contains("f_logic"), "the required name must be stated");
     }
 
+    // Verifies: the prompt carries the two TYPING rules. Measured twice on `*failures == 0` against
+    // real Creusot 0.12.0 (#181): matching a reference binds the field by reference, and an
+    // unsuffixed literal is `Int`, so the obvious correction fails again at the next column. A
+    // mirror is drafted once, so each miss is an operator correction rather than a repair round.
+    #[test]
+    fn the_prompt_states_the_typing_rules_that_cost_an_operator_correction() {
+        let p = build_prompt("intent", "claim", "fn f() -> bool { true }", "f_logic", "");
+        assert!(
+            p.contains("`Int`, the mathematical integer"),
+            "an unsuffixed literal's type must be stated"
+        );
+        assert!(
+            p.contains("0u32"),
+            "the suffix must be shown, not described"
+        );
+        assert!(
+            p.contains("binds its fields by reference"),
+            "matching a reference is the other half of the same error"
+        );
+    }
+
     // Verifies: a mirror's prompt names the OTHER mirrors in the same run, and not itself. Measured
     // failure: told only "do not call the program function", a live model wrote
     // `detected.is_ready()` inside `decide_install_logic` — it had no legal way to ask the question,
@@ -1001,6 +1038,20 @@ mod tests {
         assert!(
             p.contains("INCLUDING its reference"),
             "the receiver keeps its `&`"
+        );
+        // A mirror is appended at MODULE level, outside the `impl`, so `Self` names nothing there.
+        // Measured (#181, the run that confirmed the typing rules): given a `&self` receiver a live
+        // model wrote `s: &Self`, and the subject stopped compiling on its own source —
+        // `error[E0411]: cannot find type `Self` in this scope`. The old wording ("the SAME type
+        // including its reference") was literally satisfied by `&Self`, which is the receiver's
+        // actual type; only naming the module level rules it out.
+        assert!(
+            p.contains("FREE function at MODULE level"),
+            "where the item lands is why `Self` is unavailable"
+        );
+        assert!(
+            p.contains("never `&Self`"),
+            "the receiver's own spelling must be ruled out explicitly"
         );
     }
 

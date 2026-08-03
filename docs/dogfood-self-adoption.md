@@ -546,8 +546,18 @@ It took **two** corrections to the drafted mirror, and the second is the finding
 ([#181](https://github.com/greeng3/provablerequirements/issues/181)): the model wrote
 `failures == 0`, which is wrong both because matching a `&Session` binds `failures: &u32` **and**
 because an unsuffixed literal in pearlite is `Int`. Correcting the obvious half produced the same
-error class one column later; only `*failures == 0u32` compiles. `PEARLITE_RULES` mentions neither,
+error class one column later; only `*failures == 0u32` compiles. `PEARLITE_RULES` mentioned neither,
 and a mirror is drafted once by design, so every miss is an operator correction.
+
+Both are now stated in `PEARLITE_RULES`, and re-running this same journey on a fresh copy of the
+subject reached `holds — proven` with **nothing corrected by hand**. Fixing them exposed a third
+miss of the same kind, in the same place: told the receiver becomes a parameter of "the SAME type
+INCLUDING its reference", the model wrote `s: &Self` — which satisfies that literally, since `&Self`
+*is* the receiver's type. A mirror is appended at module level, outside the `impl`, so the subject
+stopped compiling on its own source (`error[E0411]: cannot find type Self in this scope`). Saying
+where the item lands is what rules it out. The pattern worth carrying: each of these is a mechanical
+fact about the language the model is writing, invisible to every unit test, and costing a correction
+apiece precisely because a mirror gets no repair round.
 
 ### The drift axes, driven for the first time
 
