@@ -412,3 +412,38 @@ there. On a subject it had not seen, it reached the same wall and covered only h
 mirror mechanism is not what failed — the one mirror it staged was correct, linked, and redirected.
 What failed is that the tool knew it had given up on the other half and did not say so, which is the
 one failure mode this project treats as never acceptable.
+
+### Follow-up: why the mirror was dropped (#170)
+
+Making the drop visible was the fix asked for. Looking for what to report exposed the cause, and it
+was provreq's, not the model's.
+
+`parse_mirror` **required the reply to contain an `#[ensures…]` line** and returned nothing without
+one — while the caller destructured that line away unread, because provreq builds the real link
+itself from the signature (`link_for`, added precisely because a model gets the link wrong). The
+prompt justified the requirement as marking where the item ends, which was never true either: the
+item is taken through its own balanced brace, and `#[ensures]` lines are explicitly skipped in that
+scan. So a mirror that was well-formed, correctly named and perfectly linkable was refused over a
+clause nothing consumed — and refused in silence.
+
+A test encoded the belief: `a_mirror_without_its_link_is_refused`, reasoning that "an unlinked
+mirror is exactly the unchecked assertion this channel exists to avoid". That confuses the model's
+`#[ensures]` line with provreq's own. The mirror was never unlinked. The test now asserts the
+opposite.
+
+Re-run against the same subject, same model, after the fix:
+
+```text
+--draft-semantic: staged 2 logic mirror(s) for REQ001 — REVIEW THESE FIRST:
+  src/access.rs:12   → decide_logic
+  src/session.rs:10  → is_trusted_logic
+```
+
+Both predicates mirrored, including `decide` — the function the prover had named and the channel had
+abandoned. The claim still does not discharge, now for an honest and different reason: the drafted
+`is_trusted_logic` writes `failures == 0` where matching a `&Session` binds `failures: &u32`. That is
+ordinary mirror-quality variance, the case the design is built to survive — nothing false is proved,
+and the mirror is staged for the operator to correct. Where the operator is *pointed* is a separate
+defect, filed as [#174](https://github.com/greeng3/provablerequirements/issues/174): a type error
+inside a staged mirror is reported as "the proof harness did not compile", sending them to a
+generated file they cannot edit instead of the line in their own tree.

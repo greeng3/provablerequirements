@@ -69,6 +69,76 @@ pub struct MirrorDraft {
     pub link: String,
 }
 
+/// What a drafting round produced: the mirrors it will stage, and the targets it **gave up on**.
+///
+/// Both halves matter, and only the first used to be returned. A predicate whose mirror is dropped
+/// keeps calling its program function in the harness, so the claim fails at precisely the wall the
+/// channel exists to remove — and the operator, reading a count of what was staged, has no way to
+/// tell a complete draft from a half one. Measured on a fresh subject (#170): of two predicates,
+/// one mirror was staged and the other silently abandoned, leaving `decide` — the function the
+/// prover had already named — still called inside `proof_assert!` with nothing said about it.
+///
+/// Dropping itself is right and stays: a mirror provreq cannot parse or link is an *unchecked
+/// meaning*, and staging one is the false-`proven` hazard this whole design is built to avoid. What
+/// was wrong was doing it quietly. This is the tool's own version of the rule it applies to engines
+/// (REQ065): what could not be done is reported in terms of the thing that stopped it.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct MirrorDrafts {
+    /// The mirrors to stage — each one parsed, well-formed, and linkable.
+    pub drafts: Vec<MirrorDraft>,
+    /// The targets abandoned, and why. Empty on a clean round.
+    pub dropped: Vec<DroppedMirror>,
+}
+
+/// A predicate function the channel tried to mirror and could not.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DroppedMirror {
+    /// Subject-relative path of the program function's file.
+    pub file: String,
+    /// 1-based line of the program function's signature.
+    pub line: usize,
+    /// The program function's own name, as the operator would look for it.
+    pub function: String,
+    /// The mirror name that was asked for — worth showing, because the operator can write it.
+    pub name: String,
+    /// Which wall stopped it.
+    pub wall: DropWall,
+}
+
+/// The three ways a mirror is abandoned. Each is a different thing for the operator to do, which is
+/// why the verdict names which one rather than reporting a generic failure.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DropWall {
+    /// The model returned nothing that parses as the requested mirror function.
+    NoMirrorInReply,
+    /// A mirror was returned but is not a well-formed item — splicing it would break the source.
+    MalformedItem,
+    /// provreq could not build the linking `#[ensures]` from the function's signature.
+    Unlinkable,
+}
+
+impl DropWall {
+    /// What stopped it, and what the operator can do — the same shape as an engine's own limit.
+    pub fn explain(self) -> &'static str {
+        match self {
+            DropWall::NoMirrorInReply => {
+                "the model proposed nothing that parses as this mirror — nothing was staged rather \
+                 than a guess at what the function means; re-run the draft, or write the mirror by \
+                 hand"
+            }
+            DropWall::MalformedItem => {
+                "the proposed mirror is not a well-formed item, and splicing it would break the \
+                 subject's source — re-run the draft, or write the mirror by hand"
+            }
+            DropWall::Unlinkable => {
+                "provreq could not build the linking `#[ensures]` from this signature (a parameter \
+                 is a pattern rather than a plain name), and a mirror without its link is an \
+                 unchecked meaning, never a weaker proof — so it is not staged at all"
+            }
+        }
+    }
+}
+
 /// The mirror name for a resolved observable. Derived by convention from the function's own name so
 /// the lowering can address a mirror without a second round-trip to the model: a name the tool
 /// *chooses* is a name it can also *predict*, whereas a name the model invented would have to be
@@ -109,7 +179,7 @@ impl<B: LlmBackend> Mirrorer<B> {
         claim: &str,
         resolutions: &BTreeMap<String, Resolution>,
         sources: &BTreeMap<String, String>,
-    ) -> Result<Vec<MirrorDraft>> {
+    ) -> Result<MirrorDrafts> {
         let mut seen = BTreeSet::new();
         let mut targets = Vec::new();
         for (symbol, res) in resolutions {
@@ -128,28 +198,38 @@ impl<B: LlmBackend> Mirrorer<B> {
             targets.push((at.clone(), observable, name, fn_src, path));
         }
 
-        let mut drafts = Vec::new();
-        for (at, _, name, fn_src, path) in &targets {
+        let mut out = MirrorDrafts::default();
+        for (at, observable, name, fn_src, path) in &targets {
             let peers = peer_note(&targets, name);
             let reply = self
                 .backend
                 .complete(&build_prompt(intent, claim, fn_src, name, &peers))
                 .await?;
-            let Some((item, _)) = parse_mirror(&reply, name) else {
+            let dropped = |wall: DropWall| DroppedMirror {
+                file: at.file.clone(),
+                line: at.line,
+                function: observable.clone(),
+                name: name.clone(),
+                wall,
+            };
+            let Some(item) = parse_mirror(&reply, name) else {
+                out.dropped.push(dropped(DropWall::NoMirrorInReply));
                 continue;
             };
             let item = make_open(&make_visible(&item, name, mirror_visibility(fn_src)));
             // A mirror that is not a well-formed function is not staged at all (see
             // [`is_well_formed_item`]).
             if !is_well_formed_item(&item) {
+                out.dropped.push(dropped(DropWall::MalformedItem));
                 continue;
             }
             // provreq builds the link, never the model — and a mirror it cannot link is dropped
             // rather than staged unchecked (see [`link_for`]).
             let Some(link) = link_for(fn_src, path) else {
+                out.dropped.push(dropped(DropWall::Unlinkable));
                 continue;
             };
-            drafts.push(MirrorDraft {
+            out.drafts.push(MirrorDraft {
                 file: at.file.clone(),
                 line: at.line,
                 name: name.clone(),
@@ -158,7 +238,7 @@ impl<B: LlmBackend> Mirrorer<B> {
                 link,
             });
         }
-        Ok(drafts)
+        Ok(out)
     }
 }
 
@@ -301,15 +381,15 @@ fn build_prompt(intent: &str, claim: &str, fn_src: &str, mirror_name: &str, peer
 function that states, in Creusot's specification language (pearlite), exactly what the program \
 function means. The program function is then linked to it by a post-condition, and the prover \
 CHECKS the mirror against the real body — so state the function's actual meaning, never a guess.\n\n\
-Respond with EXACTLY two things and nothing else — no prose, no code fences, no explanation:\n\
-1. The mirror item, beginning `#[logic]` (provreq sets the attribute's modifiers and the item's \
+Respond with EXACTLY ONE thing and nothing else — no prose, no code fences, no explanation:\n\
+the mirror item, beginning `#[logic]` (provreq sets the attribute's modifiers and the item's \
 visibility itself — write the plain form), named EXACTLY `{mirror_name}`, taking the same parameters \
 as the function and returning the same type. A method's receiver becomes an ordinary first \
 parameter of the SAME type INCLUDING its reference (`&self` becomes `s: &Thing`, not `Thing`) — and \
 it must NOT be called `self`, which is legal only in an associated function. Its body must be \
 `pearlite! {{ ... }}`.\n\
-2. On its own line, the linking clause `#[ensures(result == {mirror_name}(...))]`. provreq rebuilds \
-this clause itself, so only its presence matters — it marks where your item ends.\n\n\
+Write nothing else: provreq builds the linking post-condition itself, from the function's own \
+signature.\n\n\
 {PEARLITE_RULES}\
 - A logic function is a single EXPRESSION. No `return`, no statements, no `let mut`, no loops. \
 Express a chain of guards as nested `if … {{ … }} else if … {{ … }} else {{ … }}`.\n\n\
@@ -321,24 +401,27 @@ Function:\n{fn_src}\n"
     )
 }
 
-/// Split a model reply into the mirror item and its linking clause, or `None` when the reply does
-/// not carry a usable pair (pure).
+/// Pull the mirror item out of a model reply, or `None` when the reply carries no usable one (pure).
 ///
 /// Deliberately strict about the two things that would otherwise reach the compiler as a broken
 /// staged edit: the item must actually declare the mirror name the tool will call — a mirror under
 /// some other name is unreachable from the harness — and its braces must balance, since the item is
-/// spliced into the subject's source verbatim. Everything else the model wraps around them (prose,
+/// spliced into the subject's source verbatim. Everything else the model wraps around it (prose,
 /// code fences) is dropped.
-fn parse_mirror(reply: &str, mirror_name: &str) -> Option<(String, String)> {
+///
+/// It does **not** require the model to write the linking `#[ensures]`. It used to, and that was a
+/// silent defect (#170): provreq builds the link itself from the signature ([`link_for`]) and threw
+/// the model's line away unread, so a mirror that was well-formed, correctly named and perfectly
+/// linkable was refused over a clause nothing consumed. The prompt justified asking for it as
+/// marking where the item ends, which was never true either — the item is taken through its own
+/// balanced brace, and `#[ensures]` lines are skipped in that scan. Measured on a fresh subject: of
+/// two predicates, the one whose reply omitted the clause was dropped, leaving its program function
+/// still called inside `proof_assert!`.
+fn parse_mirror(reply: &str, mirror_name: &str) -> Option<String> {
     let cleaned: Vec<&str> = reply
         .lines()
         .filter(|l| !l.trim_start().starts_with("```"))
         .collect();
-    let link = cleaned
-        .iter()
-        .map(|l| l.trim())
-        .find(|l| l.starts_with("#[ensures"))?
-        .to_string();
     let start = cleaned
         .iter()
         .position(|l| l.trim_start().starts_with("#[logic"))?;
@@ -359,9 +442,7 @@ fn parse_mirror(reply: &str, mirror_name: &str) -> Option<(String, String)> {
         }
         if opened && depth == 0 {
             let item = item_lines.join("\n");
-            return item
-                .contains(&format!("fn {mirror_name}"))
-                .then_some((item, link));
+            return item.contains(&format!("fn {mirror_name}")).then_some(item);
         }
     }
     None
@@ -579,10 +660,11 @@ mod tests {
         assert_eq!(mirror_name("decide_install"), "decide_install_logic");
     }
 
-    // Verifies: the item and its linking clause are separated, and the item is taken through its
-    // balanced closing brace rather than to the end of the reply.
+    // Verifies: the item is taken through its own balanced closing brace rather than to the end of
+    // the reply, and a stray `#[ensures]` the model volunteers is left out of it — provreq builds
+    // the real link from the signature, so the model's version must not be spliced in beside it.
     #[test]
-    fn a_reply_splits_into_the_mirror_item_and_its_link() {
+    fn the_item_stops_at_its_own_brace_and_excludes_any_volunteered_link() {
         let reply = "```rust\n\
                      #[logic]\n\
                      pub fn is_ready_logic(s: &EngineStatus) -> bool {\n\
@@ -590,7 +672,7 @@ mod tests {
                      }\n\
                      #[ensures(result == is_ready_logic(self))]\n\
                      ```";
-        let (item, link) = parse_mirror(reply, "is_ready_logic").expect("a usable pair");
+        let item = parse_mirror(reply, "is_ready_logic").expect("a usable item");
         assert!(item.starts_with("#[logic]"), "got {item}");
         assert!(
             item.ends_with('}'),
@@ -600,7 +682,6 @@ mod tests {
             !item.contains("#[ensures"),
             "the link is not part of the item"
         );
-        assert_eq!(link, "#[ensures(result == is_ready_logic(self))]");
     }
 
     // Verifies (the honesty crux of parsing): a mirror declared under a DIFFERENT name than the one
@@ -625,13 +706,22 @@ mod tests {
         assert_eq!(parse_mirror(reply, "is_ready_logic"), None);
     }
 
-    // Verifies: a reply with no link clause yields nothing — an unlinked mirror is exactly the
-    // unchecked assertion this channel exists to avoid.
+    // Verifies (#170): a reply carrying only the item is USABLE. This test asserted the opposite
+    // and encoded the defect: the reasoning was that an unlinked mirror is the unchecked assertion
+    // this channel avoids, but the mirror is not unlinked — provreq builds the link from the
+    // signature (`link_for`) and never read the model's version. So a well-formed, correctly named,
+    // perfectly linkable mirror was refused over a clause nothing consumed, and refused in silence.
+    // Measured on a fresh subject: that dropped the one predicate the claim needed.
     #[test]
-    fn a_mirror_without_its_link_is_refused() {
+    fn a_reply_carrying_only_the_item_is_usable() {
         let reply = "#[logic]\n\
                      pub fn is_ready_logic(s: &EngineStatus) -> bool { pearlite! { true } }";
-        assert_eq!(parse_mirror(reply, "is_ready_logic"), None);
+        let item = parse_mirror(reply, "is_ready_logic").expect("the item is all that is needed");
+        assert!(item.contains("fn is_ready_logic"));
+        assert!(
+            !item.contains("#[ensures"),
+            "the link is provreq's to build: {item}"
+        );
     }
 
     // Verifies: provreq builds the link from the signature — a receiver becomes `self`, a free
@@ -943,12 +1033,15 @@ mod tests {
             .draft("intent", "claim", &resolutions, &sources)
             .await
             .expect("draft");
-        assert_eq!(drafts.len(), 1, "same function, one mirror");
-        assert_eq!(drafts[0].name, "is_ready_logic");
+        assert_eq!(drafts.drafts.len(), 1, "same function, one mirror");
+        assert_eq!(drafts.drafts[0].name, "is_ready_logic");
+        assert!(drafts.dropped.is_empty(), "nothing was given up on");
     }
 
-    // Verifies: a model that declines (or answers unusably) yields NO draft for that function —
-    // silence, never a fabricated mirror standing in for one.
+    // Verifies (#170): a model that declines (or answers unusably) yields NO draft for that
+    // function — never a fabricated mirror standing in for one — and the abandoned target is
+    // REPORTED. It used to be dropped in silence, which on a real subject left the harness calling
+    // the program function the prover had already named, with nothing said about it.
     #[tokio::test]
     async fn a_declined_function_is_skipped_not_fabricated() {
         let backend = StubBackend {
@@ -969,6 +1062,57 @@ mod tests {
             .draft("intent", "claim", &resolutions, &sources)
             .await
             .expect("draft");
-        assert!(drafts.is_empty());
+        assert!(drafts.drafts.is_empty(), "nothing fabricated");
+        assert_eq!(
+            drafts.dropped.len(),
+            1,
+            "and the operator is told: {drafts:?}"
+        );
+        let d = &drafts.dropped[0];
+        assert_eq!(d.function, "is_ready");
+        assert_eq!(d.name, "is_ready_logic");
+        assert_eq!(d.file, "src/engine.rs");
+        assert_eq!(d.line, 2);
+        assert_eq!(d.wall, DropWall::NoMirrorInReply);
+    }
+
+    // Verifies (#170): a mirror provreq cannot LINK is dropped — and named. A parameter written as
+    // a pattern gives `link_for` no name to apply the mirror to, and a mirror without its link is
+    // an unchecked meaning rather than a weaker proof, so it must not be staged. The operator still
+    // has to learn that this predicate has no mirror, or they read a hole as a complete draft.
+    #[tokio::test]
+    async fn a_mirror_that_cannot_be_linked_is_dropped_and_named() {
+        let backend = StubBackend {
+            reply: "#[logic]\npub fn decide_logic(a: bool, b: bool) -> bool { pearlite! { a } }\n"
+                .to_string(),
+            prompts: std::sync::Mutex::new(Vec::new()),
+        };
+        let mut resolutions = BTreeMap::new();
+        resolutions.insert(
+            "granted".to_string(),
+            resolved(
+                "src/access.rs",
+                1,
+                "pub fn decide((a, b): (bool, bool)) -> bool {",
+            ),
+        );
+        let mut sources = BTreeMap::new();
+        sources.insert(
+            "src/access.rs".to_string(),
+            "pub fn decide((a, b): (bool, bool)) -> bool { a }
+"
+            .to_string(),
+        );
+        let drafts = Mirrorer::new(backend)
+            .draft("intent", "claim", &resolutions, &sources)
+            .await
+            .expect("draft");
+        assert!(
+            drafts.drafts.is_empty(),
+            "an unlinkable mirror is not staged"
+        );
+        assert_eq!(drafts.dropped.len(), 1, "and it is named: {drafts:?}");
+        assert_eq!(drafts.dropped[0].wall, DropWall::Unlinkable);
+        assert_eq!(drafts.dropped[0].function, "decide");
     }
 }

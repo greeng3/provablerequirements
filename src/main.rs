@@ -1502,16 +1502,21 @@ async fn stage_semantic_drafts(
     // once, before any repair round, because a mirror states what a function MEANS — that does not
     // change when the prover fails to discharge a claim, whereas a contract does. Prusti has no
     // such split (its `#[pure]` program functions are callable from specs), so this is Creusot-only.
-    let mirrors = if matches!(marker, provreq::contract_draft::Marker::Logic) {
+    let drafted = if matches!(marker, provreq::contract_draft::Marker::Logic) {
         Mirrorer::new(provreq::llm::HttpBackend::from_config(
             provreq::llm::load_config(&companion)?.expect("config loaded above"),
         )?)
         .draft(&intent, &claim, resolutions, &sources)
         .await?
     } else {
-        Vec::new()
+        provreq::mirror_draft::MirrorDrafts::default()
     };
+    let mirrors = drafted.drafts;
     report_mirror_drafts(id, &mirrors);
+    // A target the channel gave up on is reported too, and BEFORE the verdict it explains: the
+    // predicate keeps calling its program function in the harness, so the claim fails at the very
+    // wall this channel removes. Silence there reads as a complete draft (#170).
+    report_dropped_mirrors(&drafted.dropped);
     // The contract channel shares the mirror channel's wall — a spec may call no program function —
     // so it is told which mirrors exist. Without this it proposed `result <==> self.is_available()`:
     // a prohibition with no stated alternative just gets broken.
@@ -1692,6 +1697,40 @@ fn report_mirror_drafts(id: &str, mirrors: &[provreq::mirror_draft::MirrorDraft]
          #[ensures] makes the prover check it against the real body, so a wrong mirror fails \
          rather than proving something false — but a mirror you keep without reading is a claim \
          you have not reviewed."
+    );
+}
+
+/// Print the predicates the mirror channel **gave up on**, and what stopped each one.
+///
+/// A dropped mirror is not a smaller draft, it is a hole in the one the operator is about to read:
+/// that predicate keeps calling its program function inside `proof_assert!`, so Creusot fails with
+/// *called program function `f` in logic context* — the exact wall this channel exists to remove,
+/// now reported as if nothing had been attempted. Measured on a fresh subject (#170): one of two
+/// mirrors staged, the other abandoned in silence, and the harness still calling the function the
+/// prover had already named.
+///
+/// Dropping stays — a mirror provreq cannot parse or link is an unchecked meaning, and staging one
+/// is the false `proven` this design exists to prevent. Only the silence is fixed.
+fn report_dropped_mirrors(dropped: &[provreq::mirror_draft::DroppedMirror]) {
+    if dropped.is_empty() {
+        return;
+    }
+    println!(
+        "\n--draft-semantic: NO mirror was staged for {} predicate(s) — the claim cannot reach a \
+         Creusot proof until each is mirrored:",
+        dropped.len()
+    );
+    for d in dropped {
+        println!(
+            "  {}:{}  {} (wanted `{}`)",
+            d.file, d.line, d.function, d.name
+        );
+        println!("    - {}", d.wall.explain());
+    }
+    println!(
+        "  Each of these keeps calling its program function inside the proof, which is what \
+         Creusot refuses — so expect `called program function … in logic context` naming one of \
+         them, and read that as this message, not as a defect in the subject."
     );
 }
 
