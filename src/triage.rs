@@ -15,6 +15,55 @@ use std::path::Path;
 /// channel, keyed by source id).
 pub const TRIAGE_FILE: &str = "triage.yml";
 
+/// What produced a classification — and therefore how much it is worth.
+///
+/// A bucket assigned because nothing could judge the item is not the same fact as one a classifier
+/// decided, and until #172 the two were written identically. Measured on a fresh subject: with no
+/// provider configured, `triage` seeds `stays-prose` and says so *as it runs*; the record it leaves
+/// says only `classification: stays-prose`. Once that message scrolls away nothing distinguishes
+/// them — and `stays-prose` is the lifecycle state meaning *this item will not be formalized*. On
+/// that subject the seed was wrong: configuring a model gave `formalizable-now` for the same item.
+///
+/// This is the rule the engine verdicts already follow (REQ032/REQ065) applied to triage: a state
+/// reached because nothing could be determined must not present as a state something determined.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum Origin {
+    /// A classifier read the item and judged it.
+    Classified,
+    /// No classifier ran. Seeded from the item's own verification hint where the source carried
+    /// one, and from the prose floor where it did not — see [`ProseFloorClassifier`]. A later run
+    /// replaces this without `--reclassify`, because there is no judgement here to overwrite.
+    Seeded,
+    /// The operator set it by hand ([`set`]). Never replaced by an automatic run.
+    Operator,
+    /// Written before provreq recorded this (#172). **Not** assumed to be either: an old entry may
+    /// have come from a real classifier or from a seed, and guessing would be the very thing this
+    /// enum exists to stop. Left alone by an automatic run, like a judgement.
+    #[default]
+    Unrecorded,
+}
+
+impl Origin {
+    /// Whether an ordinary (non-`--reclassify`) run may replace an entry of this origin. True only
+    /// for a seed: there is nothing there to overwrite. A judgement, an operator's own choice, and
+    /// an entry whose provenance is unknown are all left alone.
+    pub fn is_replaceable_by_a_plain_run(self) -> bool {
+        matches!(self, Origin::Seeded)
+    }
+
+    /// How this origin reads on a surface that lists classifications. Empty for a real
+    /// classification, which needs no annotation — only the ones carrying less than they appear to.
+    pub fn note(self) -> &'static str {
+        match self {
+            Origin::Classified => "",
+            Origin::Seeded => "seeded — no classifier ran",
+            Origin::Operator => "set by the operator",
+            Origin::Unrecorded => "origin not recorded",
+        }
+    }
+}
+
 /// One item's triage record.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct TriageEntry {
@@ -22,6 +71,10 @@ pub struct TriageEntry {
     /// Source revision this classification was made against (R-src-3); lets a
     /// later slice flag drift. Advisory only — re-triage is always allowed.
     pub revision: String,
+    /// What produced this classification (#172). Defaults to [`Origin::Unrecorded`] so a
+    /// `triage.yml` written before this field existed loads unchanged and claims nothing.
+    #[serde(default)]
+    pub origin: Origin,
 }
 
 /// Persisted triage state, keyed by source id.
@@ -74,6 +127,13 @@ pub trait Classifier {
         &self,
         items: &[Item],
     ) -> impl std::future::Future<Output = Result<Vec<Classification>>> + Send;
+
+    /// What this classifier's answers are worth, recorded on every entry it writes (#172). The
+    /// default is [`Origin::Classified`], because a classifier that reads an item and judges it is
+    /// the ordinary case; the honest floor overrides it, since it judges nothing.
+    fn origin(&self) -> Origin {
+        Origin::Classified
+    }
 }
 
 /// Adapter #0: the honest floor. Seeds each item from its source verification
@@ -89,6 +149,12 @@ impl Classifier for ProseFloorClassifier {
             .map(|i| i.verification_hint.unwrap_or(Classification::StaysProse))
             .collect())
     }
+
+    /// Nothing here judged anything: an item is seeded from its own source hint, or from the floor.
+    /// Both are worth strictly less than a classification and are recorded as such (#172).
+    fn origin(&self) -> Origin {
+        Origin::Seeded
+    }
 }
 
 /// Classify exactly `batch` and merge the buckets onto `state`, replacing any entry those items
@@ -100,6 +166,7 @@ async fn classify_into<C: Classifier>(
     classifier: &C,
 ) -> Result<TriageState> {
     let buckets = classifier.classify(batch).await?;
+    let origin = classifier.origin();
     let mut next = state.items.clone();
     for (item, classification) in batch.iter().zip(buckets) {
         next.insert(
@@ -107,6 +174,7 @@ async fn classify_into<C: Classifier>(
             TriageEntry {
                 classification,
                 revision: item.revision.clone(),
+                origin,
             },
         );
     }
@@ -190,6 +258,7 @@ pub fn set(state: &TriageState, item: &Item, classification: Classification) -> 
         TriageEntry {
             classification,
             revision: item.revision.clone(),
+            origin: Origin::Operator,
         },
     );
     TriageState {
@@ -214,6 +283,13 @@ pub enum TriagePlan {
 
 /// Decide a triage run's scope. Pure, so the caller can report the decision rather than narrate an
 /// intention — the same shape as [`crate::adopt::plan`] and [`crate::provision::decide_install`].
+///
+/// An ordinary run takes the untriaged items **and the seeded ones** (#172). A seed is what the tool
+/// wrote when nothing could judge the item, so replacing it overwrites no judgement — whereas
+/// `--reclassify` exists to replace judgements and is consent-gated for that reason. Without this,
+/// an operator who ran `triage` before configuring a provider had only one way to get their backlog
+/// judged: `--reclassify`, which also discards every classification they had set by hand. That is a
+/// choice between keeping nothing and re-running everything, and neither is what they wanted.
 pub fn plan(state: &TriageState, items: &[Item], reclassify: bool) -> TriagePlan {
     if reclassify {
         return TriagePlan::Classify {
@@ -222,7 +298,10 @@ pub fn plan(state: &TriageState, items: &[Item], reclassify: bool) -> TriagePlan
     }
     let pending: Vec<Item> = items
         .iter()
-        .filter(|i| !state.items.contains_key(&i.id))
+        .filter(|i| match state.items.get(&i.id) {
+            None => true,
+            Some(entry) => entry.origin.is_replaceable_by_a_plain_run(),
+        })
         .cloned()
         .collect();
     if pending.is_empty() {
@@ -280,6 +359,105 @@ mod tests {
         );
     }
 
+    /// A classifier that actually judges — the default [`Origin::Classified`]. Stands in for the
+    /// LLM one wherever a test needs a *classification* rather than a seed.
+    struct JudgingClassifier;
+
+    impl Classifier for JudgingClassifier {
+        async fn classify(&self, items: &[Item]) -> Result<Vec<Classification>> {
+            Ok(vec![Classification::FormalizableNow; items.len()])
+        }
+    }
+
+    // Verifies (#172): a seed is recorded as a seed, and a judgement as a judgement. They used to
+    // serialize identically, so once the "no `llm:` config — seeding with the prose-floor default"
+    // message scrolled away nothing could tell them apart — and the seed can be WRONG: measured on
+    // a real subject, the floor said `stays-prose` where a live model said `formalizable-now`.
+    #[tokio::test]
+    async fn a_seed_and_a_judgement_are_not_recorded_the_same_way() {
+        let items = [item("A", None)];
+        let seeded = seed_all(&TriageState::new(), &items, &ProseFloorClassifier)
+            .await
+            .unwrap();
+        assert_eq!(seeded.items["A"].origin, Origin::Seeded);
+
+        let judged = seed_all(&TriageState::new(), &items, &JudgingClassifier)
+            .await
+            .unwrap();
+        assert_eq!(judged.items["A"].origin, Origin::Classified);
+
+        // And the operator's own choice is neither.
+        let chosen = set(&TriageState::new(), &items[0], Classification::StaysProse);
+        assert_eq!(chosen.items["A"].origin, Origin::Operator);
+    }
+
+    // Verifies (#172): a seeded backlog is work for a real classifier WITHOUT `--reclassify`.
+    // Before this, an operator who ran `triage` before configuring a provider had one way out —
+    // `--reclassify`, which also discards every classification they had set by hand. That is a
+    // choice between keeping nothing and re-running everything.
+    #[tokio::test]
+    async fn a_seeded_backlog_is_still_work_for_a_real_classifier() {
+        let items = [item("A", None), item("B", None)];
+        let seeded = seed_all(&TriageState::new(), &items, &ProseFloorClassifier)
+            .await
+            .unwrap();
+
+        let TriagePlan::Classify { pending } = plan(&seeded, &items, false) else {
+            panic!("a seed is not a triage — both items are still work");
+        };
+        assert_eq!(pending.len(), 2);
+
+        // And running it upgrades them in place, no consent gate needed: nothing was overwritten
+        // but a seed.
+        let judged = seed_all(&seeded, &items, &JudgingClassifier).await.unwrap();
+        assert_eq!(judged.items["A"].origin, Origin::Classified);
+        assert_eq!(
+            judged.items["A"].classification,
+            Classification::FormalizableNow
+        );
+    }
+
+    // Verifies (#172): what a plain run must NOT touch. An operator's own choice and an entry whose
+    // provenance predates this field are both left alone — the first because it is a decision, the
+    // second because guessing it was a seed would be the very over-claim this exists to stop. Only
+    // `--reclassify`, which is consent-gated, replaces either.
+    #[tokio::test]
+    async fn a_plain_run_replaces_only_seeds() {
+        let items = [item("A", None), item("B", None)];
+        let mut state = set(&TriageState::new(), &items[0], Classification::StaysProse);
+        state.items.insert(
+            "B".to_string(),
+            TriageEntry {
+                classification: Classification::StaysProse,
+                revision: "rev-B".into(),
+                origin: Origin::Unrecorded,
+            },
+        );
+
+        assert_eq!(
+            plan(&state, &items, false),
+            TriagePlan::Nothing { already: 2 },
+            "neither an operator's choice nor an unrecorded entry is a seed"
+        );
+        let TriagePlan::Classify { pending } = plan(&state, &items, true) else {
+            panic!("--reclassify is the consent-gated way to replace them");
+        };
+        assert_eq!(pending.len(), 2);
+    }
+
+    // Verifies (#172): a `triage.yml` written before this field existed loads, and claims nothing.
+    // Defaulting it to either real value would assert a provenance nobody recorded.
+    #[test]
+    fn an_entry_written_before_origin_existed_loads_as_unrecorded() {
+        let yaml = "schema: 1\nitems:\n  A:\n    classification: stays-prose\n    revision: r1\n";
+        let state: TriageState = serde_yaml::from_str(yaml).expect("old state must still load");
+        assert_eq!(state.items["A"].origin, Origin::Unrecorded);
+        assert!(
+            !state.items["A"].origin.is_replaceable_by_a_plain_run(),
+            "an unknown provenance is not assumed to be a seed"
+        );
+    }
+
     // Verifies: REQ053 — the scope of a run is decided before it is described. A fully-triaged
     // backlog is `Nothing`, so the caller can say "nothing to classify" instead of announcing a
     // model it is not about to ask. This is the defect: `triage` printed "Classifying backlog with
@@ -287,12 +465,17 @@ mod tests {
     #[tokio::test]
     async fn a_fully_triaged_backlog_plans_no_work() {
         let items = [item("A", None), item("B", None)];
-        let seeded = seed_all(&TriageState::new(), &items, &ProseFloorClassifier)
+        // JUDGED, not seeded. This fixture used the prose floor and #172 changed what that means: a
+        // seed is not a triage, so a fully-seeded backlog is now real work for a real classifier
+        // (see `a_seeded_backlog_is_still_work_for_a_real_classifier`). REQ053's point is unchanged
+        // — do not announce a model and then classify nothing — and it needs a backlog something
+        // actually decided.
+        let judged = seed_all(&TriageState::new(), &items, &JudgingClassifier)
             .await
             .unwrap();
 
         assert_eq!(
-            plan(&seeded, &items, false),
+            plan(&judged, &items, false),
             TriagePlan::Nothing { already: 2 }
         );
 

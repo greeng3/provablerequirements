@@ -369,7 +369,9 @@ async fn seed_backlog(
         None => {
             println!(
                 "No `llm:` config in provreq.yml — seeding {count} of {} item(s) with the \
-                 prose-floor default.",
+                 prose-floor default. A seed is recorded as a seed, not as a classification: \
+                 configure a provider and re-run `provreq triage` and these are re-done, with no \
+                 `--reclassify` and nothing else of yours touched.",
                 items.len()
             );
             triage::seed_in_batches(state, &pending, &ProseFloorClassifier, count, persist).await?
@@ -390,15 +392,23 @@ async fn seed_backlog(
     Ok(outcome.state)
 }
 
+/// List the backlog with each item's bucket — and, where the bucket is worth less than it looks,
+/// what produced it (#172). A `stays-prose` that no classifier ever judged is the lifecycle state
+/// meaning *this will not be formalized*, reached because nothing could decide; on the surface where
+/// the operator reads it, that has to be visible.
 fn print_triage(items: &[Item], state: &TriageState) {
     println!("Triage ({} item(s)):", items.len());
     for item in items {
-        let bucket = state
-            .items
-            .get(&item.id)
+        let entry = state.items.get(&item.id);
+        let bucket = entry
             .map(|e| e.classification.as_str())
             .unwrap_or("untriaged");
-        println!("  {:<12} {bucket}", item.id);
+        let note = entry.map(|e| e.origin.note()).unwrap_or_default();
+        if note.is_empty() {
+            println!("  {:<12} {bucket}", item.id);
+        } else {
+            println!("  {:<12} {bucket:<18} ({note})", item.id);
+        }
     }
 }
 

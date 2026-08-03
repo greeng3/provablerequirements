@@ -478,3 +478,41 @@ The `#[logic]` recommendation is gone. It fired on **every** compile error — i
 mismatches, where provreq had established no cause at all — and since #158 it is the one action that
 leaves the subject unable to compile in any configuration. A test asserted its presence
 (`must point at the fix`); that test now asserts its absence, and two more pin the site reporting.
+
+### Follow-up: a seed is recorded as a seed (#172)
+
+`TriageEntry` gains an `origin`, and the four writers of a classification are now distinguishable
+because they mean different things: a classifier **judged** it, the prose floor **seeded** it, the
+**operator** set it, or it predates this field and its provenance is **unrecorded**. That last one
+is not a formality — defaulting an old entry to either real value would assert a provenance nobody
+recorded, which is the over-claim the field exists to stop.
+
+The consequence that matters is in `plan`: an ordinary run now re-does the **seeded** items as well
+as the untriaged ones. A seed overwrites no judgement, so there is nothing to gate. `--reclassify`
+keeps its meaning and its consent prompt — it replaces judgements — but is no longer the only way
+out of a backlog seeded before a provider was configured. That choice, between keeping nothing and
+re-running everything, was the real cost of the defect.
+
+Measured end to end on the same subject, in the three states that matter:
+
+```text
+# the pre-#172 file, which must still load and must claim nothing
+REQ001       formalizable-now   (origin not recorded)
+
+# no provider configured
+No `llm:` config in provreq.yml — seeding 1 of 1 item(s) with the prose-floor default. A seed is
+recorded as a seed, not as a classification: configure a provider and re-run `provreq triage` and
+these are re-done, with no `--reclassify` and nothing else of yours touched.
+REQ001       stays-prose        (seeded — no classifier ran)
+    -> triage.yml: classification: stays-prose / origin: seeded
+
+# provider configured, PLAIN run — no --reclassify
+Classifying 1 of 1 item(s) with qwen3:32b …
+REQ001       formalizable-now
+    -> triage.yml: classification: formalizable-now / origin: classified
+```
+
+The third step is the one the third pass could not reach: the seed said `stays-prose`, meaning *this
+will not be formalized*, and the model said `formalizable-now`. The annotation disappears once the
+bucket is a real classification, because a classification needs no annotation — only the states
+carrying less than they appear to do.
