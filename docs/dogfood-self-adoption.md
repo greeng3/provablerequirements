@@ -302,3 +302,113 @@ operator's terms instead of handing them the trait error.
 So REQ047 has now been `unknown` for three distinct reasons in sequence — the free-variable gap
 (#136), the module path (#145), and instantiability (#148) — and every one of them was real. That
 sequence is what a tool that refuses to guess looks like from the outside.
+
+### Where REQ047 landed (2026-08-02)
+
+The sequence terminated. `#148` shipped as REQ065 and the instantiability wall came down, so **REQ047
+now reaches a verdict about this repo**:
+
+```text
+REQ047: holds — model-checked (bounded)
+    - Kani: holds (model-checked (bounded))
+    - Creusot: inconclusive   (the compiler crashed translating the subject — the async ICE, #153)
+    - Prusti: inconclusive    (its pinned 2023 toolchain cannot read this dependency graph, REQ063)
+```
+
+That is the first requirement verified end to end **about this repo**, which the second pass listed
+as its largest gap. The gap it closes is narrower than it looks: `holds` here is Kani's bounded
+basis, not `proven`, and the two deductive engines are still reporting the standing ceilings named in
+REQ063/REQ067 rather than reading the claim. Both now say which of the two it is, in the operator's
+terms, instead of handing over a tool error — that is the REQ062–067 arc, and REQ047 is where its
+absence was first felt.
+
+`proven` itself arrived elsewhere, on the mirror channel (REQ068), and had to: provreq cannot be its
+own Creusot subject while the async ICE stands, so the proof runs against an in-repo fixture. See the
+mirror-channel section in `operator-workflow-notes.md`.
+
+**Still uncovered by any dogfood pass:** the living loop's five drift axes against real data, and the
+web UI driven against this subject. Both have been open across all three passes.
+
+## Third pass (2026-08-02) — the mirror channel, walked end to end
+
+Not a self-adoption pass: provreq cannot be its own Creusot subject while #153 stands, and the
+mirror channel is Creusot's. So this walked a **fresh subject** the way an operator would, start to
+finish, with a live model and the real prover — `init` → `triage` → `--translate` → `--set` →
+`--admit` → `--ground` → `verify --draft-semantic --repair`. The point was to exercise REQ062–068 as
+one journey rather than in pieces, since every piece had only ever been validated on its own.
+
+The subject (`gatekeeper`, two modules, deliberately Creusot-translatable — no `format!`, no `async`):
+
+```rust
+pub enum Session { Anonymous, SignedIn { failures: u32 }, LockedOut }
+impl Session { pub fn is_trusted(&self) -> bool { … } }          // src/session.rs
+
+pub enum Access { Granted, Refused, NeedsReview }
+pub fn decide(session: &Session, flagged: bool) -> Access { … }  // src/access.rs
+```
+
+and the requirement: *a request is granted only from a trusted session*, grounded
+`trusted=Session::is_trusted`, `granted=decide::Granted`, `Sess=Session`, `Flag=bool`.
+
+### What worked in the third pass
+
+- **Grounding read the subject correctly first time**, across two modules, including the
+  inherent-method form and the enum-variant form, and said in each read-back exactly how it would
+  check the predicate and what it could not see (`syn` sees no types).
+- **All three engines gave honest, actionable inconclusives** at the baseline, each about its own
+  limit: Kani named `Session`'s missing `kani::Arbitrary` as a subject-side precondition and offered
+  both ways out (REQ065); Prusti named its toolchain ceiling (REQ063); Creusot named the
+  call-in-logic-context wall. That is the REQ062–067 arc doing its job on a subject it had never
+  seen.
+- **The read-back caught a mis-formalization before admission.** Asked to translate the prose, the
+  live model proposed a **category 2a + 2b** requirement — TLA+ and MonPoly — for a pure Rust
+  subject with neither a spec nor an event stream. The gate passed it (it is well-formed PRL), and
+  the read-back stated the category and the expected evidence plainly enough to reject it on sight.
+  The formalization written by hand as category 1 is what went on to admission.
+
+### Finding 1 — a dropped mirror is invisible ([#170](https://github.com/greeng3/provablerequirements/issues/170))
+
+Two predicates resolved; **one** mirror was staged, for `is_trusted`. Nothing was staged for
+`decide` — the function named in the baseline error — and nothing was said about it. The captured
+harness shows the consequence:
+
+```rust
+proof_assert! { forall<s: crate::session::Session, f: bool>
+  (!(match crate::access::decide(&s, f) { crate::access::Access::Granted { .. } => true, _ => false })
+   || crate::session::is_trusted_logic(&s)) };
+```
+
+`with_mirrors` skipped `decide` correctly — it looks for `fn decide_logic`, which was never staged —
+so the program call stayed in pearlite and the run failed for the reason it started with.
+
+`Mirrorer::draft` drops a target on three paths, each a bare `continue`: an unusable model reply, a
+malformed item, or a link provreq cannot build. **Dropping is right** — an unlinked mirror is an
+unchecked meaning, the exact false-`proven` hazard the channel exists to prevent. Saying nothing is
+not: the operator gets a count of what was staged, which reads as completeness.
+
+### Finding 2 — the Creusot hint recommends what #158 forbids ([#171](https://github.com/greeng3/provablerequirements/issues/171))
+
+Every Creusot build failure still ends "…the predicate may need `#[logic]`", including the
+call-in-logic-context error the mirror channel exists to answer. Since #158 that is the one action
+that leaves the subject unable to compile in any configuration.
+
+### Finding 3 — a seeded triage classification cannot be told from a real one ([#172](https://github.com/greeng3/provablerequirements/issues/172))
+
+With no provider configured, `triage` seeds the prose-floor default and says so as it runs — but
+persists `classification: stays-prose` with no trace that no classifier ran. Here the seed was
+**wrong**: configuring the model and re-running gave `formalizable-now`. `stays-prose` means *this
+will not be formalized*, and the coverage funnel counts it.
+
+### Friction, not defects
+
+- `--ground` cannot be repeated, so a four-symbol requirement takes four invocations.
+- `llm.provider` is required and has no example anywhere; the parse error names the field, which is
+  how it was recovered.
+
+### Where this leaves REQ068
+
+The channel proved a claim over ordinary program functions on the in-repo fixture, and CI holds it
+there. On a subject it had not seen, it reached the same wall and covered only half of it. The
+mirror mechanism is not what failed — the one mirror it staged was correct, linked, and redirected.
+What failed is that the tool knew it had given up on the other half and did not say so, which is the
+one failure mode this project treats as never acceptable.

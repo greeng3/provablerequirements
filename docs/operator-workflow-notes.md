@@ -87,8 +87,11 @@ most 0`, unused vocabulary), the generate-then-repair loop (`src/formalize.rs` f
    deductive) — and category 2a is TLC.
 5. **Annotate** — stage the working-tree proof-carrier edit; operator reviews + commits on their own
    forge. **🟢 SHIPPED** — A6/D14 back-write above (issue #28 / PR #29, REQ020) plus the A6
-   contract-draft channel that stages deductive markers for review (issue #71 / PR #72, REQ033) and
-   the semantic contract drafting that followed (REQ040/REQ041).
+   contract-draft channel (issue #71 / PR #72, REQ033) and the semantic contract drafting that
+   followed (REQ040/REQ041). **Which channel applies is the dialect's call, not a flag**: the marker
+   draft is Prusti-only (#158) and semantic contracts are Prusti-only (#164), while Creusot reaches
+   an ordinary program function through a drafted `#[logic]` **mirror** (REQ068). See
+   [the mirror channel](#creusot-reaches-a-program-function-through-a-mirror-issue-160--req068) below.
 6. **Living loop** — re-run on drift, act on stale verdicts. **🟢 SHIPPED (2026-07-22, issue #83 /
    PR #84, REQ039)** and since **closed on five drift axes**: requirement prose, subject commit,
    formalization (REQ045), tool version, and the environment a verdict was proved in (REQ049/REQ050).
@@ -661,6 +664,86 @@ removing the platform gate from the subject turns it into **`fails`**, with the 
 assertion showing all three closed-over variables instantiated. (REQ047 itself declares no parameter
 types yet — updating its candidate is an operator act for the next dogfood pass, not something this
 slice does to the companion tree.)
+
+### Every cat-1 engine explains its own limit (issues #146–#152 / REQ062–REQ067)
+
+Pointing the wired ensemble at real subjects turned up six ways an engine could fail while telling
+the operator nothing they could act on. Each was answered by the same rule: **an engine that cannot
+answer says what it is that stopped it, in terms of the thing that stopped it.** A tool error dumped
+verbatim reads as the subject's fault, and the operator's next move depends entirely on whose fault
+it was.
+
+- **REQ062 — a variant test every checker can read** (#151). The enum-variant lowering emitted a
+  `match`, which Kani reads as ordinary Rust and Creusot's Pearlite does not read at all. The
+  generated fragment has to be expressible in the language the checker actually interprets, which is
+  not always the language of the surrounding file.
+- **REQ063 — a toolchain ceiling named as a ceiling** (#152). Prusti is welded to a 2023 nightly
+  whose cargo cannot read a v4 lock file or a dependency declaring `edition = "2024"`. That is not a
+  missing annotation and no contract fixes it, so the verdict says so and stops inviting the operator
+  to annotate their way out.
+- **REQ064 — a crash is neither a `fails` nor a defect in the subject.** Creusot panicked
+  (`internal error: entered unreachable code`) and nothing at all had been learned about the claim.
+  Presented as a prover defect, with the scratch harness cleaned up after it.
+- **REQ065 — an uninstantiable sort is a subject-side precondition** (#148). Kani needs
+  `kani::Arbitrary` to range over a sort; without it the raw `E0277` looks like the subject failing to
+  compile. It is a capacity the subject must supply for the method to apply at all, and it is said
+  that way. This was the one case that earned an exception to "quote the first error line".
+- **REQ066 — a boolean variable can stand as a condition on its own** (#146). Requiring every
+  condition to be a named predicate of the subject left a whole class of requirement unsayable —
+  exactly the ones relating what goes _into_ a function to what comes out.
+- **REQ067 — an untranslatable construct is the checker's limit** (refs #153). Creusot ICEs on any
+  crate containing an `async fn`, because an async body reports as a closure but is a coroutine.
+  Reported upstream (creusot-rs/creusot#2212, still open) and **patched locally** so the engine is
+  usable here meanwhile; the verdict offers `#[trusted]`, never a `#[logic]` hint, since no contract
+  makes an untranslatable construct translatable.
+
+### Creusot reaches a program function through a mirror (issue #160 / REQ068)
+
+**This is the arc that produced provreq's first real `proven`.** Everything before it topped out at
+Kani's bounded `holds`.
+
+The wall: Pearlite — the language inside `proof_assert!` — may only call `#[logic]` items, and
+`#[logic]` cannot go on the subject's function, because it moves that item out of the program
+namespace and breaks every call site (#158, six of them in this repo). A category-1 predicate
+normally resolves to exactly that: an ordinary function the subject calls. So the harness could not
+name what the requirement was about.
+
+**The bridge is a mirror.** provreq leaves the function alone and stages a `#[logic(open)]` twin
+stating its meaning, plus a linking `#[ensures(result == mirror(args))]` on the untouched program
+function. The prover discharges the mirror against the real body, so a wrong mirror fails **at its
+own link**, naming the function it misstates, instead of going on to prove something false.
+`creusot::with_mirrors` does the redirection by rewriting _resolutions_, so the shared lowering and
+the harness shape never learn about any of it. Creusot-only: Kani executes these functions and must
+keep the program ones.
+
+The meaning is the model's proposal, the operator's to review, the prover's to check — so provreq
+writes only the mirror's **name** into a proof, never its content, and the attribute mechanics are
+provreq's job and never the model's: the link is built from the signature with `syn`, visibility is
+copied from the mirrored fn, transparency is forced, and the item is `syn`-validated. **A mirror
+provreq cannot link or parse is dropped**, because an unlinked mirror is an unchecked meaning.
+
+**Contracts are Prusti-only, and this is soundness rather than tidiness (#164).** A mirror's link is
+discharged _assuming the function's preconditions_, so a drafted `#[requires]` narrows the domain the
+mirror was ever checked on while the harness's `forall` ranges over all of it. Measured against real
+Creusot: a mirror genuinely correct under `!allowed`, whose link discharges honestly, plus an
+ordinary `#[requires(!allowed)]`, yields **`Holds` for a claim that is false of the program** —
+nothing contrived, nothing in the prover misbehaving. The probe is kept as a test that **asserts
+`Holds`**; if it ever stops holding, re-derive the rule rather than assuming it.
+
+Ten defects came out of this arc and **every one was found by running the real prover and a real
+model** — the stub tests passed throughout. Two worth carrying forward:
+
+- **`#[logic]` vs `#[logic(open)]`: visibility is not transparency.** Creusot defaults a logic fn's
+  _body_ to `Transparent(Restricted(parent_module))`; `pub` makes it callable, not unfoldable. A bare
+  `#[logic]` mirror compiles, runs, and **cannot discharge** — presenting as a claim that will not
+  prove rather than as a missing attribute.
+- **A false `proof-carrying`.** The repair loop reported `Proved` if _any_ engine held, so Kani's
+  standing bounded `holds` passed off as Creusot's proof while Creusot had not even compiled. Never
+  report a `proven` from a drafting message — re-run a plain `verify` and read the verdict line.
+
+**provreq still cannot be its own Creusot subject** (#153): the async ICE above, plus whole-crate
+`format!`, across 28 of 32 files. That is why the in-repo `mirror_subject` fixture exists, and CI
+asserts both directions on it.
 
 ## Engine provisioning — Design A (old, superseded topology)
 
