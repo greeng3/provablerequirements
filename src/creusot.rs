@@ -39,7 +39,7 @@
 
 use crate::grounding::Binding;
 use crate::lowering::{self, LoweredClaim};
-pub use crate::lowering::{harness_name, NotLowerable};
+pub use crate::lowering::{harness_name, NotLowerable, HARNESS_PREFIX};
 use crate::prl::ast::Requirement;
 use crate::rust_adapter::{PredicateForm, Resolution, TypeResolution};
 use crate::verdict::{Basis, Evidence};
@@ -477,22 +477,75 @@ fn unsupported_construct(output: &str) -> Option<String> {
         })
 }
 
-/// The first compiler error line, which names the actionable cause (a predicate that is not
-/// `#[logic]`, a type mismatch) — the top of a rustc diagnostic, not the boilerplate tail.
+/// The first compiler error, reported with **where it is** and, where the error says so, what to do.
+///
+/// Two things this must get right, both learned from a live run (#171, #174).
+///
+/// **Where.** A compile failure under Creusot is not always in the generated harness. It is just as
+/// often in the subject's own source — most sharply when `--draft-semantic` has just staged a mirror
+/// there and asked the operator to review it. Measured: a drafted mirror wrote `failures == 0` where
+/// a `&Session` match binds `&u32`, and the verdict said *the proof harness did not compile*,
+/// sending the operator to a generated file that is deleted after the run and that they cannot edit,
+/// when rustc had already named the line in their own tree. The location is in the diagnostic; this
+/// reads it rather than discarding it.
+///
+/// **What to do.** The old hint offered `#[logic]` on any compile error. Since #158 that is the one
+/// action that cannot work: the attribute declares a *logical* function, so the item leaves the
+/// program namespace and every call site stops compiling. Where the error is the call-in-logic-context
+/// one, the answer is the mirror channel, which leaves the program function alone (REQ068); where it
+/// is anything else, provreq has established no cause and says none.
 fn build_error(output: &str) -> String {
-    output
-        .lines()
-        .map(str::trim)
-        .find(|l| l.starts_with("error[") || l.starts_with("error:"))
-        .map(|l| {
-            // The hint is offered as a possibility, not asserted as the cause: this branch sees
-            // every compile error, and a type mismatch is not an opaque predicate (REQ064).
-            format!(
-                "the proof harness did not compile — {l} (if that error names a call the \
-                     prover cannot see into, the predicate may need `#[logic]`)"
-            )
-        })
-        .unwrap_or_else(|| tail(output))
+    let lines: Vec<&str> = output.lines().map(str::trim).collect();
+    let Some(idx) = lines
+        .iter()
+        .position(|l| l.starts_with("error[") || l.starts_with("error:"))
+    else {
+        return tail(output);
+    };
+    let err = lines[idx];
+    let where_it_failed = match error_site(&lines, idx) {
+        Some(site) if is_generated_harness(site) => {
+            format!("the proof harness provreq generated did not compile — {err} ({site})")
+        }
+        Some(site) => format!(
+            "the subject did not compile under Creusot — {err}, at {site}. That is the subject's \
+             own source, not the generated harness — if a draft was just staged there, it is the \
+             staged edit that needs fixing, and the line above says which"
+        ),
+        None => format!("the proof harness did not compile — {err}"),
+    };
+    if err.contains("called program function") {
+        return format!(
+            "{where_it_failed}. Pearlite may only call `#[logic]` functions, and that is an \
+             ordinary program function — marking it `#[logic]` is not the fix either, because that \
+             removes the item from the program and breaks every call site. Reach it through a \
+             `#[logic]` mirror instead, which leaves the function untouched: re-run `verify` with \
+             `--draft-semantic`"
+        );
+    }
+    where_it_failed
+}
+
+/// Where rustc said the error is: the `--> file:line:col` line that follows a diagnostic's header.
+/// Bounded to the few lines after it, so a later diagnostic's location is never read as this one's.
+fn error_site<'a>(lines: &[&'a str], header: usize) -> Option<&'a str> {
+    lines
+        .get(header + 1..)?
+        .iter()
+        .take(SITE_SEARCH_LINES)
+        .find(|l| l.starts_with("-->"))
+        .map(|l| l.trim_start_matches("-->").trim())
+}
+
+/// Whether a rustc location points at the file provreq generated, rather than the operator's own.
+///
+/// Every harness provreq writes is `src/<`[`HARNESS_PREFIX`]`>…rs` ([`harness_name`]), and a
+/// name collision with a real subject file is refused before any of this runs — so the prefix is a
+/// reliable discriminator and not a guess.
+fn is_generated_harness(site: &str) -> bool {
+    site.rsplit('/')
+        .next()
+        .is_some_and(|f| f.starts_with(HARNESS_PREFIX))
 }
 
 /// The last few non-empty lines of engine output — enough for the operator to see why Creusot
@@ -511,6 +564,10 @@ fn tail(output: &str) -> String {
 /// How many lines of engine output an `inconclusive` carries. Enough to name a cause; short
 /// enough to stay a verdict rather than a log.
 const TAIL_LINES: usize = 12;
+
+/// How far past a diagnostic's header to look for its `-->` location. rustc puts it on the very
+/// next line; a small window keeps a *later* diagnostic's location from being read as this one's.
+const SITE_SEARCH_LINES: usize = 3;
 
 #[cfg(test)]
 mod tests {
@@ -752,10 +809,13 @@ mod tests {
         assert!(matches!(classify(output), Outcome::Inconclusive { .. }));
     }
 
-    // Verifies: REQ031 — an opaque predicate (an ordinary `fn`, not `#[logic]`) makes the
-    // harness fail to compile, which is `inconclusive` and names the actionable cause.
+    // Verifies: REQ031 — a harness that does not compile is `inconclusive` and names the error and
+    // WHERE it is. Also (#171): it no longer recommends `#[logic]`. That hint fired on every
+    // compile error including this one, a plain type mismatch, and since #158 it is the one action
+    // that cannot work — the attribute removes the item from the program and breaks every call
+    // site. A cause provreq has not established is a cause it does not assert.
     #[test]
-    fn a_compile_failure_is_inconclusive_and_names_the_cause() {
+    fn a_compile_failure_is_inconclusive_and_names_the_error_and_its_site() {
         let output = "error[E0308]: mismatched types\n  --> src/provreq_check.rs:5:9\n\
                       error: could not compile `csmoke` (lib) due to 2 previous errors\n\
                       Error: Compilation failed\n";
@@ -763,9 +823,69 @@ mod tests {
             panic!("a harness that does not compile decides nothing");
         };
         assert!(reason.contains("did not compile"), "{reason}");
+        assert!(reason.contains("E0308"), "the error rides along: {reason}");
         assert!(
-            reason.contains("`#[logic]`"),
-            "must point at the fix: {reason}"
+            reason.contains("src/provreq_check.rs:5:9"),
+            "and where it is: {reason}"
+        );
+        assert!(
+            reason.contains("harness provreq generated"),
+            "this one really IS in the harness, and says so: {reason}"
+        );
+        assert!(
+            !reason.contains("`#[logic]`"),
+            "must not recommend the one thing that breaks the subject (#158/#171): {reason}"
+        );
+    }
+
+    // Verifies (#174): an error in the SUBJECT's own source is not reported as the harness failing.
+    // Measured on a live run — a drafted mirror wrote `failures == 0` where a `&Session` match
+    // binds `&u32`, and the verdict said *the proof harness did not compile*, sending the operator
+    // to a generated file that is deleted after the run and that they cannot edit, while rustc had
+    // already named the line in their own tree.
+    #[test]
+    fn an_error_in_the_subjects_own_source_says_so_and_names_the_line() {
+        let output = "error[E0308]: mismatched types\n  --> src/session.rs:27:59\n\
+                      error: could not compile `gatekeeper` (lib) due to 1 previous error\n\
+                      Error: Compilation failed\n";
+        let Outcome::Inconclusive { reason } = classify(output) else {
+            panic!("a subject that does not compile decides nothing either");
+        };
+        assert!(
+            reason.contains("src/session.rs:27:59"),
+            "the operator needs the line: {reason}"
+        );
+        assert!(
+            reason.contains("subject's \n             own source")
+                || reason.contains("subject's own source"),
+            "and needs to know it is theirs to fix: {reason}"
+        );
+        assert!(
+            !reason.contains("harness provreq generated"),
+            "it is NOT the harness: {reason}"
+        );
+    }
+
+    // Verifies (#171): the call-in-logic-context error — the one the mirror channel exists to
+    // answer — names the mirror channel. Before this it named `#[logic]`, at the exact moment the
+    // operator was most likely to act on it, and doing so leaves the subject unable to compile in
+    // any configuration.
+    #[test]
+    fn a_program_call_in_logic_context_points_at_the_mirror_channel() {
+        let output = "error: called program function `access::decide` in logic context\n\
+                      \x20 --> src/provreq_req001.rs:9:40\n\
+                      error: could not compile `gatekeeper` (lib) due to 1 previous error\n\
+                      Error: Compilation failed\n";
+        let Outcome::Inconclusive { reason } = classify(output) else {
+            panic!("no verdict from a harness that will not compile");
+        };
+        assert!(
+            reason.contains("--draft-semantic"),
+            "must name the channel that works: {reason}"
+        );
+        assert!(
+            reason.contains("breaks every call site"),
+            "and say why the obvious move is wrong: {reason}"
         );
     }
 

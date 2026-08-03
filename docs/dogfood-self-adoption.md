@@ -447,3 +447,34 @@ and the mirror is staged for the operator to correct. Where the operator is *poi
 defect, filed as [#174](https://github.com/greeng3/provablerequirements/issues/174): a type error
 inside a staged mirror is reported as "the proof harness did not compile", sending them to a
 generated file they cannot edit instead of the line in their own tree.
+
+### Follow-up: the Creusot compile message (#171, #174)
+
+Both were one function, `build_error`, which had the full rustc diagnostic and used one line of it.
+
+It now reads the `--> file:line:col` it was discarding and says **where** the failure is. The two
+cases are different work for the operator, so they read differently:
+
+```text
+the proof harness provreq generated did not compile — error: called program function
+`access::decide` in logic context (src/provreq_req001.rs:11:74). Pearlite may only call `#[logic]`
+functions, and that is an ordinary program function — marking it `#[logic]` is not the fix either,
+because that removes the item from the program and breaks every call site. Reach it through a
+`#[logic]` mirror instead, which leaves the function untouched: re-run `verify` with
+`--draft-semantic`
+```
+
+```text
+the subject did not compile under Creusot — error[E0308]: mismatched types, at src/session.rs:27:59.
+That is the subject's own source, not the generated harness — if a draft was just staged there, it
+is the staged edit that needs fixing, and the line above says which
+```
+
+Both measured on the same subject, before and after, by staging the mirrors and then removing them.
+The second names the exact line the model got wrong (`failures == 0` against a `&u32`), which is
+what the operator needs and what the old wording hid.
+
+The `#[logic]` recommendation is gone. It fired on **every** compile error — including plain type
+mismatches, where provreq had established no cause at all — and since #158 it is the one action that
+leaves the subject unable to compile in any configuration. A test asserted its presence
+(`must point at the fix`); that test now asserts its absence, and two more pin the site reporting.
