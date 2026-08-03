@@ -516,3 +516,78 @@ The third step is the one the third pass could not reach: the seed said `stays-p
 will not be formalized*, and the model said `formalizable-now`. The annotation disappears once the
 bucket is a real classification, because a classification needs no annotation — only the states
 carrying less than they appear to do.
+
+---
+
+## Fourth pass (2026-08-03, issue #178) — the living loop and the web UI
+
+The two things every previous pass listed as uncovered. Same subject as the third pass
+(`gatekeeper`), same method: drive it as an operator, with the live model and the real prover.
+
+### First `proven` on a subject provreq had never seen
+
+The third pass ended with the mirrors staged and the claim undischarged. Taking the operator's next
+step — reading the drafted mirror and correcting it — finished the job:
+
+```text
+REQ001: holds — proven: established deductively for every execution (spec-relative), not just the
+states a bounded checker explored
+    - Kani: inconclusive    (Session cannot be instantiated — REQ065)
+    - Creusot: holds (proven)
+    - Prusti: inconclusive  (toolchain ceiling — REQ063)
+```
+
+Every `proven` before this was on the in-repo fixture, which exists because #153 blocks provreq from
+being its own Creusot subject. This one is a subject the tool had never seen, reached through the
+whole journey: `init` → `triage` → `--set` → `--admit` → `--ground` → `--draft-semantic` → review →
+`verify`.
+
+It took **two** corrections to the drafted mirror, and the second is the finding
+([#181](https://github.com/greeng3/provablerequirements/issues/181)): the model wrote
+`failures == 0`, which is wrong both because matching a `&Session` binds `failures: &u32` **and**
+because an unsuffixed literal in pearlite is `Int`. Correcting the obvious half produced the same
+error class one column later; only `*failures == 0u32` compiles. `PEARLITE_RULES` mentions neither,
+and a mirror is drafted once by design, so every miss is an operator correction.
+
+### The drift axes, driven for the first time
+
+Four of the five, each against a real edit, each read back from the funnel and the API:
+
+| axis | how it was driven | result |
+| --- | --- | --- |
+| subject commit | an unrelated commit to `src/lib.rs` | `verified 1 → 0`, `stale 0 → 1` |
+| requirement prose | edited `reqs/REQ001.yml` | stale, prose axis named |
+| formalization | `--set` a new candidate (un-admits) | stale, formalization axis named |
+| proving environment | added `environment: lab-1` | stale, `unlabelled → \`lab-1\`` |
+| tool version | **not driven** — needs a differently-versioned binary | uncovered |
+
+The reasons are exact and carry both sides of the change:
+
+```text
+the subject code moved since this verdict (commit 6e25bdee… → f4b13e6d…) — re-verify
+the declared environment changed since this verdict (unlabelled → `lab-1`) — re-verify
+```
+
+### Finding — the re-verify worklist is web-only ([#179](https://github.com/greeng3/provablerequirements/issues/179))
+
+`status` says `stale 1`, tells the operator to re-verify by id, and never says which id. The web UI,
+for the same subject at the same moment, names the item and every axis that moved.
+
+The sharp case: with the prose restored and only the code moved, `provreq draft` listed
+`REQ001 candidate [gate ok] [admitted]` — completely clean — while the funnel said `stale 1`. Those
+are different axes (the draft's prose anchor vs the verdict's), and a CLI operator reading the first
+would conclude nothing was owed.
+
+### Finding — #172 never reached the browser ([#180](https://github.com/greeng3/provablerequirements/issues/180))
+
+`classified_by` rides on the API row; no UI component reads it. So a seeded classification is still
+indistinguishable from a judged one on the surface built for browsing a whole backlog at once. That
+is a gap in the #172 change rather than a new defect, recorded so it is not mistaken for done.
+
+### What worked in the fourth pass
+
+The UI, driven in a real headless Chrome against a real subject for the first time, was correct
+throughout: the engine panel distinguished available from not-wired, the funnel matched the CLI's
+exactly, the row carried `holds ⟳ stale`, and the item detail showed all three drift reasons plus a
+`Proved in:` line naming every engine version and the missing environment label. The bulk
+`Re-verify all stale (1)` action was present. Nothing on that surface overclaimed.
