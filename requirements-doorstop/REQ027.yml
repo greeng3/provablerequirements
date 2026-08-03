@@ -5,7 +5,7 @@ level: 1.26
 links: []
 normative: true
 ref: ''
-reviewed: hNkMgC5oOhQD1YdGTK_IHBwAD_816QiDYafi4e9GFEU=
+reviewed: null
 text: |
   A grounded category-1 requirement earns a real verdict from a verification engine, rather
   than an honest placeholder. The engine is Kani, the first category-1 engine wired: a
@@ -26,6 +26,14 @@ text: |
   subject. An engine that runs but cannot decide — because the harness does not compile, or
   the run errors — yields an honest unknown that names its cause, and is never read as either
   answer.
+
+  A bounded pass means no counterexample was found *within some bounds*, so those bounds are part
+  of what the verdict says and are reported with it. The subject may choose them — the unwinding
+  depth and a time limit are declared in its own configuration — and where it declares neither, the
+  checker's defaults apply and the verdict says so in those terms. Naming only the bounds an
+  operator chose would leave the unchosen ones invisible, and those are precisely the ones whose
+  effect on the verdict nobody has considered: a claim checked to a depth the operator never picked
+  reads exactly like one checked to a depth they did.
 
   An engine is reported ready only when the tool can actually run it, not merely when some
   binary of its name is present. A category with no lowering is reported as not wired even

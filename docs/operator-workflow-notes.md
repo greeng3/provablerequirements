@@ -429,8 +429,11 @@ only; sort/type existence when cat-1 needs it`). Cat-1 now needs it: a harness c
       and the path most worth proving continuously); real-engine tests are `#[ignore]`d and run by a
       **separate parallel `kani` job** (`cargo test -- --ignored`). Verified here: 164 Kani-free unit tests +
       4 real-engine tests (holds/fails-with-witness/inconclusive/no-trace) + a live CLI smoke against a real
-      cargo subject, all green. REQ027 (1.26). Deferred: default-unwind/timeout config → provreq.yml (**#117**);
-      the param-type-vs-sort cross-check is since **shipped** (**#118** / REQ057). The D2b ensemble is
+      cargo subject, all green. REQ027 (1.26). Both once-deferred items are since **shipped**: the
+      default-unwind/timeout config landed as a `kani:` block in `provreq.yml` (**#117**, REQ027 amended —
+      `kani.default_unwind` and `kani.timeout_seconds`, each optional, each falling back to Kani's own
+      default, and the effective pair reported on every bounded `holds` *including* when nobody chose it);
+      the param-type-vs-sort cross-check as (**#118** / REQ057). The D2b ensemble is
       since **complete** — Creusot
       (REQ031) and Prusti (REQ032) joined as engines #2 and #3, with per-tool evidence aggregated by
       REQ030 and the shared claim-lowering core extracted in #69 / PR #70.

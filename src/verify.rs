@@ -175,7 +175,7 @@ pub fn run_ensemble(
     let evidence = ready
         .iter()
         .map(|e| match e.name {
-            "Kani" => kani_evidence(subject, id, requirement, bindings, resolved),
+            "Kani" => kani_evidence(subject, companion, id, requirement, bindings, resolved),
             "Creusot" => creusot_evidence(subject, id, requirement, bindings, resolved),
             "Prusti" => prusti_evidence(subject, id, requirement, bindings, resolved),
             "TLC (TLA+)" => tlc_evidence(subject, companion, id, requirement, bindings),
@@ -197,6 +197,7 @@ pub fn run_ensemble(
 /// `inconclusive` evidence, never approximated (D2).
 fn kani_evidence(
     subject: &Path,
+    companion: &Path,
     id: &str,
     requirement: &Requirement,
     bindings: &[Binding],
@@ -223,7 +224,9 @@ fn kani_evidence(
         Ok(h) => h,
         Err(e) => return verdict::Evidence::inconclusive("Kani", vec![e.reason]),
     };
-    crate::kani::run(subject, &harness).into_evidence()
+    // The subject's own bounds (#117): what a bounded `holds` from this run is worth.
+    let bounds = crate::kani::Bounds::load(companion);
+    crate::kani::run(subject, &harness, &bounds).into_evidence(&bounds)
 }
 
 /// Category 1 → Creusot (REQ031): the ensemble's deductive member. Lower to an additive in-crate

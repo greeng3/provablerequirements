@@ -66,6 +66,96 @@ pub enum Outcome {
     Inconclusive { reason: String },
 }
 
+/// The two knobs that decide what a bounded `holds` is worth: how deep loops are unwound, and how
+/// long Kani may take before it is cut off. Read per subject from `provreq.yml` (#117).
+///
+/// Both default to `None`, which means *Kani's own default* — the shipped behaviour, unchanged.
+/// That is a real fallback, not a placeholder: provreq has no basis for choosing a bound that suits
+/// someone else's loops. But it is also the case the operator most needs told about, which is why
+/// [`Bounds::describe`] never renders silence.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Bounds {
+    /// `--default-unwind`: the loop-unwinding depth CBMC uses for every loop without its own bound.
+    pub default_unwind: Option<u32>,
+    /// `--harness-timeout`, in seconds. Kani's flag is experimental, so setting this also passes
+    /// `-Z unstable-options`; leaving it unset keeps provreq off the unstable surface entirely.
+    pub timeout_seconds: Option<u64>,
+}
+
+impl Bounds {
+    /// Read the `kani:` block from the companion manifest. A manifest that is missing, unparseable,
+    /// or silent on Kani yields the defaults — a subject that never configured a bound is the
+    /// normal case, not an error.
+    pub fn load(companion_root: &Path) -> Bounds {
+        #[derive(serde::Deserialize)]
+        struct ManifestKani {
+            #[serde(default)]
+            kani: Option<Bounds_>,
+        }
+        #[derive(serde::Deserialize)]
+        struct Bounds_ {
+            #[serde(default)]
+            default_unwind: Option<u32>,
+            #[serde(default)]
+            timeout_seconds: Option<u64>,
+        }
+        let Ok(text) = std::fs::read_to_string(companion_root.join(crate::adopt::MANIFEST_FILE))
+        else {
+            return Bounds::default();
+        };
+        let Ok(manifest) = serde_yaml::from_str::<ManifestKani>(&text) else {
+            return Bounds::default();
+        };
+        manifest
+            .kani
+            .map(|k| Bounds {
+                default_unwind: k.default_unwind,
+                timeout_seconds: k.timeout_seconds,
+            })
+            .unwrap_or_default()
+    }
+
+    /// The bounds this run used, in one line, for the verdict that depends on them.
+    ///
+    /// A bounded `holds` means "no counterexample **within these bounds**", so the bounds are part
+    /// of what the verdict says — and an unset bound is the case where that matters most, because
+    /// the depth the claim was checked to is then Kani's choice and the operator never made it.
+    /// Reporting only configured values would hide exactly the ones nobody chose, so both are
+    /// always named.
+    pub fn describe(&self) -> String {
+        let unwind = match self.default_unwind {
+            Some(n) => format!("unwind {n} (`kani.default_unwind` in provreq.yml)"),
+            None => "unwind: Kani's own default — no `kani.default_unwind` is set, so the depth \
+                     this was checked to is Kani's choice, not yours"
+                .to_string(),
+        };
+        let timeout = match self.timeout_seconds {
+            Some(s) => format!("timeout {s}s (`kani.timeout_seconds` in provreq.yml)"),
+            None => "no timeout".to_string(),
+        };
+        format!("bounded by — {unwind}; {timeout}")
+    }
+
+    /// The `cargo kani` arguments these bounds add. Empty when nothing is configured, which keeps
+    /// an unconfigured subject on exactly the command line provreq shipped with.
+    fn args(&self) -> Vec<String> {
+        let mut args = Vec::new();
+        if let Some(n) = self.default_unwind {
+            args.push("--default-unwind".to_string());
+            args.push(n.to_string());
+        }
+        if let Some(s) = self.timeout_seconds {
+            // Kani gates `--harness-timeout` behind its unstable surface; ask for it only when the
+            // operator did, so an unconfigured subject never runs an experimental code path.
+            args.push("-Z".to_string());
+            args.push("unstable-options".to_string());
+            args.push("--harness-timeout".to_string());
+            args.push(s.to_string());
+        }
+        args
+    }
+}
+
 impl Outcome {
     /// Map what Kani established into a piece of [`Evidence`]. The mapping lives here, in the
     /// engine, so [`crate::verdict`] never learns what Kani is — D2's "one meaning, lowering
@@ -74,9 +164,16 @@ impl Outcome {
     ///
     /// The load-bearing line is `Holds` → [`Basis::ModelCheckedBounded`]: Kani is bounded,
     /// so a pass is `model-checked (bounded)` and never `proven`.
-    pub fn into_evidence(&self) -> Evidence {
+    ///
+    /// `bounds` rides along because a bounded pass is only meaningful against the bounds it ran
+    /// under (#117) — so they are attached to the `holds`, never left for the operator to assume.
+    pub fn into_evidence(&self, bounds: &Bounds) -> Evidence {
         match self {
-            Outcome::Holds => Evidence::holds("Kani", Basis::ModelCheckedBounded),
+            Outcome::Holds => {
+                let mut evidence = Evidence::holds("Kani", Basis::ModelCheckedBounded);
+                evidence.detail.push(bounds.describe());
+                evidence
+            }
             Outcome::Fails {
                 failed_check,
                 witness,
@@ -185,9 +282,8 @@ pub fn subject_crate_name(subject_root: &Path) -> Option<String> {
 /// is touched, and an existing file is never clobbered. It is removed on every path,
 /// including failure — provreq must not leave litter in someone else's repo.
 ///
-/// `// ponytail: default bounds and no timeout — Kani's own defaults until a real subject
-/// shows they are wrong; --default-unwind and a timeout belong in provreq.yml config.`
-pub fn run(subject_root: &Path, harness: &Harness) -> Outcome {
+/// `bounds` are the subject's own (#117), defaulting to Kani's when the manifest says nothing.
+pub fn run(subject_root: &Path, harness: &Harness, bounds: &Bounds) -> Outcome {
     let tests_dir = subject_root.join("tests");
     // Remembered so cleanup can put the subject back exactly as it was: a `tests/` provreq
     // created is provreq's to remove, and one that was already there is not.
@@ -217,6 +313,7 @@ pub fn run(subject_root: &Path, harness: &Harness) -> Outcome {
         // The concrete counterexample is D9's re-checkable witness, and it is the whole
         // value of a `fails`. Unstable, hence -Z.
         .args(["-Z", "concrete-playback", "--concrete-playback=print"])
+        .args(bounds.args())
         .current_dir(subject_root)
         .output();
 
@@ -784,8 +881,33 @@ For more information about this error, try `rustc --explain E0277`.
     #[ignore = "needs Kani installed — run via `cargo test -- --ignored` (the CI `kani` job)"]
     fn real_kani_verifies_a_true_invariant() {
         let tmp = cargo_subject("u.logged_in || u.id == 0");
-        let outcome = run(tmp.path(), &smoke_harness());
+        let outcome = run(tmp.path(), &smoke_harness(), &Bounds::default());
         assert_eq!(outcome, Outcome::Holds, "a true invariant must verify");
+    }
+
+    // Verifies: #117 — THE REAL ENGINE accepts the bounds provreq builds from a subject's config.
+    // The unconfigured path adds no arguments and is covered by the test above; this is the one
+    // that cannot be checked without Kani, because `--harness-timeout` is experimental and only
+    // Kani decides whether the `-Z unstable-options` provreq pairs with it is the right key. A
+    // wrong flag here would not degrade — it would turn every configured subject's run into an
+    // `Inconclusive`, and the unit tests would still pass.
+    #[test]
+    #[ignore = "needs Kani installed — run via `cargo test -- --ignored` (the CI `kani` job)"]
+    fn real_kani_accepts_the_configured_bounds() {
+        let tmp = cargo_subject("u.logged_in || u.id == 0");
+        let outcome = run(
+            tmp.path(),
+            &smoke_harness(),
+            &Bounds {
+                default_unwind: Some(4),
+                timeout_seconds: Some(600),
+            },
+        );
+        assert_eq!(
+            outcome,
+            Outcome::Holds,
+            "the same true invariant must still verify with both bounds set"
+        );
     }
 
     // Verifies: REQ027 (D9) — THE REAL ENGINE refutes a false invariant and hands back a
@@ -796,7 +918,7 @@ For more information about this error, try `rustc --explain E0277`.
     #[ignore = "needs Kani installed — run via `cargo test -- --ignored` (the CI `kani` job)"]
     fn real_kani_refutes_a_false_invariant_with_a_concrete_witness() {
         let tmp = cargo_subject("u.logged_in && u.id != 7");
-        let outcome = run(tmp.path(), &smoke_harness());
+        let outcome = run(tmp.path(), &smoke_harness(), &Bounds::default());
         let Outcome::Fails { witness, .. } = outcome else {
             panic!("a violated invariant must be refuted, got {outcome:?}");
         };
@@ -830,7 +952,7 @@ For more information about this error, try `rustc --explain E0277`.
         )
         .expect("lib.rs");
 
-        let outcome = run(tmp.path(), &smoke_harness());
+        let outcome = run(tmp.path(), &smoke_harness(), &Bounds::default());
         let Outcome::Inconclusive { reason } = outcome else {
             panic!("an uncompilable harness decides nothing, got {outcome:?}");
         };
@@ -857,7 +979,7 @@ For more information about this error, try `rustc --explain E0277`.
     #[ignore = "needs Kani installed — run via `cargo test -- --ignored` (the CI `kani` job)"]
     fn real_kani_run_leaves_no_trace_in_the_subject() {
         let tmp = cargo_subject("u.logged_in && u.id != 7");
-        let _ = run(tmp.path(), &smoke_harness());
+        let _ = run(tmp.path(), &smoke_harness(), &Bounds::default());
         assert!(
             !tmp.path().join("tests").exists(),
             "a tests/ directory provreq created must not survive the run"
@@ -877,7 +999,7 @@ For more information about this error, try `rustc --explain E0277`.
             name: "provreq_smoke".into(),
             source: "// generated\n".into(),
         };
-        let Outcome::Inconclusive { reason } = run(tmp.path(), &harness) else {
+        let Outcome::Inconclusive { reason } = run(tmp.path(), &harness, &Bounds::default()) else {
             panic!("a collision must not be treated as a verdict");
         };
         assert!(reason.contains("refusing to overwrite"), "{reason}");
@@ -893,7 +1015,11 @@ For more information about this error, try `rustc --explain E0277`.
     // of exactly the kind REQ024 fixed for engine readiness.
     #[test]
     fn a_kani_pass_is_bounded_model_checked_never_proven() {
-        let v = crate::verdict::aggregate("SR001", vec![Outcome::Holds.into_evidence()], prov());
+        let v = crate::verdict::aggregate(
+            "SR001",
+            vec![Outcome::Holds.into_evidence(&Bounds::default())],
+            prov(),
+        );
         assert_eq!(v.status, crate::verdict::Status::Holds);
         assert_eq!(v.basis, Some(Basis::ModelCheckedBounded));
         let text = crate::verdict::render(&v);
@@ -901,6 +1027,123 @@ For more information about this error, try `rustc --explain E0277`.
         assert!(
             text.contains("NOT proven"),
             "the read-back must forestall reading a bounded pass as a proof: {text}"
+        );
+    }
+
+    // Verifies: #117 — a bounded `holds` says what bounds it was bounded by, and says it loudest
+    // when nobody chose them. A `holds` means "no counterexample within these bounds"; reporting
+    // only configured values would hide exactly the bound the operator never made, which is the
+    // one they most need to know is Kani's and not theirs.
+    #[test]
+    fn a_bounded_hold_names_the_bounds_it_was_checked_under() {
+        let unset = crate::verdict::render(&crate::verdict::aggregate(
+            "SR001",
+            vec![Outcome::Holds.into_evidence(&Bounds::default())],
+            prov(),
+        ));
+        assert!(
+            unset.contains("Kani's own default") && unset.contains("not yours"),
+            "an unchosen bound must not be invisible in a verdict that depends on it: {unset}"
+        );
+
+        let chosen = crate::verdict::render(&crate::verdict::aggregate(
+            "SR001",
+            vec![Outcome::Holds.into_evidence(&Bounds {
+                default_unwind: Some(12),
+                timeout_seconds: Some(300),
+            })],
+            prov(),
+        ));
+        assert!(chosen.contains("unwind 12"), "{chosen}");
+        assert!(chosen.contains("timeout 300s"), "{chosen}");
+        assert!(
+            !chosen.contains("not yours"),
+            "a bound the operator chose needs no warning: {chosen}"
+        );
+    }
+
+    // Verifies: #117 — the bounds reach `cargo kani` as its own flags, and an unconfigured subject
+    // adds none at all: the shipped default is Kani's default, so a subject that configured nothing
+    // must run the exact command line provreq shipped with, off the unstable surface.
+    #[test]
+    fn only_a_configured_bound_reaches_the_command_line() {
+        assert!(Bounds::default().args().is_empty());
+
+        let args = Bounds {
+            default_unwind: Some(12),
+            timeout_seconds: Some(300),
+        }
+        .args();
+        assert_eq!(
+            args,
+            [
+                "--default-unwind",
+                "12",
+                "-Z",
+                "unstable-options",
+                "--harness-timeout",
+                "300"
+            ],
+            "`--harness-timeout` is experimental, so it must carry its own `-Z`"
+        );
+
+        let unwind_only = Bounds {
+            default_unwind: Some(4),
+            timeout_seconds: None,
+        }
+        .args();
+        assert!(
+            !unwind_only.contains(&"unstable-options".to_string()),
+            "an unwind bound must not drag in the unstable surface: {unwind_only:?}"
+        );
+    }
+
+    // Verifies: #117 — the `kani:` block is read per subject, and every way of not having one
+    // lands on Kani's defaults rather than an error. A subject that never configured a bound is
+    // the normal case.
+    #[test]
+    fn bounds_come_from_the_manifest_and_default_when_it_says_nothing() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let manifest = tmp.path().join(crate::adopt::MANIFEST_FILE);
+
+        assert_eq!(
+            Bounds::load(tmp.path()),
+            Bounds::default(),
+            "no manifest at all is the pre-adoption case, not a failure"
+        );
+
+        std::fs::write(&manifest, "schema: 1\n").unwrap();
+        assert_eq!(Bounds::load(tmp.path()), Bounds::default());
+
+        std::fs::write(&manifest, "schema: 1\nkani:\n  default_unwind: 12\n").unwrap();
+        assert_eq!(
+            Bounds::load(tmp.path()),
+            Bounds {
+                default_unwind: Some(12),
+                timeout_seconds: None
+            },
+            "one knob is configurable without the other"
+        );
+
+        std::fs::write(
+            &manifest,
+            "schema: 1\nkani:\n  default_unwind: 12\n  timeout_seconds: 300\n",
+        )
+        .unwrap();
+        assert_eq!(
+            Bounds::load(tmp.path()),
+            Bounds {
+                default_unwind: Some(12),
+                timeout_seconds: Some(300)
+            }
+        );
+
+        std::fs::write(&manifest, "schema: 1\nkani: [not, a, map]\n").unwrap();
+        assert_eq!(
+            Bounds::load(tmp.path()),
+            Bounds::default(),
+            "a malformed block falls back to Kani's defaults — a bound provreq cannot read is \
+             not a reason to refuse to verify, and the verdict still says the bound is Kani's"
         );
     }
 
@@ -912,7 +1155,11 @@ For more information about this error, try `rustc --explain E0277`.
             failed_check: Some("Failed Checks: assertion failed: has_session(&u)".into()),
             witness: Some("fn kani_concrete_playback_provreq_r_1() {\n    // 7\n}".into()),
         };
-        let v = crate::verdict::aggregate("SR002", vec![outcome.into_evidence()], prov());
+        let v = crate::verdict::aggregate(
+            "SR002",
+            vec![outcome.into_evidence(&Bounds::default())],
+            prov(),
+        );
         assert_eq!(v.status, crate::verdict::Status::Fails);
         assert_eq!(v.basis, None, "a fails has a witness, not a basis");
         let text = crate::verdict::render(&v);
@@ -929,7 +1176,11 @@ For more information about this error, try `rustc --explain E0277`.
         let outcome = Outcome::Inconclusive {
             reason: "error[E0277]: the trait bound `User: kani::Arbitrary` is not satisfied".into(),
         };
-        let v = crate::verdict::aggregate("SR003", vec![outcome.into_evidence()], prov());
+        let v = crate::verdict::aggregate(
+            "SR003",
+            vec![outcome.into_evidence(&Bounds::default())],
+            prov(),
+        );
         assert_eq!(v.status, crate::verdict::Status::Unknown);
         assert_eq!(v.reason, Some(crate::verdict::UnknownReason::Inconclusive));
         let text = crate::verdict::render(&v);
