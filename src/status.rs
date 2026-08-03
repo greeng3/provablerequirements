@@ -155,6 +155,31 @@ pub fn backlog(
         .collect()
 }
 
+/// The re-verify worklist: every item whose stored verdict has drifted, in `items` order.
+///
+/// The funnel's `stale` count and this list are the same fact at two resolutions, and the count
+/// alone was never actionable. `status` tells the operator to run `provreq verify <ID>` without
+/// ever saying what `<ID>` is — guessable on a one-item subject, not on a 51-item backlog. The
+/// browser has had the per-item reasons since REQ039; the command line had only the number, so the
+/// living loop was complete on one surface and absent on the other for the same subject at the
+/// same moment (#179).
+///
+/// A filter over [`backlog`] rather than a second traversal: one definition of "drifted" — the
+/// `fresh` flag [`verdict_store::view`] already computes — keeps the list and the count from ever
+/// disagreeing about which items are owed.
+pub fn stale_worklist(
+    items: &[Item],
+    triage: &TriageState,
+    drafts: &DraftState,
+    verdicts: &VerdictStore,
+    anchor: &DriftAnchor,
+) -> Vec<ItemState> {
+    backlog(items, triage, drafts, verdicts, anchor)
+        .into_iter()
+        .filter(|state| state.verdict.as_ref().is_some_and(|v| !v.fresh))
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -406,6 +431,51 @@ mod tests {
         assert_eq!(
             cov.stale, 1,
             "a drifted fails owes a re-run just like a drifted holds"
+        );
+    }
+
+    // Verifies: #179 — the worklist names the drifted items and their reasons, agrees with the
+    // funnel's count, and leaves out items that are fresh or never verified. Measured gap: `status`
+    // said `stale 1` and told the operator to run `provreq verify <ID>` without ever naming `<ID>`.
+    #[test]
+    fn the_stale_worklist_names_the_drifted_items_and_why() {
+        let items = [item("A"), item("B"), item("C")];
+        let mut drifted = holds_verdict("B", "B");
+        drifted.provenance.requirement_revision = "old-rev".into();
+        // A: fresh holds. B: drifted. C: never verified.
+        let verdicts = store(vec![holds_verdict("A", "A"), drifted]);
+
+        let work = stale_worklist(
+            &items,
+            &TriageState::new(),
+            &DraftState::new(),
+            &verdicts,
+            &anchor(),
+        );
+        assert_eq!(
+            work.iter().map(|s| s.id.as_str()).collect::<Vec<_>>(),
+            ["B"],
+            "a fresh verdict is a current answer and an unverified item owes nothing"
+        );
+        let view = work[0].verdict.as_ref().expect("the drifted verdict");
+        assert_eq!(view.status, "holds", "the worklist shows what drifted");
+        assert!(
+            view.stale_reasons.iter().any(|r| r.contains("prose moved")),
+            "naming the item without the axis just moves the hunt: {:?}",
+            view.stale_reasons
+        );
+
+        let cov = coverage(
+            &items,
+            &TriageState::new(),
+            &DraftState::new(),
+            &verdicts,
+            &anchor(),
+        );
+        assert_eq!(
+            cov.stale,
+            work.len(),
+            "the count and the list are one fact at two resolutions"
         );
     }
 

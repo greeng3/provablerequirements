@@ -20,3 +20,11 @@ text: |
   per-item freshness the living loop already computes, giving the operator the loop's actionable
   output — how much verified knowledge has gone stale — as a single number rather than markers to
   hunt for row by row.
+
+  A count alone, though, answers only half of what was missing: it says how much is owed and never
+  which items owe it. Any surface reporting the count therefore also names the drifted requirements
+  and, for each, the axes that moved — because the instruction the count carries is to re-verify a
+  named requirement, and a surface that withholds the name asks the operator to guess it. On a
+  backlog of any size that is not a smaller job than the one the count was meant to replace; it is
+  the same hunt, one level up. The listing and the count are read from the same per-item freshness,
+  so they can never disagree about which requirements are owed.
