@@ -1043,6 +1043,22 @@ fn run_status(subject: &Path) -> Result<()> {
          re-verify with `provreq verify <ID>`)",
         cov.stale
     );
+    // The count above names no item, and the line above it tells the operator to run
+    // `provreq verify <ID>` — so the worklist follows it, on the same surface that asked for it
+    // (#179). Printed only when there is work: a subject with nothing stale gets no empty heading.
+    let stale =
+        provreq::status::stale_worklist(&items, &triage_state, &draft_state, &verdicts, &anchor);
+    if !stale.is_empty() {
+        println!("\nRe-verify worklist ({} stale):", stale.len());
+        for state in &stale {
+            let Some(view) = &state.verdict else { continue };
+            println!("  {:<12} last verdict: {}", state.id, view.status);
+            for reason in &view.stale_reasons {
+                println!("      {reason}");
+            }
+        }
+        println!("\n  Re-verify with `provreq verify <ID>`.");
+    }
     Ok(())
 }
 
