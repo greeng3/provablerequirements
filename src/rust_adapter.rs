@@ -366,6 +366,34 @@ pub enum TypeResolution {
         /// Every declaration of that name, so the read-back can offer the real paths.
         candidates: Vec<CodeMatch>,
     },
+    /// A **type application** — `Wrapper<u32>`, `Wrapper<auth::User>` (#187). Grounds.
+    ///
+    /// Kept apart from [`TypeResolution::Resolved`] because a harness cannot write this from the
+    /// declaration alone: `Wrapper` is where the type is declared, but the type a variable ranges
+    /// over is `Wrapper` applied to arguments that are declared somewhere else entirely, and each
+    /// of those needs its own path. So each written argument keeps both the text the operator wrote
+    /// and its own resolution, and lowering builds the applied path from the pair.
+    Applied {
+        /// Where the applied type itself is declared.
+        at: CodeMatch,
+        /// One entry per written argument: the text as written, and what it resolved to. Every one
+        /// is [`TypeResolution::Resolved`] or [`TypeResolution::Primitive`] — an argument that
+        /// resolved to anything else makes the whole application
+        /// [`TypeResolution::UnusableTypeArguments`] instead, because a domain is only as real as
+        /// the types it is built from.
+        args: Vec<(String, TypeResolution)>,
+    },
+    /// The type name is fine, and the arguments written after it are not (#187) — a nested
+    /// argument, the wrong number of them, or one that names no type.
+    ///
+    /// Kept apart from every other refusal because it is the one the operator is closest to
+    /// getting right: the type they meant exists and they found it, so a read-back that said "no
+    /// such type" would send them to look for something already in front of them. The reason names
+    /// which of those it is.
+    UnusableTypeArguments {
+        /// What is wrong, as a clause the read-back completes.
+        reason: String,
+    },
 }
 
 impl TypeResolution {
@@ -374,7 +402,9 @@ impl TypeResolution {
     pub fn is_resolved(&self) -> bool {
         matches!(
             self,
-            TypeResolution::Resolved(_) | TypeResolution::Primitive(_)
+            TypeResolution::Resolved(_)
+                | TypeResolution::Primitive(_)
+                | TypeResolution::Applied { .. }
         )
     }
 
@@ -412,6 +442,29 @@ impl TypeResolution {
                  qualifies it with — so it is the qualifier that is wrong, not the type{}",
                 offer_paths(candidates, name)
             ),
+            // The arguments are read back too, and each says where *it* was found: the operator is
+            // confirming one domain, and `Wrapper<User>` is only the domain they meant if both
+            // halves are.
+            TypeResolution::Applied { at, args } => format!(
+                "{sort} (sort) → `{observable}` resolves to {}:{}  {}, applied to {}",
+                at.file,
+                at.line,
+                at.text,
+                args.iter()
+                    .map(|(written, r)| match r {
+                        TypeResolution::Primitive(name) => format!("`{name}` (the Rust primitive)"),
+                        TypeResolution::Resolved(a) =>
+                            format!("`{written}` at {}:{}", a.file, a.line),
+                        // Unreachable by construction, and stated rather than unwrapped: an
+                        // `Applied` only ever holds arguments that resolved.
+                        _ => format!("`{written}`"),
+                    })
+                    .collect::<Vec<_>>()
+                    .join(" and ")
+            ),
+            TypeResolution::UnusableTypeArguments { reason } => {
+                format!("{sort} (sort): `{observable}` {reason}")
+            }
         }
     }
 }
@@ -455,43 +508,220 @@ fn offer_paths(candidates: &[CodeMatch], suffix: &str) -> String {
 /// already reduced any written path to its last segment. The two disagreed about what a written
 /// path meant, and one of them offered a way out that did not exist.
 ///
+/// The observable may also **apply type arguments** — `Wrapper<u32>`, `Wrapper<auth::User>` (#187).
+/// The PRL sort stays a bare name throughout; it is the *observable* that names the Rust shape, the
+/// same side that gained module qualification. So a sort meaning `Wrapper<u32>` costs the
+/// requirement language nothing — the requirement says `each w: Wrapped`, and the binding says which
+/// type that is, which is exactly the division of labour a binding exists for.
+///
+/// **One level, and every argument is resolved.** `Wrapper<Vec<u32>>` is refused rather than
+/// approximated: `Vec` is not declared by the subject, so provreq has no declaration to confirm a
+/// nested argument against, and a domain it cannot confirm is not one it should let a claim range
+/// over. The arity is checked against the declaration's own type parameters, so `User<u32>` is
+/// refused because `User` takes none — a mistake that would otherwise reach the operator as a
+/// harness that does not compile.
+///
 /// See [`module_matches`] for exactly how much of a written path is checked, and why the rest
 /// cannot be.
 pub fn resolve_type(subject: &ParsedSubject, observable: &str) -> TypeResolution {
-    let written = observable.trim();
+    let (head, args) = match split_application(observable.trim()) {
+        Ok(split) => split,
+        Err(reason) => return TypeResolution::UnusableTypeArguments { reason },
+    };
+    let (resolution, declared) = resolve_head(subject, head);
+    if args.is_empty() {
+        return resolution;
+    }
+    apply(subject, resolution, declared, &args)
+}
+
+/// Resolve the type name itself, ignoring any arguments applied to it — plus **how many type
+/// parameters the declaration has**, which only means anything when exactly one declaration matched
+/// and is only ever read then.
+fn resolve_head(subject: &ParsedSubject, written: &str) -> (TypeResolution, usize) {
     if written.is_empty() {
-        return TypeResolution::NotFound;
+        return (TypeResolution::NotFound, 0);
     }
     let mut segments: Vec<&str> = written.split("::").map(str::trim).collect();
     // The last segment is the type; everything before it qualifies which one.
     let name = segments.pop().expect("split yields at least one segment");
     if name.is_empty() {
-        return TypeResolution::NotFound;
+        return (TypeResolution::NotFound, 0);
     }
     let by_name = find_types(subject, name);
-    let found: Vec<CodeMatch> = by_name
+    let found: Vec<TypeDecl> = by_name
         .iter()
-        .filter(|at| module_matches(at.module.as_deref(), &segments))
-        .cloned()
+        .filter(|d| module_matches(d.at.module.as_deref(), &segments))
+        .map(|d| TypeDecl {
+            at: d.at.clone(),
+            type_params: d.type_params,
+        })
         .collect();
     // The name is real and only the qualifier missed. Reporting `NotFound` here would deny a type
     // the operator can see in their own source.
     if found.is_empty() && !by_name.is_empty() {
-        return TypeResolution::QualifierUnmatched {
-            name: name.to_string(),
-            candidates: by_name,
-        };
+        return (
+            TypeResolution::QualifierUnmatched {
+                name: name.to_string(),
+                candidates: by_name.into_iter().map(|d| d.at).collect(),
+            },
+            0,
+        );
     }
     match found.len() {
         // The subject declares nothing by that name — but the language may. A primitive is only
         // ever the fallback: a subject that declares its own `bool` has a source location the
         // operator can confirm against, and the read-back names it, so the declaration wins and
         // says so rather than being silently overruled by the language.
-        0 if is_primitive(name) => TypeResolution::Primitive(name.to_string()),
-        0 => TypeResolution::NotFound,
-        1 => TypeResolution::Resolved(found.into_iter().next().expect("len checked")),
-        _ => TypeResolution::Ambiguous(found),
+        0 if is_primitive(name) => (TypeResolution::Primitive(name.to_string()), 0),
+        0 => (TypeResolution::NotFound, 0),
+        1 => {
+            let decl = found.into_iter().next().expect("len checked");
+            (TypeResolution::Resolved(decl.at), decl.type_params)
+        }
+        _ => (
+            TypeResolution::Ambiguous(found.into_iter().map(|d| d.at).collect()),
+            0,
+        ),
     }
+}
+
+/// Apply written type arguments to an already-resolved head (#187).
+fn apply(
+    subject: &ParsedSubject,
+    head: TypeResolution,
+    declared: usize,
+    args: &[&str],
+) -> TypeResolution {
+    let at = match head {
+        TypeResolution::Resolved(at) => at,
+        TypeResolution::Primitive(name) => {
+            return TypeResolution::UnusableTypeArguments {
+                reason: format!(
+                    "applies type arguments to `{name}`, one of the language's own primitive \
+                     types, which takes none"
+                ),
+            }
+        }
+        // Not found, ambiguous, or wrongly qualified: the head's own answer is the one the operator
+        // needs, and it already reads correctly. Wrapping it in an argument complaint would bury
+        // the fact that the type itself is what could not be found.
+        other => return other,
+    };
+    if declared != args.len() {
+        return TypeResolution::UnusableTypeArguments {
+            reason: format!(
+                "writes {}, but the declaration at {}:{} takes {}",
+                count(args.len(), "type argument"),
+                at.file,
+                at.line,
+                count(declared, "type parameter"),
+            ),
+        };
+    }
+    let mut resolved = Vec::with_capacity(args.len());
+    for written in args {
+        // Recursion, bounded to one level by construction: `split_application` refused any argument
+        // carrying a `<`, so this call cannot reach `apply` again.
+        let r = resolve_type(subject, written);
+        if !r.is_resolved() {
+            return TypeResolution::UnusableTypeArguments {
+                reason: argument_problem(written, &r),
+            };
+        }
+        resolved.push(((*written).to_string(), r));
+    }
+    TypeResolution::Applied { at, args: resolved }
+}
+
+/// `1 type argument`, `2 type arguments`, `no type parameters` — the arity halves of a mismatch
+/// read as prose because that is the whole content of the message.
+fn count(n: usize, thing: &str) -> String {
+    match n {
+        0 => format!("no {thing}s"),
+        1 => format!("1 {thing}"),
+        _ => format!("{n} {thing}s"),
+    }
+}
+
+/// Why one written type argument is not a type, said in the same terms the sort itself would be —
+/// an argument is a domain too, and a wrong one fails for exactly the reasons a wrong sort does.
+fn argument_problem(written: &str, r: &TypeResolution) -> String {
+    match r {
+        TypeResolution::NotFound => format!(
+            "applies the type argument `{written}`, and no type of that name is in the subject's \
+             Rust, nor is it a primitive"
+        ),
+        TypeResolution::Ambiguous(ats) => format!(
+            "applies the type argument `{written}`, and {} types share that name ({}) — qualify it \
+             by module{}",
+            ats.len(),
+            ats.iter()
+                .map(|a| format!("{}:{}", a.file, a.line))
+                .collect::<Vec<_>>()
+                .join(", "),
+            offer_paths(ats, last_segment(written))
+        ),
+        TypeResolution::QualifierUnmatched { name, candidates } => format!(
+            "applies the type argument `{written}`, whose type `{name}` exists but not under the \
+             path written for it{}",
+            offer_paths(candidates, name)
+        ),
+        // `split_application` refuses a nested argument before any of this, and a resolved one is
+        // not a problem at all.
+        _ => format!("applies the type argument `{written}`, which does not name a type"),
+    }
+}
+
+/// Split a written observable into the type name and the type arguments applied to it —
+/// `Wrapper<u32>` → `("Wrapper", ["u32"])`, `auth::User` → `("auth::User", [])` (#187).
+///
+/// `Err` is for arguments that cannot be read at all, and each case is a different mistake, so each
+/// says which it is. A **nested** argument is refused here rather than deeper down because this is
+/// where the one-level limit actually lives: everything past this point assumes an argument is a
+/// plain type name, and the recursion in [`apply`] is bounded by that assumption holding.
+fn split_application(written: &str) -> Result<(&str, Vec<&str>), String> {
+    let Some(open) = written.find('<') else {
+        return Ok((written, Vec::new()));
+    };
+    let head = written[..open].trim();
+    let Some(inner) = written[open + 1..].trim_end().strip_suffix('>') else {
+        return Err(
+            "opens a list of type arguments that never closes — a `<` with no matching `>`".into(),
+        );
+    };
+    let inner = inner.trim();
+    if inner.contains('<') {
+        return Err(format!(
+            "applies the type argument `{inner}`, which is itself a type application — provreq \
+             reads one level, and the subject declares no such type for a nested argument to be \
+             confirmed against"
+        ));
+    }
+    if inner.contains('>') {
+        return Err("closes its list of type arguments more than once".into());
+    }
+    if head.is_empty() {
+        return Err(
+            "applies type arguments to nothing — there is no type name before the `<`".into(),
+        );
+    }
+    if inner.is_empty() {
+        return Err(
+            "writes an empty list of type arguments — drop the `<>`, or say what it is applied to"
+                .into(),
+        );
+    }
+    let mut args: Vec<&str> = inner.split(',').map(str::trim).collect();
+    // A trailing comma is legal Rust and means nothing extra; any *other* empty argument is a
+    // slip the operator wants named rather than silently dropped.
+    if args.last() == Some(&"") {
+        args.pop();
+    }
+    if args.iter().any(|a| a.is_empty()) {
+        return Err("writes an empty type argument between two commas".into());
+    }
+    Ok((head, args))
 }
 
 /// Whether a type declared in `module` answers to the qualifier an operator wrote (#138).
@@ -531,6 +761,24 @@ fn last_two_segments(written: &str) -> String {
 /// `Session`. The one form both the sort side and the parameter side can always produce.
 fn last_segment(written: &str) -> &str {
     written.rsplit("::").next().unwrap_or(written).trim()
+}
+
+/// A written type reduced to what two sides can honestly be compared on: the name's last segment,
+/// and each type argument's last segment — `wrap::Wrapper<auth::User>` → `("Wrapper", ["User"])`.
+///
+/// Splitting the arguments off first is not a nicety: `last_segment` alone reads
+/// `Wrapper<auth::User>` as `User>`, because the last `::` in the string is inside the argument.
+/// A form that cannot be split is compared on its last segment with no arguments, which is what
+/// this always did — the sort resolver refuses such an observable separately, and saying it twice
+/// would not make it truer.
+fn comparable(written: &str) -> (&str, Vec<&str>) {
+    match split_application(written) {
+        Ok((head, args)) => (
+            last_segment(head),
+            args.into_iter().map(last_segment).collect(),
+        ),
+        Err(_) => (last_segment(written), Vec::new()),
+    }
 }
 
 fn module_matches(module: Option<&[String]>, qualifier: &[&str]) -> bool {
@@ -587,9 +835,22 @@ pub fn is_primitive(name: &str) -> bool {
     )
 }
 
+/// One type declaration found in the subject: where it is, and **how many type parameters it
+/// declares** (#187).
+///
+/// The count is what lets a written type argument be judged rather than ignored. Without it,
+/// `User<u32>` and `Wrapper<u32>` are the same shape to this adapter, and the only honest thing
+/// left is to drop the argument — which is what it did, and is how a sort meaning `Wrapper<u32>`
+/// came to be unwritable. It is kept apart from [`CodeMatch`] because it is a fact about a *type*
+/// declaration, and a `CodeMatch` also stands for functions, where it would mean nothing.
+struct TypeDecl {
+    at: CodeMatch,
+    type_params: usize,
+}
+
 /// Every `struct`/`enum`/`type` alias named `name`, with the same walk and skip rules as
 /// the predicate resolver.
-fn find_types(subject: &ParsedSubject, name: &str) -> Vec<CodeMatch> {
+fn find_types(subject: &ParsedSubject, name: &str) -> Vec<TypeDecl> {
     let mut out = Vec::new();
     subject.each(|file, rel, text, module| {
         collect_types(&file.items, name, rel, text, module, &mut out);
@@ -604,13 +865,16 @@ fn collect_types(
     rel: &str,
     text: &str,
     module: &Option<Vec<String>>,
-    out: &mut Vec<CodeMatch>,
+    out: &mut Vec<TypeDecl>,
 ) {
     for item in items {
-        let ident = match item {
-            syn::Item::Struct(s) => Some(&s.ident),
-            syn::Item::Enum(e) => Some(&e.ident),
-            syn::Item::Type(t) => Some(&t.ident),
+        // Only *type* parameters are counted: a lifetime or a const parameter is not something a
+        // sort's written argument can stand for, so including them would refuse a correct
+        // `Wrapper<u32>` for a `struct Wrapper<'a, T>` on an arity the operator never wrote.
+        let found = match item {
+            syn::Item::Struct(s) => Some((&s.ident, s.generics.type_params().count())),
+            syn::Item::Enum(e) => Some((&e.ident, e.generics.type_params().count())),
+            syn::Item::Type(t) => Some((&t.ident, t.generics.type_params().count())),
             syn::Item::Mod(m) => {
                 if let Some((_, inner)) = &m.content {
                     collect_types(inner, name, rel, text, &inside(module, &m.ident), out);
@@ -619,9 +883,12 @@ fn collect_types(
             }
             _ => None,
         };
-        if let Some(ident) = ident {
+        if let Some((ident, type_params)) = found {
             if ident == name {
-                out.push(at_ident(ident, rel, text, module));
+                out.push(TypeDecl {
+                    at: at_ident(ident, rel, text, module),
+                    type_params,
+                });
             }
         }
     }
@@ -726,6 +993,7 @@ fn resolve_qualified(
         .collect();
     let types: Vec<CodeMatch> = find_types(subject, qualifier)
         .into_iter()
+        .map(|d| d.at)
         .filter(|at| module_matches(at.module.as_deref(), module))
         .collect();
     match (fns.len(), types.len()) {
@@ -924,6 +1192,13 @@ fn classify(f: FoundFn, params: &[Option<String>], form: PredicateForm) -> Resol
 /// a parameter's type resolves to, so demanding agreement would compare a known name against an
 /// unknown one. The sort resolver already checked the qualifier against the declaration, which is
 /// where the fact actually lives.
+///
+/// **Type arguments are compared only when both sides carry them** (#187). A sort meaning
+/// `Wrapper<u32>` and a parameter written `Wrapper<String>` are a real disagreement, and naming it
+/// here is the whole reason a sort may carry arguments at all. But a bare `Wrapper` on either side
+/// is not a claim that there are no arguments — it is the absence of one, and every binding written
+/// before sorts could carry arguments looks exactly like that. Comparing an absence against a
+/// presence would park those, which is the one thing this check may not do.
 fn wrong_param_type(f: &FoundFn, params: &[Option<String>]) -> Option<Resolution> {
     f.param_types
         .iter()
@@ -931,7 +1206,13 @@ fn wrong_param_type(f: &FoundFn, params: &[Option<String>]) -> Option<Resolution
         .enumerate()
         .find_map(|(i, (found, expected))| {
             let (found, expected) = (found.as_ref()?, expected.as_ref()?);
-            (last_segment(found) != last_segment(expected)).then(|| Resolution::WrongParamType {
+            let (found_name, found_args) = comparable(found);
+            let (expected_name, expected_args) = comparable(expected);
+            let differ = found_name != expected_name
+                || (!found_args.is_empty()
+                    && !expected_args.is_empty()
+                    && found_args != expected_args);
+            differ.then(|| Resolution::WrongParamType {
                 param: i + 1,
                 expected: expected.clone(),
                 found: found.clone(),
@@ -1215,10 +1496,15 @@ fn found(
 ///
 /// `None` wherever a written-name comparison would say nothing true: a **generic parameter**
 /// (`T` names whatever the caller instantiates — resolving it is type inference, which `syn`
-/// does not do), a tuple, a slice, an `impl Trait`. Generic *arguments* are ignored rather than
-/// rejected, so `Wrapper<u32>` still reads as `Wrapper`: the sort resolver matches a bare ident,
-/// so the expected side never carries any. Path-qualification on the sort's own side stays
-/// deferred with the rest of #118's tail.
+/// does not do), a tuple, a slice, an `impl Trait`.
+///
+/// Type **arguments** are kept — `Wrapper<u32>` reads as `Wrapper<u32>` (#187) — because the
+/// expected side can now carry them too, and a check that dropped them here could not tell
+/// `Wrapper<u32>` from `Wrapper<String>`. They are dropped again, back to the bare name, exactly
+/// where keeping them would be a lie: an argument that is one of the *function's own* generic
+/// parameters (`fn f<T>(w: &Wrapper<T>)`) names whatever the caller instantiates, so comparing it
+/// against a real type would be this adapter inventing the answer to a question only inference can
+/// settle. [`wrong_param_type`] then compares on the name alone, which is what it always did.
 fn param_type_ident(
     arg: &syn::FnArg,
     generics: &[String],
@@ -1228,8 +1514,51 @@ fn param_type_ident(
         syn::FnArg::Receiver(_) => impl_ty.map(str::to_string),
         syn::FnArg::Typed(t) => {
             let name = type_ident(&t.ty)?;
-            (!generics.contains(&name)).then_some(name)
+            if generics.contains(&name) {
+                return None;
+            }
+            Some(match type_arguments(&t.ty, generics) {
+                Some(args) if !args.is_empty() => format!("{name}<{}>", args.join(", ")),
+                _ => name,
+            })
         }
+    }
+}
+
+/// The written type arguments of a type, each reduced to its comparable name — `&Wrapper<u32>` →
+/// `["u32"]`, `User` → `[]` (#187).
+///
+/// `None` means "do not compare arguments at all": one of them is the enclosing function's own
+/// generic parameter, or a shape with no single name (a tuple, a slice, a nested application).
+/// Lifetimes are skipped rather than refused — nothing on the sort side can name one, and the
+/// declaration's arity is counted the same way, so an argument list that differs only by a lifetime
+/// is not a disagreement about types.
+fn type_arguments(ty: &syn::Type, generics: &[String]) -> Option<Vec<String>> {
+    match ty {
+        syn::Type::Reference(r) => type_arguments(&r.elem, generics),
+        syn::Type::Path(p) if p.qself.is_none() => {
+            let args = match &p.path.segments.last()?.arguments {
+                syn::PathArguments::None => return Some(Vec::new()),
+                syn::PathArguments::AngleBracketed(a) => &a.args,
+                syn::PathArguments::Parenthesized(_) => return None,
+            };
+            let mut out = Vec::new();
+            for arg in args {
+                match arg {
+                    syn::GenericArgument::Lifetime(_) => continue,
+                    syn::GenericArgument::Type(t) => {
+                        let name = type_ident(t)?;
+                        if generics.contains(&name) {
+                            return None;
+                        }
+                        out.push(name);
+                    }
+                    _ => return None,
+                }
+            }
+            Some(out)
+        }
+        _ => None,
     }
 }
 
@@ -2341,5 +2670,202 @@ pub fn decide(u: u32) -> Decision { Decision::Proceed }\n",
         let text = resolve_in(&tmp, "login", 1).describe("logged_in", "login");
         assert!(text.contains("src/auth.rs:1"), "names the location: {text}");
         assert!(text.contains("syntactic"), "states the limit: {text}");
+    }
+
+    // --- type applications (#187) -------------------------------------------
+
+    /// A subject with a generic type, a two-parameter one, and a plain one to apply as an argument.
+    const GENERIC_SUBJECT: &str = "\
+pub struct User;
+pub struct Wrapper<T> { pub inner: T }
+pub struct Pair<A, B> { pub a: A, pub b: B }
+pub struct Held<'a, T> { pub held: &'a T }
+";
+
+    // Verifies: REQ069 — a sort's observable may apply type arguments, so a domain meaning
+    // `Wrapper<u32>` can be written at all. The PRL sort stays a bare name; it is the binding that
+    // says which type it is, which is the whole division of labour a binding exists for.
+    #[test]
+    fn a_sort_observable_may_apply_a_type_argument() {
+        let tmp = subject(GENERIC_SUBJECT);
+        let r = resolve_type(&parsed(&tmp), "Wrapper<u32>");
+        let TypeResolution::Applied { at, args } = &r else {
+            panic!("should resolve as an application, got {r:?}")
+        };
+        assert_eq!(at.line, 2);
+        assert_eq!(args.len(), 1);
+        assert_eq!(args[0].0, "u32");
+        assert!(matches!(&args[0].1, TypeResolution::Primitive(n) if n == "u32"));
+        assert!(r.is_resolved(), "an application is a real domain");
+    }
+
+    // Verifies: REQ069 — an argument is a domain too, so it resolves the same way a sort does:
+    // against the subject's own declarations, and through a module qualifier when one is written.
+    #[test]
+    fn a_type_argument_resolves_against_the_subject_like_any_sort() {
+        let tmp = subject(GENERIC_SUBJECT);
+        let r = resolve_type(&parsed(&tmp), "Wrapper<auth::User>");
+        let TypeResolution::Applied { args, .. } = &r else {
+            panic!("should resolve, got {r:?}")
+        };
+        let TypeResolution::Resolved(at) = &args[0].1 else {
+            panic!("the argument names a declared type, got {:?}", args[0].1)
+        };
+        assert_eq!((at.file.as_str(), at.line), ("src/auth.rs", 1));
+
+        // Two arguments, in the order written.
+        let two = resolve_type(&parsed(&tmp), "Pair<User, u32>");
+        let TypeResolution::Applied { args, .. } = &two else {
+            panic!("should resolve, got {two:?}")
+        };
+        assert_eq!(
+            args.iter().map(|(w, _)| w.as_str()).collect::<Vec<_>>(),
+            vec!["User", "u32"]
+        );
+    }
+
+    // Verifies: REQ069 — the arity is checked against the declaration's own type parameters, so a
+    // sort that applies arguments to a type taking none is refused *here*, naming the declaration,
+    // rather than reaching the operator later as a harness that does not compile.
+    #[test]
+    fn type_arguments_are_checked_against_the_declarations_arity() {
+        let tmp = subject(GENERIC_SUBJECT);
+        let none = resolve_type(&parsed(&tmp), "User<u32>");
+        let TypeResolution::UnusableTypeArguments { reason } = &none else {
+            panic!("`User` takes no arguments, got {none:?}")
+        };
+        assert!(reason.contains("no type parameters"), "{reason}");
+        assert!(reason.contains("src/auth.rs:1"), "names it: {reason}");
+        assert!(!none.is_resolved());
+
+        let short = resolve_type(&parsed(&tmp), "Pair<u32>");
+        let TypeResolution::UnusableTypeArguments { reason } = &short else {
+            panic!("`Pair` takes two, got {short:?}")
+        };
+        assert!(reason.contains("1 type argument"), "{reason}");
+        assert!(reason.contains("2 type parameters"), "{reason}");
+
+        // A lifetime is not something a sort could name, so it is not counted: `Held<'a, T>` takes
+        // one *type* argument, and demanding two would refuse a correct binding on an arity the
+        // operator never wrote.
+        assert!(
+            resolve_type(&parsed(&tmp), "Held<u32>").is_resolved(),
+            "a lifetime parameter is not a type argument"
+        );
+    }
+
+    // Verifies: REQ069 — one level, and the refusal says so. `Vec` is not declared by the subject,
+    // so provreq has no declaration to confirm a nested argument against, and a domain it cannot
+    // confirm is not one it should let a claim range over.
+    #[test]
+    fn a_nested_type_argument_is_refused_by_name() {
+        let tmp = subject(GENERIC_SUBJECT);
+        let r = resolve_type(&parsed(&tmp), "Wrapper<Vec<u32>>");
+        let TypeResolution::UnusableTypeArguments { reason } = &r else {
+            panic!("a nested argument is refused, got {r:?}")
+        };
+        assert!(reason.contains("Vec<u32>"), "names the argument: {reason}");
+        assert!(reason.contains("one level"), "says why: {reason}");
+    }
+
+    // Verifies: REQ069 — an argument that names no type refuses the whole application, and the
+    // read-back is the one the operator needs: which argument, and what is wrong with it.
+    #[test]
+    fn an_argument_that_names_no_type_refuses_the_application() {
+        let tmp = subject(GENERIC_SUBJECT);
+        let r = resolve_type(&parsed(&tmp), "Wrapper<Nope>");
+        let TypeResolution::UnusableTypeArguments { reason } = &r else {
+            panic!("an unresolvable argument is refused, got {r:?}")
+        };
+        assert!(reason.contains("Nope"), "names the argument: {reason}");
+
+        // A malformed list is its own mistake, not "no such type".
+        for (written, expect) in [
+            ("Wrapper<u32", "never closes"),
+            ("Wrapper<>", "empty list"),
+            ("u32<bool>", "primitive"),
+        ] {
+            let r = resolve_type(&parsed(&tmp), written);
+            let TypeResolution::UnusableTypeArguments { reason } = &r else {
+                panic!("`{written}` is refused, got {r:?}")
+            };
+            assert!(reason.contains(expect), "`{written}` says why: {reason}");
+        }
+    }
+
+    // Verifies: REQ069 — the head's own answer wins when the *type* is what could not be found. An
+    // argument complaint on top would bury the fact that there is no such type to apply anything to.
+    #[test]
+    fn a_missing_head_type_reads_as_missing_not_as_bad_arguments() {
+        let tmp = subject(GENERIC_SUBJECT);
+        assert_eq!(
+            resolve_type(&parsed(&tmp), "Nothing<u32>"),
+            TypeResolution::NotFound
+        );
+    }
+
+    // Verifies: REQ069 — the read-back confirms *both* halves of the domain. The operator is
+    // confirming one type, and `Wrapper<User>` is only what they meant if the argument is too.
+    #[test]
+    fn the_readback_of_an_application_names_every_part() {
+        let tmp = subject(GENERIC_SUBJECT);
+        let text = resolve_type(&parsed(&tmp), "Wrapper<User>").describe("W", "Wrapper<User>");
+        assert!(text.contains("src/auth.rs:2"), "the applied type: {text}");
+        assert!(text.contains("src/auth.rs:1"), "the argument: {text}");
+    }
+
+    // Verifies: REQ057 + REQ069 — the parameter cross-check now discriminates on type arguments,
+    // which is the half of #187 that made `Wrapper<u32>` and `Wrapper<String>` one name to it.
+    #[test]
+    fn the_parameter_check_discriminates_on_type_arguments() {
+        let tmp = subject(
+            "pub struct Wrapper<T> { pub inner: T }\n\
+             pub fn holds(w: &Wrapper<String>) -> bool { true }\n",
+        );
+        let r = resolve_typed(&tmp, "holds", &[want("Wrapper<u32>")]);
+        let Resolution::WrongParamType {
+            expected, found, ..
+        } = &r
+        else {
+            panic!("a different argument is a different type, got {r:?}")
+        };
+        assert_eq!(expected, "Wrapper<u32>");
+        assert_eq!(found, "Wrapper<String>");
+
+        // The same argument agrees.
+        assert!(resolve_typed(&tmp, "holds", &[want("Wrapper<String>")]).is_resolved());
+        // And a qualifier on either side is not a disagreement: both are compared on last
+        // segments, the same limit every check on this surface works under.
+        assert!(
+            resolve_typed(&tmp, "holds", &[want("wrap::Wrapper<std::string::String>")])
+                .is_resolved()
+        );
+    }
+
+    // Verifies: REQ057 — the check may not turn a working binding into a park. A bare `Wrapper` on
+    // either side is the *absence* of an argument, not a claim that there is none, and every
+    // binding written before sorts could carry arguments looks exactly like that.
+    #[test]
+    fn a_side_that_writes_no_type_arguments_is_compared_on_the_name_alone() {
+        let tmp = subject(
+            "pub struct Wrapper<T> { pub inner: T }\n\
+             pub fn holds(w: &Wrapper<String>) -> bool { true }\n",
+        );
+        assert!(
+            resolve_typed(&tmp, "holds", &[want("Wrapper")]).is_resolved(),
+            "a bare sort still grounds against a generic parameter"
+        );
+
+        // The subject's own side: an argument that is the function's generic parameter names
+        // whatever the caller instantiates, so comparing it against a real type would be inventing
+        // the answer to a question only inference can settle.
+        let generic = subject(
+            "pub struct Wrapper<T> { pub inner: T }\n\
+             pub fn holds<T>(w: &Wrapper<T>) -> bool { true }\n",
+        );
+        assert!(
+            resolve_typed(&generic, "holds", &[want("Wrapper<u32>")]).is_resolved(),
+            "`Wrapper<T>` is compared on `Wrapper` alone"
+        );
     }
 }

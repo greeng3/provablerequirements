@@ -554,8 +554,18 @@ requirement no_message_lost {
   walk so they cannot disagree about which files count. A sort binding proves the type **exists**, and
   no more: whether it can be _instantiated_ (e.g. Kani's `Arbitrary`) belongs to the engine that needs
   to instantiate it, since the binding is core-owned and shared across engines.
-  **Still open:** methods, field/expression predicates, path-qualified items, generics, and
-  cross-checking a typed parameter's sort (`event accepted(m: Message)`) against the quantifier's.
+  **A sort's observable may be path-qualified and may apply type arguments (#138, REQ069):**
+  `auth::User` says _which_ `User` when two share a name, and `Wrapper<u32>` names a domain built by
+  applying one type to another. The PRL sort stays a bare name in both cases — it is the binding that
+  says which type it is. Type arguments are confirmed **one level** deep: the arity is checked against
+  the declaration's own type parameters and each argument resolves exactly as a sort does, so
+  `User<u32>` (takes none) and `Wrapper<Nope>` are refused by name, while `Wrapper<Vec<u32>>` is
+  refused because the subject declares no `Vec` for a nested argument to be confirmed against. An
+  applied sort lowers with a path for every part (`crate::wrap::Wrapper<crate::auth::User>`).
+  **A typed parameter's sort is cross-checked against the quantifier's (REQ057)**, including its type
+  arguments — but only where both sides write them, since a bare name is the absence of an argument,
+  not a claim that there is none.
+  **Still open:** field/expression predicates.
 - Concrete serialization + human read-back rendering of the verdict object (the schema and
   rules are decided in D7–D10 and _Verdict object_; the wire format is still open).
 - **Deferred:** grammar-constrained decoder for the LLM front-end — revisit if the

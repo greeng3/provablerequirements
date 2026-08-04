@@ -1,0 +1,47 @@
+active: true
+derived: false
+header: ''
+level: 1.69
+links: []
+normative: true
+ref: ''
+reviewed: null
+text: |
+  A quantified claim ranges its variable over a domain, and the binding is where the operator says
+  which domain that is. Where the subject builds a domain by applying one type to another — a
+  wrapper holding a number, a container of a declared type — the binding must be able to say so.
+  A binding that can name only the wrapper names a different domain than the one the claim ranges
+  over, and there is no way to write the difference down.
+
+  The requirement itself is unchanged by this. What a claim quantifies over is a name it declares
+  and the binding resolves; which type in the subject that name means is the binding's half of the
+  work, and an applied type is a type like any other. So the tool accepts an applied type wherever
+  it accepts a type name, and the requirement language gains nothing it must now understand.
+
+  An applied type is accepted only when every part of it is confirmed. The tool checks the applied
+  type against the subject's declaration of it, checks that the number of arguments written is the
+  number that declaration takes, and resolves each argument exactly as it resolves the domain
+  itself — an argument is a domain too, and a wrong one is wrong for the same reasons. Where any
+  part fails, nothing is grounded, and the read-back names which part and why: an argument that
+  names no type, too few or too many of them, or a type that takes none at all. These are separate
+  mistakes and the operator is told which they made, because the type they meant is usually right
+  there and a message that said "no such type" would send them hunting for it.
+
+  The tool confirms one level of application and says so where it stops. Deeper nesting reaches
+  types the subject does not declare, and a domain the tool cannot confirm against the subject is
+  not one it may let a claim range over — an approximation that dropped the arguments would ground
+  a claim about a domain nobody chose. Read-back is over the whole domain, not the applied type
+  alone: an operator confirming a domain is confirming every part of it.
+
+  Where an applied type is grounded, every stage downstream names it in full. A proof obligation
+  written about the applied type must reach the applied type and each of its arguments where each
+  is really declared. A stage that wrote the type with its arguments dropped would state a claim
+  about a domain that was never grounded, and would be caught, if at all, by a proof tool's own
+  complaint rather than by the surface built to catch it.
+
+  The check that compares a predicate's parameter against the domain its argument ranges over
+  compares the arguments too, since two domains that differ only in what they are applied to are
+  genuinely different domains. It compares them only where both sides say what they are applied
+  to. A side that says nothing is not asserting that there is nothing; treating an absence as a
+  claim would park bindings that were correct before an applied domain could be written at all,
+  and a false park costs the operator a working binding — the worse of the two failures.

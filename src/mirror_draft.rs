@@ -116,8 +116,8 @@ pub enum DropWall {
     /// provreq could not build the linking `#[ensures]` from the function's signature.
     Unlinkable,
     /// provreq could not write the mirror's own signature from the function's source (#191) — a
-    /// parameter is a pattern rather than a plain name, a type it will not render (a generic
-    /// argument, see #187), or the function returns nothing for a mirror to return.
+    /// parameter is a pattern rather than a plain name, a type it will not render (a tuple, a
+    /// slice, an `impl Trait`), or the function returns nothing for a mirror to return.
     Unwritable,
 }
 
@@ -137,9 +137,9 @@ impl DropWall {
             DropWall::Unwritable => {
                 "provreq could not write this mirror's signature from the function's own source — a \
                  parameter is a pattern rather than a plain name, a type is one it will not render \
-                 (a generic argument is refused rather than approximated), or the function returns \
-                 nothing. The signature is provreq's to write, so it declines rather than asking \
-                 the model to guess it"
+                 exactly (a tuple, a slice, an `impl Trait`), or the function returns nothing. The \
+                 signature is provreq's to write, so it declines rather than asking the model to \
+                 guess it"
             }
             DropWall::Unlinkable => {
                 "provreq could not build the linking `#[ensures]` from this signature (a parameter \
@@ -353,9 +353,12 @@ fn mirror_signature(
 ///
 /// Deliberately narrow: a reference or a plain path, and nothing else. A type this cannot write is
 /// `None`, which drops the mirror with a named reason rather than staging a signature provreq
-/// guessed at — the same rule as a mirror it cannot link. Generic arguments are refused here rather
-/// than approximated, because a sort carrying type arguments is an open question (#187) and writing
-/// `Wrapper` for `Wrapper<u32>` would answer it wrongly and silently.
+/// guessed at — the same rule as a mirror it cannot link.
+///
+/// Type arguments are now **written out** rather than refused (#187): a sort may mean
+/// `Wrapper<u32>`, so a predicate taking one has a mirror, and the mirror's signature must say the
+/// same type the program function does. What is still refused is a type this cannot reproduce
+/// exactly — writing `Wrapper` for `Wrapper<u32>` was never the alternative, and is not one now.
 fn render_ty(ty: &syn::Type) -> Option<String> {
     match ty {
         syn::Type::Reference(r) => {
@@ -367,11 +370,26 @@ fn render_ty(ty: &syn::Type) -> Option<String> {
         }
         syn::Type::Path(p) if p.qself.is_none() => {
             let mut out = Vec::new();
-            for seg in &p.path.segments {
-                if !matches!(seg.arguments, syn::PathArguments::None) {
-                    return None;
-                }
-                out.push(seg.ident.to_string());
+            let last = p.path.segments.len().saturating_sub(1);
+            for (i, seg) in p.path.segments.iter().enumerate() {
+                // Only the final segment may carry arguments. A mid-path `a::B<u32>::C` is a shape
+                // this does not write, and guessing at where the arguments belong is exactly the
+                // kind of approximation the refusal exists to prevent.
+                let args = match (&seg.arguments, i == last) {
+                    (syn::PathArguments::None, _) => String::new(),
+                    (syn::PathArguments::AngleBracketed(a), true) => {
+                        let mut parts = Vec::new();
+                        for arg in &a.args {
+                            match arg {
+                                syn::GenericArgument::Type(t) => parts.push(render_ty(t)?),
+                                _ => return None,
+                            }
+                        }
+                        format!("<{}>", parts.join(", "))
+                    }
+                    _ => return None,
+                };
+                out.push(format!("{}{args}", seg.ident));
             }
             (!out.is_empty()).then(|| out.join("::"))
         }
@@ -1153,5 +1171,32 @@ mod tests {
             .wall
             .explain()
             .contains("pattern rather than a plain name"));
+    }
+
+    // Verifies: REQ069 — a mirror's signature writes type arguments out. A sort may mean
+    // `Wrapper<u32>`, so a predicate taking one now has a mirror at all; before #187 this returned
+    // `None` and dropped the mirror. Writing `Wrapper` for `Wrapper<u32>` was never the
+    // alternative — a signature that disagrees with the program function cannot be linked to it.
+    #[test]
+    fn a_mirror_signature_writes_type_arguments_out() {
+        let ty = |src: &str| {
+            let item: syn::ItemFn = syn::parse_str(&format!("fn f(w: {src}) -> bool {{ true }}"))
+                .expect("fixture parses");
+            let syn::FnArg::Typed(t) = item.sig.inputs.first().expect("one param") else {
+                panic!("typed param")
+            };
+            render_ty(&t.ty)
+        };
+        assert_eq!(ty("Wrapper<u32>").as_deref(), Some("Wrapper<u32>"));
+        assert_eq!(ty("&Wrapper<u32>").as_deref(), Some("&Wrapper<u32>"));
+        assert_eq!(
+            ty("wrap::Wrapper<auth::User>").as_deref(),
+            Some("wrap::Wrapper<auth::User>")
+        );
+        assert_eq!(ty("Pair<u32, User>").as_deref(), Some("Pair<u32, User>"));
+        // Still refused: a shape this cannot reproduce exactly. A dropped mirror is the honest
+        // outcome, an approximated signature is not.
+        assert_eq!(ty("(u8, u8)"), None);
+        assert_eq!(ty("Wrapper<'a, u32>"), None);
     }
 }
