@@ -115,6 +115,10 @@ pub enum DropWall {
     MalformedItem,
     /// provreq could not build the linking `#[ensures]` from the function's signature.
     Unlinkable,
+    /// provreq could not write the mirror's own signature from the function's source (#191) — a
+    /// parameter is a pattern rather than a plain name, a type it will not render (a generic
+    /// argument, see #187), or the function returns nothing for a mirror to return.
+    Unwritable,
 }
 
 impl DropWall {
@@ -129,6 +133,13 @@ impl DropWall {
             DropWall::MalformedItem => {
                 "the proposed mirror is not a well-formed item, and splicing it would break the \
                  subject's source — re-run the draft, or write the mirror by hand"
+            }
+            DropWall::Unwritable => {
+                "provreq could not write this mirror's signature from the function's own source — a \
+                 parameter is a pattern rather than a plain name, a type is one it will not render \
+                 (a generic argument is refused rather than approximated), or the function returns \
+                 nothing. The signature is provreq's to write, so it declines rather than asking \
+                 the model to guess it"
             }
             DropWall::Unlinkable => {
                 "provreq could not build the linking `#[ensures]` from this signature (a parameter \
@@ -201,10 +212,6 @@ impl<B: LlmBackend> Mirrorer<B> {
         let mut out = MirrorDrafts::default();
         for (at, observable, name, fn_src, path) in &targets {
             let peers = peer_note(&targets, name);
-            let reply = self
-                .backend
-                .complete(&build_prompt(intent, claim, fn_src, name, &peers))
-                .await?;
             let dropped = |wall: DropWall| DroppedMirror {
                 file: at.file.clone(),
                 line: at.line,
@@ -212,13 +219,34 @@ impl<B: LlmBackend> Mirrorer<B> {
                 name: name.clone(),
                 wall,
             };
-            let Some(item) = parse_mirror(&reply, name) else {
+            // provreq writes the signature; the model is asked only for the meaning (#191).
+            let self_ty = sources
+                .get(&at.file)
+                .and_then(|text| crate::rust_adapter::impl_type_at(text, at.line));
+            let Some(signature) =
+                mirror_signature(fn_src, name, self_ty.as_deref(), mirror_visibility(fn_src))
+            else {
+                out.dropped.push(dropped(DropWall::Unwritable));
+                continue;
+            };
+            let reply = self
+                .backend
+                .complete(&build_prompt(intent, claim, fn_src, &signature, &peers))
+                .await?;
+            let Some(body) = parse_body(&reply) else {
                 out.dropped.push(dropped(DropWall::NoMirrorInReply));
                 continue;
             };
-            let item = make_open(&make_visible(&item, name, mirror_visibility(fn_src)));
-            // A mirror that is not a well-formed function is not staged at all (see
-            // [`is_well_formed_item`]).
+            // A bare call to a sibling mirror is a path provreq already knows (#192).
+            let siblings: Vec<(String, String)> = targets
+                .iter()
+                .filter(|(_, _, n, _, _)| n != name)
+                .map(|(_, _, n, _, p)| (n.clone(), p.clone()))
+                .collect();
+            let body = qualify_peer_calls(&body, &siblings);
+            let item = format!("#[logic(open)]\n{signature} {{\n    {body}\n}}");
+            // Still checked: the model's body can be unbalanced or not an expression, and splicing
+            // that would break the subject's source (see [`is_well_formed_item`]).
             if !is_well_formed_item(&item) {
                 out.dropped.push(dropped(DropWall::MalformedItem));
                 continue;
@@ -272,6 +300,83 @@ fn link_for(fn_src: &str, mirror_path: &str) -> Option<String> {
         "#[ensures(result == {mirror_path}({}))]",
         args.join(", ")
     ))
+}
+
+/// The mirror's whole signature, derived from the function's own source (#191).
+///
+/// The model is asked for the mirror's **body** and nothing else, because a signature is mechanics
+/// and mechanics are provreq's job — the same rule that already makes the linking `#[ensures]`, the
+/// visibility and the transparency provreq's to write. Measured twice against a live model: told in
+/// the prompt that the claim's sorts are the requirement's vocabulary and not Rust types, it still
+/// wrote `pub fn is_clear_logic(s: &Ent)`, taking the sort symbol straight out of
+/// `state clear(e: Ent)`. Restating the rule was not going to fix it, and a mirror is drafted once
+/// by design, so each miss is an operator correction rather than a repair round.
+///
+/// `self_ty` is the enclosing `impl` type for a method ([`crate::rust_adapter::impl_type_at`]) —
+/// the one thing a method's source does not carry. A receiver becomes an ordinary first parameter
+/// keeping its reference, named `s`, because `self` is legal only in an associated function.
+fn mirror_signature(
+    fn_src: &str,
+    mirror_name: &str,
+    self_ty: Option<&str>,
+    vis: &str,
+) -> Option<String> {
+    let item: syn::ItemFn = syn::parse_str(fn_src).ok()?;
+    let mut params = Vec::new();
+    for arg in &item.sig.inputs {
+        match arg {
+            syn::FnArg::Receiver(r) => {
+                let ty = self_ty?;
+                let amp = if r.reference.is_some() { "&" } else { "" };
+                params.push(format!("s: {amp}{ty}"));
+            }
+            syn::FnArg::Typed(t) => {
+                let syn::Pat::Ident(name) = &*t.pat else {
+                    return None;
+                };
+                params.push(format!("{}: {}", name.ident, render_ty(&t.ty)?));
+            }
+        }
+    }
+    let returns = match &item.sig.output {
+        syn::ReturnType::Default => return None,
+        syn::ReturnType::Type(_, ty) => render_ty(ty)?,
+    };
+    Some(format!(
+        "{vis} fn {mirror_name}({}) -> {returns}",
+        params.join(", ")
+    ))
+}
+
+/// A parsed type back as source, rendered by structure — the crate has no `quote`, and the shapes a
+/// predicate signature actually uses are few.
+///
+/// Deliberately narrow: a reference or a plain path, and nothing else. A type this cannot write is
+/// `None`, which drops the mirror with a named reason rather than staging a signature provreq
+/// guessed at — the same rule as a mirror it cannot link. Generic arguments are refused here rather
+/// than approximated, because a sort carrying type arguments is an open question (#187) and writing
+/// `Wrapper` for `Wrapper<u32>` would answer it wrongly and silently.
+fn render_ty(ty: &syn::Type) -> Option<String> {
+    match ty {
+        syn::Type::Reference(r) => {
+            let inner = render_ty(&r.elem)?;
+            Some(match r.mutability {
+                Some(_) => format!("&mut {inner}"),
+                None => format!("&{inner}"),
+            })
+        }
+        syn::Type::Path(p) if p.qself.is_none() => {
+            let mut out = Vec::new();
+            for seg in &p.path.segments {
+                if !matches!(seg.arguments, syn::PathArguments::None) {
+                    return None;
+                }
+                out.push(seg.ident.to_string());
+            }
+            (!out.is_empty()).then(|| out.join("::"))
+        }
+        _ => None,
+    }
 }
 
 /// Where a mirror declared alongside `at` is reachable from elsewhere in the crate.
@@ -389,23 +494,18 @@ Comparing against a sized integer needs that type's suffix: write `n == 0u32`, n
 `*failures == 0u32`.\n";
 
 /// Build the mirror-drafting prompt for one function (pure).
-fn build_prompt(intent: &str, claim: &str, fn_src: &str, mirror_name: &str, peers: &str) -> String {
+fn build_prompt(intent: &str, claim: &str, fn_src: &str, signature: &str, peers: &str) -> String {
     format!(
-        "You are writing a Creusot LOGIC MIRROR for one Rust function. A mirror is a `#[logic]` \
-function that states, in Creusot's specification language (pearlite), exactly what the program \
-function means. The program function is then linked to it by a post-condition, and the prover \
-CHECKS the mirror against the real body — so state the function's actual meaning, never a guess.\n\n\
-Respond with EXACTLY ONE thing and nothing else — no prose, no code fences, no explanation:\n\
-the mirror item, beginning `#[logic]` (provreq sets the attribute's modifiers and the item's \
-visibility itself — write the plain form), named EXACTLY `{mirror_name}`, taking the same parameters \
-as the function and returning the same type. The mirror is a FREE function at MODULE level, outside \
-any `impl` block — so `Self` is not in scope there and neither is a `self` receiver. A method's \
-receiver becomes an ordinary first parameter of the SAME type INCLUDING its reference, written with \
-the type's REAL NAME: `&self` on `impl Thing` becomes `s: &Thing` — never `&Self`, and never \
-`Thing`. That parameter must NOT be called `self`, which is legal only in an associated function. \
-Its body must be `pearlite! {{ ... }}`.\n\
-Write nothing else: provreq builds the linking post-condition itself, from the function's own \
-signature.\n\n\
+        "You are writing the BODY of a Creusot LOGIC MIRROR for one Rust function. A mirror is a \
+`#[logic]` function that states, in Creusot's specification language (pearlite), exactly what the \
+program function means. The program function is then linked to it by a post-condition, and the \
+prover CHECKS the mirror against the real body — so state the function's actual meaning, never a \
+guess.\n\n\
+provreq has already written the signature, and will wrap your answer in it exactly as shown:\n\n\
+{signature} {{\n    <YOUR ANSWER>\n}}\n\n\
+Respond with EXACTLY ONE thing and nothing else — no prose, no code fences, no explanation, no \
+signature, no attributes: the body, which must be `pearlite! {{ ... }}`. Refer to the parameters by \
+the names in the signature above.\n\n\
 {PEARLITE_RULES}\
 - A logic function is a single EXPRESSION. No `return`, no statements, no `let mut`, no loops. \
 Express a chain of guards as nested `if … {{ … }} else if … {{ … }} else {{ … }}`.\n\n\
@@ -433,76 +533,41 @@ Function:\n{fn_src}\n"
 /// balanced brace, and `#[ensures]` lines are skipped in that scan. Measured on a fresh subject: of
 /// two predicates, the one whose reply omitted the clause was dropped, leaving its program function
 /// still called inside `proof_assert!`.
-fn parse_mirror(reply: &str, mirror_name: &str) -> Option<String> {
-    let cleaned: Vec<&str> = reply
+/// Pull the pearlite BODY out of a model reply (#191).
+///
+/// The model is now asked for a body and nothing else, so this takes the `pearlite! { … }` block
+/// through its own balanced brace — the same balance rule [`parse_mirror`] uses on an item, and for
+/// the same reason: an unbalanced reply is truncated or malformed, and splicing it would break the
+/// subject's source.
+///
+/// A reply that wraps the body in a whole function anyway is still usable: the `pearlite!` block is
+/// found wherever it sits, and the signature around it is discarded — which is the point, since the
+/// signature is the half the model kept getting wrong.
+fn parse_body(reply: &str) -> Option<String> {
+    let cleaned: String = reply
         .lines()
         .filter(|l| !l.trim_start().starts_with("```"))
-        .collect();
-    let start = cleaned
-        .iter()
-        .position(|l| l.trim_start().starts_with("#[logic"))?;
-    // Take the item through its balanced closing brace. A reply that never balances is truncated or
-    // malformed; splicing it would break the subject's source, so it is refused instead.
+        .collect::<Vec<_>>()
+        .join("\n");
+    // Balance from the `pearlite!` token, NOT from the line it sits on: a reply that wrapped the
+    // body in a whole function would otherwise carry that function's closing brace along with it.
+    let from = cleaned.find("pearlite!")?;
+    let rest = &cleaned[from..];
+    let open = rest.find('{')?;
     let mut depth = 0usize;
-    let mut opened = false;
-    let mut item_lines = Vec::new();
-    for line in &cleaned[start..] {
-        if line.trim().starts_with("#[ensures") {
-            continue;
-        }
-        item_lines.push(*line);
-        depth += line.matches('{').count();
-        depth = depth.saturating_sub(line.matches('}').count());
-        if line.contains('{') {
-            opened = true;
-        }
-        if opened && depth == 0 {
-            let item = item_lines.join("\n");
-            return item.contains(&format!("fn {mirror_name}")).then_some(item);
+    for (i, c) in rest.char_indices().skip(open) {
+        match c {
+            '{' => depth += 1,
+            '}' => {
+                depth -= 1;
+                if depth == 0 {
+                    return Some(rest[..=i].trim().to_string());
+                }
+            }
+            _ => {}
         }
     }
     None
-}
-
-/// Give the mirror crate visibility, whatever visibility the model wrote (pure).
-///
-/// A mirror is appended at module level and then called from **outside that module** — by the
-/// generated harness as `crate::<module>::<name>`, and by a sibling mirror in another file. A model
-/// writing plain `fn` (the common case, since the function it mirrors is often a method) makes both
-/// callers a privacy error, and that is provreq's mistake to prevent rather than the model's to
-/// remember: visibility is a consequence of where provreq chose to put the item.
-///
-/// `vis` is [`mirror_visibility`]'s answer, not a fixed `pub(crate)`: Creusot enforces its own rule
-/// on top of Rust's — *cannot make `engine::is_ready_logic` transparent in
-/// `engine::EngineStatus::is_ready` as it would call a less-visible item* — so a `pub` function's
-/// contract may not mention a `pub(crate)` mirror. The mirror therefore takes the visibility of the
-/// function it mirrors, floored at `pub(crate)` so the harness can always reach it.
-///
-/// The declaration is found *anywhere* in the line rather than at its start: a model is as likely to
-/// emit `#[logic] fn f_logic(…) { … }` on one line as to put the attribute above it, and matching
-/// only a line-initial `fn` silently left that form private — measured as
-/// `error[E0603]: function 'decide_install_logic' is private`, one whole run spent on a one-line
-/// reply. `fn <name>` cannot collide with a call to the same mirror, which never carries the `fn`.
-fn make_visible(item: &str, mirror_name: &str, vis: &str) -> String {
-    let decl = format!("fn {mirror_name}");
-    let mut done = false;
-    item.lines()
-        .map(|line| {
-            if done {
-                return line.to_string();
-            }
-            let Some(at) = line.find(&decl) else {
-                return line.to_string();
-            };
-            done = true;
-            // Any visibility the model wrote is replaced, not respected: the level is forced by
-            // where provreq put the item and by Creusot's less-visible-item rule, so a model
-            // guessing `pub(crate)` where `pub` is required must still be corrected.
-            let before = strip_visibility(&line[..at]);
-            format!("{before}{vis} {}", &line[at..])
-        })
-        .collect::<Vec<_>>()
-        .join("\n")
 }
 
 /// Whether the drafted item actually parses as a Rust function (pure).
@@ -520,59 +585,49 @@ fn make_visible(item: &str, mirror_name: &str, vis: &str) -> String {
 /// An unparseable item means the mirror is dropped — honest silence, the same rule as a mirror that
 /// cannot be linked. Staging source that cannot compile helps nobody and hides the real answer
 /// behind a build error.
+/// Rewrite a bare call to a sibling mirror into its full crate path (#192).
+///
+/// A mirror body legitimately calls its peers, but the peers live in other modules, so a bare call
+/// does not compile: `is_clear_logic(entry)` inside `src/book.rs` when the mirror is declared in
+/// `src/pending.rs` is `error[E0425]: cannot find function ... in this scope`, and the whole harness
+/// fails.
+///
+/// The prompt already offers each peer's crate path, and the offer was **present and ignored** —
+/// `targets` is built in full before any drafting, so `peer_note` had the path and stated it.
+/// Asking again is not a fix; a mirror is drafted once by design, so every miss is an operator
+/// correction rather than a repair round. This is the same rule the channel already applies to the
+/// linking `#[ensures]`, the visibility and the transparency: mechanics are provreq's job, and only
+/// the *meaning* is the model's. A call's path is mechanics.
+///
+/// Only a call is rewritten — the name must be followed by `(` — and never one that is already
+/// qualified, so a model that did follow the instruction is left alone.
+fn qualify_peer_calls(item: &str, peers: &[(String, String)]) -> String {
+    peers.iter().fold(item.to_string(), |body, (name, path)| {
+        let mut out = String::with_capacity(body.len());
+        let mut rest = body.as_str();
+        while let Some(i) = rest.find(name.as_str()) {
+            let (before, at) = rest.split_at(i);
+            let after = &at[name.len()..];
+            // A call, not a declaration or a substring of a longer identifier.
+            let is_call = after.trim_start().starts_with('(');
+            let whole_word = !before.ends_with(|c: char| c.is_alphanumeric() || c == '_')
+                && !after.starts_with(|c: char| c.is_alphanumeric() || c == '_');
+            let already_qualified = before.ends_with("::");
+            out.push_str(before);
+            if is_call && whole_word && !already_qualified {
+                out.push_str(path);
+            } else {
+                out.push_str(name);
+            }
+            rest = after;
+        }
+        out.push_str(rest);
+        out
+    })
+}
+
 fn is_well_formed_item(item: &str) -> bool {
     syn::parse_str::<syn::ItemFn>(item).is_ok()
-}
-
-/// Make the mirror's `#[logic]` **transparent beyond its own module** (pure).
-///
-/// Visibility and transparency are different things in Creusot, and a mirror needs both. A `pub`
-/// `#[logic]` item is *callable* everywhere, but its **body** is unfoldable only where it is
-/// transparent, and `mk_opacity` in `creusot/src/ctx.rs` defaults that to
-/// `Visibility::Restricted(parent_module)`. The generated harness is a different module, so a bare
-/// `#[logic]` mirror reaches the prover as an **uninterpreted function**: everything compiles, the
-/// prover runs, and the goal simply cannot be discharged.
-///
-/// Measured exactly that way — the fixture in [`crate::creusot`] compiled and ran and returned
-/// `Inconclusive` until its mirrors became `#[logic(open)]`, whereupon it proved. That failure mode
-/// is worth naming because it looks like a false claim rather than a missing attribute.
-///
-/// Like the link and the visibility, this is provreq's to get right rather than the model's: the
-/// mirror is opaque only because provreq chose to put it in a module the harness does not share.
-fn make_open(item: &str) -> String {
-    if item.contains("#[logic(") {
-        // An explicit modifier list the model wrote: add `open` unless it is already asking for it.
-        // `opaque` is left alone — Creusot rejects `open` and `opaque` together, and a mirror the
-        // model deliberately sealed is not something to quietly reopen.
-        return if item.contains("open") || item.contains("opaque") {
-            item.to_string()
-        } else {
-            item.replacen("#[logic(", "#[logic(open, ", 1)
-        };
-    }
-    item.replacen("#[logic]", "#[logic(open)]", 1)
-}
-
-/// Drop a trailing `pub` / `pub(…)` from the text preceding a `fn`, keeping the spacing before it.
-fn strip_visibility(before: &str) -> String {
-    let trimmed = before.trim_end();
-    let kept = trimmed
-        .strip_suffix("pub")
-        .or_else(|| {
-            trimmed
-                .ends_with(')')
-                .then(|| trimmed.rfind("pub("))
-                .flatten()
-                .map(|i| &trimmed[..i])
-        })
-        .unwrap_or(trimmed);
-    // Preserve the original leading whitespace, which carries the item's indentation.
-    let indent = &before[..before.len() - before.trim_start().len()];
-    if kept.trim().is_empty() {
-        indent.to_string()
-    } else {
-        format!("{} ", kept.trim_end())
-    }
 }
 
 /// The visibility a mirror of `fn_src` must carry: the mirrored function's own, floored at
@@ -676,70 +731,6 @@ mod tests {
         assert_eq!(mirror_name("decide_install"), "decide_install_logic");
     }
 
-    // Verifies: the item is taken through its own balanced closing brace rather than to the end of
-    // the reply, and a stray `#[ensures]` the model volunteers is left out of it — provreq builds
-    // the real link from the signature, so the model's version must not be spliced in beside it.
-    #[test]
-    fn the_item_stops_at_its_own_brace_and_excludes_any_volunteered_link() {
-        let reply = "```rust\n\
-                     #[logic]\n\
-                     pub fn is_ready_logic(s: &EngineStatus) -> bool {\n\
-                     \x20   pearlite! { match *s { EngineStatus::Available { .. } => true, _ => false } }\n\
-                     }\n\
-                     #[ensures(result == is_ready_logic(self))]\n\
-                     ```";
-        let item = parse_mirror(reply, "is_ready_logic").expect("a usable item");
-        assert!(item.starts_with("#[logic]"), "got {item}");
-        assert!(
-            item.ends_with('}'),
-            "the item stops at its own closing brace: {item}"
-        );
-        assert!(
-            !item.contains("#[ensures"),
-            "the link is not part of the item"
-        );
-    }
-
-    // Verifies (the honesty crux of parsing): a mirror declared under a DIFFERENT name than the one
-    // the harness will call is unreachable, so it is refused rather than staged. Staging it would
-    // produce a subject that compiles but whose harness names a function that does not exist.
-    #[test]
-    fn a_mirror_under_the_wrong_name_is_refused() {
-        let reply = "#[logic]\n\
-                     pub fn ready_pred(s: &EngineStatus) -> bool { pearlite! { true } }\n\
-                     #[ensures(result == ready_pred(self))]";
-        assert_eq!(parse_mirror(reply, "is_ready_logic"), None);
-    }
-
-    // Verifies: an item whose braces never balance is truncated or malformed. It is spliced into the
-    // subject verbatim, so refusing it is the difference between an honest skip and a broken tree.
-    #[test]
-    fn an_unbalanced_item_is_refused_rather_than_spliced() {
-        let reply = "#[logic]\n\
-                     pub fn is_ready_logic(s: &EngineStatus) -> bool {\n\
-                     \x20   pearlite! { match *s {\n\
-                     #[ensures(result == is_ready_logic(self))]";
-        assert_eq!(parse_mirror(reply, "is_ready_logic"), None);
-    }
-
-    // Verifies (#170): a reply carrying only the item is USABLE. This test asserted the opposite
-    // and encoded the defect: the reasoning was that an unlinked mirror is the unchecked assertion
-    // this channel avoids, but the mirror is not unlinked — provreq builds the link from the
-    // signature (`link_for`) and never read the model's version. So a well-formed, correctly named,
-    // perfectly linkable mirror was refused over a clause nothing consumed, and refused in silence.
-    // Measured on a fresh subject: that dropped the one predicate the claim needed.
-    #[test]
-    fn a_reply_carrying_only_the_item_is_usable() {
-        let reply = "#[logic]\n\
-                     pub fn is_ready_logic(s: &EngineStatus) -> bool { pearlite! { true } }";
-        let item = parse_mirror(reply, "is_ready_logic").expect("the item is all that is needed");
-        assert!(item.contains("fn is_ready_logic"));
-        assert!(
-            !item.contains("#[ensures"),
-            "the link is provreq's to build: {item}"
-        );
-    }
-
     // Verifies: provreq builds the link from the signature — a receiver becomes `self`, a free
     // function's parameters are named in order. Measured failure: asked for the link, a live model
     // wrote `decide_install_logic(self, …)` for a FREE function whose first parameter is `detected`
@@ -801,30 +792,6 @@ mod tests {
         );
     }
 
-    // Verifies: a staged mirror is `#[logic(open)]`, not bare `#[logic]`. Creusot defaults a logic
-    // function's TRANSPARENCY to its own module, so a bare mirror is an uninterpreted function to
-    // the harness — it compiles, the prover runs, and the goal cannot be discharged. Measured: the
-    // real-Creusot fixture returned `Inconclusive` until the mirrors were opened, then proved.
-    #[test]
-    fn a_staged_mirror_is_transparent_beyond_its_own_module() {
-        assert_eq!(
-            make_open("#[logic]\npub fn f_logic(x: bool) -> bool { x }"),
-            "#[logic(open)]\npub fn f_logic(x: bool) -> bool { x }"
-        );
-        // An explicit modifier list gains `open` alongside what the model asked for.
-        assert_eq!(
-            make_open("#[logic(inline)]\npub fn f_logic() -> bool { true }"),
-            "#[logic(open, inline)]\npub fn f_logic() -> bool { true }"
-        );
-        // Idempotent, so a re-staged mirror does not accumulate modifiers.
-        let opened = "#[logic(open)]\npub fn f_logic() -> bool { true }";
-        assert_eq!(make_open(opened), opened);
-        // `opaque` is left alone — Creusot rejects it together with `open`, and a mirror the model
-        // deliberately sealed is not something to quietly reopen.
-        let sealed = "#[logic(opaque)]\npub fn f_logic() -> bool { true }";
-        assert_eq!(make_open(sealed), sealed);
-    }
-
     // Verifies: a mirror is offered to its siblings by its full crate path, not its bare name. The
     // measured failure: `decide_install_logic` in `src/provision.rs` called bare `is_ready_logic`,
     // declared in `src/engine.rs` — `error[E0425]: cannot find function 'is_ready_logic' in this
@@ -835,57 +802,6 @@ mod tests {
         assert!(
             note.contains("crate::engine::is_ready_logic"),
             "a cross-module call needs the path: {note}"
-        );
-    }
-
-    // Verifies: provreq sets the mirror's visibility, whatever the model wrote. Rust needs it
-    // reachable from the harness (a different module); Creusot needs it no LESS visible than the
-    // function it mirrors — measured as *cannot make `engine::is_ready_logic` transparent in
-    // `engine::EngineStatus::is_ready` as it would call a less-visible item*, from a `pub fn`
-    // linked to a `pub(crate)` mirror.
-    #[test]
-    fn a_staged_mirror_is_visible_to_everything_that_must_see_it() {
-        // The mirrored function's visibility is the floor AND the target.
-        assert_eq!(
-            mirror_visibility("pub fn is_ready(&self) -> bool { true }"),
-            "pub"
-        );
-        assert_eq!(
-            mirror_visibility("fn helper() -> bool { true }"),
-            "pub(crate)"
-        );
-        assert_eq!(
-            mirror_visibility("pub(crate) fn helper() -> bool { true }"),
-            "pub(crate)",
-            "a private or crate-visible function still needs a crate-visible mirror for the harness"
-        );
-
-        let private = "#[logic]\nfn f_logic(x: bool) -> bool { pearlite! { x } }";
-        assert_eq!(
-            make_visible(private, "f_logic", "pub(crate)"),
-            "#[logic]\npub(crate) fn f_logic(x: bool) -> bool { pearlite! { x } }"
-        );
-
-        // A model's own guess is REPLACED, not respected — `pub(crate)` where `pub` is required is
-        // exactly the case Creusot rejects.
-        assert_eq!(
-            make_visible(
-                "#[logic]\npub(crate) fn f_logic(x: bool) -> bool { x }",
-                "f_logic",
-                "pub"
-            ),
-            "#[logic]\npub fn f_logic(x: bool) -> bool { x }"
-        );
-
-        // The one-line form a model emits just as readily. Matching only a line-initial `fn` left
-        // this private — measured as `error[E0603]: function 'decide_install_logic' is private`.
-        assert_eq!(
-            make_visible(
-                "#[logic] fn f_logic(x: bool) -> bool { pearlite! { x } }",
-                "f_logic",
-                "pub"
-            ),
-            "#[logic] pub fn f_logic(x: bool) -> bool { pearlite! { x } }"
         );
     }
 
@@ -978,6 +894,63 @@ mod tests {
         );
     }
 
+    // Verifies: #192 — a bare call to a sibling mirror is rewritten to its crate path at staging.
+    // Measured on the `ledger` subject: `post_logic` in src/book.rs called `is_clear_logic(entry)`
+    // bare while that mirror was declared in src/pending.rs, and the harness failed with
+    // `error[E0425]: cannot find function `is_clear_logic` in this scope`. The prompt had already
+    // offered the path — `targets` is built in full before drafting, so `peer_note` stated it — so
+    // the offer was present and ignored. A mirror is drafted once, so asking again is not a fix.
+    #[test]
+    fn a_bare_call_to_a_sibling_mirror_is_qualified_at_staging() {
+        let peers = [(
+            "is_clear_logic".to_string(),
+            "crate::pending::is_clear_logic".to_string(),
+        )];
+        let body = "pearlite! { if is_clear_logic(e) { A } else { B } }";
+        assert_eq!(
+            qualify_peer_calls(body, &peers),
+            "pearlite! { if crate::pending::is_clear_logic(e) { A } else { B } }"
+        );
+
+        // A model that DID follow the instruction is left alone — never double-qualified.
+        let already = "pearlite! { crate::pending::is_clear_logic(e) }";
+        assert_eq!(qualify_peer_calls(already, &peers), already);
+
+        // Only calls: the mirror's own declaration and a longer identifier are untouched.
+        let decl = "pub fn is_clear_logic_helper = 1; let is_clear_logic_x = is_clear_logic;";
+        assert_eq!(
+            qualify_peer_calls(decl, &peers),
+            decl,
+            "a non-call occurrence must not be rewritten"
+        );
+    }
+
+    // Verifies: #191 — the prompt asks for a BODY and shows the signature provreq will wrap it in.
+    // Telling the model that the claim's sorts are not Rust types was tried first and measurably
+    // did not work: it wrote `pub fn is_clear_logic(s: &Ent)` anyway, straight out of
+    // `state clear(e: Ent)`. A mirror is drafted once, so the fix had to remove the opportunity
+    // rather than restate the rule.
+    #[test]
+    fn the_prompt_asks_only_for_a_body_and_shows_the_signature() {
+        let p = build_prompt(
+            "i",
+            "c",
+            "fn f() -> bool { true }",
+            "pub fn f_logic() -> bool",
+            "",
+        );
+        assert!(
+            p.contains("pub fn f_logic() -> bool"),
+            "the exact signature must be shown: {p}"
+        );
+        assert!(p.contains("provreq has already written the signature"));
+        assert!(
+            p.contains("no signature, no attributes"),
+            "the reply must be a body and nothing else"
+        );
+        assert!(p.contains("pearlite!"), "the body's required form");
+    }
+
     // Verifies: a mirror's prompt names the OTHER mirrors in the same run, and not itself. Measured
     // failure: told only "do not call the program function", a live model wrote
     // `detected.is_ready()` inside `decide_install_logic` — it had no legal way to ask the question,
@@ -1025,34 +998,31 @@ mod tests {
         );
     }
 
-    // Verifies: the receiver rule is explicit about BOTH things a live model got wrong — it named
-    // the parameter `self` (legal only in an associated function, so the staged edit would not
-    // compile) and dropped the reference from the type.
+    // Verifies: #191 — a method's receiver becomes an ordinary first parameter of the impl type,
+    // written by provreq. This used to be a prompt rule the model could break, and did: it wrote
+    // `s: &Self` (the receiver's real type, which names nothing at module level) and later `s: &Ent`
+    // (the requirement's SORT symbol, which is not a Rust type at all). Neither can happen now —
+    // the model never writes a signature.
     #[test]
-    fn the_prompt_forbids_naming_a_free_function_parameter_self() {
-        let p = build_prompt("i", "c", "fn f(&self) -> bool { true }", "f_logic", "");
-        assert!(
-            p.contains("must NOT be called `self`"),
-            "measured failure: `fn is_ready_logic(self: EngineStatus)`"
-        );
-        assert!(
-            p.contains("INCLUDING its reference"),
-            "the receiver keeps its `&`"
-        );
-        // A mirror is appended at MODULE level, outside the `impl`, so `Self` names nothing there.
-        // Measured (#181, the run that confirmed the typing rules): given a `&self` receiver a live
-        // model wrote `s: &Self`, and the subject stopped compiling on its own source —
-        // `error[E0411]: cannot find type `Self` in this scope`. The old wording ("the SAME type
-        // including its reference") was literally satisfied by `&Self`, which is the receiver's
-        // actual type; only naming the module level rules it out.
-        assert!(
-            p.contains("FREE function at MODULE level"),
-            "where the item lands is why `Self` is unavailable"
-        );
-        assert!(
-            p.contains("never `&Self`"),
-            "the receiver's own spelling must be ruled out explicitly"
-        );
+    fn a_receiver_becomes_a_first_parameter_of_the_impl_type() {
+        let sig = mirror_signature(
+            "pub fn is_clear(&self) -> bool { true }",
+            "is_clear_logic",
+            Some("Entry"),
+            "pub",
+        )
+        .expect("a method with a known impl type is writable");
+        assert_eq!(sig, "pub fn is_clear_logic(s: &Entry) -> bool");
+
+        // Without the impl type there is nothing honest to write, so it is refused rather than
+        // guessed — the guess is exactly what produced `&Self` and `&Ent`.
+        assert!(mirror_signature(
+            "pub fn is_clear(&self) -> bool { true }",
+            "is_clear_logic",
+            None,
+            "pub"
+        )
+        .is_none());
     }
 
     // Verifies: predicates resolving to the SAME function are mirrored once, matching the dedup the
@@ -1084,7 +1054,12 @@ mod tests {
             .draft("intent", "claim", &resolutions, &sources)
             .await
             .expect("draft");
-        assert_eq!(drafts.drafts.len(), 1, "same function, one mirror");
+        assert_eq!(
+            drafts.drafts.len(),
+            1,
+            "same function, one mirror; dropped: {:?}",
+            drafts.dropped
+        );
         assert_eq!(drafts.drafts[0].name, "is_ready_logic");
         assert!(drafts.dropped.is_empty(), "nothing was given up on");
     }
@@ -1127,32 +1102,28 @@ mod tests {
         assert_eq!(d.wall, DropWall::NoMirrorInReply);
     }
 
-    // Verifies (#170): a mirror provreq cannot LINK is dropped — and named. A parameter written as
-    // a pattern gives `link_for` no name to apply the mirror to, and a mirror without its link is
-    // an unchecked meaning rather than a weaker proof, so it must not be staged. The operator still
-    // has to learn that this predicate has no mirror, or they read a hole as a complete draft.
+    // Verifies: #191 — a signature provreq cannot write is refused BEFORE the model is called, and
+    // named. A pattern parameter used to reach the model, come back as a mirror, and be dropped at
+    // the link step; now it never spends a request, because the signature is provreq's first job.
     #[tokio::test]
-    async fn a_mirror_that_cannot_be_linked_is_dropped_and_named() {
+    async fn a_signature_provreq_cannot_write_is_dropped_and_named() {
         let backend = StubBackend {
-            reply: "#[logic]\npub fn decide_logic(a: bool, b: bool) -> bool { pearlite! { a } }\n"
-                .to_string(),
+            reply: "pearlite! { true }".to_string(),
             prompts: std::sync::Mutex::new(Vec::new()),
         };
         let mut resolutions = BTreeMap::new();
         resolutions.insert(
-            "granted".to_string(),
+            "ready".to_string(),
             resolved(
-                "src/access.rs",
-                1,
-                "pub fn decide((a, b): (bool, bool)) -> bool {",
+                "src/engine.rs",
+                2,
+                "pub fn is_ready((a, b): (u8, u8)) -> bool {",
             ),
         );
         let mut sources = BTreeMap::new();
         sources.insert(
-            "src/access.rs".to_string(),
-            "pub fn decide((a, b): (bool, bool)) -> bool { a }
-"
-            .to_string(),
+            "src/engine.rs".to_string(),
+            "\npub fn is_ready((a, b): (u8, u8)) -> bool { true }\n".to_string(),
         );
         let drafts = Mirrorer::new(backend)
             .draft("intent", "claim", &resolutions, &sources)
@@ -1160,10 +1131,13 @@ mod tests {
             .expect("draft");
         assert!(
             drafts.drafts.is_empty(),
-            "an unlinkable mirror is not staged"
+            "an unwritable signature stages nothing"
         );
-        assert_eq!(drafts.dropped.len(), 1, "and it is named: {drafts:?}");
-        assert_eq!(drafts.dropped[0].wall, DropWall::Unlinkable);
-        assert_eq!(drafts.dropped[0].function, "decide");
+        assert_eq!(drafts.dropped.len(), 1);
+        assert_eq!(drafts.dropped[0].wall, DropWall::Unwritable);
+        assert!(drafts.dropped[0]
+            .wall
+            .explain()
+            .contains("pattern rather than a plain name"));
     }
 }
