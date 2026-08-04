@@ -105,9 +105,9 @@ pub struct DroppedMirror {
     pub wall: DropWall,
 }
 
-/// The three ways a mirror is abandoned. Each is a different thing for the operator to do, which is
+/// The ways a mirror is abandoned. Each is a different thing for the operator to do, which is
 /// why the verdict names which one rather than reporting a generic failure.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DropWall {
     /// The model returned nothing that parses as the requested mirror function.
     NoMirrorInReply,
@@ -119,11 +119,40 @@ pub enum DropWall {
     /// parameter is a pattern rather than a plain name, a type it will not render (a tuple, a
     /// slice, an `impl Trait`), or the function returns nothing for a mirror to return.
     Unwritable,
+    /// The body calls a **mirror that does not exist** (#202) — a name with provreq's own mirror
+    /// suffix that is neither staged this round nor already declared by the subject.
+    ///
+    /// Kept apart from every other wall because of what staging it would do. The others risk an
+    /// unchecked meaning; this one **stops the subject from compiling**, so every requirement's
+    /// verdict degrades, not just this one's, and the operator's working tree is left broken by the
+    /// tool that was meant to help. Measured: a model asked for a mirror of a function calling a
+    /// trait method — which has no mirror, because a trait method cannot yet be resolved (#200) —
+    /// invented `crate::status::is_healthy_logic`, and Creusot answered `error[E0425]: cannot find
+    /// function`.
+    CallsUnstagedMirror {
+        /// The name it invented, so the operator is told what to look for rather than hunting.
+        called: String,
+    },
 }
 
 impl DropWall {
     /// What stopped it, and what the operator can do — the same shape as an engine's own limit.
-    pub fn explain(self) -> &'static str {
+    pub fn explain(&self) -> String {
+        match self {
+            DropWall::CallsUnstagedMirror { called } => format!(
+                "the proposed mirror calls `{called}`, which does not exist — it is neither a \
+                 mirror provreq staged in this round nor one the subject already declares. Staging \
+                 it would leave the subject unable to compile, so it is dropped instead. This \
+                 usually means the function it mirrors calls something that has no mirror of its \
+                 own, and the model invented one rather than being told it could not; write this \
+                 mirror by hand, or ground that other predicate so it gets a mirror too"
+            ),
+            _ => self.explain_fixed().to_string(),
+        }
+    }
+
+    /// The walls whose explanation is the same every time.
+    fn explain_fixed(&self) -> &'static str {
         match self {
             DropWall::NoMirrorInReply => {
                 "the model proposed nothing that parses as this mirror — nothing was staged rather \
@@ -146,6 +175,8 @@ impl DropWall {
                  is a pattern rather than a plain name), and a mirror without its link is an \
                  unchecked meaning, never a weaker proof — so it is not staged at all"
             }
+            // Carries a name, so its text is built per-drop by `explain`.
+            DropWall::CallsUnstagedMirror { .. } => unreachable!("explained with its own name"),
         }
     }
 }
@@ -159,8 +190,13 @@ impl DropWall {
 /// level, so only the final segment matters.
 pub fn mirror_name(observable: &str) -> String {
     let base = observable.rsplit("::").next().unwrap_or(observable);
-    format!("{base}_logic")
+    format!("{base}{MIRROR_SUFFIX}")
 }
+
+/// What makes a name a mirror's. provreq owns this suffix — every mirror name it ever writes is
+/// derived through [`mirror_name`] — which is what lets it say authoritatively that a mirror-shaped
+/// call names nothing (#202).
+const MIRROR_SUFFIX: &str = "_logic";
 
 /// Proposes logic mirrors for a requirement's resolved predicate functions. Generic over its backend
 /// so tests inject a stub, mirroring [`crate::semantic_draft::Drafter`].
@@ -208,6 +244,12 @@ impl<B: LlmBackend> Mirrorer<B> {
             let path = mirror_path(at, &name);
             targets.push((at.clone(), observable, name, fn_src, path));
         }
+
+        // A mirror an earlier round already committed lives in the subject's own source, and calling
+        // it is correct — so this set is not an indulgence, it is what keeps the check below from
+        // dropping a mirror that would have compiled.
+        let declared_mirrors: BTreeSet<String> =
+            sources.values().flat_map(|t| declared_fns(t)).collect();
 
         let mut out = MirrorDrafts::default();
         for (at, observable, name, fn_src, path) in &targets {
@@ -266,7 +308,50 @@ impl<B: LlmBackend> Mirrorer<B> {
                 link,
             });
         }
+        drop_mirrors_calling_nothing(&mut out, &declared_mirrors, &targets);
         Ok(out)
+    }
+}
+
+/// Drop every mirror whose body calls a mirror that is **not going to exist** (#202), repeating
+/// until none is left.
+///
+/// This runs after drafting, not during it, and that is the whole point. Whether a call is legal
+/// depends on what provreq *actually staged*, and that is not known while it is still deciding: the
+/// set of intended targets is known up front, but a target can still be dropped for its own reasons
+/// afterwards. Measured live, checking against the intended set instead: the invented call was
+/// caught and its mirror dropped, and the mirror that *called that dropped mirror* was staged
+/// anyway — so the subject still did not compile, with `error[E0425]: cannot find function
+/// healthy_now_logic`, one name further along. The passing test did not see it; the run did.
+///
+/// Hence the loop: dropping one mirror can invalidate another that called it, and that can cascade.
+/// It terminates because every pass removes at least one draft.
+fn drop_mirrors_calling_nothing(
+    out: &mut MirrorDrafts,
+    declared: &BTreeSet<String>,
+    targets: &[(CodeMatch, String, String, String, String)],
+) {
+    loop {
+        let live: Vec<String> = out.drafts.iter().map(|d| d.name.clone()).collect();
+        let live: BTreeSet<&str> = live.iter().map(String::as_str).collect();
+        let found = out.drafts.iter().enumerate().find_map(|(i, d)| {
+            unstaged_mirror_call(&d.item, &live, declared).map(|called| (i, called))
+        });
+        let Some((i, called)) = found else { return };
+        let gone = out.drafts.remove(i);
+        out.dropped.push(DroppedMirror {
+            file: gone.file,
+            line: gone.line,
+            // The observable is what the operator knows the function by; the draft carries only the
+            // mirror name, so it comes back from the targets that produced it.
+            function: targets
+                .iter()
+                .find(|(_, _, n, _, _)| *n == gone.name)
+                .map(|(_, observable, _, _, _)| observable.clone())
+                .unwrap_or_else(|| gone.name.clone()),
+            name: gone.name,
+            wall: DropWall::CallsUnstagedMirror { called },
+        });
     }
 }
 
@@ -395,6 +480,78 @@ fn render_ty(ty: &syn::Type) -> Option<String> {
         }
         _ => None,
     }
+}
+
+/// The first mirror-shaped call in `item` that names no mirror — neither one being staged this
+/// round (`staged`) nor one the subject already declares (`declared`) — or `None` when every such
+/// call resolves (#202).
+///
+/// Only names carrying [`MIRROR_SUFFIX`] are judged, and that narrowness is deliberate. provreq
+/// *owns* that suffix — every mirror name it writes comes from [`mirror_name`] — so it can say with
+/// authority that such a name is invented. A call to an ordinary **program** function is a different
+/// mistake with an owner that already reports it well: Creusot answers `called program function f in
+/// logic context`, which is the wall this whole channel exists to route around, and duplicating that
+/// judgement here would mean guessing at name resolution provreq does not do.
+///
+/// A path is read at its last segment, because `crate::status::is_healthy_logic` and a bare
+/// `is_healthy_logic` are the same claim about the same missing item — and the qualified form is
+/// exactly what a model writes when it has been shown peer paths.
+fn unstaged_mirror_call(
+    item: &str,
+    staged: &BTreeSet<&str>,
+    declared: &BTreeSet<String>,
+) -> Option<String> {
+    called_names(item).into_iter().find(|called| {
+        called.ends_with(MIRROR_SUFFIX)
+            && !staged.contains(called.as_str())
+            && !declared.contains(called)
+    })
+}
+
+/// Every identifier in `src` that is immediately applied to an argument list — the last segment of a
+/// path, so `a::b::f(x)` reads as `f`. Deliberately syntactic: this is a scan for one specific
+/// mistake, not a resolver.
+///
+/// The mirror's own signature (`fn name_logic(…)`) matches this shape too, which is harmless because
+/// its name is always in the staged set — the mirror being drafted is one of the targets.
+fn called_names(src: &str) -> Vec<String> {
+    let chars: Vec<char> = src.chars().collect();
+    let is_word = |c: char| c == '_' || c.is_alphanumeric();
+    let mut out = Vec::new();
+    let mut i = 0;
+    while i < chars.len() {
+        if !is_word(chars[i]) {
+            i += 1;
+            continue;
+        }
+        let start = i;
+        while i < chars.len() && is_word(chars[i]) {
+            i += 1;
+        }
+        let mut j = i;
+        while j < chars.len() && chars[j].is_whitespace() {
+            j += 1;
+        }
+        if chars.get(j) == Some(&'(') {
+            out.push(chars[start..i].iter().collect());
+        }
+    }
+    out
+}
+
+/// The names of the functions a source file declares, for the mirrors an earlier round committed.
+/// Syntactic, and matching [`called_names`]'s narrowness on purpose: it feeds one comparison.
+fn declared_fns(src: &str) -> Vec<String> {
+    src.match_indices("fn ")
+        .filter_map(|(i, _)| {
+            let rest = &src[i + 3..];
+            let name: String = rest
+                .chars()
+                .take_while(|c| *c == '_' || c.is_alphanumeric())
+                .collect();
+            (!name.is_empty()).then_some(name)
+        })
+        .collect()
 }
 
 /// Where a mirror declared alongside `at` is reachable from elsewhere in the crate.
@@ -1171,6 +1328,149 @@ mod tests {
             .wall
             .explain()
             .contains("pattern rather than a plain name"));
+    }
+
+    // Verifies: #202 — a mirror whose body calls a mirror that was never staged is DROPPED, not
+    // spliced. This is the one drop wall where staging would not merely risk an unchecked meaning:
+    // it stops the subject compiling, so every requirement's verdict degrades with it.
+    //
+    // The reply is the exact body a live model produced (6th pass): asked to mirror a function whose
+    // own body calls a trait method — which has no mirror, because a trait method cannot be resolved
+    // (#200) — it invented one and provreq spliced it. Creusot: `error[E0425]: cannot find function
+    // is_healthy_logic in module crate::status`.
+    #[tokio::test]
+    async fn a_mirror_calling_a_mirror_that_was_never_staged_is_dropped() {
+        let backend = StubBackend {
+            reply: "pearlite! { crate::status::is_healthy_logic(status) }".to_string(),
+            prompts: std::sync::Mutex::new(Vec::new()),
+        };
+        let src = "\npub fn healthy_now(status: &Status) -> bool { status.is_healthy() }\n";
+        let resolutions = BTreeMap::from([(
+            "healthy".to_string(),
+            resolved(
+                "src/job.rs",
+                2,
+                "pub fn healthy_now(status: &Status) -> bool {",
+            ),
+        )]);
+        let sources = BTreeMap::from([("src/job.rs".to_string(), src.to_string())]);
+        let drafts = Mirrorer::new(backend)
+            .draft("intent", "claim", &resolutions, &sources)
+            .await
+            .expect("draft");
+
+        assert!(
+            drafts.drafts.is_empty(),
+            "a mirror calling nothing must not be staged: {:?}",
+            drafts.drafts
+        );
+        assert_eq!(drafts.dropped.len(), 1);
+        assert_eq!(
+            drafts.dropped[0].wall,
+            DropWall::CallsUnstagedMirror {
+                called: "is_healthy_logic".to_string()
+            },
+            "the drop names the invented call, so the operator is not left hunting"
+        );
+        let text = drafts.dropped[0].wall.explain();
+        assert!(text.contains("is_healthy_logic"), "names it: {text}");
+        assert!(
+            text.contains("compile"),
+            "says what staging would cost: {text}"
+        );
+    }
+
+    // Verifies: #202 — dropping one mirror drops every mirror that CALLED it, transitively. The
+    // first cut of this fix checked against the mirrors provreq *intended* to write, and a live run
+    // showed why that is not enough: the invented call was caught and its mirror dropped, and the
+    // mirror calling that dropped mirror was staged anyway, so the subject still did not compile —
+    // `error[E0425]: cannot find function healthy_now_logic`, one name further along.
+    //
+    // Here `b_logic` is dropped for calling an invented name, so `a_logic`, which calls `b_logic`,
+    // must fall with it. Nothing may be staged at all.
+    #[test]
+    fn dropping_a_mirror_drops_whatever_called_it() {
+        let draft = |name: &str, body: &str| MirrorDraft {
+            file: "src/m.rs".into(),
+            line: 1,
+            name: name.into(),
+            path: format!("crate::m::{name}"),
+            item: format!("#[logic(open)]\npub fn {name}(x: bool) -> bool {{ {body} }}"),
+            link: String::new(),
+        };
+        let mut out = MirrorDrafts {
+            drafts: vec![
+                draft("a_logic", "pearlite! { crate::m::b_logic(x) }"),
+                draft("b_logic", "pearlite! { crate::m::invented_logic(x) }"),
+                draft("c_logic", "pearlite! { x }"),
+            ],
+            dropped: Vec::new(),
+        };
+        drop_mirrors_calling_nothing(&mut out, &BTreeSet::new(), &[]);
+
+        assert_eq!(
+            out.drafts
+                .iter()
+                .map(|d| d.name.as_str())
+                .collect::<Vec<_>>(),
+            vec!["c_logic"],
+            "only the mirror that depends on nothing missing survives"
+        );
+        assert_eq!(out.dropped.len(), 2, "both the cause and its caller drop");
+        let by_name: Vec<(&str, String)> = out
+            .dropped
+            .iter()
+            .map(|d| (d.name.as_str(), format!("{:?}", d.wall)))
+            .collect();
+        assert!(
+            by_name
+                .iter()
+                .any(|(n, w)| *n == "b_logic" && w.contains("invented_logic")),
+            "the cause names what it invented: {by_name:?}"
+        );
+        assert!(
+            by_name
+                .iter()
+                .any(|(n, w)| *n == "a_logic" && w.contains("b_logic")),
+            "the caller names the mirror that went missing under it: {by_name:?}"
+        );
+    }
+
+    // Verifies: #202 — the check judges ONLY provreq's own mirror suffix, and only names that are
+    // really unknown. A peer being staged in the same round, the mirror's own recursive call, and a
+    // mirror an earlier round already committed to the subject are all legitimate; so is a call to
+    // an ordinary program function, whose refusal belongs to Creusot and is reported there.
+    #[test]
+    fn only_an_invented_mirror_name_is_refused() {
+        let staged: BTreeSet<&str> = ["a_logic", "b_logic"].into_iter().collect();
+        let declared: BTreeSet<String> = ["old_logic".to_string()].into_iter().collect();
+        let check = |body: &str| unstaged_mirror_call(body, &staged, &declared);
+
+        // Legitimate, each for its own reason.
+        assert_eq!(check("pearlite! { b_logic(x) }"), None, "a staged peer");
+        assert_eq!(check("pearlite! { a_logic(x) }"), None, "itself");
+        assert_eq!(
+            check("pearlite! { crate::m::old_logic(x) }"),
+            None,
+            "a mirror the subject already declares"
+        );
+        assert_eq!(
+            check("pearlite! { ordinary_fn(x) }"),
+            None,
+            "a program call is Creusot's to refuse, not this scan's"
+        );
+        assert_eq!(check("pearlite! { *x < 3u32 }"), None, "no calls at all");
+
+        // Invented — and read at the last segment, since that is what a qualified path claims.
+        assert_eq!(
+            check("pearlite! { c_logic(x) }").as_deref(),
+            Some("c_logic")
+        );
+        assert_eq!(
+            check("pearlite! { crate::status::is_healthy_logic(s) }").as_deref(),
+            Some("is_healthy_logic"),
+            "a qualified invented call is the shape a live model actually wrote"
+        );
     }
 
     // Verifies: REQ069 — a mirror's signature writes type arguments out. A sort may mean
