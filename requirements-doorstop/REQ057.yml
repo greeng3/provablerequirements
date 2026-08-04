@@ -30,6 +30,24 @@ text: |
   rather than reading them, nothing is claimed and the binding stands on its other checks. A false
   park costs the operator a working binding, which is a worse failure than the one this removes.
 
+  There is a second disagreement this surface must catch, and it is not between the requirement and
+  the subject but between the subject and what the tool can write. A predicate is called by
+  generating a call to it, and the tool writes a reference argument one way only. A parameter
+  written as a reference to a reference, or as a mutable borrow, cannot be passed by the call it
+  would generate; and nothing else on this surface notices, because reading a written type through
+  its references leaves the same name on both sides, so the type comparison agrees.
+
+  Where that is so the requirement parks, naming how the parameter is written and where. It would
+  otherwise ground, and the operator would meet the same fact as a compiler error inside a verdict
+  that decided nothing — the failure this surface exists to move earlier, occurring in the surface
+  itself. That this yields an honest inconclusive rather than a wrong answer is not a defense: the
+  written parameter was in front of the tool at the moment the binding was checked.
+
+  This one is reported differently, because it is not the operator's mistake. Their binding may be
+  exactly right; the limit is the tool's, and the message says so and names the shape it can accept,
+  rather than implying something needs correcting. Where a binding is wrong *and* the shape is
+  unwritable, the wrong binding is reported first, since that is the one they can act on.
+
   The same applies where the sort itself did not resolve. What the requirement offers is the name
   an operator wrote for a domain, and a name is not an established type until it has been found in
   the subject; comparing a predicate's parameter against a name that turned out to be nothing tests

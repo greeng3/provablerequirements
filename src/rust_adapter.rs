@@ -54,13 +54,58 @@ fn is_skipped_dir(path: &Path, depth: usize, companion_root: &Path) -> bool {
 /// syntax-not-types limit — the only thing `syn` can honestly report: whether the parameter
 /// is **written** as a reference.
 ///
-/// `&mut` and a `self` receiver both read as [`ParamMode::ByRef`]. Neither is a sensible
-/// state predicate, and a generated call would fail to compile rather than mislead — an
-/// honest `unknown`, which is the right outcome for a shape we cannot faithfully call.
+/// This says *whether*, never *how deep* and never *how mutable*, and the lowering writes exactly
+/// one `&` accordingly. A signature needing anything else is therefore refused at grounding rather
+/// than called wrongly — see [`Resolution::UncallableParam`]. A `&self` receiver stays [`ByRef`] and
+/// is correct: the call is written on the receiver, which supplies its own reference.
+///
+/// [`ByRef`]: ParamMode::ByRef
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ParamMode {
     ByRef,
     ByValue,
+}
+
+/// How a parameter is written, when that is a form the lowering will not call (#201) — `&&Item`,
+/// `&mut Item`, `&mut self`. `None` when an ordinary single `&` or a plain value, which is what a
+/// call can be generated for.
+///
+/// A **`mut self`** receiver taken by value is *not* refused: the mutability is the callee's own
+/// binding, invisible at the call site, and `u.f()` compiles. Only a reference the caller has to
+/// write matters here.
+fn uncallable_param(arg: &syn::FnArg) -> Option<String> {
+    match arg {
+        syn::FnArg::Receiver(r) => {
+            (r.reference.is_some() && r.mutability.is_some()).then(|| "&mut self".to_string())
+        }
+        syn::FnArg::Typed(t) => {
+            let (prefix, depth, has_mut) = reference_prefix(&t.ty);
+            (depth > 1 || has_mut).then(|| {
+                format!(
+                    "{prefix}{}",
+                    type_ident(&t.ty).unwrap_or_else(|| "…".into())
+                )
+            })
+        }
+    }
+}
+
+/// The reference layers a type is written with: the text of them (`&`, `&mut `, `&&`), how many,
+/// and whether any is mutable. `(String::new(), 0, false)` for a plain type.
+fn reference_prefix(ty: &syn::Type) -> (String, usize, bool) {
+    let (mut prefix, mut depth, mut has_mut) = (String::new(), 0, false);
+    let mut cur = ty;
+    while let syn::Type::Reference(r) = cur {
+        depth += 1;
+        if r.mutability.is_some() {
+            has_mut = true;
+            prefix.push_str("&mut ");
+        } else {
+            prefix.push('&');
+        }
+        cur = &r.elem;
+    }
+    (prefix, depth, has_mut)
 }
 
 /// How a resolved predicate is *called* (REQ055). Well-modelled Rust keeps decisions in enums and
@@ -193,6 +238,26 @@ pub enum Resolution {
         methods: Vec<String>,
         at: CodeMatch,
     },
+    /// Found, right arity and boolean, but a parameter is written in a form the lowering will not
+    /// generate a call for (#201): a multiply-referenced `&&T`, or a `&mut T`.
+    ///
+    /// The lowering writes exactly one `&` for a reference parameter, because [`ParamMode`] records
+    /// only *whether* a parameter is a reference. So `&&T` received `&u` and `&mut T` received `&u`,
+    /// and neither compiles. Nothing caught it: [`type_ident`] reads through every reference, so the
+    /// parameter cross-check saw the same type name on both sides and agreed.
+    ///
+    /// Parked here rather than left to the prover. The old reasoning was that a call that fails to
+    /// compile is an honest `unknown` — true, and beside the point: the written parameter type was
+    /// in front of the adapter at grounding, and the surface exists to move exactly this failure
+    /// earlier. An `unknown` carrying a compiler error is the outcome grounding is meant to prevent,
+    /// not a satisfactory one.
+    UncallableParam {
+        /// 1-based position, as the operator counts parameters.
+        param: usize,
+        /// How the subject writes it — `&&Item`, `&mut Item` — so the reason names the real text.
+        written: String,
+        at: CodeMatch,
+    },
 }
 
 /// What was ambiguous about an observable — the half the operator has to disambiguate (#190).
@@ -322,21 +387,37 @@ impl Resolution {
                  as a mismatch here)",
                 at.file, at.line
             ),
+            // Not "no *inherent* method" since #200: the search covers trait impls too, and the
+            // list below is drawn from both, so saying "inherent" would send an operator looking
+            // for a distinction the answer no longer makes.
             Resolution::NoSuchMethod {
                 ty,
                 method,
                 methods,
                 at,
             } => format!(
-                "{symbol}: `{ty}` at {}:{} has no inherent method `{method}` — {}",
+                "{symbol}: `{ty}` at {}:{} has no method `{method}` — {}",
                 at.file,
                 at.line,
                 if methods.is_empty() {
-                    "it has no inherent methods at all".to_string()
+                    "it has no methods at all".to_string()
                 } else {
                     format!("its methods are {}", methods.join(", "))
                 }
             ),
+            Resolution::UncallableParam { param, written, at } => {
+                format!(
+                "{symbol}: parameter {param} of the function at {}:{} is written `{written}`, and \
+                 the proof would pass it a single `&` — provreq writes one reference for a \
+                 reference parameter and will not guess at a deeper one or at a mutable borrow. \
+                 Nothing here is wrong with your binding: it is the shape of the signature, and \
+                 saying so now is better than a proof that does not compile. A predicate that only \
+                 reads its argument can take `&{}`",
+                at.file,
+                at.line,
+                written.trim_start_matches(['&', ' ']).trim_start_matches("mut ")
+            )
+            }
         }
     }
 }
@@ -1110,8 +1191,8 @@ fn variant_test(
             at: f.at,
         };
     }
-    if let Some(mismatch) = wrong_param_type(&f, params) {
-        return mismatch;
+    if let Some(problem) = param_problem(&f, params) {
+        return problem;
     }
     Resolution::Resolved {
         form: PredicateForm::VariantTest {
@@ -1220,6 +1301,9 @@ struct FoundFn {
     /// The trait this method came from, when it was found in a trait impl (#200). `None` for a free
     /// function or an inherent method, both of which the harness reaches without naming a trait.
     via_trait: Option<String>,
+    /// The first parameter written in a form the lowering will not call, 1-based, with its written
+    /// text (#201). `None` when every parameter can be passed.
+    uncallable: Option<(usize, String)>,
 }
 
 /// Decide whether a single found function can stand for the predicate. The checks run
@@ -1239,14 +1323,34 @@ fn classify(f: FoundFn, params: &[Option<String>], form: PredicateForm) -> Resol
             at: f.at,
         };
     }
-    if let Some(mismatch) = wrong_param_type(&f, params) {
-        return mismatch;
+    if let Some(problem) = param_problem(&f, params) {
+        return problem;
     }
     Resolution::Resolved {
         at: f.at,
         params: f.params,
         form,
     }
+}
+
+/// The first thing wrong with this signature's parameters, if anything: a type that disagrees with
+/// the sort the argument ranges over (REQ057), then a shape the lowering cannot pass (#201).
+///
+/// One function because there are two ways to reach it — an ordinary predicate and a variant test —
+/// and they must ask the same questions in the same order. The order is deliberate: a wrong
+/// parameter type means the binding names the wrong thing, which the operator can fix, while an
+/// uncallable shape is the subject's own and the answer is provreq's limit. Reporting the limit
+/// first would bury the fixable mistake underneath it.
+fn param_problem(f: &FoundFn, params: &[Option<String>]) -> Option<Resolution> {
+    wrong_param_type(f, params).or_else(|| {
+        f.uncallable
+            .clone()
+            .map(|(param, written)| Resolution::UncallableParam {
+                param,
+                written,
+                at: f.at.clone(),
+            })
+    })
 }
 
 /// The first parameter whose written type is not the one its argument's sort is bound to, if any
@@ -1621,6 +1725,11 @@ fn found(
         has_receiver: matches!(sig.inputs.first(), Some(syn::FnArg::Receiver(_))),
         // Set by the caller that knows: only `collect_methods` can see the enclosing impl.
         via_trait: None,
+        uncallable: sig
+            .inputs
+            .iter()
+            .enumerate()
+            .find_map(|(i, arg)| uncallable_param(arg).map(|w| (i + 1, w))),
     }
 }
 
@@ -2873,6 +2982,96 @@ pub fn decide(u: u32) -> Decision { Decision::Proceed }\n",
         let text = resolve_in(&tmp, "login", 1).describe("logged_in", "login");
         assert!(text.contains("src/auth.rs:1"), "names the location: {text}");
         assert!(text.contains("syntactic"), "states the limit: {text}");
+    }
+
+    // Verifies: #201 — a parameter the lowering cannot pass is refused at GROUNDING, naming the
+    // written type, instead of grounding green and lowering to a harness that will not compile.
+    //
+    // Measured with the harness captured from a real run: `fn deep(item: &&Item)` grounded, and the
+    // harness emitted `nested::deep(&i)` — one `&` for a `&&Item`. Three checks agreed it was fine,
+    // because none of them tracks reference depth: `param_mode` flattens any depth to `ByRef`, the
+    // lowering writes exactly one `&`, and `type_ident` reads through references so REQ057 compared
+    // `Item` against `Item`.
+    #[test]
+    fn a_parameter_the_lowering_cannot_pass_is_refused_at_grounding() {
+        for (src, written) in [
+            ("pub fn deep(item: &&Item) -> bool { item.ok }", "&&Item"),
+            (
+                "pub fn deep(item: &mut Item) -> bool { item.ok }",
+                "&mut Item",
+            ),
+            ("pub fn deep(item: &&&Item) -> bool { item.ok }", "&&&Item"),
+        ] {
+            let tmp = subject(&format!("pub struct Item {{ pub ok: bool }}\n{src}\n"));
+            let r = resolve_typed(&tmp, "deep", &[want("Item")]);
+            let Resolution::UncallableParam {
+                param,
+                written: got,
+                ..
+            } = &r
+            else {
+                panic!("`{written}` must not ground, got {r:?}")
+            };
+            assert_eq!(param, &1, "1-based, as an operator counts");
+            assert_eq!(got, written, "the reason names the real text");
+            assert!(!r.is_resolved());
+
+            let msg = r.describe("deep", "deep");
+            assert!(msg.contains(written), "names how it is written: {msg}");
+            assert!(
+                msg.contains("not") && msg.contains("your binding"),
+                "says the binding is not at fault: {msg}"
+            );
+        }
+    }
+
+    // Verifies: #201 — the refusal is narrow. A single `&`, a plain value, and a `&self` receiver
+    // are all forms the lowering DOES write correctly, and refusing them would take away reach that
+    // works today. `&self` especially: the call is written on the receiver, which supplies its own
+    // reference, so it never sees the single-`&` rule at all.
+    #[test]
+    fn an_ordinary_reference_or_receiver_is_not_refused() {
+        let by_ref = subject("pub struct I;\npub fn f(i: &I) -> bool { true }\n");
+        assert!(resolve_typed(&by_ref, "f", &[want("I")]).is_resolved());
+
+        let by_value = subject("pub struct I;\npub fn f(i: I) -> bool { true }\n");
+        assert!(resolve_typed(&by_value, "f", &[want("I")]).is_resolved());
+
+        let receiver = subject("pub struct I;\nimpl I { pub fn f(&self) -> bool { true } }\n");
+        assert!(resolve_in(&receiver, "I::f", 1).is_resolved(), "&self");
+
+        // `mut self` BY VALUE is the callee's own binding, invisible at the call site — `u.f()`
+        // compiles, so refusing it would cost reach for nothing.
+        let mut_self = subject("pub struct I;\nimpl I { pub fn f(mut self) -> bool { true } }\n");
+        assert!(resolve_in(&mut_self, "I::f", 1).is_resolved(), "mut self");
+    }
+
+    // Verifies: #201 — a `&mut self` receiver is refused too. The harness declares its value
+    // without `mut`, so `u.f()` cannot borrow it mutably; this is the same defect as a `&mut T`
+    // parameter, reached through the receiver instead.
+    #[test]
+    fn a_mutable_receiver_is_refused_like_a_mutable_parameter() {
+        let tmp = subject("pub struct I;\nimpl I { pub fn f(&mut self) -> bool { true } }\n");
+        let r = resolve_in(&tmp, "I::f", 1);
+        let Resolution::UncallableParam { written, .. } = &r else {
+            panic!("a mutable receiver cannot be called from the harness, got {r:?}")
+        };
+        assert_eq!(written, "&mut self");
+    }
+
+    // Verifies: #201 — a binding error the operator can FIX is reported ahead of provreq's own
+    // limit. Both are true of this signature; the wrong parameter type is the one they can act on,
+    // and burying it under a shape limitation would send them to the wrong place.
+    #[test]
+    fn a_fixable_binding_error_is_reported_before_provreqs_own_limit() {
+        let tmp = subject(
+            "pub struct Item;\npub struct Other;\npub fn f(x: &mut Other) -> bool { true }\n",
+        );
+        let r = resolve_typed(&tmp, "f", &[want("Item")]);
+        assert!(
+            matches!(r, Resolution::WrongParamType { .. }),
+            "the fixable mistake comes first: {r:?}"
+        );
     }
 
     // --- type applications (#187) -------------------------------------------
