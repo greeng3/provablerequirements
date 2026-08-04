@@ -34,3 +34,17 @@ text: |
   relieve the operator of reading one. Where the tool cannot state a function's meaning faithfully,
   it proposes nothing for that function and says so, because a guessed meaning that happens to
   discharge would be the one way this arrangement could mislead.
+
+  A proposal must also leave the subject buildable. The tool writes these into the operator's own
+  source, so a proposal naming something that will not exist does not merely fail to help — it stops
+  the subject compiling, which withdraws every verdict about it, not only the one being pursued, and
+  leaves the operator's working tree broken by the tool that was meant to serve it. The tool
+  therefore checks each proposal against what will actually be there, and proposes nothing it cannot
+  place. The names it invents for twins are its own to choose, so it is the one that can tell an
+  invented name from a real one.
+
+  Withdrawing one proposal withdraws whatever depended on it. Twins refer to each other, so a twin
+  that survives on its own terms may still name one that was declined, and keeping it would recreate
+  the same broken build one step further along. The tool settles this before proposing anything, and
+  reports every twin it withdrew and why — a proposal silently reduced reads as a complete one, and
+  the operator would learn the difference from a compiler.
