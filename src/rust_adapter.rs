@@ -306,6 +306,19 @@ pub enum TypeResolution {
     /// Several types share the name — never guessed between, for the same reason as
     /// [`Resolution::Ambiguous`].
     Ambiguous(Vec<CodeMatch>),
+    /// The type name exists, but not under the module the operator qualified it with (#138) —
+    /// `crate::api::User` where every `User` lives in `auth`.
+    ///
+    /// Kept apart from [`TypeResolution::NotFound`] because they send the operator to opposite
+    /// places. "No type `User` in the subject" is false here and would start a hunt for something
+    /// that is right there; what is wrong is the qualifier, and the fix is to read the paths the
+    /// subject actually declares — which this carries.
+    QualifierUnmatched {
+        /// The bare type name, which does exist.
+        name: String,
+        /// Every declaration of that name, so the read-back can offer the real paths.
+        candidates: Vec<CodeMatch>,
+    },
 }
 
 impl TypeResolution {
@@ -342,11 +355,38 @@ impl TypeResolution {
                     .join(", ");
                 format!(
                     "{sort} (sort): `{observable}` is ambiguous — {} types share the name \
-                     ({places}); qualify it",
-                    ats.len()
+                     ({places}); qualify it by module{}",
+                    ats.len(),
+                    offer_paths(ats, observable)
                 )
             }
+            TypeResolution::QualifierUnmatched { name, candidates } => format!(
+                "{sort} (sort): the type `{name}` exists, but not under the path `{observable}` \
+                 qualifies it with — so it is the qualifier that is wrong, not the type{}",
+                offer_paths(candidates, name)
+            ),
         }
+    }
+}
+
+/// The qualified forms an operator can actually write, taken from where the type is really
+/// declared. Advice to "qualify it" is worth nothing without them: the module path is a fact of the
+/// subject that provreq walked and the operator would otherwise have to reconstruct by hand.
+///
+/// A candidate whose module the walk could not determine (REQ061) is skipped rather than guessed
+/// at, so an empty offer means provreq has nothing honest to suggest and says only that.
+fn offer_paths(candidates: &[CodeMatch], name: &str) -> String {
+    let bare = name.rsplit("::").next().unwrap_or(name);
+    let offers: Vec<String> = candidates
+        .iter()
+        .filter_map(|at| at.module.as_ref())
+        .filter(|m| !m.is_empty())
+        .map(|m| format!("`{}::{bare}`", m.join("::")))
+        .collect();
+    if offers.is_empty() {
+        String::new()
+    } else {
+        format!(" — try {}", offers.join(" or "))
     }
 }
 
@@ -354,12 +394,41 @@ impl TypeResolution {
 /// name (REQ026). Existence only — whether the type can be *instantiated* (Kani's
 /// `Arbitrary`) is an engine's question, and the binding is core-owned, so answering it
 /// here would bake one engine's shape into the core.
+///
+/// The observable may be **path-qualified** — `crate::auth::User`, `auth::User` — which is how an
+/// operator says *which* `User` when two share a name (#138). Until this, a duplicated type name
+/// was an [`TypeResolution::Ambiguous`] park whose own read-back said "qualify it", advice nothing
+/// could act on: the sort side matched a bare ident only, while the predicate side ([`type_ident`])
+/// already reduced any written path to its last segment. The two disagreed about what a written
+/// path meant, and one of them offered a way out that did not exist.
+///
+/// See [`module_matches`] for exactly how much of a written path is checked, and why the rest
+/// cannot be.
 pub fn resolve_type(subject: &ParsedSubject, observable: &str) -> TypeResolution {
-    let name = observable.trim();
+    let written = observable.trim();
+    if written.is_empty() {
+        return TypeResolution::NotFound;
+    }
+    let mut segments: Vec<&str> = written.split("::").map(str::trim).collect();
+    // The last segment is the type; everything before it qualifies which one.
+    let name = segments.pop().expect("split yields at least one segment");
     if name.is_empty() {
         return TypeResolution::NotFound;
     }
-    let found = find_types(subject, name);
+    let by_name = find_types(subject, name);
+    let found: Vec<CodeMatch> = by_name
+        .iter()
+        .filter(|at| module_matches(at.module.as_deref(), &segments))
+        .cloned()
+        .collect();
+    // The name is real and only the qualifier missed. Reporting `NotFound` here would deny a type
+    // the operator can see in their own source.
+    if found.is_empty() && !by_name.is_empty() {
+        return TypeResolution::QualifierUnmatched {
+            name: name.to_string(),
+            candidates: by_name,
+        };
+    }
     match found.len() {
         // The subject declares nothing by that name — but the language may. A primitive is only
         // ever the fallback: a subject that declares its own `bool` has a source location the
@@ -370,6 +439,60 @@ pub fn resolve_type(subject: &ParsedSubject, observable: &str) -> TypeResolution
         1 => TypeResolution::Resolved(found.into_iter().next().expect("len checked")),
         _ => TypeResolution::Ambiguous(found),
     }
+}
+
+/// Whether a type declared in `module` answers to the qualifier an operator wrote (#138).
+///
+/// **How much of a path is checked: all of it.** The written qualifier, after dropping a leading
+/// `crate`, must be a **suffix of the declaring module path** — every segment written is compared,
+/// and the operator may start at any depth. `alpha::User`, `auth::alpha::User` and
+/// `crate::auth::alpha::User` all name a `User` declared in `auth::alpha`.
+///
+/// Nothing written is treated as decoration, and that is the point. The tempting alternative —
+/// compare only where the two overlap, so a leading crate name like `gatekeeper::session::Session`
+/// is tolerated — cannot distinguish a crate name from a wrong module, because the module path
+/// here is the *declaration* site within its crate and never includes the crate's own name.
+/// Tolerating it would accept `totallywrong::session::Session` just as readily. So a segment
+/// provreq cannot verify is a mismatch rather than a shrug, and the crate name is the one thing an
+/// operator may not write.
+///
+/// That is a real cost, paid deliberately, and it is bounded by the read-back:
+/// [`TypeResolution::QualifierUnmatched`] does not merely reject, it offers the paths the subject
+/// actually declares — so writing the crate name out of habit costs one glance, not a hunt.
+///
+/// This is enough for the job the qualifier exists to do: `auth::User` and `api::User` differ on a
+/// compared segment, so the ambiguity that made both a park is resolved.
+///
+/// `module` is `None` when the walk could not say where an item lives (REQ061). A qualifier then
+/// cannot be checked at all, so it does not match — `None` is a refusal, never "the crate root",
+/// and treating it as one would resolve a binding on a module path provreq invented. An unqualified
+/// sort is unaffected: with nothing written to check, every candidate still matches.
+/// The type name at the end of a written path — `session::Session` → `Session`, `Session` →
+/// `Session`. The one form both the sort side and the parameter side can always produce.
+fn last_segment(written: &str) -> &str {
+    written.rsplit("::").next().unwrap_or(written).trim()
+}
+
+fn module_matches(module: Option<&[String]>, qualifier: &[&str]) -> bool {
+    let qualifier: Vec<&str> = qualifier
+        .iter()
+        .copied()
+        .skip_while(|s| *s == "crate")
+        .collect();
+    if qualifier.is_empty() {
+        return true;
+    }
+    let Some(module) = module else {
+        return false;
+    };
+    // A suffix, not an overlap: a qualifier deeper than the module path names segments the
+    // declaration does not have, and those are exactly the ones provreq cannot verify.
+    qualifier.len() <= module.len()
+        && module
+            .iter()
+            .rev()
+            .zip(qualifier.iter().rev())
+            .all(|(m, q)| m == q)
 }
 
 /// Whether a name is one of Rust's own primitive types — a sort that grounds without the subject
@@ -669,6 +792,20 @@ fn classify(f: FoundFn, params: &[Option<String>], form: PredicateForm) -> Resol
 /// (REQ057). A position the caller could not speak for, and a type this adapter cannot compare by
 /// name, are both skipped — the check only ever fires on two names that are both known and differ,
 /// so it cannot turn a working binding into a park.
+///
+/// Both sides are compared on their **last segment**, because that is all either side can offer:
+/// the parameter's type comes from [`type_ident`], which has always reduced a written path that
+/// way, and a sort's observable may now carry a module qualifier (#138). Measured on a real
+/// subject: without this, binding `Sess=session::Session` resolved the sort correctly and then
+/// parked every predicate taking a `Session`, because `session::Session != Session` as strings —
+/// so qualifying a sort, the one way out of an ambiguity, broke grounding instead. The doc above
+/// promised this check could not turn a working binding into a park, and it had quietly stopped
+/// being true.
+///
+/// The qualifier is not re-checked here, and should not be: [`type_ident`] cannot see which module
+/// a parameter's type resolves to, so demanding agreement would compare a known name against an
+/// unknown one. The sort resolver already checked the qualifier against the declaration, which is
+/// where the fact actually lives.
 fn wrong_param_type(f: &FoundFn, params: &[Option<String>]) -> Option<Resolution> {
     f.param_types
         .iter()
@@ -676,7 +813,7 @@ fn wrong_param_type(f: &FoundFn, params: &[Option<String>]) -> Option<Resolution
         .enumerate()
         .find_map(|(i, (found, expected))| {
             let (found, expected) = (found.as_ref()?, expected.as_ref()?);
-            (found != expected).then(|| Resolution::WrongParamType {
+            (last_segment(found) != last_segment(expected)).then(|| Resolution::WrongParamType {
                 param: i + 1,
                 expected: expected.clone(),
                 found: found.clone(),
@@ -1788,6 +1925,141 @@ pub fn decide(u: u32) -> Decision { Decision::Proceed }\n",
         };
         assert_eq!(ats.len(), 2);
         assert!(!r.is_resolved());
+        // The park now offers a way out, and offers it in the form the operator must type.
+        assert!(
+            r.describe("U", "User").contains("`auth::admin::User`"),
+            "advice to qualify is worth nothing without the real path: {}",
+            r.describe("U", "User")
+        );
+    }
+
+    // Verifies: #138 — a module-qualified sort picks one of two types sharing a name. This is the
+    // way out of the `Ambiguous` park above, whose own read-back has always said "qualify it"
+    // while the sort side matched a bare ident only — advice nothing could act on.
+    #[test]
+    fn a_module_qualified_sort_picks_which_type_is_meant() {
+        let tmp = subject("mod alpha { pub struct User; }\nmod beta { pub struct User; }\n");
+        let subject = parsed(&tmp);
+
+        for written in [
+            "alpha::User",
+            "auth::alpha::User",
+            "crate::auth::alpha::User",
+        ] {
+            let TypeResolution::Resolved(at) = resolve_type(&subject, written) else {
+                panic!(
+                    "`{written}` must resolve, got {:?}",
+                    resolve_type(&subject, written)
+                );
+            };
+            assert_eq!(
+                at.module.as_deref(),
+                Some(["auth".to_string(), "alpha".to_string()].as_slice()),
+                "`{written}` must pick the `alpha` one"
+            );
+        }
+
+        // The other one is still reachable, so the qualifier discriminates rather than just
+        // accepting the first candidate.
+        let TypeResolution::Resolved(at) = resolve_type(&subject, "beta::User") else {
+            panic!("the sibling must resolve too")
+        };
+        assert_eq!(
+            at.module.as_deref(),
+            Some(["auth".to_string(), "beta".to_string()].as_slice())
+        );
+
+        // An unqualified sort is unchanged: nothing written to check, so both still match.
+        assert!(matches!(
+            resolve_type(&subject, "User"),
+            TypeResolution::Ambiguous(_)
+        ));
+    }
+
+    // Verifies: #138 — a module-qualified sort does not park the predicates that use it. Found by
+    // running the real CLI, not by a unit test: `Sess=session::Session` resolved the sort and then
+    // parked BOTH predicates, because REQ057 compared the observable `session::Session` against the
+    // parameter's written `Session` as strings. Qualifying a sort is the one way out of an
+    // ambiguity, so this made the fix for #138 break the thing it exists to enable.
+    #[test]
+    fn a_qualified_sort_still_matches_the_parameter_it_is_bound_to() {
+        let tmp = subject("pub struct Session;\npub fn trusted(s: &Session) -> bool { true }\n");
+        let r = resolve_typed(&tmp, "trusted", &[Some("session::Session".to_string())]);
+        assert!(
+            matches!(r, Resolution::Resolved { .. }),
+            "a qualified sort must not park the predicate that ranges over it, got {r:?}"
+        );
+
+        // The check still fires on a genuine mismatch — the qualifier is dropped, not the name.
+        let wrong = resolve_typed(&tmp, "trusted", &[Some("session::Account".to_string())]);
+        assert!(
+            matches!(wrong, Resolution::WrongParamType { .. }),
+            "dropping the qualifier must not drop the check, got {wrong:?}"
+        );
+    }
+
+    // Verifies: #138 — a wrong qualifier is reported as a wrong qualifier, not as a missing type.
+    // `NotFound` would say "no type `User` in the subject's Rust", which is false and would send
+    // the operator hunting for something sitting in their own source.
+    #[test]
+    fn a_qualifier_that_matches_nothing_is_not_a_missing_type() {
+        let tmp = subject("mod alpha { pub struct User; }\n");
+        let r = resolve_type(&parsed(&tmp), "crate::beta::User");
+        let TypeResolution::QualifierUnmatched { name, candidates } = &r else {
+            panic!("should name the qualifier as the fault, got {r:?}")
+        };
+        assert_eq!(name, "User");
+        assert_eq!(candidates.len(), 1);
+        assert!(
+            !r.is_resolved(),
+            "a mis-qualified sort still does not ground"
+        );
+
+        let text = r.describe("U", "crate::beta::User");
+        assert!(text.contains("the qualifier that is wrong"), "{text}");
+        assert!(
+            text.contains("`auth::alpha::User`"),
+            "it must offer the path the subject really declares: {text}"
+        );
+
+        // A name that is genuinely absent is still `NotFound` — the two must not collapse.
+        assert_eq!(
+            resolve_type(&parsed(&tmp), "crate::beta::Session"),
+            TypeResolution::NotFound
+        );
+    }
+
+    // Verifies: #138 — a candidate whose module the walk could not determine (REQ061) does not
+    // answer a qualifier. `None` is a refusal, not "the crate root": matching it would ground a
+    // binding against a module path provreq invented, which is the exact over-claim REQ061 exists
+    // to prevent.
+    #[test]
+    fn an_unknown_module_never_satisfies_a_qualifier() {
+        assert!(
+            !module_matches(None, &["auth"]),
+            "an unplaceable item must not answer a qualifier"
+        );
+        assert!(
+            module_matches(None, &[]),
+            "but it is unaffected when nothing was written to check"
+        );
+        assert!(module_matches(
+            Some(&["auth".to_string()]),
+            &["crate", "auth"]
+        ));
+        assert!(
+            module_matches(Some(&["a".to_string(), "auth".to_string()]), &["auth"]),
+            "a partial qualifier matches from the right"
+        );
+        assert!(
+            !module_matches(Some(&["auth".to_string()]), &["mycrate", "auth"]),
+            "a qualifier deeper than the declaration names a segment provreq cannot verify — \
+             including a crate name, which is indistinguishable from a wrong module"
+        );
+        assert!(
+            !module_matches(Some(&["auth".to_string()]), &["api"]),
+            "an overlapping segment that differs is a mismatch"
+        );
     }
 
     // Verifies: REQ026 — a function and a type sharing a name do not cross-resolve. A
