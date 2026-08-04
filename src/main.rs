@@ -1369,7 +1369,7 @@ fn stage_marker_drafts(
     resolutions: &BTreeMap<String, Resolution>,
 ) -> Result<()> {
     use provreq::contract_draft::{
-        apply_to_source, ensure_prelude, marker_for_subject, plan_markers,
+        apply_to_source, ensure_logic_types, ensure_prelude, marker_for_subject, plan_markers,
     };
 
     let manifest = std::fs::read_to_string(subject.join("Cargo.toml"))
@@ -1423,6 +1423,8 @@ fn stage_marker_drafts(
         // (measured: `cannot find attribute` from a file that names the contracts crate nowhere),
         // and a draft that cannot parse is not a reviewable proposal (#158).
         let edited = ensure_prelude(&apply_to_source(original, file_drafts), marker);
+        // A spec-only type the staged text names has to be in scope too (#194).
+        let edited = ensure_logic_types(&edited, marker);
         std::fs::write(subject.join(file), edited).with_context(|| {
             format!("staging marker draft into {}", subject.join(file).display())
         })?;
@@ -1473,7 +1475,7 @@ async fn stage_semantic_drafts(
     resolutions: &BTreeMap<String, Resolution>,
     repair: bool,
 ) -> Result<()> {
-    use provreq::contract_draft::{ensure_prelude, marker_for_subject};
+    use provreq::contract_draft::{ensure_logic_types, ensure_prelude, marker_for_subject};
     use provreq::mirror_draft::{append_items, link_clauses, MirrorDraft, Mirrorer};
     use provreq::semantic_draft::{apply_to_source, ContractDraft, Drafter, ProofStep};
 
@@ -1585,7 +1587,8 @@ async fn stage_semantic_drafts(
             let edited = if file_drafts.is_empty() && file_mirrors.is_empty() {
                 edited
             } else {
-                ensure_prelude(&edited, marker)
+                // The dialect's own prelude, plus any spec-only type the staged body names (#194).
+                ensure_logic_types(&ensure_prelude(&edited, marker), marker)
             };
             std::fs::write(subject.join(file), edited).with_context(|| {
                 format!(
