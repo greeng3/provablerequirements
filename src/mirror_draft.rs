@@ -487,8 +487,9 @@ expression instead of `matches!`.\n\
 specification. Only `#[logic]` functions and pure pearlite are available there.\n\
 - Use `==>` for implication. There is NO `<==>` operator — for a biconditional between two \
 booleans write `==`.\n\
-- An integer literal in pearlite is `Int`, the mathematical integer — NOT the type beside it. \
-Comparing against a sized integer needs that type's suffix: write `n == 0u32`, never `n == 0`.\n\
+- An unsuffixed integer literal is NOT the type beside it, so a comparison against a sized \
+integer needs that type's suffix: write `n == 0u32`, never `n == 0`. Do NOT cast — there is no \
+`as` conversion available here; the suffix is the whole fix.\n\
 - A `match` on a REFERENCE binds its fields by reference, so reading one needs a deref. Matching \
 `s: &Session` on `Session::SignedIn { failures }` binds `failures: &u32`, and the comparison is \
 `*failures == 0u32`.\n";
@@ -881,8 +882,21 @@ mod tests {
     fn the_prompt_states_the_typing_rules_that_cost_an_operator_correction() {
         let p = build_prompt("intent", "claim", "fn f() -> bool { true }", "f_logic", "");
         assert!(
-            p.contains("`Int`, the mathematical integer"),
+            p.contains("NOT the type beside it"),
             "an unsuffixed literal's type must be stated"
+        );
+        // The rule must NOT name the mathematical-integer type. Naming it was the earlier wording,
+        // and measured on the `ledger` subject the model reached straight for it — `*amount as Int`,
+        // first as a type that was not in scope and then, once provreq imported it, as a cast Rust
+        // does not allow (`error[E0605]: non-primitive cast`). The actionable half is the suffix;
+        // the name was only ever the explanation, and it read as an invitation (#194).
+        assert!(
+            !p.contains("`Int`"),
+            "naming the type invites using it: {p}"
+        );
+        assert!(
+            p.contains("Do NOT cast"),
+            "the wrong repair must be closed off"
         );
         assert!(
             p.contains("0u32"),

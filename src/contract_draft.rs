@@ -122,7 +122,55 @@ impl Marker {
 /// every item in a file — so prepending blindly turns a documented module into a syntax error. The
 /// import therefore goes after that leading block, which is also where a human would put it.
 pub fn ensure_prelude(src: &str, marker: Marker) -> String {
-    let import = marker.prelude_import();
+    ensure_import(src, marker.prelude_import())
+}
+
+/// The spec-only types a staged body may name, imported when it names one (#194).
+///
+/// Creusot's `Int` — the mathematical integer — is not in scope in an ordinary subject file, and a
+/// mirror body that mentions it fails with `error[E0425]: cannot find type `Int` in this scope`
+/// before any prover runs. Measured on the `ledger` subject: the model wrote `*amount as Int > 0`,
+/// having been told by [`crate::mirror_draft::PEARLITE_RULES`] that an integer literal *is* an
+/// `Int`. That rule is correct and fixed what it was written for (#181); naming a type is also an
+/// invitation to use it.
+///
+/// Whether a spec-only type is in scope is **mechanics**, which is provreq's job rather than the
+/// model's — the same division #195 drew for the mirror's signature. Asking the model not to reach
+/// for `Int` was the alternative, and the measured lesson from #195 is that asking is unreliable.
+///
+/// Imported by its own path, never through `creusot_std::prelude::*`: the prelude shadows `vec!`,
+/// `Clone`, `PartialEq` and `Default`, which is fatal glob-imported into a subject file that uses
+/// them (that is why the dialect import is `macros::*` and not the prelude).
+///
+/// Only for Creusot: Prusti's dialect has no such type, and an import for a dialect that does not
+/// use it is a compile error in the other direction.
+pub fn ensure_logic_types(src: &str, marker: Marker) -> String {
+    if marker != Marker::Logic || !mentions_word(src, "Int") {
+        return src.to_string();
+    }
+    ensure_import(src, "use creusot_std::logic::Int;")
+}
+
+/// Whether `word` appears in `src` as a whole identifier, not as part of a longer one. `Integer`
+/// and `my_Int` must not drag in an import nothing asked for.
+fn mentions_word(src: &str, word: &str) -> bool {
+    let ident = |c: char| c.is_alphanumeric() || c == '_';
+    let mut rest = src;
+    while let Some(i) = rest.find(word) {
+        let before = &rest[..i];
+        let after = &rest[i + word.len()..];
+        if !before.ends_with(ident) && !after.starts_with(ident) {
+            return true;
+        }
+        rest = &rest[i + word.len()..];
+    }
+    false
+}
+
+/// Insert `import` after the file's leading inner-attribute/doc block, or return `src` unchanged
+/// when it is already there. The placement rule is [`ensure_prelude`]'s, shared so a second import
+/// cannot land somewhere the first would not.
+fn ensure_import(src: &str, import: &str) -> String {
     if src.lines().any(|l| l.trim() == import) {
         return src.to_string();
     }
@@ -289,6 +337,58 @@ mod tests {
     // Verifies: a file that does not import the dialect's prelude gets the import. Measured
     // failure this guards: staging into `src/engine.rs` (which names `creusot_std` nowhere) gave
     // `cannot find attribute 'ensures' in this scope` — a staged edit that cannot compile.
+    // Verifies: #194 — a spec-only type a staged body names is imported, by its own path. Measured
+    // on the `ledger` subject: the model wrote `*amount as Int > 0` and the subject failed with
+    // `cannot find type `Int` in this scope` before any prover ran. It reached for `Int` because
+    // PEARLITE_RULES names it (#181) — the rule is right, and naming a type is also an invitation.
+    // Whether a spec-only type is in scope is mechanics, so provreq settles it (the #195 division).
+    #[test]
+    fn a_body_that_names_int_gets_int_imported() {
+        let src = "pub fn f() -> bool { true }\n";
+        assert_eq!(
+            ensure_logic_types(src, Marker::Logic),
+            src,
+            "a body that never says `Int` gains nothing"
+        );
+
+        let uses = "pub fn f() -> bool { pearlite! { x as Int > 0 } }\n";
+        let out = ensure_logic_types(uses, Marker::Logic);
+        assert!(
+            out.starts_with("use creusot_std::logic::Int;"),
+            "must import Int by its own path: {out}"
+        );
+        // NOT via `creusot_std::prelude::*`, which shadows `vec!`/`Clone`/`PartialEq`/`Default`
+        // and is fatal glob-imported into a subject file that uses them.
+        assert!(!out.contains("prelude::*"), "{out}");
+
+        assert_eq!(
+            ensure_logic_types(&out, Marker::Logic),
+            out,
+            "idempotent — a second staging must not stack imports"
+        );
+
+        // Prusti's dialect has no `Int`; an import for a dialect that does not use it is a
+        // compile error in the other direction.
+        assert_eq!(ensure_logic_types(uses, Marker::Pure), uses);
+    }
+
+    // Verifies: #194 — only a whole identifier counts. `Integer` and `my_Int` must not drag in an
+    // import nothing asked for.
+    #[test]
+    fn a_longer_identifier_does_not_look_like_int() {
+        for text in [
+            "pub struct Integer;\n",
+            "let my_Int = 1;\n",
+            "// Interesting\npub fn f() {}\n",
+        ] {
+            assert_eq!(
+                ensure_logic_types(text, Marker::Logic),
+                text,
+                "must not import for {text:?}"
+            );
+        }
+    }
+
     #[test]
     fn staging_into_a_file_without_the_prelude_adds_the_import() {
         let src = "pub struct S;\n";
