@@ -154,7 +154,17 @@ pub fn lower_property(
 /// A `None` module is a refusal, not a root: the item exists (grounding was right to say so) but no
 /// path a harness can write reaches it — a separate crate target such as `tests/`, or a binary. That
 /// is an honest `inconclusive` naming the file, rather than a guessed path that fails to compile.
+/// `name` may arrive **as the operator wrote it**, which since #188/#189 can carry a module
+/// qualifier (`pending::Entry`). The path is built from the declaration's own module, so the
+/// written qualifier must be dropped or it is emitted twice: measured on a real subject, binding
+/// `Ent=pending::Entry` produced `crate::pending::pending::Entry` and every cat-1 engine failed
+/// with `could not find `pending` in `pending``. A qualified sort grounded and then could not be
+/// verified by anything — the dead end moved rather than closing.
+///
+/// The qualifier is not lost by dropping it here: the resolver already checked it against this very
+/// declaration, so `at` *is* the answer the qualifier selected.
 fn item_path(prefix: &str, at: &CodeMatch, name: &str) -> Result<String, NotLowerable> {
+    let name = name.rsplit("::").next().unwrap_or(name).trim();
     let module = at.module.as_ref().ok_or_else(|| {
         NotLowerable::new(format!(
             "`{name}` is declared in {}, which is not part of the crate a harness can import — a \
@@ -168,6 +178,34 @@ fn item_path(prefix: &str, at: &CodeMatch, name: &str) -> Result<String, NotLowe
         .chain(std::iter::once(name))
         .collect::<Vec<_>>()
         .join("::"))
+}
+
+#[cfg(test)]
+mod path_tests {
+    use super::*;
+
+    // Verifies: #188/#189 regression — a written module qualifier must not be emitted twice. The
+    // resolver already checked it against this declaration, so `at` IS what the qualifier selected;
+    // repeating it produced `crate::pending::pending::Entry` on a real subject and every cat-1
+    // engine failed to compile the harness. Grounding said GROUNDED throughout.
+    #[test]
+    fn a_written_qualifier_is_not_repeated_in_the_harness_path() {
+        let at = CodeMatch {
+            file: "src/pending.rs".into(),
+            line: 2,
+            text: "pub struct Entry {".into(),
+            module: Some(vec!["pending".into()]),
+        };
+        assert_eq!(
+            item_path("crate", &at, "pending::Entry").unwrap(),
+            "crate::pending::Entry"
+        );
+        // An unqualified observable is unchanged.
+        assert_eq!(
+            item_path("crate", &at, "Entry").unwrap(),
+            "crate::pending::Entry"
+        );
+    }
 }
 
 /// The type a binder ranges over, as the harness must write it.
