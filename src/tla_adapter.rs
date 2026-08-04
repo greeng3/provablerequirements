@@ -24,11 +24,19 @@
 //! states it in the operator's read-back rather than letting a resolved binding imply more
 //! than was checked, exactly as the Rust adapter is honest that `syn` sees no types.
 //!
-//! **Existence only.** Whether the definition has the right arity or the right shape is the
-//! engine's question (as instantiability was for cat-1 sorts, REQ026) and is deferred; a
-//! binding here confirms the model element the requirement names actually exists.
+//! **Existence, and arity wherever the spec states one.** Existence was once the whole check,
+//! on the reasoning that arity belonged to the engine (as instantiability did for cat-1 sorts,
+//! REQ026). The first live cat-2a run refuted that: a predicate bound to a name of the wrong
+//! arity grounded green, reached TLC, and came back as an `inconclusive` pointing into a
+//! generated module provreq had already deleted — a verdict the operator cannot act on, for a
+//! mistake sitting in their own binding (#119). A TLA+ operator does have an arity by
+//! definition (`Op(a, b) == …`), and the declaration line is already captured in
+//! [`SpecMatch::text`], so asking costs no second walk. Return *shape* is still the engine's
+//! question and stays deferred. Where a line states no arity, this says nothing rather than
+//! guessing — silence keeps a working binding, and a false park does not.
 //!
-//! Implements: REQ028 (a cat-2a binding resolves to a definition in a TLA+ spec).
+//! Implements: REQ028 (a cat-2a binding resolves to a definition in a TLA+ spec, at the arity
+//! the requirement uses it with).
 
 use std::path::Path;
 use walkdir::WalkDir;
@@ -45,21 +53,32 @@ pub struct SpecMatch {
     pub text: String,
 }
 
-/// What resolving one cat-2a binding against the subject's TLA+ found. Fewer variants than
-/// [`crate::rust_adapter::Resolution`] on purpose: arity and return-shape are Rust-type
-/// questions that do not arise for a bare TLA+ name, so an enum carrying them would misstate
-/// the state space.
+/// What resolving one cat-2a binding against the subject's TLA+ found. Still fewer variants
+/// than [`crate::rust_adapter::Resolution`] — return shape is a Rust-type question that does
+/// not arise for a bare TLA+ name — but arity is not among the ones that fail to arise, and
+/// this carried no variant for it until a live run showed what that cost (#119).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ModelResolution {
-    /// Exactly one definition of that name in the subject's TLA+. The only variant that
-    /// grounds.
+    /// Exactly one definition of that name in the subject's TLA+, taking the number of
+    /// arguments the requirement applies it to. The only variant that grounds.
     Resolved(SpecMatch),
     /// No definition of that name anywhere in the subject's TLA+.
     NotFound,
     /// Several definitions share the name. Never guessed between — the operator must
     /// disambiguate, because picking one silently would bind the requirement to whichever
-    /// spec was walked first.
+    /// spec was walked first. Decided before arity: until it is known *which* definition this
+    /// is, there is no arity to be right or wrong about.
     Ambiguous(Vec<SpecMatch>),
+    /// One definition, but it does not take the number of arguments the requirement applies
+    /// the symbol to. Refused here rather than left to TLC, which would answer with a location
+    /// inside a generated module that no longer exists by the time the operator reads it.
+    WrongArity {
+        at: SpecMatch,
+        /// What the definition takes, read from its own declaration line.
+        declared: usize,
+        /// What the requirement applies the symbol to.
+        expected: usize,
+    },
 }
 
 impl ModelResolution {
@@ -71,16 +90,39 @@ impl ModelResolution {
     }
 
     /// The operator-facing read-back for one binding (D13: "here is what your binding
-    /// resolves to — is that what you meant?"). A resolved definition names the limit of
-    /// what was checked, so a green line never implies more than a structural existence
-    /// check.
+    /// resolves to — is that what you meant?"). A resolved definition names the limit of what
+    /// was checked, so a green line never implies more than was done — and since the check now
+    /// varies with the line it read, so does the claim: a definition whose arity was confirmed
+    /// says so, and one whose line states no arity does not pretend otherwise.
     pub fn describe(&self, symbol: &str, observable: &str) -> String {
         match self {
-            ModelResolution::Resolved(at) => format!(
-                "{symbol} → `{observable}` resolves to {}:{}  {}\n      (existence only — a \
-                 structural read of the spec, so arity/shape and names introduced by \
-                 LET/INSTANCE are not checked here)",
-                at.file, at.line, at.text
+            ModelResolution::Resolved(at) => {
+                // What the read-back claims tracks what was actually done: a line stating no
+                // arity is not checked for one, and must not be reported as though it were.
+                let checked = match declared_arity(&at.text) {
+                    Some(_) => "existence and arity",
+                    None => "existence only",
+                };
+                format!(
+                    "{symbol} → `{observable}` resolves to {}:{}  {}\n      ({checked} — a \
+                     structural read of the spec, so return shape and names introduced by \
+                     LET/INSTANCE are not checked here)",
+                    at.file, at.line, at.text
+                )
+            }
+            ModelResolution::WrongArity {
+                at,
+                declared,
+                expected,
+            } => format!(
+                "{symbol}: `{observable}` is defined at {}:{}  {} — but it takes {}, and the \
+                 requirement applies `{symbol}` to {}. TLC would reject the generated spec \
+                 instead of checking it, so this is refused here, where the binding is",
+                at.file,
+                at.line,
+                at.text,
+                arguments(*declared),
+                arguments(*expected)
             ),
             ModelResolution::NotFound => format!(
                 "{symbol}: no definition `{observable}` in the subject's TLA+ — the model \
@@ -103,10 +145,16 @@ impl ModelResolution {
     }
 }
 
-/// Resolve a PRL symbol to a definition named `observable` in the subject's TLA+ (REQ028).
-/// Read-only over the subject and recomputed live — the model moves under a binding exactly
-/// as code and prose do, so a resolution is never stored.
-pub fn resolve(subject: &SubjectSpecs, observable: &str) -> ModelResolution {
+/// Resolve a PRL symbol to a definition named `observable` in the subject's TLA+, taking the
+/// number of arguments the requirement applies it to (REQ028). Read-only over the subject and
+/// recomputed live — the model moves under a binding exactly as code and prose do, so a
+/// resolution is never stored.
+///
+/// `expected_arity` is the **requirement's** claim, computed by [`crate::grounding`] from the
+/// vocabulary, never read from the subject — the same division of labour as cat-1's expected
+/// parameter types: the adapter reads what the operator wrote in the spec, and is told what the
+/// requirement asks of it.
+pub fn resolve(subject: &SubjectSpecs, observable: &str, expected_arity: usize) -> ModelResolution {
     let name = observable.trim();
     if name.is_empty() {
         return ModelResolution::NotFound;
@@ -114,9 +162,80 @@ pub fn resolve(subject: &SubjectSpecs, observable: &str) -> ModelResolution {
     let found = find_definitions(subject, name);
     match found.len() {
         0 => ModelResolution::NotFound,
-        1 => ModelResolution::Resolved(found.into_iter().next().expect("len checked")),
+        1 => {
+            let at = found.into_iter().next().expect("len checked");
+            match declared_arity(&at.text) {
+                Some(declared) if declared != expected_arity => ModelResolution::WrongArity {
+                    at,
+                    declared,
+                    expected: expected_arity,
+                },
+                // Either the arities agree, or the line states none — and a line that states
+                // none is not evidence of a mismatch. Parking on a guess would cost the
+                // operator a working binding.
+                _ => ModelResolution::Resolved(at),
+            }
+        }
         _ => ModelResolution::Ambiguous(found),
     }
+}
+
+/// A count of arguments in the operator's words, so a reason reads as a sentence rather than as
+/// a number the reader has to inflect.
+fn arguments(n: usize) -> String {
+    match n {
+        0 => "no arguments".to_string(),
+        1 => "1 argument".to_string(),
+        n => format!("{n} arguments"),
+    }
+}
+
+/// How many arguments the definition on `line` takes, or `None` when the line does not state it.
+///
+/// A declaration (`VARIABLES queue, status`, `CONSTANT MaxLen`) names a value, so it takes none.
+/// An operator definition takes what its parameter list holds: none for `Op == …`, two for
+/// `Op(a, b) == …`.
+///
+/// A **function** definition takes none *as an operator*: `Double[x \in Nat] == …` binds
+/// `Double` to a function value, which TLA+ applies as `Double[x]` and never as `Double(x)`.
+/// Confirmed against real TLC rather than reasoned about — asked to check `Double(n)`, it
+/// answers `The operator Double requires 0 arguments.` So provreq, which can only ever emit the
+/// `Op(args)` form, is right to refuse a function bound to a predicate that takes arguments.
+///
+/// `None` where the line cannot be read honestly — an unbalanced parameter list, or an `==` that
+/// turns out to sit inside one. A multi-line definition never reaches here at all: neither half
+/// of it satisfies [`defines_name`], so it does not resolve in the first place.
+fn declared_arity(line: &str) -> Option<usize> {
+    let line = strip_comment(line).trim_start();
+    if declaration_names(line).is_some() {
+        return Some(0);
+    }
+    let (head, _) = line.split_once("==")?;
+    // No operator parameter list: `Op == …`, and `Double[x \in Nat] == …` alike.
+    let Some((_, params)) = head.trim().split_once('(') else {
+        return Some(0);
+    };
+    count_params(params.trim().strip_suffix(')')?)
+}
+
+/// The number of top-level arguments in a parameter list, or `None` if its brackets do not
+/// balance. Depth-aware so a higher-order parameter (`Op(f(_), x) == …`) counts as one argument
+/// rather than as its own commas.
+fn count_params(params: &str) -> Option<usize> {
+    if params.trim().is_empty() {
+        return Some(0);
+    }
+    let mut depth: usize = 0;
+    let mut count = 1;
+    for c in params.chars() {
+        match c {
+            '(' | '[' => depth += 1,
+            ')' | ']' => depth = depth.checked_sub(1)?,
+            ',' if depth == 0 => count += 1,
+            _ => {}
+        }
+    }
+    (depth == 0).then_some(count)
 }
 
 /// Whether a directory is pruned from the walk: the companion tree (whose own files could hold a
@@ -265,10 +384,13 @@ mod tests {
         tmp
     }
 
-    fn resolve_in(tmp: &tempfile::TempDir, observable: &str) -> ModelResolution {
+    /// Resolve `observable` as a symbol the requirement applies to `arity` arguments. Every
+    /// call states that number, because since #119 it is half of what resolution decides.
+    fn resolve_in(tmp: &tempfile::TempDir, observable: &str, arity: usize) -> ModelResolution {
         resolve(
             &SubjectSpecs::load(tmp.path(), &tmp.path().join("ProvableRequirements")),
             observable,
+            arity,
         )
     }
 
@@ -290,7 +412,7 @@ Init == queue = <<>>
     #[test]
     fn resolves_an_operator_definition_to_its_location() {
         let tmp = subject(SPEC);
-        let ModelResolution::Resolved(at) = resolve_in(&tmp, "Accept") else {
+        let ModelResolution::Resolved(at) = resolve_in(&tmp, "Accept", 1) else {
             panic!("Accept should resolve");
         };
         assert_eq!(at.file, "spec.tla");
@@ -304,14 +426,14 @@ Init == queue = <<>>
     #[test]
     fn a_variable_a_constant_and_a_set_all_resolve() {
         let tmp = subject(SPEC);
-        assert!(resolve_in(&tmp, "queue").is_resolved(), "VARIABLE");
+        assert!(resolve_in(&tmp, "queue", 0).is_resolved(), "VARIABLE");
         assert!(
-            resolve_in(&tmp, "status").is_resolved(),
+            resolve_in(&tmp, "status", 0).is_resolved(),
             "VARIABLE (2nd on the line)"
         );
-        assert!(resolve_in(&tmp, "MaxLen").is_resolved(), "CONSTANT");
+        assert!(resolve_in(&tmp, "MaxLen", 0).is_resolved(), "CONSTANT");
         assert!(
-            resolve_in(&tmp, "Message").is_resolved(),
+            resolve_in(&tmp, "Message", 0).is_resolved(),
             "set-defining operator"
         );
     }
@@ -321,8 +443,8 @@ Init == queue = <<>>
     #[test]
     fn an_undefined_name_does_not_resolve() {
         let tmp = subject(SPEC);
-        assert_eq!(resolve_in(&tmp, "Rejected"), ModelResolution::NotFound);
-        assert!(resolve_in(&tmp, "Rejected")
+        assert_eq!(resolve_in(&tmp, "Rejected", 1), ModelResolution::NotFound);
+        assert!(resolve_in(&tmp, "Rejected", 1)
             .describe("rejected", "Rejected")
             .contains("does not name it"));
     }
@@ -331,7 +453,7 @@ Init == queue = <<>>
     #[test]
     fn a_name_only_in_a_comment_does_not_resolve() {
         let tmp = subject("VARIABLES queue  \\* Accept is handled elsewhere\nInit == queue = 0\n");
-        assert_eq!(resolve_in(&tmp, "Accept"), ModelResolution::NotFound);
+        assert_eq!(resolve_in(&tmp, "Accept", 1), ModelResolution::NotFound);
     }
 
     // Verifies: REQ028 — a keyword that is only a prefix of a longer identifier is not a
@@ -341,9 +463,9 @@ Init == queue = <<>>
     fn a_keyword_prefix_is_not_a_declaration() {
         let tmp = subject("CONSTANTing == 1\nVARIABLESuspect == 2\n");
         // These are operator definitions named CONSTANTing / VARIABLESuspect, not decls.
-        assert!(resolve_in(&tmp, "CONSTANTing").is_resolved());
-        assert_eq!(resolve_in(&tmp, "CONSTANT"), ModelResolution::NotFound);
-        assert_eq!(resolve_in(&tmp, "ing"), ModelResolution::NotFound);
+        assert!(resolve_in(&tmp, "CONSTANTing", 0).is_resolved());
+        assert_eq!(resolve_in(&tmp, "CONSTANT", 0), ModelResolution::NotFound);
+        assert_eq!(resolve_in(&tmp, "ing", 0), ModelResolution::NotFound);
     }
 
     // Verifies: REQ028 — an expression that merely contains `==` (an equality inside a
@@ -351,16 +473,128 @@ Init == queue = <<>>
     #[test]
     fn an_equality_expression_is_not_a_definition() {
         let tmp = subject("Inv == queue = 0 /\\ status = \"ok\"\n");
-        assert!(resolve_in(&tmp, "Inv").is_resolved());
+        assert!(resolve_in(&tmp, "Inv", 0).is_resolved());
         // `queue = 0 /\ status` is not a name — the body must not resolve as one.
-        assert_eq!(resolve_in(&tmp, "queue"), ModelResolution::NotFound);
+        assert_eq!(resolve_in(&tmp, "queue", 0), ModelResolution::NotFound);
     }
 
-    // Verifies: REQ028 — the function-definition form `Name[x \in S] == …` resolves.
+    // Verifies: REQ028 — the function-definition form `Name[x \in S] == …` resolves, and takes
+    // no arguments AS AN OPERATOR. `Double` is bound to a function value, applied `Double[x]`
+    // and never `Double(x)`; provreq can only emit the `(…)` form. Confirmed against real TLC,
+    // which answers `Double(n)` with "The operator Double requires 0 arguments" — so the
+    // predicate that takes one is refused, and the set-like use of it grounds.
     #[test]
-    fn a_function_definition_resolves() {
+    fn a_function_definition_takes_no_operator_arguments() {
         let tmp = subject("q == [x \\in 1..3 |-> x * 2]\nDouble[x \\in Nat] == x + x\n");
-        assert!(resolve_in(&tmp, "Double").is_resolved());
+        assert!(resolve_in(&tmp, "Double", 0).is_resolved());
+        assert!(
+            matches!(
+                resolve_in(&tmp, "Double", 1),
+                ModelResolution::WrongArity { declared: 0, .. }
+            ),
+            "a function is not an operator provreq can apply"
+        );
+    }
+
+    // Verifies: REQ028 (#119) — THE CASE FROM THE LIVE RUN. A 1-ary predicate bound to a 0-ary
+    // VARIABLE is refused at grounding. Before this, it ground green, reached TLC, and returned
+    // an inconclusive naming a generated module that had already been deleted.
+    #[test]
+    fn a_predicate_bound_to_a_variable_that_takes_no_arguments_is_refused() {
+        let tmp = subject(SPEC);
+        let r = resolve_in(&tmp, "queue", 1);
+        assert!(
+            matches!(
+                r,
+                ModelResolution::WrongArity {
+                    declared: 0,
+                    expected: 1,
+                    ..
+                }
+            ),
+            "{r:?}"
+        );
+        assert!(!r.is_resolved(), "a wrong-arity binding must not ground");
+        let said = r.describe("accepted", "queue");
+        assert!(said.contains("takes no arguments"), "{said}");
+        assert!(said.contains("to 1 argument"), "{said}");
+        assert!(said.contains("spec.tla:4"), "the line is named: {said}");
+    }
+
+    // Verifies: REQ028 (#119) — the mismatch is caught in the other direction too. An operator
+    // that takes an argument, bound to a symbol the requirement applies to none, would lower to
+    // a bare name TLC rejects just as surely.
+    #[test]
+    fn an_operator_applied_to_too_few_arguments_is_refused() {
+        let tmp = subject(SPEC);
+        assert!(matches!(
+            resolve_in(&tmp, "Accept", 0),
+            ModelResolution::WrongArity {
+                declared: 1,
+                expected: 0,
+                ..
+            }
+        ));
+    }
+
+    // Verifies: REQ028 (#119) — arity is counted, not merely detected, so a 2-ary operator
+    // grounds at 2 and is refused at 1.
+    #[test]
+    fn a_multi_argument_operator_resolves_only_at_its_own_arity() {
+        let tmp = subject("Between(a, b) == a < b\n");
+        assert!(resolve_in(&tmp, "Between", 2).is_resolved());
+        assert!(matches!(
+            resolve_in(&tmp, "Between", 1),
+            ModelResolution::WrongArity { declared: 2, .. }
+        ));
+    }
+
+    // Verifies: REQ028 (#119) — a higher-order parameter is ONE argument, not its own commas.
+    // Counting `Op(f(_), x)` as three would refuse a correct binding, which costs the operator
+    // more than the check saves them.
+    #[test]
+    fn a_higher_order_parameter_counts_as_one_argument() {
+        let tmp = subject("Apply(f(_), x) == f(x)\n");
+        assert!(resolve_in(&tmp, "Apply", 2).is_resolved());
+    }
+
+    // Verifies: REQ028 (#119) — ambiguity is decided BEFORE arity. Until it is known which
+    // definition the binding means, there is no arity to be right or wrong about, and reporting
+    // one would send the operator to fix the wrong thing.
+    #[test]
+    fn ambiguity_is_reported_before_arity() {
+        let tmp = subject("Accept(m) == TRUE\n");
+        std::fs::write(tmp.path().join("other.tla"), "Accept == FALSE\n").unwrap();
+        assert!(matches!(
+            resolve_in(&tmp, "Accept", 7),
+            ModelResolution::Ambiguous(_)
+        ));
+    }
+
+    // Verifies: REQ028 (#119) — the read-back claims only what was checked. A line stating an
+    // arity says "existence and arity"; one that does not still says "existence only", so a
+    // green line never implies a check that did not happen.
+    #[test]
+    fn the_read_back_claims_only_what_was_checked() {
+        let tmp = subject(SPEC);
+        let said = resolve_in(&tmp, "Accept", 1).describe("accepted", "Accept");
+        assert!(said.contains("existence and arity"), "{said}");
+        assert!(
+            !said.contains("arity/shape"),
+            "the old blanket caveat: {said}"
+        );
+    }
+
+    // Verifies: REQ028 (#119) — a line whose parameter list does not close states no arity, so
+    // nothing is claimed about it and the binding stands on its other checks. Guessing here
+    // would park a binding that may well be correct.
+    #[test]
+    fn an_unreadable_parameter_list_claims_no_arity() {
+        assert_eq!(declared_arity("Op(a, b) == TRUE"), Some(2));
+        assert_eq!(declared_arity("Op(a, b == TRUE"), None);
+        assert_eq!(declared_arity("Op() == TRUE"), Some(0));
+        assert_eq!(declared_arity("VARIABLES queue, status"), Some(0));
+        assert_eq!(declared_arity("Message == 1..MaxLen"), Some(0));
     }
 
     // Verifies: REQ028 — two specs defining the same name are never silently disambiguated;
@@ -369,7 +603,7 @@ Init == queue = <<>>
     fn duplicate_definitions_are_ambiguous_never_guessed() {
         let tmp = subject("Accept(m) == TRUE\n");
         std::fs::write(tmp.path().join("other.tla"), "Accept(m) == FALSE\n").unwrap();
-        let ModelResolution::Ambiguous(ats) = resolve_in(&tmp, "Accept") else {
+        let ModelResolution::Ambiguous(ats) = resolve_in(&tmp, "Accept", 1) else {
             panic!("two definitions must be ambiguous");
         };
         assert_eq!(ats.len(), 2);
@@ -387,7 +621,7 @@ Init == queue = <<>>
         std::fs::write(tmp.path().join(".git/x.tla"), "Accept(m) == FALSE\n").unwrap();
 
         let ModelResolution::Resolved(at) =
-            resolve(&SubjectSpecs::load(tmp.path(), &companion), "Accept")
+            resolve(&SubjectSpecs::load(tmp.path(), &companion), "Accept", 1)
         else {
             panic!("the companion/.git copies must not create an ambiguity");
         };
@@ -400,7 +634,7 @@ Init == queue = <<>>
     fn non_tla_files_are_not_searched() {
         let tmp = subject("Accept(m) == TRUE\n");
         std::fs::write(tmp.path().join("README.md"), "Accept(m) == FALSE\n").unwrap();
-        assert!(resolve_in(&tmp, "Accept").is_resolved());
+        assert!(resolve_in(&tmp, "Accept", 1).is_resolved());
     }
 
     // Verifies: REQ028 — an empty observable resolves to nothing, guarding a degenerate
@@ -408,6 +642,6 @@ Init == queue = <<>>
     #[test]
     fn empty_observable_resolves_to_nothing() {
         let tmp = subject(SPEC);
-        assert_eq!(resolve_in(&tmp, "   "), ModelResolution::NotFound);
+        assert_eq!(resolve_in(&tmp, "   ", 0), ModelResolution::NotFound);
     }
 }

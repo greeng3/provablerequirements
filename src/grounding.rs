@@ -168,9 +168,10 @@ pub fn bindable_sorts(req: &Requirement) -> Vec<String> {
     out
 }
 
-/// The arity the requirement declares for a vocabulary predicate — what a category-1
-/// binding's resolved function must match (REQ025). `None` when the symbol is not a
-/// declared event/state predicate.
+/// The arity the requirement declares for a vocabulary predicate — what a binding's resolved
+/// observable must match, whichever world it lives in: a category-1 function's parameter count
+/// (REQ025), or a category-2a TLA+ definition's (REQ028, #119). `None` when the symbol is not a
+/// declared event/state predicate — a sort is applied to nothing and takes no arguments.
 pub fn predicate_arity(req: &Requirement, symbol: &str) -> Option<usize> {
     req.vocabulary.iter().find_map(|d| match d {
         Decl::Event { name, params, .. } | Decl::State { name, params, .. } if name == symbol => {
@@ -390,12 +391,19 @@ pub fn resolve_bindings(
             )
         })
         .collect();
+    // The arity a 2a binding must satisfy is the requirement's own, exactly as a cat-1
+    // predicate's is (`expected_param_types` above computes the same number as its length). The
+    // gate has already forced every use of a symbol to match its declaration, so the declared
+    // arity is what the lowering will emit. A sort is applied to nothing — it becomes the set a
+    // quantifier ranges over — so `unwrap_or(0)` is the right reading for a symbol that declares
+    // no parameters, not a fallback.
     let model = in_category(BindCategory::Model)
         .iter()
         .map(|b| {
+            let arity = predicate_arity(requirement, &b.symbol).unwrap_or(0);
             (
                 b.symbol.clone(),
-                crate::tla_adapter::resolve(&specs, &b.observable),
+                crate::tla_adapter::resolve(&specs, &b.observable, arity),
             )
         })
         .collect();
@@ -988,6 +996,63 @@ mod tests {
         assert!(reasons
             .iter()
             .any(|reason| reason.contains("succeeded") && reason.contains("NoSuchOp")));
+    }
+
+    // Verifies: REQ028 (#119) — a 2a binding to a definition of the wrong arity parks, and the
+    // reason names both counts. Grounding is where the operator can act: the binding is in front
+    // of them, whereas TLC would answer with a location inside a generated module that provreq
+    // deletes before the verdict is printed.
+    #[test]
+    fn model_requirement_parks_when_a_binding_has_the_wrong_arity() {
+        let r = req(MODEL_REQ);
+        let bindings = vec![
+            model_binding("accepted", "queue"),
+            model_binding("succeeded", "Succeeded"),
+            model_binding("Message", "Message"),
+        ];
+        let model = BTreeMap::from([
+            (
+                "accepted".to_string(),
+                ModelResolution::WrongArity {
+                    at: spec_at(),
+                    declared: 0,
+                    expected: 1,
+                },
+            ),
+            (
+                "succeeded".to_string(),
+                ModelResolution::Resolved(spec_at()),
+            ),
+            ("Message".to_string(), ModelResolution::Resolved(spec_at())),
+        ]);
+        let Grounding::Parked { reasons } =
+            verdict(&r, &bindings, &BTreeMap::new(), &BTreeMap::new(), &model)
+        else {
+            panic!("a wrong-arity model binding must park");
+        };
+        assert_eq!(
+            reasons.len(),
+            1,
+            "one mistake earns one reason: {reasons:?}"
+        );
+        assert!(
+            reasons[0].contains("takes no arguments") && reasons[0].contains("to 1 argument"),
+            "{reasons:?}"
+        );
+    }
+
+    // Verifies: REQ028 (#119) — the arity a 2a binding is checked against is the REQUIREMENT's,
+    // read from its vocabulary. `accepted` is declared with one parameter, so a definition
+    // taking none disagrees; a sort declares no parameters and is applied to none.
+    #[test]
+    fn the_arity_a_model_binding_must_match_comes_from_the_vocabulary() {
+        let r = req(MODEL_REQ);
+        assert_eq!(predicate_arity(&r, "accepted"), Some(1));
+        assert_eq!(
+            predicate_arity(&r, "Message"),
+            None,
+            "a sort, not a predicate"
+        );
     }
 
     // Verifies: REQ028 — a 2a symbol the caller never resolved is NOT treated as grounded,

@@ -453,7 +453,8 @@ only; sort/type existence when cat-1 needs it`). Cat-1 now needs it: a harness c
       `login`. TLA+ draws no such line: an action, a state operator, a data set, a variable, a constant are
       all just _named definitions_, so `ModelResolution{Resolved,NotFound,Ambiguous}` asks one question —
       does the spec define this name? Ambiguity (defined in two specs) never silently disambiguates.
-    - **Existence only** (like REQ026 sorts): arity/shape is the engine's question, deferred (**#119**). **Structural
+    - **Existence only** (like REQ026 sorts): arity/shape is the engine's question, deferred (**#119** — arity
+      later **reversed** by a live run; see "A model binding is checked at the arity it is used with"). **Structural
       read, not SANY** (no TLA+ parser crate exists as `syn` does for Rust): comments stripped, `VARIABLES`/
       operator forms parsed properly (not substring-matched), and the read-back states the limit
       (LET/INSTANCE/multi-line decls not seen) so a green line never implies more than was checked —
@@ -464,7 +465,7 @@ only; sort/type existence when cat-1 needs it`). Cat-1 now needs it: a harness c
       next slice (issue #48 / PR #49).
       REQ028 (1.27). 178 tests + a live CLI smoke (a 2a `leads_to` requirement grounds against a real
       `Msg.tla`, and an unresolvable binding parks), all green. Deferred: wire TLC → real verdict (**done** — issue #48 / PR #49); operator
-      arity/shape checks (**#119**); a configured spec path when specs live outside the subject tree
+      arity/shape checks (**#119** — arity **done**, shape still deferred); a configured spec path when specs live outside the subject tree
       (**#120**).
 
 - **TLC wired — cat-2a engine: issue #48 / PR #49 (2026-07-17).** The REQ027 analog for the model world.
@@ -747,6 +748,64 @@ model** — the stub tests passed throughout. Two worth carrying forward:
 **provreq still cannot be its own Creusot subject** (#153): the async ICE above, plus whole-crate
 `format!`, across 28 of 32 files. That is why the in-repo `mirror_subject` fixture exists, and CI
 asserts both directions on it.
+
+### A model binding is checked at the arity it is used with (issue #119 / REQ028)
+
+**A deferral that a single live run reversed.** Cat-2a grounding asked one question — does the spec
+define this name? — and left arity to the engine, by analogy with REQ026 sorts. The issue itself set
+the condition for revisiting: _only if_ a real subject showed a wrong-arity binding reaching TLC as
+a confusing `inconclusive`. Nobody had tried it. The first cat-2a end-to-end pass did.
+
+The subject was built so the mistake would be an ordinary one rather than a contrived one: a spec
+with an operator `Accepted(m)` **and** a variable `accepted`. Binding the 1-ary predicate to the
+0-ary variable is a plausible slip, and it ground green:
+
+```
+accepted → `accepted` resolves to msgs.tla:4  VARIABLES accepted, done
+    (existence only — …)
+REQ001: GROUNDED — every symbol binds to a confirmed observable.
+```
+
+then produced `unknown (inconclusive)` — an engine ran and could not decide. **This is the wrong
+verdict class**, and its reason pointed at `line 6, col 57 of module provreq_req001`: a generated
+module `tlc::run` deletes before it interprets the output. The operator is sent to a file that no
+longer exists, in a module they never wrote, for a mistake in their own binding. (The reason was
+worse still until #206, which found that provreq was reporting SANY's `*** Errors: 1` banner rather
+than the cause under it — a separate defect the same run exposed.)
+
+**Two premises had to be engaged with, and both gave way.** `ModelResolution`'s own doc said arity
+was a Rust-type question that "does not arise for a bare TLA+ name" — but a TLA+ operator has an
+arity by definition, and TLC says so in as many words: `The operator accepted requires 0 arguments.`
+And the objection that checking it costs a second walk was not true either: `SpecMatch.text` already
+holds the declaration line, so the arity was in hand the whole time.
+
+Now the binding resolves against the arity the **requirement** applies the symbol to —
+`grounding::predicate_arity`, the same number cat-1 checks a function's parameters against, computed
+by the core and passed in, so the adapter still only reads what the operator wrote. A sort declares
+no parameters and is applied to none, so it must resolve to a definition taking none. Live, the same
+subject now says:
+
+```
+accepted: `accepted` is defined at msgs.tla:4  VARIABLES accepted, done — but it takes no
+arguments, and the requirement applies `accepted` to 1 argument. TLC would reject the generated
+spec instead of checking it, so this is refused here, where the binding is
+REQ001: unknown (missing-grounding) — … no engine can run until every symbol binds
+```
+
+The verdict class changed with it, which is the honest half: no engine ran, so none should be
+reported as having run.
+
+**What is deliberately not checked.** Return shape stays the engine's question. A line stating no
+arity claims nothing — a binding wrongly parked costs the operator more than the check saves them —
+and the read-back tracks that exactly, saying `existence and arity` only where arity was read.
+Ambiguity is still reported first: until it is known which definition is meant, there is no arity to
+be right or wrong about. A function definition (`Double[x \in Nat] == …`) takes **no** arguments as
+an operator, because TLA+ applies it by subscript; that was confirmed against real TLC rather than
+reasoned about, since provreq can only ever emit the `Op(args)` form.
+
+**REQ028 asserted the deferral in its own text** and had to be amended — the fifth time in this
+project that a written artifact held a defect in place rather than catching it, and the second time
+the artifact was a requirement item rather than a test.
 
 ## Engine provisioning — Design A (old, superseded topology)
 

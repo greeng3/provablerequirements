@@ -348,8 +348,18 @@ pub fn locate_spec(subject_root: &Path, companion_root: &Path) -> Result<SpecSit
     // One lookup, so this loads the specs for itself rather than taking a shared read (#144) — the
     // sharing that matters is a binding set's many symbols, which is `grounding::resolve_bindings`.
     let specs = tla_adapter::SubjectSpecs::load(subject_root, companion_root);
-    let at = match tla_adapter::resolve(&specs, SPEC_OPERATOR) {
+    // A behaviour definition takes no arguments: the `.cfg` names `SPECIFICATION Spec`, which
+    // TLC reads as a formula, not as something to apply.
+    let at = match tla_adapter::resolve(&specs, SPEC_OPERATOR, 0) {
         ModelResolution::Resolved(at) => at,
+        ModelResolution::WrongArity { at, declared, .. } => {
+            return Err(format!(
+                "`{SPEC_OPERATOR}` at {}:{} takes {declared} argument(s) — provreq checks a \
+                 behaviour formula `{SPEC_OPERATOR} == Init /\\ [][Next]_vars`, and a \
+                 `SPECIFICATION` TLC can use takes none",
+                at.file, at.line
+            ))
+        }
         ModelResolution::NotFound => {
             return Err(format!(
                 "no `{SPEC_OPERATOR}` behaviour definition in the subject's TLA+ — provreq \
