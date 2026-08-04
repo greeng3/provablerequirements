@@ -112,10 +112,19 @@ pub enum Resolution {
     },
     /// No function of that name anywhere in the subject's Rust.
     NotFound,
-    /// Several functions share the name. Never guessed between — the operator must
+    /// Several declarations answer to the name. Never guessed between — the operator must
     /// disambiguate, because picking one silently would bind the requirement to whichever
     /// file happened to be walked first.
-    Ambiguous(Vec<CodeMatch>),
+    ///
+    /// `kind` says *what* was ambiguous, which is not decoration: the read-back used to call every
+    /// candidate a function, so two `struct Entry` declarations were reported as "2 functions share
+    /// the name" pointing at struct declarations, and the operator went looking for a second method
+    /// that did not exist (#190). The three cases are different questions and only one of them is
+    /// about functions.
+    Ambiguous {
+        kind: AmbiguityKind,
+        at: Vec<CodeMatch>,
+    },
     /// Found, but it takes a different number of parameters than the PRL predicate.
     WrongArity {
         expected: usize,
@@ -159,6 +168,40 @@ pub enum Resolution {
     },
 }
 
+/// What was ambiguous about an observable — the half the operator has to disambiguate (#190).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AmbiguityKind {
+    /// Several functions share the name.
+    Functions,
+    /// Several types share the name. The member may well be unique; it is the receiver that is not.
+    Types,
+    /// One function and one type share the name, so the observable could be read either way.
+    FunctionAndType,
+    /// Several enums share the name a function returns, so its variants cannot be pooled.
+    Enums,
+}
+
+impl AmbiguityKind {
+    /// How the candidates read in the ambiguity message. Says what they are, because naming them
+    /// wrongly sends the operator hunting for a declaration that is not there.
+    fn candidates(self, n: usize) -> String {
+        match self {
+            AmbiguityKind::Functions => format!("{n} functions share the name"),
+            AmbiguityKind::Types => format!(
+                "{n} types share the name — the member itself may be unique, but the type it is \
+                 reached through is not"
+            ),
+            AmbiguityKind::FunctionAndType => {
+                "the name is both a function and a type, so the binding could be read either way"
+                    .to_string()
+            }
+            AmbiguityKind::Enums => format!(
+                "{n} enums share the returned type's name, so its variants cannot be pooled"
+            ),
+        }
+    }
+}
+
 impl Resolution {
     /// Whether this binding resolved — the single question [`crate::grounding::verdict`]
     /// asks. Only [`Resolution::Resolved`] grounds; everything else parks the requirement
@@ -188,17 +231,21 @@ impl Resolution {
                  (`Session::is_active`), or one variant of the enum a function returns \
                  (`decide_install::Proceed`)"
             ),
-            Resolution::Ambiguous(ats) => {
+            Resolution::Ambiguous { kind, at: ats } => {
                 let places = ats
                     .iter()
                     .map(|a| format!("{}:{}", a.file, a.line))
                     .collect::<Vec<_>>()
                     .join(", ");
                 format!(
-                    "{symbol}: `{observable}` is ambiguous — {} functions share the name \
+                    "{symbol}: `{observable}` is ambiguous — {} \
                      ({places}); qualify it, because binding to one silently would pick \
-                     whichever file was walked first",
-                    ats.len()
+                     whichever file was walked first{}",
+                    kind.candidates(ats.len()),
+                    match kind {
+                        AmbiguityKind::Types => offer_paths(ats, &last_two_segments(observable)),
+                        _ => String::new(),
+                    }
                 )
             }
             Resolution::WrongArity {
@@ -357,7 +404,7 @@ impl TypeResolution {
                     "{sort} (sort): `{observable}` is ambiguous — {} types share the name \
                      ({places}); qualify it by module{}",
                     ats.len(),
-                    offer_paths(ats, observable)
+                    offer_paths(ats, last_segment(observable))
                 )
             }
             TypeResolution::QualifierUnmatched { name, candidates } => format!(
@@ -373,15 +420,21 @@ impl TypeResolution {
 /// declared. Advice to "qualify it" is worth nothing without them: the module path is a fact of the
 /// subject that provreq walked and the operator would otherwise have to reconstruct by hand.
 ///
+/// `suffix` is what follows the module in the offered form, and it is the caller's to choose
+/// because it differs by observable shape: a sort ends at its type name (`pending::Entry`), while a
+/// predicate keeps the whole `Type::member` (`pending::Entry::is_clear`). Stripping to the last
+/// segment here — which is what this did — offered `pending::is_clear`, which is not a form the
+/// adapter accepts, so the way out it advertised did not exist. Caught by running the CLI, not by a
+/// test.
+///
 /// A candidate whose module the walk could not determine (REQ061) is skipped rather than guessed
 /// at, so an empty offer means provreq has nothing honest to suggest and says only that.
-fn offer_paths(candidates: &[CodeMatch], name: &str) -> String {
-    let bare = name.rsplit("::").next().unwrap_or(name);
+fn offer_paths(candidates: &[CodeMatch], suffix: &str) -> String {
     let offers: Vec<String> = candidates
         .iter()
         .filter_map(|at| at.module.as_ref())
         .filter(|m| !m.is_empty())
-        .map(|m| format!("`{}::{bare}`", m.join("::")))
+        .map(|m| format!("`{}::{suffix}`", m.join("::")))
         .collect();
     if offers.is_empty() {
         String::new()
@@ -467,6 +520,13 @@ pub fn resolve_type(subject: &ParsedSubject, observable: &str) -> TypeResolution
 /// cannot be checked at all, so it does not match — `None` is a refusal, never "the crate root",
 /// and treating it as one would resolve a binding on a module path provreq invented. An unqualified
 /// sort is unaffected: with nothing written to check, every candidate still matches.
+/// The `Type::member` tail of a predicate observable — `a::b::Entry::is_clear` → `Entry::is_clear`,
+/// `Entry::is_clear` → `Entry::is_clear`. What a module qualifier is offered in front of.
+fn last_two_segments(written: &str) -> String {
+    let segments: Vec<&str> = written.split("::").map(str::trim).collect();
+    segments[segments.len().saturating_sub(2)..].join("::")
+}
+
 /// The type name at the end of a written path — `session::Session` → `Session`, `Session` →
 /// `Session`. The one form both the sort side and the parameter side can always produce.
 fn last_segment(written: &str) -> &str {
@@ -603,12 +663,24 @@ pub fn resolve(subject: &ParsedSubject, observable: &str, params: &[Option<Strin
     let segments: Vec<&str> = name.split("::").map(str::trim).collect();
     match segments[..] {
         [one] if !one.is_empty() => resolve_bare(subject, one, params),
-        [qualifier, member] if !qualifier.is_empty() && !member.is_empty() => {
-            resolve_qualified(subject, qualifier, member, params)
+        // `A::B`, optionally preceded by the module `A` is declared in (#189). The last two
+        // segments are always the `A::B` this adapter understands; anything before them qualifies
+        // which `A` is meant, checked exactly as a sort's qualifier is ([`module_matches`]).
+        //
+        // A path deeper than `A::B` used to be refused outright, on the grounds that guessing which
+        // two segments were meant would bind the requirement to something the operator did not
+        // write. There is no guess here: the split is fixed at the right, and the extra segments are
+        // verified rather than assumed. What made that comment true was that a written module had no
+        // checkable meaning, and #138 gave it one.
+        [.., qualifier, member] if !qualifier.is_empty() && !member.is_empty() => {
+            resolve_qualified(
+                subject,
+                &segments[..segments.len() - 2],
+                qualifier,
+                member,
+                params,
+            )
         }
-        // An empty observable, or a path deeper than `A::B`. Nothing this adapter understands
-        // takes three segments, and guessing which two were meant would bind the requirement to
-        // something the operator did not write.
         _ => Resolution::NotFound,
     }
 }
@@ -631,7 +703,10 @@ fn resolve_bare(subject: &ParsedSubject, name: &str, params: &[Option<String>]) 
             };
             classify(f, params, form)
         }
-        _ => Resolution::Ambiguous(found.into_iter().map(|f| f.at).collect()),
+        _ => Resolution::Ambiguous {
+            kind: AmbiguityKind::Functions,
+            at: found.into_iter().map(|f| f.at).collect(),
+        },
     }
 }
 
@@ -640,12 +715,19 @@ fn resolve_bare(subject: &ParsedSubject, name: &str, params: &[Option<String>]) 
 /// is both a function and a type is an ambiguity, never a guess.
 fn resolve_qualified(
     subject: &ParsedSubject,
+    module: &[&str],
     qualifier: &str,
     member: &str,
     params: &[Option<String>],
 ) -> Resolution {
-    let fns = find_functions(subject, qualifier);
-    let types = find_types(subject, qualifier);
+    let fns: Vec<FoundFn> = find_functions(subject, qualifier)
+        .into_iter()
+        .filter(|f| module_matches(f.at.module.as_deref(), module))
+        .collect();
+    let types: Vec<CodeMatch> = find_types(subject, qualifier)
+        .into_iter()
+        .filter(|at| module_matches(at.module.as_deref(), module))
+        .collect();
     match (fns.len(), types.len()) {
         (0, 0) => Resolution::NotFound,
         (1, 0) => variant_test(
@@ -661,7 +743,21 @@ fn resolve_qualified(
             member,
             params,
         ),
-        _ => Resolution::Ambiguous(fns.into_iter().map(|f| f.at).chain(types).collect()),
+        // Each of these is a different question, and the read-back must not call them all the same
+        // thing (#190): several functions, several types reached through the same name, or one of
+        // each — where the observable itself could be read two ways.
+        (0, _) => Resolution::Ambiguous {
+            kind: AmbiguityKind::Types,
+            at: types,
+        },
+        (_, 0) => Resolution::Ambiguous {
+            kind: AmbiguityKind::Functions,
+            at: fns.into_iter().map(|f| f.at).collect(),
+        },
+        _ => Resolution::Ambiguous {
+            kind: AmbiguityKind::FunctionAndType,
+            at: fns.into_iter().map(|f| f.at).chain(types).collect(),
+        },
     }
 }
 
@@ -684,7 +780,10 @@ fn variant_test(
     // Two enums of that name is the same unanswerable question as two functions: the variants would
     // have to be pooled from declarations in different modules, and the harness can only name one.
     if enums.len() > 1 {
-        return Resolution::Ambiguous(enums.into_iter().map(|e| e.at).collect());
+        return Resolution::Ambiguous {
+            kind: AmbiguityKind::Enums,
+            at: enums.into_iter().map(|e| e.at).collect(),
+        };
     }
     let declared = enums.pop();
     let variants = declared
@@ -726,13 +825,29 @@ fn method_on(
     method: &str,
     params: &[Option<String>],
 ) -> Resolution {
-    let mut found = find_methods(subject, ty, Some(method));
+    // Confine the search to the module the chosen type is declared in. `find_methods` matches an
+    // `impl` block by its self-type IDENT, which cannot tell `alpha::Entry` from `beta::Entry` —
+    // so without this the module qualifier picks the right declaration and is then thrown away:
+    // `beta::Entry::is_clear` resolved to alpha's method (#189). A qualifier that is accepted and
+    // silently not honoured is worse than one refused, because nothing says the binding moved.
+    //
+    // Skipped when the type's own module is unknown (REQ061): there is nothing to confine to, and
+    // inventing one would be the same over-claim in the other direction.
+    let same_module = |f: &FoundFn| match (&ty_at.module, &f.at.module) {
+        (Some(want), Some(got)) => want == got,
+        _ => true,
+    };
+    let mut found: Vec<FoundFn> = find_methods(subject, ty, Some(method))
+        .into_iter()
+        .filter(&same_module)
+        .collect();
     match found.len() {
         0 => Resolution::NoSuchMethod {
             ty: ty.to_string(),
             method: method.to_string(),
             methods: find_methods(subject, ty, None)
                 .into_iter()
+                .filter(&same_module)
                 .map(|f| f.name)
                 .collect(),
             at: ty_at,
@@ -744,7 +859,10 @@ fn method_on(
             };
             classify(f, params, form)
         }
-        _ => Resolution::Ambiguous(found.into_iter().map(|f| f.at).collect()),
+        _ => Resolution::Ambiguous {
+            kind: AmbiguityKind::Functions,
+            at: found.into_iter().map(|f| f.at).collect(),
+        },
     }
 }
 
@@ -1382,7 +1500,7 @@ impl Probe { pub fn is_ready(&self) -> bool { false } }
         let tmp = subject(ENUM_SUBJECT);
         assert!(matches!(
             resolve_in(&tmp, "is_ready", 1),
-            Resolution::Ambiguous(_)
+            Resolution::Ambiguous { .. }
         ));
 
         let r = resolve_in(&tmp, "Engine::is_ready", 1);
@@ -1667,7 +1785,7 @@ impl Session {
 mod admin { pub fn login(u: &str) -> bool { false } }\n",
         );
         let r = resolve_in(&tmp, "login", 1);
-        let Resolution::Ambiguous(ats) = &r else {
+        let Resolution::Ambiguous { at: ats, .. } = &r else {
             panic!("should be ambiguous, got {r:?}")
         };
         assert_eq!(ats.len(), 2);
@@ -1830,7 +1948,7 @@ mod other { pub enum Decision { Proceed } }
 pub fn decide(u: u32) -> Decision { Decision::Proceed }\n",
         );
         let r = resolve_in(&tmp, "decide::Proceed", 1);
-        assert!(matches!(r, Resolution::Ambiguous(_)), "got {r:?}");
+        assert!(matches!(r, Resolution::Ambiguous { .. }), "got {r:?}");
     }
 
     // Verifies: REQ026 — a sort resolves to a real Rust type, so a quantified variable has
@@ -1933,6 +2051,93 @@ pub fn decide(u: u32) -> Decision { Decision::Proceed }\n",
         );
     }
 
+    // Verifies: #189 — a predicate may carry a module qualifier on its receiver type, so an
+    // ambiguous type name is not a dead end for predicates the way it stopped being one for sorts.
+    // Found by the fifth end-to-end pass: on a subject declaring `Entry` twice, the sort grounded
+    // via `pending::Entry` and the predicate could not be named at all, so the requirement parked.
+    // The adapter refused any observable deeper than `A::B`, on the grounds that guessing which two
+    // segments were meant would bind something the operator did not write — true until #138 gave a
+    // written module a checkable meaning.
+    #[test]
+    fn a_predicate_receiver_can_be_qualified_by_module() {
+        let tmp = subject(
+            "mod alpha { pub struct Entry; impl Entry { pub fn is_clear(&self) -> bool { true } } }\n\
+             mod beta { pub struct Entry; }\n",
+        );
+
+        let r = resolve_typed(&tmp, "alpha::Entry::is_clear", &[Some("Entry".to_string())]);
+        assert!(
+            matches!(r, Resolution::Resolved { .. }),
+            "a qualified receiver must resolve, got {r:?}"
+        );
+
+        // The qualifier discriminates: `beta::Entry` has no such method.
+        let wrong = resolve_typed(&tmp, "beta::Entry::is_clear", &[Some("Entry".to_string())]);
+        assert!(
+            !matches!(wrong, Resolution::Resolved { .. }),
+            "the qualifier must pick a type, not merely be tolerated: {wrong:?}"
+        );
+
+        // And the unqualified form is still the ambiguity it always was.
+        assert!(matches!(
+            resolve_typed(&tmp, "Entry::is_clear", &[Some("Entry".to_string())]),
+            Resolution::Ambiguous { .. }
+        ));
+    }
+
+    // Verifies: #190 — an ambiguity says WHICH half was ambiguous, and offers forms that exist.
+    // Measured: two `struct Entry` declarations were reported as "2 functions share the name"
+    // pointing at struct declarations, with exactly one `is_clear` in the subject — sending the
+    // operator to look for a second method that was not there. The offer was wrong too, in a way
+    // only a live run showed: it stripped to the last segment and proposed `pending::is_clear`,
+    // which the adapter does not accept, so the advertised way out did not exist.
+    #[test]
+    fn an_ambiguity_names_what_was_ambiguous_and_offers_a_form_that_works() {
+        let tmp = subject(
+            "mod alpha { pub struct Entry; impl Entry { pub fn is_clear(&self) -> bool { true } } }\n\
+             mod beta { pub struct Entry; }\n",
+        );
+        let r = resolve_typed(&tmp, "Entry::is_clear", &[Some("Entry".to_string())]);
+        let Resolution::Ambiguous { kind, .. } = &r else {
+            panic!("should be ambiguous, got {r:?}")
+        };
+        assert_eq!(
+            *kind,
+            AmbiguityKind::Types,
+            "the METHOD is unique; the type is not"
+        );
+
+        let text = r.describe("clear", "Entry::is_clear");
+        assert!(text.contains("types share the name"), "{text}");
+        assert!(
+            !text.contains("functions share the name"),
+            "a struct must not be reported as a function: {text}"
+        );
+        // The offered forms must be ones the adapter would actually accept.
+        for offered in [
+            "`auth::alpha::Entry::is_clear`",
+            "`auth::beta::Entry::is_clear`",
+        ] {
+            assert!(text.contains(offered), "must offer {offered}: {text}");
+        }
+    }
+
+    // Verifies: #190 — several functions of one name still report as functions. The kind must
+    // discriminate rather than relabel every ambiguity as the newest case.
+    #[test]
+    fn several_functions_of_one_name_are_still_reported_as_functions() {
+        let tmp =
+            subject("pub fn login() -> bool { true }\nmod m { pub fn login() -> bool { true } }\n");
+        let r = resolve_in(&tmp, "login", 0);
+        let Resolution::Ambiguous { kind, .. } = &r else {
+            panic!("should be ambiguous, got {r:?}")
+        };
+        assert_eq!(*kind, AmbiguityKind::Functions);
+        assert!(r
+            .describe("l", "login")
+            .contains("functions share the name"));
+    }
+
     // Verifies: #138 — a module-qualified sort picks one of two types sharing a name. This is the
     // way out of the `Ambiguous` park above, whose own read-back has always said "qualify it"
     // while the sort side matched a bare ident only — advice nothing could act on.
@@ -1972,7 +2177,7 @@ pub fn decide(u: u32) -> Decision { Decision::Proceed }\n",
         // An unqualified sort is unchanged: nothing written to check, so both still match.
         assert!(matches!(
             resolve_type(&subject, "User"),
-            TypeResolution::Ambiguous(_)
+            TypeResolution::Ambiguous { .. }
         ));
     }
 
