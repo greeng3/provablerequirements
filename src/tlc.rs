@@ -582,16 +582,49 @@ fn witness(output: &str) -> Option<String> {
     Some(trace.join("\n").trim_end().to_string())
 }
 
-/// Why TLC could not decide, in the operator's terms — the first `Error:`/`***` line (a parse
-/// error or an unassigned constant states its cause on that line), else the tail of the log.
+/// Why TLC could not decide, in the operator's terms — the first `Error:`/`***` line, plus the
+/// cause that follows when that line is one of SANY's banners, else the tail of the log.
+///
+/// **A `***` line is a banner, never a diagnosis.** SANY's semantic family prints
+/// `*** Errors: N` and its syntactic family `***Parse Error***`; in both, the location and the
+/// message follow on later lines. Reporting the banner alone handed the operator a *count*
+/// where they needed a *cause* — a wrong-arity model binding read as `*** Errors: 1` while TLC
+/// had plainly said `The operator accepted requires 0 arguments.` (#206). That silence covered
+/// every SANY parse/semantic failure reachable from cat-2a, not just arity.
+///
+/// An `Error:` line is carried unchanged, because TLC's own runtime errors do state their cause
+/// there (`Error: The constant parameter MaxLen is not assigned a value …`) — which is why the
+/// banner case went unnoticed: the case this was first written against genuinely works.
 fn diagnostic(output: &str) -> String {
-    output
-        .lines()
-        .map(str::trim)
-        .find(|l| l.starts_with("Error:") || l.starts_with("***"))
-        .map(str::to_string)
-        .unwrap_or_else(|| tail(output))
+    let lines: Vec<&str> = output.lines().map(str::trim).collect();
+    let Some(at) = lines
+        .iter()
+        .position(|l| l.starts_with("Error:") || l.starts_with("***"))
+    else {
+        return tail(output);
+    };
+    if !lines[at].starts_with("***") {
+        return lines[at].to_string();
+    }
+    // The banner is kept ahead of the cause: `*** Errors: 3` tells the operator that what
+    // follows is the first of several, so a single reason never reads as the whole story.
+    std::iter::once(lines[at])
+        .chain(
+            lines[at + 1..]
+                .iter()
+                .filter(|l| !l.is_empty())
+                .take(BANNER_CAUSE_LINES)
+                .copied(),
+        )
+        .collect::<Vec<_>>()
+        .join(" — ")
 }
+
+/// How many lines after a SANY banner carry the cause. Two is what each banner family needs —
+/// location then message for a semantic error, `Was expecting` then `Encountered` for a parse
+/// error — and it holds a multi-error run to its *first* cause instead of pasting the list into
+/// a verdict.
+const BANNER_CAUSE_LINES: usize = 2;
 
 /// The last few non-empty lines of TLC output — enough to see why it could not decide without
 /// pasting a whole log into the verdict.
@@ -890,6 +923,71 @@ Error: The constant parameter MaxLen is not assigned a value by the configuratio
         assert!(reason.contains("not assigned"), "{reason}");
     }
 
+    // Verifies: REQ029 (#206) — a SANY *semantic* failure reports the CAUSE, not the count.
+    // Captured verbatim from a real TLC run over a wrong-arity model binding (`accepted(m)`
+    // bound to a 0-ary VARIABLE): the actionable sentence sits three lines below the banner,
+    // and reporting `*** Errors: 1` alone told the operator only that something was wrong.
+    #[test]
+    fn a_sany_semantic_banner_reports_the_cause_not_the_count() {
+        let output = "\
+Semantic processing of module probe
+Semantic errors:
+
+*** Errors: 1
+
+line 4, col 55 to line 4, col 57 of module probe
+
+The operator accepted requires 0 arguments.
+
+Starting... (2026-08-04 23:07:37)
+Error: Parsing or semantic analysis failed.
+";
+        let Outcome::Inconclusive { reason } = classify(output) else {
+            panic!("a spec SANY rejects decides nothing");
+        };
+        assert!(
+            reason.contains("requires 0 arguments"),
+            "the cause must survive: {reason}"
+        );
+        assert!(
+            reason.contains("line 4, col 55"),
+            "the location must survive: {reason}"
+        );
+    }
+
+    // Verifies: REQ029 (#206) — the *syntactic* banner family is carried the same way. Also
+    // captured from a real run. `***Parse Error***` is as empty a reason as `*** Errors: 1`.
+    #[test]
+    fn a_sany_parse_banner_reports_the_cause_not_the_count() {
+        let output = "\
+Parsing file probe2.tla
+***Parse Error***
+Was expecting \"==== or more Module body\"
+Encountered \"<EOF>\" at line 8, column 15 and token \"0\"
+
+Residual stack trace follows:
+";
+        let Outcome::Inconclusive { reason } = classify(output) else {
+            panic!("a spec SANY cannot parse decides nothing");
+        };
+        assert!(reason.contains("Was expecting"), "{reason}");
+        assert!(reason.contains("at line 8, column 15"), "{reason}");
+        assert!(
+            !reason.contains("Residual stack trace"),
+            "the cause is bounded — a stack-trace header is not a diagnosis: {reason}"
+        );
+    }
+
+    // Verifies: REQ029 (#206) — a banner with nothing after it still reports the banner rather
+    // than falling through to the log tail; the operator loses nothing that was ever there.
+    #[test]
+    fn a_banner_with_no_cause_after_it_is_still_the_reason() {
+        let Outcome::Inconclusive { reason } = classify("Starting...\n*** Errors: 1\n") else {
+            panic!("a banner decides nothing");
+        };
+        assert_eq!(reason, "*** Errors: 1");
+    }
+
     // Verifies: REQ029 — output with no verdict line is inconclusive and says so, never a
     // silent pass.
     #[test]
@@ -1026,6 +1124,36 @@ Error: The constant parameter MaxLen is not assigned a value by the configuratio
             outcome,
             Outcome::Holds,
             "a fair leads-to must verify: {outcome:?}"
+        );
+    }
+
+    // Verifies: REQ029 (#206) — THE REAL ENGINE, on a spec SANY rejects: the inconclusive
+    // carries TLC's own cause, not its count. `accepted` is bound to the 0-ary VARIABLE `pc`
+    // instead of the 1-ary `Accepted`, which grounds today (existence-only, REQ028) and reaches
+    // TLC — the exact operator slip #119 is about. The pure `classify` tests pin the parsing,
+    // but only the real engine proves SANY still frames a semantic error this way; a banner
+    // whose cause moved would leave the operator with `*** Errors: 1` again.
+    #[test]
+    #[ignore = "needs TLC installed — run via `cargo test -- --ignored` (the CI `tlc` job)"]
+    fn real_tlc_reports_the_cause_of_a_wrong_arity_binding() {
+        let tmp = tla_subject(true);
+        let check = lower(
+            &req(MODEL_REQ),
+            "Msg",
+            &[
+                binding("accepted", "pc"),
+                binding("succeeded", "Succeeded"),
+                binding("Message", "Message"),
+            ],
+            "provreq_smoke",
+        )
+        .expect("a wrong-arity binding still lowers — arity is not checked here");
+        let Outcome::Inconclusive { reason } = run(&site_for(&tmp), &check) else {
+            panic!("a spec SANY rejects decides nothing");
+        };
+        assert!(
+            reason.contains("requires 0 arguments"),
+            "the operator must get TLC's cause, not its count: {reason}"
         );
     }
 
