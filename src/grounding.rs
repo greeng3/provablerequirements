@@ -190,13 +190,29 @@ pub fn predicate_arity(req: &Requirement, symbol: &str) -> Option<usize> {
 /// - the argument is not the quantified variable (a free variable has no sort here — #136),
 /// - the property is unquantified, or its sort is not bound to a type yet,
 /// - two properties apply the predicate to variables of *different* sorts in the same position,
-///   which is a disagreement in the requirement, not a fact about the subject's code.
+///   which is a disagreement in the requirement, not a fact about the subject's code,
+/// - **the sort is bound, but that binding did not resolve against the subject** (#198).
 ///
-/// Pure, and separate from the adapter on purpose: the sort a parameter should take is the
-/// **requirement's** claim, and the adapter's job is only to read what the subject wrote.
+/// That last one is why `sort_resolutions` is here. The expected type is only ever the *text* an
+/// operator wrote in a sort binding, and text alone is not an established type: a sort bound to
+/// `Nope` yields an expected `Nope`, which duly differs from whatever the subject's parameter says,
+/// and the predicate binding is parked for a disagreement with a type that does not exist. Measured
+/// on a real subject: one mistake (a sort naming nothing) produced two reasons, and the second one
+/// named the predicate binding — which resolved correctly, to the right function, at the right line.
+/// The operator is sent to inspect a binding that needs no action, and the true reason is the one
+/// printed second. So where the sort did not resolve, this says nothing and lets the sort's own
+/// reason stand alone.
+///
+/// The returned length is always the declared arity — a silenced position becomes `None`, never a
+/// shorter vector, because [`crate::rust_adapter::resolve`] checks arity against this length.
+///
+/// Separate from the adapter on purpose: the sort a parameter should take is the **requirement's**
+/// claim, and the adapter's job is only to read what the subject wrote. Consulting an
+/// already-computed resolution is not adapter work — nothing here reads the subject.
 pub fn expected_param_types(
     req: &Requirement,
     bindings: &[Binding],
+    sort_resolutions: &BTreeMap<String, TypeResolution>,
     symbol: &str,
 ) -> Vec<Option<String>> {
     let arity = predicate_arity(req, symbol).unwrap_or(0);
@@ -220,6 +236,14 @@ pub fn expected_param_types(
                     .iter()
                     .find(|b| b.var == arg.trim())
                     .and_then(|b| b.sort.as_ref())
+                    // A sort whose own binding did not resolve establishes no type, so this
+                    // position has nothing to be compared against. Absent from the map counts as
+                    // unresolved: not knowing whether it resolved is not knowing the type.
+                    .filter(|sort| {
+                        sort_resolutions
+                            .get(sort.as_str())
+                            .is_some_and(TypeResolution::is_resolved)
+                    })
                     .and_then(|sort| bindings.iter().find(|b| b.symbol == *sort))
                     .map(|b| b.observable.trim().to_string())
                     .filter(|o| !o.is_empty())
@@ -340,24 +364,29 @@ pub fn resolve_bindings(
     let parsed = crate::rust_adapter::ParsedSubject::load(subject, companion);
     let specs = crate::tla_adapter::SubjectSpecs::load(subject, companion);
     let code = in_category(BindCategory::Code);
-    let predicates = code
-        .iter()
-        .filter(|b| !is_sort(requirement, &b.symbol))
-        .map(|b| {
-            let params = expected_param_types(requirement, bindings, &b.symbol);
-            (
-                b.symbol.clone(),
-                crate::rust_adapter::resolve(&parsed, &b.observable, &params),
-            )
-        })
-        .collect();
-    let sorts = code
+    // Sorts first, and the order is load-bearing (#198): a predicate's parameter check compares
+    // against the type its argument's sort resolved to, so it cannot run until that is known.
+    // Resolved in the other order, the check compared against whatever text the sort binding held —
+    // including text naming no type at all — and parked correct predicate bindings for disagreeing
+    // with it.
+    let sorts: BTreeMap<String, TypeResolution> = code
         .iter()
         .filter(|b| is_sort(requirement, &b.symbol))
         .map(|b| {
             (
                 b.symbol.clone(),
                 crate::rust_adapter::resolve_type(&parsed, &b.observable),
+            )
+        })
+        .collect();
+    let predicates = code
+        .iter()
+        .filter(|b| !is_sort(requirement, &b.symbol))
+        .map(|b| {
+            let params = expected_param_types(requirement, bindings, &sorts, &b.symbol);
+            (
+                b.symbol.clone(),
+                crate::rust_adapter::resolve(&parsed, &b.observable, &params),
             )
         })
         .collect();
@@ -552,6 +581,16 @@ mod tests {
         }
     }
 
+    /// Sort resolutions in which every named sort resolved — the ordinary case, and the one the
+    /// parameter cross-check is allowed to speak in (#198). A sort absent from this map counts as
+    /// unresolved, which is the whole point: the check stays silent about it.
+    fn sorts_resolved(names: &[&str]) -> BTreeMap<String, TypeResolution> {
+        names
+            .iter()
+            .map(|s| (s.to_string(), TypeResolution::Resolved(at("src/a.rs"))))
+            .collect()
+    }
+
     // Verifies: REQ021/REQ025 (R-ground-1/2) — a requirement grounds only when every
     // symbol is bound in category 1 and each binding RESOLVES to a real state predicate.
     #[test]
@@ -694,7 +733,12 @@ mod tests {
             sort_binding("Flag", "bool"),
         ];
         assert_eq!(
-            expected_param_types(&r, &bindings, "proceeds"),
+            expected_param_types(
+                &r,
+                &bindings,
+                &sorts_resolved(&["Decision", "Flag"]),
+                "proceeds"
+            ),
             vec![
                 Some("InstallDecision".to_string()),
                 Some("bool".to_string())
@@ -763,18 +807,69 @@ mod tests {
             code_binding("logged_in", "login"),
             sort_binding("User", "AuthUser"),
         ];
+        let resolved_sorts = sorts_resolved(&["User"]);
         assert_eq!(
-            expected_param_types(&r, &bindings, "logged_in"),
+            expected_param_types(&r, &bindings, &resolved_sorts, "logged_in"),
             vec![Some("AuthUser".to_string())]
         );
 
         // An unbound sort says nothing about the parameter — the requirement parks on the
         // unbound sort itself, which is the honest reason.
         let unbound = vec![code_binding("logged_in", "login")];
-        assert_eq!(expected_param_types(&r, &unbound, "logged_in"), vec![None]);
+        assert_eq!(
+            expected_param_types(&r, &unbound, &resolved_sorts, "logged_in"),
+            vec![None]
+        );
 
         // A predicate the requirement does not declare has no parameters to speak for.
-        assert!(expected_param_types(&r, &bindings, "not_declared").is_empty());
+        assert!(expected_param_types(&r, &bindings, &resolved_sorts, "not_declared").is_empty());
+    }
+
+    // Verifies: REQ057 (#198) — a sort that is BOUND but did not RESOLVE says nothing about the
+    // parameter either. The expected type is only the text an operator wrote, and text naming no
+    // type is not an established type to compare against. Measured on a real subject: binding a
+    // sort to `Nope` parked the predicate too, for disagreeing with a type that does not exist —
+    // and that predicate binding had resolved correctly, to the right function, at the right line.
+    #[test]
+    fn a_sort_that_did_not_resolve_says_nothing_about_the_parameter() {
+        let r = req(CODE_REQ);
+        let bindings = vec![
+            code_binding("logged_in", "login"),
+            sort_binding("User", "Nope"),
+        ];
+        // Every way a sort binding can fail to resolve is the same answer here: nothing claimed.
+        for outcome in [
+            TypeResolution::NotFound,
+            TypeResolution::Ambiguous(vec![at("src/a.rs"), at("src/b.rs")]),
+            TypeResolution::QualifierUnmatched {
+                name: "Nope".into(),
+                candidates: vec![at("src/a.rs")],
+            },
+            TypeResolution::UnusableTypeArguments {
+                reason: "…".into()
+            },
+        ] {
+            let sorts = BTreeMap::from([("User".to_string(), outcome.clone())]);
+            assert_eq!(
+                expected_param_types(&r, &bindings, &sorts, "logged_in"),
+                vec![None],
+                "an unresolved sort ({outcome:?}) must not be compared against"
+            );
+        }
+
+        // Not knowing whether the sort resolved is not knowing the type, so an absent entry is
+        // silence too — never a comparison against the raw observable.
+        assert_eq!(
+            expected_param_types(&r, &bindings, &BTreeMap::new(), "logged_in"),
+            vec![None]
+        );
+
+        // The length is still the declared arity: `resolve` checks arity against it, so silencing
+        // a position must never shorten the vector.
+        assert_eq!(
+            expected_param_types(&r, &bindings, &BTreeMap::new(), "logged_in").len(),
+            1
+        );
     }
 
     // Verifies: REQ057 — every position the requirement cannot speak for stays `None`, so the
@@ -791,7 +886,7 @@ mod tests {
         }");
         let bindings = vec![code_binding("pair", "pair"), sort_binding("User", "User")];
         assert_eq!(
-            expected_param_types(&free, &bindings, "pair"),
+            expected_param_types(&free, &bindings, &sorts_resolved(&["User"]), "pair"),
             vec![Some("User".to_string()), None]
         );
 
@@ -809,7 +904,12 @@ mod tests {
             sort_binding("Session", "Session"),
         ];
         assert_eq!(
-            expected_param_types(&conflicting, &two_sorts, "p"),
+            expected_param_types(
+                &conflicting,
+                &two_sorts,
+                &sorts_resolved(&["User", "Session"]),
+                "p"
+            ),
             vec![None]
         );
     }

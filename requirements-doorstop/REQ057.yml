@@ -29,3 +29,12 @@ text: |
   written name to compare, or where the two sides could only be reconciled by resolving types
   rather than reading them, nothing is claimed and the binding stands on its other checks. A false
   park costs the operator a working binding, which is a worse failure than the one this removes.
+
+  The same applies where the sort itself did not resolve. What the requirement offers is the name
+  an operator wrote for a domain, and a name is not an established type until it has been found in
+  the subject; comparing a predicate's parameter against a name that turned out to be nothing tests
+  the parameter against a type that does not exist. The failure this produces is not a wrong
+  verdict — the requirement is ungrounded either way, and correctly so — but a second reason,
+  naming a second binding, for a single mistake. That reason accuses the predicate binding, which
+  may be entirely correct, and the operator is sent to inspect something that needs no change while
+  the true reason waits behind it. One mistake earns one reason, stated where the mistake is.
