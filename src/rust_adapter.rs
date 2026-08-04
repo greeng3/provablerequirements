@@ -1319,6 +1319,41 @@ pub fn fn_source_at(text: &str, line: usize) -> Option<String> {
 /// `line`, descending into inline modules and impl blocks. The end is the line of the body's
 /// closing brace, available because proc-macro2's `span-locations` feature is on (the same feature
 /// [`found`] relies on for the start line).
+/// The type of the `impl` block enclosing the function whose ident is on `line`, or `None` when it
+/// is a free function (or not found).
+///
+/// A method's source alone does not say what `self` is — `pub fn is_clear(&self) -> bool` names no
+/// type — so a mirror that must turn `&self` into an ordinary first parameter needs this. It is a
+/// fact of the subject the walk already passes over; asking the model to supply it instead is what
+/// produced `s: &Ent`, the requirement's own sort symbol, which is not a Rust type at all (#191).
+pub fn impl_type_at(text: &str, line: usize) -> Option<String> {
+    fn walk(items: &[syn::Item], line: usize) -> Option<String> {
+        for item in items {
+            match item {
+                syn::Item::Mod(m) => {
+                    if let Some((_, inner)) = &m.content {
+                        if let Some(found) = walk(inner, line) {
+                            return Some(found);
+                        }
+                    }
+                }
+                syn::Item::Impl(i) => {
+                    let holds_it = i.items.iter().any(|sub| {
+                        matches!(sub, syn::ImplItem::Fn(f)
+                            if f.sig.ident.span().start().line == line)
+                    });
+                    if holds_it {
+                        return type_ident(&i.self_ty);
+                    }
+                }
+                _ => {}
+            }
+        }
+        None
+    }
+    walk(&syn::parse_file(text).ok()?.items, line)
+}
+
 fn find_fn_span(items: &[syn::Item], line: usize) -> Option<(usize, usize)> {
     let end_line = |sig: &syn::Signature, block: &syn::Block| {
         (sig.ident.span().start().line == line)
