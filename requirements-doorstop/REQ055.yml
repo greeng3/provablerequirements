@@ -31,3 +31,16 @@ text: |
   function that takes a receiver is called on that receiver whichever way it was named, because a
   call the subject cannot compile is not a check — it is a failure the operator has to diagnose
   from a compiler message rather than from the tool.
+
+  That principle decides the harder case rather than excusing it. A property may be carried by a
+  method the type gets from a trait, which is how a great deal of well-modelled code exposes one,
+  and the ordinary way of calling such a method depends on the trait being in scope where the call
+  is written. The proof the tool generates is not the operator's file and imports nothing of their
+  choosing, so a call relying on scope is a call that may not compile. The tool therefore writes
+  such a call in the form that names the trait outright and so depends on no import. This also
+  settles what would otherwise be an ambiguity, since one type may take the same method name from
+  more than one trait, and the tool must never choose between them silently.
+
+  Naming a trait means resolving it, and where the subject does not declare it exactly once there
+  is no name the proof can use. The binding then does not ground, for the same reason any
+  unresolvable name does not: the alternative is a path the tool invented.

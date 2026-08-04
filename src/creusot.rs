@@ -164,7 +164,7 @@ pub fn with_mirrors(
         // The program item's own name, per form: the observable names it only for a free function.
         let program_name = match form {
             PredicateForm::Function => binding.observable.as_str(),
-            PredicateForm::Method { name } => name.as_str(),
+            PredicateForm::Method { name, .. } => name.as_str(),
             PredicateForm::VariantTest { name, .. } => name.as_str(),
         };
         let mirror = crate::mirror_draft::mirror_name(program_name);
@@ -1226,6 +1226,7 @@ mod tests {
                     params: vec![ParamMode::ByRef],
                     form: PredicateForm::Method {
                         name: "is_ready".into(),
+                        via_trait: None,
                     },
                 },
             ),

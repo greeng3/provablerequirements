@@ -460,17 +460,40 @@ fn lower_call(
             item_path(prefix, at, observable)?,
             args.join(", ")
         )),
-        PredicateForm::Method { name } => {
+        PredicateForm::Method { name, via_trait } => {
             let (recv, rest) = args.split_first().ok_or_else(|| {
                 NotLowerable::new(format!(
-                    "`{name}` is an inherent method, so the predicate needs a first argument to \
-                     call it on, but it is applied to none"
+                    "`{name}` is a method, so the predicate needs a first argument to call it on, \
+                     but it is applied to none"
                 ))
             })?;
-            // The receiver takes its own reference: `u.is_ready()` auto-refs, and `(&u).is_ready()`
-            // would double it when the method takes `&self`.
-            let recv = recv.strip_prefix('&').unwrap_or(recv);
-            Ok(format!("{recv}.{name}({})", rest.join(", ")))
+            let Some(q) = via_trait else {
+                // Inherent: the receiver takes its own reference, because `u.is_ready()` auto-refs
+                // and `(&u).is_ready()` would double it when the method takes `&self`.
+                let recv = recv.strip_prefix('&').unwrap_or(recv);
+                return Ok(format!("{recv}.{name}({})", rest.join(", ")));
+            };
+            // A trait method is written fully qualified, so the harness needs no `use` for the
+            // trait — which it could not add, being generated into a file that imports nothing of
+            // the subject's choosing (#200). Here the receiver KEEPS its `&`: this is an ordinary
+            // call taking the receiver as its first argument, with none of the auto-ref a method
+            // call would apply.
+            let named = |module: &Option<Vec<String>>, name: &str| {
+                item_path(
+                    prefix,
+                    &CodeMatch {
+                        module: module.clone(),
+                        ..at.clone()
+                    },
+                    name,
+                )
+            };
+            Ok(format!(
+                "<{} as {}>::{name}({})",
+                named(&q.type_module, &q.type_name)?,
+                named(&q.trait_module, &q.trait_name)?,
+                args.join(", ")
+            ))
         }
         PredicateForm::VariantTest {
             name,
@@ -630,6 +653,7 @@ mod tests {
             vec![ParamMode::ByRef],
             PredicateForm::Method {
                 name: "is_ready".into(),
+                via_trait: None,
             },
             "Engine::is_ready",
         );
@@ -637,6 +661,59 @@ mod tests {
         assert!(
             !claim.contains("crate::"),
             "a method must not be reached through a path: {claim}"
+        );
+    }
+
+    // Verifies: #200 — a trait method lowers to its FULLY-QUALIFIED form. The harness is generated
+    // into a file that imports nothing of the subject's choosing, so `s.is_healthy()` would need a
+    // `use` it cannot add; `<Type as Trait>::method(&s)` needs none, and stays unambiguous if two
+    // traits give one type the same method name.
+    //
+    // Note the receiver KEEPS its `&`, unlike the inherent form: this is an ordinary call taking
+    // the receiver as its first argument, with none of the auto-ref a method call applies. Getting
+    // that backwards is a harness that does not compile.
+    #[test]
+    fn a_trait_method_lowers_to_its_fully_qualified_form() {
+        let claim = lower_with(
+            vec![ParamMode::ByRef],
+            PredicateForm::Method {
+                name: "is_healthy".into(),
+                via_trait: Some(crate::rust_adapter::TraitQualification {
+                    trait_name: "Health".into(),
+                    trait_module: Some(vec!["status".into()]),
+                    type_name: "Status".into(),
+                    type_module: Some(vec!["status".into()]),
+                }),
+            },
+            "Status::is_healthy",
+        );
+        assert_eq!(
+            claim,
+            "<crate::status::Status as crate::status::Health>::is_healthy(&u)"
+        );
+    }
+
+    // Verifies: #200 — the trait and the type are named INDEPENDENTLY, each through the module it
+    // is declared in. A trait is routinely declared somewhere other than the type implementing it,
+    // and assuming one module for both would write a path that does not resolve.
+    #[test]
+    fn a_trait_and_its_type_are_named_through_their_own_modules() {
+        let claim = lower_with(
+            vec![ParamMode::ByRef],
+            PredicateForm::Method {
+                name: "is_healthy".into(),
+                via_trait: Some(crate::rust_adapter::TraitQualification {
+                    trait_name: "Health".into(),
+                    trait_module: Some(vec!["traits".into(), "health".into()]),
+                    type_name: "Status".into(),
+                    type_module: Some(vec!["model".into()]),
+                }),
+            },
+            "Status::is_healthy",
+        );
+        assert_eq!(
+            claim,
+            "<crate::model::Status as crate::traits::health::Health>::is_healthy(&u)"
         );
     }
 
@@ -1134,6 +1211,7 @@ mod tests {
                 vec![],
                 PredicateForm::Method {
                     name: "ready".into(),
+                    via_trait: None,
                 },
             ),
         )]);

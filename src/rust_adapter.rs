@@ -74,11 +74,22 @@ pub enum PredicateForm {
     /// for this form the observable *is* the call — only the qualified forms name something the
     /// binding string does not already say.
     Function,
-    /// An inherent method written `-> bool`. The receiver is the predicate's **first** argument,
-    /// so `state ready(u)` against `fn is_ready(&self)` lowers to `u.is_ready()`. Determined by
+    /// A method written `-> bool`. The receiver is the predicate's **first** argument, so
+    /// `state ready(u)` against `fn is_ready(&self)` lowers to `u.is_ready()`. Determined by
     /// the signature having a `self` receiver, not by how the operator wrote the binding — a
     /// method found by its bare name is still a method.
-    Method { name: String },
+    Method {
+        name: String,
+        /// `Some` when the method comes from a **trait** impl rather than an inherent one (#200),
+        /// carrying what the harness needs to call it without importing anything.
+        ///
+        /// An inherent call (`u.is_ready()`) compiles wherever `u` is in scope. A trait method does
+        /// not: `u.is_healthy()` needs the trait in scope, and the harness is generated into a file
+        /// that imports nothing of the subject's choosing. So a trait method is called in its
+        /// fully-qualified form instead, which needs no import and stays unambiguous when two traits
+        /// give one type the same method name.
+        via_trait: Option<TraitQualification>,
+    },
     /// A function returning an enum, tested against one variant:
     /// `match prefix::name(args) { prefix::enum_name::variant { .. } => true, _ => false }`. The
     /// `{ .. }` form matches unit, tuple, and struct variants alike, so the binding does not have
@@ -93,6 +104,22 @@ pub enum PredicateForm {
         /// [`CodeMatch::module`] is: nothing a harness can write would reach it.
         enum_module: Option<Vec<String>>,
     },
+}
+
+/// Everything the harness needs to write a trait method call in its fully-qualified form —
+/// `<crate::status::Status as crate::status::Health>::is_healthy(&s)` (#200).
+///
+/// Both halves carry the module they are **declared** in, not the one the `impl` block sits in,
+/// for the same reason [`PredicateForm::VariantTest`] carries `enum_module`: the harness names each
+/// item independently, and the type, the trait and the impl need not share a module. A `None`
+/// module is the same refusal it is everywhere else (REQ061) — the item exists, but nothing a
+/// harness writes reaches it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TraitQualification {
+    pub trait_name: String,
+    pub trait_module: Option<Vec<String>>,
+    pub type_name: String,
+    pub type_module: Option<Vec<String>>,
 }
 
 /// What resolving one cat-1 binding against the subject's Rust found. Every non-resolved
@@ -321,9 +348,22 @@ impl PredicateForm {
     fn describe_call(&self, symbol: &str) -> String {
         match self {
             PredicateForm::Function => "called directly".to_string(),
-            PredicateForm::Method { name } => {
+            // The read-back distinguishes the two, because they are two different facts about the
+            // subject and the operator is confirming which one they meant (#200).
+            PredicateForm::Method {
+                name,
+                via_trait: None,
+            } => {
                 format!("an inherent method — checked as `<first argument of {symbol}>.{name}(…)`")
             }
+            PredicateForm::Method {
+                name,
+                via_trait: Some(q),
+            } => format!(
+                "a method of the trait `{}` — checked as `<{} as {}>::{name}(<first argument of \
+                 {symbol}>)`, written out in full so the proof needs no import",
+                q.trait_name, q.type_name, q.trait_name
+            ),
             PredicateForm::VariantTest {
                 name,
                 enum_name,
@@ -961,9 +1001,13 @@ fn resolve_bare(subject: &ParsedSubject, name: &str, params: &[Option<String>]) 
         0 => Resolution::NotFound,
         1 => {
             let f = found.into_iter().next().expect("len checked");
+            // A bare name only ever finds a FREE function ([`find_functions`]), so a receiver here
+            // means an inherent method reached without its type — never a trait method, which is
+            // why nothing qualifies it.
             let form = if f.has_receiver {
                 PredicateForm::Method {
                     name: name.to_string(),
+                    via_trait: None,
                 }
             } else {
                 PredicateForm::Function
@@ -1122,8 +1166,36 @@ fn method_on(
         },
         1 => {
             let f = found.pop().expect("len checked");
+            // A trait method is called in its fully-qualified form, which needs the trait's own
+            // declaration — not the impl's module, which is where it is *used* (#200). A trait the
+            // subject does not declare exactly once cannot be named, and a method that cannot be
+            // named cannot be called, so that is a refusal rather than a guess.
+            let via_trait = match &f.via_trait {
+                None => None,
+                Some(trait_name) => {
+                    let Some(trait_at) = find_trait(subject, trait_name) else {
+                        return Resolution::NoSuchMethod {
+                            ty: ty.to_string(),
+                            method: method.to_string(),
+                            methods: find_methods(subject, ty, None)
+                                .into_iter()
+                                .filter(&same_module)
+                                .map(|f| f.name)
+                                .collect(),
+                            at: ty_at,
+                        };
+                    };
+                    Some(TraitQualification {
+                        trait_name: trait_name.clone(),
+                        trait_module: trait_at.module,
+                        type_name: ty.to_string(),
+                        type_module: ty_at.module.clone(),
+                    })
+                }
+            };
             let form = PredicateForm::Method {
                 name: method.to_string(),
+                via_trait,
             };
             classify(f, params, form)
         }
@@ -1145,6 +1217,9 @@ struct FoundFn {
     returns: String,
     /// Whether the signature takes a `self` receiver — the syntactic fact that makes it a method.
     has_receiver: bool,
+    /// The trait this method came from, when it was found in a trait impl (#200). `None` for a free
+    /// function or an inherent method, both of which the harness reaches without naming a trait.
+    via_trait: Option<String>,
 }
 
 /// Decide whether a single found function can stand for the predicate. The checks run
@@ -1412,10 +1487,18 @@ fn collect_enums(
     }
 }
 
-/// Inherent methods declared in `impl <ty>` blocks — all of them when `name` is `None`, or just
-/// the ones so named. Trait impls (`impl Trait for Ty`) are skipped: a trait method is reached
-/// through the trait, and calling it on a value the harness built would depend on the trait being
-/// in scope, which `syn` cannot see (REQ055).
+/// Methods declared on `ty` — all of them when `name` is `None`, or just the ones so named.
+///
+/// Both **inherent** (`impl Ty`) and **trait** (`impl Trait for Ty`) impls (#200). Trait impls were
+/// skipped, on the reasoning that calling one depends on the trait being in scope and `syn` cannot
+/// see scope. True of a method call; not true of the fully-qualified form, which names the trait
+/// itself and so needs nothing imported — see [`TraitQualification`]. The cost of skipping them was
+/// measured: a predicate bound to a trait method could not ground at all, and a trait is how a large
+/// share of real Rust exposes a boolean query.
+///
+/// A **default** method — a body on the trait with no override in the impl — is still not found,
+/// because nothing declares it here. That is a refusal rather than an oversight: its declaration is
+/// in the trait, so `at` would point somewhere the operator did not bind.
 fn find_methods(subject: &ParsedSubject, ty: &str, name: Option<&str>) -> Vec<FoundFn> {
     let mut out = Vec::new();
     subject.each(|file, rel, text, module| {
@@ -1435,11 +1518,24 @@ fn collect_methods(
 ) {
     for item in items {
         match item {
-            syn::Item::Impl(i) if i.trait_.is_none() && self_type_is(&i.self_ty, ty) => {
+            syn::Item::Impl(i) if self_type_is(&i.self_ty, ty) => {
+                // `None` for an inherent impl, the trait's own name for a trait impl — which is
+                // what the harness must write to reach the method without an import.
+                let via_trait = match &i.trait_ {
+                    Some((_, path, _)) => match path.segments.last() {
+                        Some(seg) => Some(seg.ident.to_string()),
+                        // A trait path with no segments is not a trait this can name, so the impl
+                        // is skipped rather than guessed at.
+                        None => continue,
+                    },
+                    None => None,
+                };
                 for sub in &i.items {
                     if let syn::ImplItem::Fn(f) = sub {
                         if name.is_none_or(|n| f.sig.ident == n) {
-                            out.push(found(&f.sig, rel, text, Some(ty), module));
+                            let mut f = found(&f.sig, rel, text, Some(ty), module);
+                            f.via_trait = via_trait.clone();
+                            out.push(f);
                         }
                     }
                 }
@@ -1447,6 +1543,42 @@ fn collect_methods(
             syn::Item::Mod(m) => {
                 if let Some((_, inner)) = &m.content {
                     collect_methods(inner, ty, name, rel, text, &inside(module, &m.ident), out);
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+/// Where a trait of this name is declared, so a fully-qualified call can name it (#200). Same walk
+/// and skip rules as every other lookup; `None` when the subject declares no such trait, which
+/// leaves the method uncallable rather than called through a path provreq invented.
+fn find_trait(subject: &ParsedSubject, name: &str) -> Option<CodeMatch> {
+    let mut out = Vec::new();
+    subject.each(|file, rel, text, module| {
+        collect_traits(&file.items, name, rel, text, module, &mut out);
+    });
+    // Exactly one, for the same reason a sort must resolve to exactly one type: choosing between
+    // two would bind to whichever file was walked first.
+    (out.len() == 1).then(|| out.remove(0))
+}
+
+fn collect_traits(
+    items: &[syn::Item],
+    name: &str,
+    rel: &str,
+    text: &str,
+    module: &Option<Vec<String>>,
+    out: &mut Vec<CodeMatch>,
+) {
+    for item in items {
+        match item {
+            syn::Item::Trait(t) if t.ident == name => {
+                out.push(at_ident(&t.ident, rel, text, module));
+            }
+            syn::Item::Mod(m) => {
+                if let Some((_, inner)) = &m.content {
+                    collect_traits(inner, name, rel, text, &inside(module, &m.ident), out);
                 }
             }
             _ => {}
@@ -1487,6 +1619,8 @@ fn found(
             .collect(),
         returns: return_type(sig),
         has_receiver: matches!(sig.inputs.first(), Some(syn::FnArg::Receiver(_))),
+        // Set by the caller that knows: only `collect_methods` can see the enclosing impl.
+        via_trait: None,
     }
 }
 
@@ -1874,7 +2008,8 @@ impl Probe { pub fn is_ready(&self) -> bool { false } }
         assert_eq!(
             form,
             &PredicateForm::Method {
-                name: "is_ready".into()
+                name: "is_ready".into(),
+                via_trait: None
             }
         );
         assert!(at.text.contains("is_ready"), "{:?}", at.text);
@@ -1894,7 +2029,8 @@ impl Probe { pub fn is_ready(&self) -> bool { false } }
         assert_eq!(
             form,
             &PredicateForm::Method {
-                name: "ready".into()
+                name: "ready".into(),
+                via_trait: None
             }
         );
     }
@@ -1910,17 +2046,84 @@ impl Probe { pub fn is_ready(&self) -> bool { false } }
         assert!(msg.contains("name"), "{msg}");
     }
 
-    // Verifies: REQ055 — a trait impl is not an inherent method. Calling one depends on the trait
-    // being in scope at the harness, which `syn` cannot see, so binding to it would generate code
-    // whose correctness this adapter never established.
+    // Verifies: #200 — a TRAIT method resolves, carrying what a harness needs to call it without
+    // importing the trait.
+    //
+    // This test previously asserted the opposite, as `a_trait_method_is_not_an_inherent_method`:
+    // that a trait impl must NOT resolve, because calling one depends on the trait being in scope
+    // and `syn` cannot see scope. That reasoning was sound for a *method call* and was never true of
+    // the fully-qualified form, which names the trait and so needs nothing imported. The belief was
+    // right when written and quietly stopped being right — the fifth time in this codebase a test
+    // has held a limitation in place rather than catching one. Measured: a predicate bound to a
+    // trait method could not ground at all, which is how a very large share of real Rust exposes a
+    // boolean query.
     #[test]
-    fn a_trait_method_is_not_an_inherent_method() {
+    fn a_trait_method_resolves_and_carries_the_trait_it_came_from() {
         let tmp = subject(
             "pub struct S;\npub trait Ready { fn ready(&self) -> bool; }\n\
              impl Ready for S { fn ready(&self) -> bool { true } }\n",
         );
         let r = resolve_in(&tmp, "S::ready", 1);
-        assert!(matches!(r, Resolution::NoSuchMethod { .. }), "{r:?}");
+        let Resolution::Resolved { form, .. } = &r else {
+            panic!("a trait method resolves, got {r:?}")
+        };
+        let PredicateForm::Method {
+            name,
+            via_trait: Some(q),
+        } = form
+        else {
+            panic!("it is a method qualified by its trait, got {form:?}")
+        };
+        assert_eq!(name, "ready");
+        assert_eq!(q.trait_name, "Ready");
+        assert_eq!(q.type_name, "S");
+        // Each half carries where it is DECLARED, which is what the harness names it by.
+        assert_eq!(
+            q.trait_module.as_deref(),
+            Some(["auth".to_string()].as_ref())
+        );
+        assert_eq!(
+            q.type_module.as_deref(),
+            Some(["auth".to_string()].as_ref())
+        );
+
+        // The read-back says which kind it is, so the operator confirms the right fact.
+        let msg = r.describe("ready", "S::ready");
+        assert!(msg.contains("trait `Ready`"), "{msg}");
+        assert!(msg.contains("no import"), "{msg}");
+    }
+
+    // Verifies: #200 — an INHERENT method is still unqualified, so it keeps lowering to the plain
+    // method call it always did. The trait work must not change the form that already worked.
+    #[test]
+    fn an_inherent_method_carries_no_trait() {
+        let tmp = subject("pub struct S;\nimpl S { pub fn ready(&self) -> bool { true } }\n");
+        let r = resolve_in(&tmp, "S::ready", 1);
+        let Resolution::Resolved { form, .. } = &r else {
+            panic!("should resolve, got {r:?}")
+        };
+        assert!(
+            matches!(
+                form,
+                PredicateForm::Method {
+                    via_trait: None,
+                    ..
+                }
+            ),
+            "an inherent method names no trait: {form:?}"
+        );
+    }
+
+    // Verifies: #200 — a trait the subject does not declare cannot be named, so the method cannot
+    // be called, so it does not resolve. An `impl SomeExternalTrait for S` names a trait whose
+    // declaration is in another crate; writing a path to it would be a path provreq invented.
+    #[test]
+    fn a_method_of_a_trait_the_subject_does_not_declare_does_not_resolve() {
+        let tmp = subject(
+            "pub struct S;\nimpl std::fmt::Debug for S { fn ready(&self) -> bool { true } }\n",
+        );
+        let r = resolve_in(&tmp, "S::ready", 1);
+        assert!(!r.is_resolved(), "an unnameable trait cannot ground: {r:?}");
     }
 
     // Verifies: REQ055 — a path deeper than `A::B` names nothing this adapter understands, and
