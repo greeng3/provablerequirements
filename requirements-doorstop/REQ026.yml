@@ -5,7 +5,7 @@ level: 1.25
 links: []
 normative: true
 ref: ''
-reviewed: rDk2OK66cX3PEc2ubokXxTdTFcyLHwNLTkALSDb62mY=
+reviewed: null
 text: |
   A grounding binds the sorts a requirement speaks of, not only its predicates. The sorts
   are the types a quantified variable ranges over and any sort the vocabulary declares; a
@@ -17,6 +17,16 @@ text: |
   is not grounded, however well its predicates resolve: there is nothing for the variable to
   range over, so nothing could check the claim. As with predicates, an ambiguous name is
   never silently resolved to one of its candidates.
+
+  Because an ambiguous name is never guessed at, the operator must be able to say which type they
+  meant, and a sort binding may therefore be qualified by the module the type is declared in. Every
+  segment written is checked against that declaration, and the operator may begin at any depth; a
+  segment the tool cannot verify against the declaration is a mismatch, not something it overlooks,
+  because a name it cannot place is indistinguishable from a wrong one. A qualifier that matches no
+  declaration is reported as a wrong qualifier rather than a missing type — the type is there, and
+  saying otherwise would send the operator looking for something in front of them — and it is
+  reported alongside the qualified forms the subject really declares, so that advice to qualify a
+  name is always advice the operator can act on.
 
   Predicates and sorts are resolved separately and never cross-resolve. A predicate binds to
   a function and a sort binds to a type, so a function sharing a sort's name does not
