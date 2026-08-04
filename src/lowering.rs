@@ -248,7 +248,7 @@ fn non_boolean_condition(
                  stands as a condition on its own",
                 a.name
             )),
-            Some(TypeResolution::Resolved(_)) => Some(format!(
+            Some(TypeResolution::Resolved(_) | TypeResolution::Applied { .. }) => Some(format!(
                 "`{}` is used as a condition, but its sort `{sort}` is a type the subject \
                  declares, not the language's `bool` — apply a predicate to `{}` instead of \
                  asserting it",
@@ -285,15 +285,55 @@ fn sort_type(
                 binder.var
             ))
         })?;
-    match sort_resolutions.get(sort) {
-        Some(TypeResolution::Primitive(name)) => Ok(name.clone()),
-        Some(TypeResolution::Resolved(at)) => item_path(prefix, at, &observable),
-        _ => Err(NotLowerable::new(format!(
+    resolved_type(sort_resolutions.get(sort), prefix, &observable).ok_or_else(|| {
+        NotLowerable::new(format!(
             "the sort `{sort}` did not resolve to a type in the subject's source, so there is no \
              type to range `{}` over",
             binder.var
-        ))),
+        ))
+    })?
+}
+
+/// One resolved sort as the harness must write it — `None` when the sort did not resolve at all, so
+/// the caller can say which sort that was.
+///
+/// An **applied** type is written whole (#187): `crate::wrap::Wrapper<crate::auth::User>`, not
+/// `Wrapper` with its arguments dropped. Every part carries its own path, because the applied type
+/// and each of its arguments are declared in their own modules and a harness reaches each one
+/// separately — which is why the resolution keeps a `CodeMatch` per argument rather than a name.
+fn resolved_type(
+    resolution: Option<&TypeResolution>,
+    prefix: &str,
+    written: &str,
+) -> Option<Result<String, NotLowerable>> {
+    match resolution? {
+        TypeResolution::Primitive(name) => Some(Ok(name.clone())),
+        TypeResolution::Resolved(at) => Some(item_path(prefix, at, written)),
+        TypeResolution::Applied { at, args } => {
+            let head = match item_path(prefix, at, head_of(written)) {
+                Ok(path) => path,
+                Err(e) => return Some(Err(e)),
+            };
+            let mut parts = Vec::with_capacity(args.len());
+            for (arg, resolution) in args {
+                match resolved_type(Some(resolution), prefix, arg) {
+                    Some(Ok(path)) => parts.push(path),
+                    // An argument that resolved but cannot be *reached* (a `None` module) is the
+                    // same refusal as an unreachable sort, and it already names the argument.
+                    Some(Err(e)) => return Some(Err(e)),
+                    None => return None,
+                }
+            }
+            Some(Ok(format!("{head}<{}>", parts.join(", "))))
+        }
+        _ => None,
     }
+}
+
+/// The type name an observable applies its arguments to — `Wrapper<u32>` → `Wrapper`. What
+/// [`item_path`] needs, since the arguments are pathed separately.
+fn head_of(written: &str) -> &str {
+    written.split('<').next().unwrap_or(written).trim()
 }
 
 fn lower_expr(
@@ -645,6 +685,79 @@ mod tests {
         assert_eq!(quantified("bool"), "bool");
         assert_eq!(quantified("u32"), "u32");
         assert_eq!(quantified("Thing"), "mycrate::Thing");
+    }
+
+    // Verifies: REQ069 — an applied sort is written whole, and every part carries its own path. The
+    // applied type and its arguments are declared in their own modules, so a harness reaches each
+    // separately; writing `Wrapper` with its arguments dropped, or the argument unpathed, is a
+    // harness that does not compile — the `unknown` this lowering exists to move earlier.
+    #[test]
+    fn an_applied_sort_lowers_with_a_path_for_every_part() {
+        let at = |module: Vec<&str>| CodeMatch {
+            file: "src/wrap.rs".into(),
+            line: 1,
+            text: "pub struct Wrapper<T>;".into(),
+            module: Some(module.into_iter().map(str::to_string).collect()),
+        };
+        let req = gated(
+            "requirement r { category: 1
+            vocabulary { state p(u) }
+            require { each u: S . always p(u) } }",
+        );
+        let bindings = vec![
+            binding("p", "is_ok"),
+            binding("S", "wrap::Wrapper<auth::User>"),
+        ];
+        let resolutions = BTreeMap::from([(
+            "p".to_string(),
+            resolved(vec![ParamMode::ByValue], PredicateForm::Function),
+        )]);
+        let sorts = BTreeMap::from([(
+            "S".to_string(),
+            TypeResolution::Applied {
+                at: at(vec!["wrap"]),
+                args: vec![(
+                    "auth::User".to_string(),
+                    TypeResolution::Resolved(at(vec!["auth"])),
+                )],
+            },
+        )]);
+        let ty = lower_property(
+            &req,
+            &req.require[0],
+            "mycrate",
+            &bindings,
+            &resolutions,
+            &sorts,
+        )
+        .expect("should lower")
+        .quantified
+        .remove(0)
+        .ty;
+        assert_eq!(ty, "mycrate::wrap::Wrapper<mycrate::auth::User>");
+
+        // A primitive argument stays bare, for the same reason a primitive sort does.
+        let primitive = BTreeMap::from([(
+            "S".to_string(),
+            TypeResolution::Applied {
+                at: at(vec!["wrap"]),
+                args: vec![("u32".to_string(), TypeResolution::Primitive("u32".into()))],
+            },
+        )]);
+        let bindings = vec![binding("p", "is_ok"), binding("S", "wrap::Wrapper<u32>")];
+        let ty = lower_property(
+            &req,
+            &req.require[0],
+            "mycrate",
+            &bindings,
+            &resolutions,
+            &primitive,
+        )
+        .expect("should lower")
+        .quantified
+        .remove(0)
+        .ty;
+        assert_eq!(ty, "mycrate::wrap::Wrapper<u32>");
     }
 
     /// The REQ047 shape: a four-argument decision function, no `each` written, sorts declared on
