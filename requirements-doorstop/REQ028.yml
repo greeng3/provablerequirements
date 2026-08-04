@@ -22,8 +22,29 @@ text: |
   silently resolved to one of its candidates. A category-2a requirement grounds only when
   every symbol it speaks of resolves to a definition in the model.
 
-  A model binding establishes that the definition exists, and no more. Whether it has the
-  right arity or the right shape is a question for the engine that checks the model, and is
-  deferred. The resolution is a structural read of the specification, not a full parse, so a
-  name introduced only by a local binding or an imported module is not seen; a resolved
-  binding reports this limit rather than implying more was checked.
+  A model binding establishes that the definition exists and that it takes the number of
+  arguments the requirement applies the symbol to. A definition of the wrong arity does not
+  ground: it is refused where the binding is, not left to the engine.
+
+  Arity was once deferred here on the reasoning that it belonged to the engine, as
+  instantiability does for a code-world sort. Running it proved otherwise. A definition named
+  at the wrong arity cannot be checked at all — the generated specification does not survive
+  the model checker's own analysis — so the engine has no verdict to offer, only a complaint
+  about a module the tool generated and has already removed by the time anyone reads it. That
+  is a report the operator cannot act on, about a file they never wrote, for a mistake sitting
+  in their binding. The deferral rested on arity being a question of the checking language;
+  in the specification language an operator's arity is part of its definition, and the
+  declaration is already in hand when the binding resolves.
+
+  The check is held to what the specification actually states. A declaration names a value and
+  takes no arguments; an operator takes what its parameter list holds; a function definition
+  takes none as an operator, because it is applied by subscript rather than by argument list.
+  Where a line does not state an arity, nothing is claimed and the binding stands on its other
+  checks — a binding wrongly parked costs the operator more than the check saves them. Where
+  several definitions share the name, the ambiguity is reported first: until it is known which
+  definition is meant, there is no arity to be right or wrong about.
+
+  Return shape remains a question for the engine, and stays deferred. The resolution is a
+  structural read of the specification, not a full parse, so a name introduced only by a local
+  binding or an imported module is not seen; a resolved binding reports what was checked and
+  what was not, rather than implying more was checked.
