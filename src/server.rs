@@ -142,6 +142,7 @@ fn load_backlog(subject: &std::path::Path) -> anyhow::Result<Backlog> {
     let anchor = crate::verdict_store::DriftAnchor::current(
         crate::verify::subject_head_commit(subject),
         crate::proving_env::ProvingEnv::current(&companion),
+        crate::tla_adapter::current_external_fingerprint(subject, &companion),
     );
     Ok(Backlog {
         coverage: crate::status::coverage(&items, &triage, &drafts, &verdicts, &anchor),
@@ -213,6 +214,7 @@ fn apply_triage(
     let anchor = crate::verdict_store::DriftAnchor::current(
         crate::verify::subject_head_commit(subject),
         crate::proving_env::ProvingEnv::current(&companion),
+        crate::tla_adapter::current_external_fingerprint(subject, &companion),
     );
     Ok(Some(Backlog {
         coverage: crate::status::coverage(&items, &next, &drafts, &verdicts, &anchor),
@@ -262,6 +264,7 @@ fn load_detail(
     let anchor = crate::verdict_store::DriftAnchor::current(
         crate::verify::subject_head_commit(subject),
         crate::proving_env::ProvingEnv::current(&companion),
+        crate::tla_adapter::current_external_fingerprint(subject, &companion),
     );
     let formalization = crate::draft::admitted_fingerprint(&drafts, id);
     let verdict = crate::verdict_store::load(&companion)?

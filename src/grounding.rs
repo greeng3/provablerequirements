@@ -345,6 +345,12 @@ pub struct Resolutions {
     pub sorts: BTreeMap<String, TypeResolution>,
     /// Category-2a symbols → the TLA+ definition each resolves to (REQ028).
     pub model: BTreeMap<String, ModelResolution>,
+    /// A fingerprint of the specs resolved against that live **outside** the subject tree, or
+    /// `None` when there are none (#120). Produced here because this is the walk that already read
+    /// them; consumed by the verify flow, which stamps it on the verdict so an external spec moving
+    /// makes that verdict stale. Without it, a verdict proved against a sibling repo's spec would
+    /// read `fresh` forever — the subject's commit does not cover a file outside the subject.
+    pub spec_fingerprint: Option<String>,
 }
 
 pub fn resolve_bindings(
@@ -363,7 +369,11 @@ pub fn resolve_bindings(
     // one tree instead of starting its own walk, which is where a four-binding requirement's ten
     // full parses of the same source went (#144).
     let parsed = crate::rust_adapter::ParsedSubject::load(subject, companion);
-    let specs = crate::tla_adapter::SubjectSpecs::load(subject, companion);
+    // Where the model lives is the operator's choice (#120): the subject tree, plus any root
+    // `provreq.yml` names. Read here rather than passed in, because every caller of this already
+    // has exactly the two paths it needs and none of them has an opinion about the manifest.
+    let spec_paths = crate::spec_paths::SpecPaths::load(subject, companion);
+    let specs = crate::tla_adapter::SubjectSpecs::load(subject, companion, &spec_paths);
     let code = in_category(BindCategory::Code);
     // Sorts first, and the order is load-bearing (#198): a predicate's parameter check compares
     // against the type its argument's sort resolved to, so it cannot run until that is known.
@@ -411,6 +421,7 @@ pub fn resolve_bindings(
         code: predicates,
         sorts,
         model,
+        spec_fingerprint: specs.external_fingerprint(),
     }
 }
 

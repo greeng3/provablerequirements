@@ -432,7 +432,7 @@ only; sort/type existence when cat-1 needs it`). Cat-1 now needs it: a harness c
       cargo subject, all green. REQ027 (1.26). Both once-deferred items are since **shipped**: the
       default-unwind/timeout config landed as a `kani:` block in `provreq.yml` (**#117**, REQ027 amended —
       `kani.default_unwind` and `kani.timeout_seconds`, each optional, each falling back to Kani's own
-      default, and the effective pair reported on every bounded `holds` *including* when nobody chose it);
+      default, and the effective pair reported on every bounded `holds` _including_ when nobody chose it);
       the param-type-vs-sort cross-check as (**#118** / REQ057). The D2b ensemble is
       since **complete** — Creusot
       (REQ031) and Prusti (REQ032) joined as engines #2 and #3, with per-tool evidence aggregated by
@@ -760,7 +760,7 @@ The subject was built so the mistake would be an ordinary one rather than a cont
 with an operator `Accepted(m)` **and** a variable `accepted`. Binding the 1-ary predicate to the
 0-ary variable is a plausible slip, and it ground green:
 
-```
+```text
 accepted → `accepted` resolves to msgs.tla:4  VARIABLES accepted, done
     (existence only — …)
 REQ001: GROUNDED — every symbol binds to a confirmed observable.
@@ -785,7 +785,7 @@ by the core and passed in, so the adapter still only reads what the operator wro
 no parameters and is applied to none, so it must resolve to a definition taking none. Live, the same
 subject now says:
 
-```
+```text
 accepted: `accepted` is defined at msgs.tla:4  VARIABLES accepted, done — but it takes no
 arguments, and the requirement applies `accepted` to 1 argument. TLC would reject the generated
 spec instead of checking it, so this is refused here, where the binding is
@@ -806,6 +806,58 @@ reasoned about, since provreq can only ever emit the `Op(args)` form.
 **REQ028 asserted the deferral in its own text** and had to be amended — the fifth time in this
 project that a written artifact held a defect in place rather than catching it, and the second time
 the artifact was a requirement item rather than a test.
+
+### The model may live outside the subject (issue #120 / REQ028)
+
+Cat-2a found `.tla` files by walking the subject, which quietly made a layout decision for the
+operator: a team whose specs live in a sibling repo could not ground a category-2a requirement at
+all. Every name resolved to nothing and every binding parked. Parking was honest; the layout being a
+hard limit was not.
+
+`provreq.yml` now names extra roots, resolved against the **subject** (the operator is describing
+where the model sits relative to the thing being verified):
+
+```yaml
+tla:
+  spec_paths:
+    - ../models
+```
+
+**Two consequences make this more than a search path, and both are about what a verdict means.**
+
+**Provenance.** The five drift axes are the requirement revision, the formalization, the subject
+commit, the proving environment, and the tool version. **None of them can see a file outside the
+subject change.** A verdict proved against a sibling repo's spec would have gone on reading `fresh`
+forever while the model moved underneath it — the living loop blind to the very artifact the verdict
+is about. So the out-of-subject specs are fingerprinted and that becomes a sixth axis. Driven live,
+with the subject's commit deliberately untouched:
+
+```text
+verified  0
+stale     1
+REQ001    last verdict: holds
+    the TLA+ specs outside the subject moved since this verdict — the subject's commit does
+    not cover them, so re-verify against the current model
+```
+
+An in-tree subject carries **no** fingerprint and gains no axis: the subject commit already covers
+those specs, and a second axis would flag the same drift twice. Same rule as every other axis — a
+verdict carrying no fingerprint is left alone rather than flagged on a basis we cannot establish.
+
+**Where generated files go.** provreq used to write its module beside the spec. A configured root may
+be a repository provreq has no business writing into, so it now generates into its own scratch dir
+and points SANY at the spec with `-DTLA-Library` (verified against real TLC before being relied on).
+The subject's tree is only ever read. That retired two things: the "refusing to overwrite a file
+provreq did not write" guard, and the `_TTrace_` sweeper — with nothing written beside the spec,
+there is no file to clobber and no trace to sweep. The test that asserted the old refusal was
+replaced by one asserting the stronger property directly: a run adds nothing to the spec's directory.
+
+One trap worth naming: a root configured _inside_ the subject is a plausible thing to write, and
+without deduplication every definition in it would resolve twice — a spurious `Ambiguous` telling the
+operator to disambiguate a file from itself. Files are deduplicated by canonical path.
+
+Live end to end: the spec moved to a sibling directory, the subject left holding only its
+requirements, and `REQ001` still reaches `holds — model-checked (bounded)`.
 
 ## Engine provisioning — Design A (old, superseded topology)
 

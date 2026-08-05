@@ -246,45 +246,134 @@ fn is_skipped_dir(path: &Path, depth: usize, companion_root: &Path) -> bool {
     path == companion_root || crate::subject_tree::is_pruned_dir(path, depth)
 }
 
-/// Every `.tla` file under the subject, walked and read **once** — the model-side peer of
-/// [`crate::rust_adapter::ParsedSubject`], and held by the caller for the same reason (#144): a
-/// binding set used to re-walk the whole subject tree once per model symbol.
+/// One spec file, read once: how it is named back to the operator, its text, and whether it lives
+/// outside the subject tree. The last of those is not a detail — an external spec is not covered by
+/// the subject's commit, so provenance has to account for it separately (#120).
+struct Spec {
+    label: String,
+    text: String,
+    external: bool,
+}
+
+/// Every `.tla` file the subject's model is made of, walked and read **once** — the model-side peer
+/// of [`crate::rust_adapter::ParsedSubject`], and held by the caller for the same reason (#144): a
+/// binding set used to re-walk the whole tree once per model symbol.
+///
+/// "The subject's model" is the subject tree plus whatever roots the operator configured
+/// ([`crate::spec_paths`]).
 pub struct SubjectSpecs {
-    specs: Vec<(String, String)>,
+    specs: Vec<Spec>,
 }
 
 impl SubjectSpecs {
-    /// Walk and read the subject's specs once.
-    pub fn load(subject_root: &Path, companion_root: &Path) -> Self {
+    /// Walk and read the model's specs once: the subject tree, then each configured root.
+    ///
+    /// A file reached twice is kept once. A root configured *inside* the subject is a plausible
+    /// thing to write, and without this it would make every definition in it resolve twice — a
+    /// spurious [`ModelResolution::Ambiguous`] telling the operator to disambiguate between a file
+    /// and itself.
+    pub fn load(
+        subject_root: &Path,
+        companion_root: &Path,
+        extra: &crate::spec_paths::SpecPaths,
+    ) -> Self {
         let mut specs = Vec::new();
-        for entry in WalkDir::new(subject_root)
-            .into_iter()
-            .filter_entry(|e| !is_skipped_dir(e.path(), e.depth(), companion_root))
-        {
-            let Ok(entry) = entry else { continue };
-            if !entry.file_type().is_file() || entry.path().extension().is_none_or(|x| x != "tla") {
-                continue;
+        let mut seen = std::collections::HashSet::new();
+        let mut walk = |root: &Path, external: bool| {
+            for entry in WalkDir::new(root)
+                .into_iter()
+                .filter_entry(|e| !is_skipped_dir(e.path(), e.depth(), companion_root))
+            {
+                let Ok(entry) = entry else { continue };
+                if !entry.file_type().is_file()
+                    || entry.path().extension().is_none_or(|x| x != "tla")
+                {
+                    continue;
+                }
+                let identity = std::fs::canonicalize(entry.path())
+                    .unwrap_or_else(|_| entry.path().to_path_buf());
+                if !seen.insert(identity) {
+                    continue;
+                }
+                let Ok(text) = std::fs::read_to_string(entry.path()) else {
+                    continue;
+                };
+                // An in-tree spec is named relative to the subject, as it always was. An external
+                // one is named by its absolute path — which is both what the operator needs in
+                // order to open it, and what keeps `subject_root.join(label)` correct, since
+                // joining an absolute path yields that path.
+                let label = if external {
+                    entry.path().display().to_string()
+                } else {
+                    entry
+                        .path()
+                        .strip_prefix(subject_root)
+                        .unwrap_or(entry.path())
+                        .display()
+                        .to_string()
+                };
+                specs.push(Spec {
+                    label,
+                    text,
+                    external,
+                });
             }
-            let Ok(text) = std::fs::read_to_string(entry.path()) else {
-                continue;
-            };
-            let rel = entry
-                .path()
-                .strip_prefix(subject_root)
-                .unwrap_or(entry.path())
-                .display()
-                .to_string();
-            specs.push((rel, text));
+        };
+        walk(subject_root, false);
+        for root in extra.roots() {
+            walk(root, true);
         }
         Self { specs }
     }
+
+    /// A fingerprint of every spec that lives **outside** the subject tree, or `None` when there
+    /// are none.
+    ///
+    /// This exists because the subject's commit does not cover them. Without it, a verdict proved
+    /// against a spec in a sibling repo would go on reading `fresh` while the model it was proved
+    /// about moved underneath it — the living loop blind to the very artifact the verdict is about.
+    ///
+    /// `None` for the in-tree case is deliberate rather than lazy: those specs *are* covered by the
+    /// subject commit, and a second axis saying the same thing would flag drift twice. It also
+    /// means a subject that configured nothing carries no new axis at all.
+    pub fn external_fingerprint(&self) -> Option<String> {
+        use std::hash::{Hash, Hasher};
+        let mut external: Vec<(&str, &str)> = self
+            .specs
+            .iter()
+            .filter(|s| s.external)
+            .map(|s| (s.label.as_str(), s.text.as_str()))
+            .collect();
+        if external.is_empty() {
+            return None;
+        }
+        // Sorted, because walk order is the filesystem's business and a verdict must not go stale
+        // just because a directory was read in a different order.
+        external.sort_unstable();
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        external.hash(&mut hasher);
+        Some(format!("{:016x}", hasher.finish()))
+    }
 }
 
-/// Every TLA+ definition named `name` across the subject's `.tla` files.
+/// The current fingerprint of the model's out-of-subject specs, for the drift anchor (#120).
+///
+/// Returns before walking anything when no extra root is configured — which is every subject that
+/// keeps its specs in-tree, so the living-loop surfaces that call this per request pay one manifest
+/// read and no directory walk, exactly as they did before this axis existed.
+pub fn current_external_fingerprint(subject_root: &Path, companion_root: &Path) -> Option<String> {
+    let paths = crate::spec_paths::SpecPaths::load(subject_root, companion_root);
+    if paths.is_empty() {
+        return None;
+    }
+    SubjectSpecs::load(subject_root, companion_root, &paths).external_fingerprint()
+}
+
+/// Every TLA+ definition named `name` across the model's `.tla` files.
 fn find_definitions(subject: &SubjectSpecs, name: &str) -> Vec<SpecMatch> {
     let mut out = Vec::new();
-    for (rel, text) in &subject.specs {
-        collect_definitions(text, name, rel, &mut out);
+    for spec in &subject.specs {
+        collect_definitions(&spec.text, name, &spec.label, &mut out);
     }
     out
 }
@@ -388,7 +477,11 @@ mod tests {
     /// call states that number, because since #119 it is half of what resolution decides.
     fn resolve_in(tmp: &tempfile::TempDir, observable: &str, arity: usize) -> ModelResolution {
         resolve(
-            &SubjectSpecs::load(tmp.path(), &tmp.path().join("ProvableRequirements")),
+            &SubjectSpecs::load(
+                tmp.path(),
+                &tmp.path().join("ProvableRequirements"),
+                &crate::spec_paths::SpecPaths::default(),
+            ),
             observable,
             arity,
         )
@@ -406,6 +499,105 @@ Message == 1..MaxLen
 Init == queue = <<>>
 ====
 ";
+
+    /// A subject and a spec directory beside it — the sibling-repo layout #120 is about.
+    fn subject_and_external(external_src: &str) -> (tempfile::TempDir, std::path::PathBuf) {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let subject = tmp.path().join("subject");
+        let models = tmp.path().join("models");
+        std::fs::create_dir_all(&subject).expect("subject");
+        std::fs::create_dir_all(&models).expect("models");
+        std::fs::write(models.join("ext.tla"), external_src).expect("ext.tla");
+        (tmp, models)
+    }
+
+    fn load_with(subject: &Path, roots: Vec<std::path::PathBuf>) -> SubjectSpecs {
+        SubjectSpecs::load(
+            subject,
+            &subject.join("ProvableRequirements"),
+            &crate::spec_paths::SpecPaths::from_roots(roots),
+        )
+    }
+
+    // Verifies: REQ028 (#120) — a spec outside the subject tree resolves, which is the whole
+    // point: this layout could not ground a category-2a requirement at all before.
+    #[test]
+    fn a_spec_outside_the_subject_resolves() {
+        let (tmp, models) = subject_and_external("Accept(m) == TRUE\n");
+        let subject = tmp.path().join("subject");
+        let specs = load_with(&subject, vec![models.clone()]);
+
+        let ModelResolution::Resolved(at) = resolve(&specs, "Accept", 1) else {
+            panic!("an external definition must resolve");
+        };
+        // Named by absolute path, so the operator can open it — and so `subject.join(file)` still
+        // lands on the real file, since joining an absolute path yields that path.
+        assert_eq!(subject.join(&at.file), models.join("ext.tla"));
+    }
+
+    // Verifies: REQ028 (#120) — a root configured INSIDE the subject does not make every
+    // definition in it resolve twice. Without deduplication the operator would be told to
+    // disambiguate a file from itself.
+    #[test]
+    fn a_root_inside_the_subject_does_not_duplicate_its_specs() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let inner = tmp.path().join("models");
+        std::fs::create_dir_all(&inner).expect("models");
+        std::fs::write(inner.join("m.tla"), "Accept(m) == TRUE\n").expect("m.tla");
+
+        let specs = load_with(tmp.path(), vec![inner]);
+        assert!(
+            resolve(&specs, "Accept", 1).is_resolved(),
+            "a doubly-walked file must still be one definition"
+        );
+    }
+
+    // Verifies: REQ028 (#120) — the fingerprint covers the EXTERNAL specs only, and moves when one
+    // of them does. This is the axis that keeps a verdict proved against an out-of-subject model
+    // from reading `fresh` forever: the subject's commit cannot see that file change.
+    #[test]
+    fn the_fingerprint_covers_external_specs_and_moves_with_them() {
+        let (tmp, models) = subject_and_external("Accept(m) == TRUE\n");
+        let subject = tmp.path().join("subject");
+
+        let before = load_with(&subject, vec![models.clone()])
+            .external_fingerprint()
+            .expect("external specs are fingerprinted");
+        std::fs::write(models.join("ext.tla"), "Accept(m) == FALSE\n").expect("rewrite");
+        let after = load_with(&subject, vec![models.clone()])
+            .external_fingerprint()
+            .expect("still fingerprinted");
+
+        assert_ne!(before, after, "an external spec moving must be visible");
+    }
+
+    // Verifies: REQ028 (#120) — an in-tree subject carries NO fingerprint, so it gains no drift
+    // axis at all. The subject's commit already covers those specs, and a second axis would flag
+    // the same drift twice.
+    #[test]
+    fn an_in_tree_subject_has_no_external_fingerprint() {
+        let tmp = subject(SPEC);
+        assert_eq!(load_with(tmp.path(), vec![]).external_fingerprint(), None);
+    }
+
+    // Verifies: REQ028 (#120) — the fingerprint does not depend on walk order. Directory order is
+    // the filesystem's business, and a verdict must not go stale because a directory was read in a
+    // different sequence.
+    #[test]
+    fn the_fingerprint_is_independent_of_root_order() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let subject = tmp.path().join("subject");
+        std::fs::create_dir_all(&subject).expect("subject");
+        let (a, b) = (tmp.path().join("a"), tmp.path().join("b"));
+        for (dir, src) in [(&a, "One == 1\n"), (&b, "Two == 2\n")] {
+            std::fs::create_dir_all(dir).expect("dir");
+            std::fs::write(dir.join("s.tla"), src).expect("spec");
+        }
+        assert_eq!(
+            load_with(&subject, vec![a.clone(), b.clone()]).external_fingerprint(),
+            load_with(&subject, vec![b, a]).external_fingerprint()
+        );
+    }
 
     // Verifies: REQ028 — an operator definition resolves to a real location in the spec,
     // which is what makes a 2a binding groundable against the model.
@@ -620,9 +812,15 @@ Init == queue = <<>>
         std::fs::create_dir_all(tmp.path().join(".git")).unwrap();
         std::fs::write(tmp.path().join(".git/x.tla"), "Accept(m) == FALSE\n").unwrap();
 
-        let ModelResolution::Resolved(at) =
-            resolve(&SubjectSpecs::load(tmp.path(), &companion), "Accept", 1)
-        else {
+        let ModelResolution::Resolved(at) = resolve(
+            &SubjectSpecs::load(
+                tmp.path(),
+                &companion,
+                &crate::spec_paths::SpecPaths::default(),
+            ),
+            "Accept",
+            1,
+        ) else {
             panic!("the companion/.git copies must not create an ambiguity");
         };
         assert_eq!(at.file, "spec.tla");

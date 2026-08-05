@@ -27,6 +27,7 @@ pub mod rust_adapter;
 pub mod semantic_draft;
 pub mod server;
 pub mod source;
+pub mod spec_paths;
 pub mod status;
 pub mod subject_tree;
 pub mod tla_adapter;

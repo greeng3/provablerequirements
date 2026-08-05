@@ -71,6 +71,10 @@ pub struct DriftAnchor {
     /// The environment the tool is running in *now* (REQ049), so a stored verdict produced
     /// somewhere else can be seen for what it is.
     pub environment: crate::proving_env::ProvingEnv,
+    /// The fingerprint of the model's out-of-subject specs *now* (#120), or `None` when the subject
+    /// has none. A spec outside the subject tree is not covered by the subject's commit, so this is
+    /// the only axis that can see it move.
+    pub spec_fingerprint: Option<String>,
 }
 
 impl DriftAnchor {
@@ -80,11 +84,13 @@ impl DriftAnchor {
     pub fn current(
         subject_commit: Option<String>,
         environment: crate::proving_env::ProvingEnv,
+        spec_fingerprint: Option<String>,
     ) -> Self {
         Self {
             subject_commit,
             tool_version: env!("CARGO_PKG_VERSION").to_string(),
             environment,
+            spec_fingerprint,
         }
     }
 }
@@ -179,6 +185,26 @@ pub fn view(
         }
     }
 
+    // Spec drift (#120): a model that lives outside the subject moves without the subject's commit
+    // moving, so this is the only axis that can see it. Same rule as formalization and environment
+    // above — a verdict carrying no fingerprint (from before this axis, or from a subject whose
+    // specs are all in-tree) is left alone rather than flagged on a basis we cannot establish.
+    if let Some(was) = &stored.provenance.spec_fingerprint {
+        match &anchor.spec_fingerprint {
+            Some(now) if now != was => stale_reasons.push(
+                "the TLA+ specs outside the subject moved since this verdict — the subject's \
+                 commit does not cover them, so re-verify against the current model"
+                    .to_string(),
+            ),
+            None => stale_reasons.push(
+                "this verdict was proved against TLA+ specs outside the subject, and none are \
+                 configured now (`tla.spec_paths` in provreq.yml) — re-verify"
+                    .to_string(),
+            ),
+            _ => {}
+        }
+    }
+
     if stored.provenance.tool_version != anchor.tool_version {
         stale_reasons.push(format!(
             "the tool changed since this verdict (provreq {} → {}) — re-verify",
@@ -211,6 +237,7 @@ mod tests {
             detail: vec![],
             evidence: vec![],
             provenance: ProvenanceReport {
+                spec_fingerprint: None,
                 environment: None,
                 requirement_revision: revision.into(),
                 subject_commit: commit.map(str::to_string),
@@ -236,6 +263,7 @@ mod tests {
         let mut v = stored("r1", Some("abc"), "0.0.1");
         v.provenance.environment = Some(env(Some("lab-1"), &["Kani 0.67.0"]));
         let anchor = DriftAnchor {
+            spec_fingerprint: None,
             environment: env(Some("ci-runner"), &["Kani 0.67.0"]),
             subject_commit: Some("abc".into()),
             tool_version: "0.0.1".into(),
@@ -248,12 +276,75 @@ mod tests {
         assert!(view.stale_reasons[0].contains("ci-runner"));
     }
 
+    // Verifies: REQ028 (#120) — a TLA+ spec outside the subject moving makes the verdict stale.
+    // The subject's commit is deliberately UNCHANGED here, because that is the whole point: no
+    // other axis can see an out-of-subject file move, so without this the verdict reads fresh.
+    #[test]
+    fn an_external_spec_moving_makes_a_verdict_stale() {
+        let mut v = stored("r1", Some("abc"), "0.0.1");
+        v.provenance.spec_fingerprint = Some("aaaa".into());
+        let anchor = DriftAnchor {
+            spec_fingerprint: Some("bbbb".into()),
+            environment: crate::proving_env::ProvingEnv::default(),
+            subject_commit: Some("abc".into()),
+            tool_version: "0.0.1".into(),
+        };
+
+        let view = view(&v, "r1", None, &anchor);
+        assert!(!view.fresh, "the model moved under this verdict");
+        assert_eq!(view.stale_reasons.len(), 1, "{:?}", view.stale_reasons);
+        assert!(
+            view.stale_reasons[0].contains("outside the subject"),
+            "{:?}",
+            view.stale_reasons
+        );
+    }
+
+    // Verifies: REQ028 (#120) — a verdict carrying no spec fingerprint is left alone, whether it
+    // predates the axis or came from an in-tree subject. Same rule as every other axis: never flag
+    // on a basis we cannot establish.
+    #[test]
+    fn a_verdict_without_a_spec_fingerprint_is_not_flagged() {
+        let v = stored("r1", Some("abc"), "0.0.1");
+        assert_eq!(v.provenance.spec_fingerprint, None);
+        let anchor = DriftAnchor {
+            spec_fingerprint: Some("bbbb".into()),
+            environment: crate::proving_env::ProvingEnv::default(),
+            subject_commit: Some("abc".into()),
+            tool_version: "0.0.1".into(),
+        };
+        assert!(view(&v, "r1", None, &anchor).fresh);
+    }
+
+    // Verifies: REQ028 (#120) — a verdict proved against external specs, read back where none are
+    // configured, is stale. The model it was checked against is not merely different, it is out of
+    // reach, so the verdict cannot be confirmed.
+    #[test]
+    fn losing_the_configured_specs_makes_a_verdict_stale() {
+        let mut v = stored("r1", Some("abc"), "0.0.1");
+        v.provenance.spec_fingerprint = Some("aaaa".into());
+        let anchor = DriftAnchor {
+            spec_fingerprint: None,
+            environment: crate::proving_env::ProvingEnv::default(),
+            subject_commit: Some("abc".into()),
+            tool_version: "0.0.1".into(),
+        };
+        let view = view(&v, "r1", None, &anchor);
+        assert!(!view.fresh);
+        assert!(
+            view.stale_reasons[0].contains("spec_paths"),
+            "{:?}",
+            view.stale_reasons
+        );
+    }
+
     // Verifies: REQ050 — the view distinguishes "proved here, unchanged" from "never recorded".
     // Both are `fresh`, so without a separate field the surface would render them identically and
     // an operator would read a guarantee the record does not carry.
     #[test]
     fn a_recorded_environment_is_distinguishable_from_an_unrecorded_one() {
         let anchor = DriftAnchor {
+            spec_fingerprint: None,
             environment: env(Some("lab-1"), &["Kani 0.67.0"]),
             subject_commit: Some("abc".into()),
             tool_version: "0.0.1".into(),
@@ -284,6 +375,7 @@ mod tests {
         let v = stored("r1", Some("abc"), "0.0.1");
         assert!(v.provenance.environment.is_none(), "the pre-axis shape");
         let anchor = DriftAnchor {
+            spec_fingerprint: None,
             environment: env(Some("lab-1"), &["Kani 0.67.0"]),
             subject_commit: Some("abc".into()),
             tool_version: "0.0.1".into(),
@@ -298,6 +390,7 @@ mod tests {
     fn unmoved_verdict_is_fresh() {
         let v = stored("r1", Some("abc"), "0.0.1");
         let anchor = DriftAnchor {
+            spec_fingerprint: None,
             environment: crate::proving_env::ProvingEnv::default(),
             subject_commit: Some("abc".into()),
             tool_version: "0.0.1".into(),
@@ -313,6 +406,7 @@ mod tests {
     fn each_moved_axis_is_a_named_reason() {
         let v = stored("r1", Some("abc"), "0.0.1");
         let anchor = DriftAnchor {
+            spec_fingerprint: None,
             environment: crate::proving_env::ProvingEnv::default(),
             subject_commit: Some("def".into()),
             tool_version: "0.0.2".into(),
@@ -337,6 +431,7 @@ mod tests {
 
     fn fresh_anchor() -> DriftAnchor {
         DriftAnchor {
+            spec_fingerprint: None,
             environment: crate::proving_env::ProvingEnv::default(),
             subject_commit: Some("abc".into()),
             tool_version: "0.0.1".into(),
