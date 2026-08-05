@@ -306,9 +306,10 @@ fn prusti_evidence(
     crate::prusti::run(subject, &harness).into_evidence()
 }
 
-/// Category 2a → TLC (REQ029): locate the subject's `Spec`, lower to an additive TLA+ module with
-/// a temporal property, run TLC beside the spec, map to evidence. A missing `Spec` or an
-/// un-lowerable claim is honestly `inconclusive`, never approximated (D2).
+/// Category 2a → TLC (REQ029): locate the subject's `Spec`, take the operator's constant model,
+/// lower to an additive TLA+ module with a temporal property, run TLC against the spec, map to
+/// evidence. A missing `Spec`, a constant provreq cannot write, or an un-lowerable claim is
+/// honestly `inconclusive`, never approximated (D2).
 fn tlc_evidence(
     subject: &Path,
     companion: &Path,
@@ -321,16 +322,21 @@ fn tlc_evidence(
         Ok(site) => site,
         Err(reason) => return verdict::Evidence::inconclusive("TLC (TLA+)", vec![reason]),
     };
+    let constants = match crate::tlc::Constants::load(companion) {
+        Ok(c) => c,
+        Err(reason) => return verdict::Evidence::inconclusive("TLC (TLA+)", vec![reason]),
+    };
     let check = match crate::tlc::lower(
         requirement,
         &site.module,
         bindings,
+        &constants,
         &crate::tlc::module_name(id),
     ) {
         Ok(c) => c,
         Err(e) => return verdict::Evidence::inconclusive("TLC (TLA+)", vec![e.reason]),
     };
-    crate::tlc::run(&site, &check).into_evidence()
+    crate::tlc::run(&site, &check).into_evidence(&constants)
 }
 
 /// Best-effort subject git HEAD for verdict provenance (D9). `None` when the subject is not a git
