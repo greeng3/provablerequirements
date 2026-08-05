@@ -960,6 +960,54 @@ inconclusive  the model provreq supplied — Drones = {d1, d2}, MaxAlt = notanum
 That last line is the case worth seeing: TLC says `Assumption line 4 … of module Base is false` and
 names the assumption but not the value that broke it — and provreq is the one that supplied it.
 
+### An `Error:` line can be a banner too (issue #212 / REQ029)
+
+The other half of the 8th pass, and the direct successor to #206. A constant assigned a value the
+claim then quantifies over (`Drones: 3` for a sort's model set) reported:
+
+```text
+- Error: TLC cannot handle the temporal formula line 6, col 6 to line 6, col 59 of module provreq_req001:
+```
+
+A sentence ending mid-colon, the cause dropped, and a pointer into a module the operator never
+wrote. Real TLC had said:
+
+```text
+Error: TLC cannot handle the temporal formula line 4, col 6 to line 4, col 61 of module p:
+TLC encountered a non-enumerable quantifier bound
+3.
+```
+
+**Why #206 missed it.** #206 fixed exactly this shape for SANY's `***` banners and deliberately left
+`Error:` lines alone, on the reasoning — written into `tlc::diagnostic` — that _"TLC's own runtime
+errors do state their cause there"_. True of the two cases it was written against (the unassigned
+constant, the false `ASSUME`), false in general. **A line ending in `:` is announcing that what
+follows is the point of it**, whichever family it belongs to, and that — not the `***` prefix — is
+what marks a banner now.
+
+**The location was the half that mattered.** `provreq_req001` is generated into the scratch metadir
+and taken away with it before the output is read, so the operator was sent to a file they never
+wrote, cannot open, and which no longer exists — for a mistake sitting in their own `provreq.yml`.
+That is #119's complaint arriving by another route. provreq holds the generated text, so the
+dangling coordinates become the line itself:
+
+```text
+- Error: TLC cannot handle the temporal formula in the temporal property provreq generated for this
+  requirement (`(\A d \in Drones : ([]((~(Airborne(d)) \/ Cleared(d)))))`) — TLC encountered a
+  non-enumerable quantifier bound — 3.
+```
+
+Where the line cannot be quoted, the location is **dropped** rather than kept: a pointer that cannot
+be followed is worse than none, because it still sends the reader somewhere. The needle is the
+module name alone, not `of module …` — TLC reaches for whichever preposition suits the sentence
+(`of module X`, `imported in module X`), and assuming one leaves the others dangling.
+
+⚠️ **The live run caught a bug the new unit test was too weak to see.** TLC prints a range —
+`line 6, col 6 to line 6, col 59` — and searching back once lands on the _second_ `line`, leaving
+`line 6, col 6 to` stranded in front of the replacement. The test asserted the module name was gone
+and the cause survived, both of which were true; only the live output showed the wreckage. The
+assertion now checks the whole span goes.
+
 ## Engine provisioning — Design A (old, superseded topology)
 
 > **⚠️ The engine SPLIT (artifact-fed vs toolchain-welded) and R-eng-1..4 survive into Design B.**

@@ -792,11 +792,19 @@ pub fn run(site: &SpecSite, check: &Check) -> Outcome {
         .output();
 
     match output {
-        Ok(o) => classify(&format!(
+        Ok(o) => match classify(&format!(
             "{}{}",
             String::from_utf8_lossy(&o.stdout),
             String::from_utf8_lossy(&o.stderr)
-        )),
+        )) {
+            // A reason locating the fault in the generated module points at a file that has
+            // already been taken away with the scratch dir, so it is translated back into what
+            // provreq actually generated (#212).
+            Outcome::Inconclusive { reason } => Outcome::Inconclusive {
+                reason: locate_in_generated(&reason, check),
+            },
+            decided => decided,
+        },
         Err(e) => Outcome::Inconclusive {
             reason: format!(
                 "could not run TLC (`java -cp {} tlc2.TLC`): {e}",
@@ -884,9 +892,21 @@ fn witness(output: &str) -> Option<String> {
 /// had plainly said `The operator accepted requires 0 arguments.` (#206). That silence covered
 /// every SANY parse/semantic failure reachable from cat-2a, not just arity.
 ///
-/// An `Error:` line is carried unchanged, because TLC's own runtime errors do state their cause
-/// there (`Error: The constant parameter MaxLen is not assigned a value …`) — which is why the
-/// banner case went unnoticed: the case this was first written against genuinely works.
+/// ⚠️ **An `Error:` line can be a banner too, and the line above used to claim it never was.**
+/// #206 carried `Error:` lines unchanged, reasoning that "TLC's own runtime errors do state their
+/// cause there" — true of `Error: The constant parameter MaxLen is not assigned a value …`, the
+/// case it was written against, and false in general (#212). A constant assigned a value the claim
+/// then quantifies over produces:
+///
+/// ```text
+/// Error: TLC cannot handle the temporal formula line 4, col 6 to line 4, col 61 of module p:
+/// TLC encountered a non-enumerable quantifier bound
+/// 3.
+/// ```
+///
+/// The operator got the first line alone: a sentence ending mid-colon, with the cause dropped.
+/// **A line ending in `:` is announcing that what follows is the point of it** — whichever family
+/// it belongs to — so that, not the `***` prefix, is what marks a banner here.
 fn diagnostic(output: &str) -> String {
     let lines: Vec<&str> = output.lines().map(str::trim).collect();
     let Some(at) = lines
@@ -895,12 +915,13 @@ fn diagnostic(output: &str) -> String {
     else {
         return tail(output);
     };
-    if !lines[at].starts_with("***") {
+    if !is_banner(lines[at]) {
         return lines[at].to_string();
     }
     // The banner is kept ahead of the cause: `*** Errors: 3` tells the operator that what
-    // follows is the first of several, so a single reason never reads as the whole story.
-    std::iter::once(lines[at])
+    // follows is the first of several, so a single reason never reads as the whole story. Its
+    // trailing colon goes, having done its job the moment the cause is carried behind it.
+    std::iter::once(lines[at].trim_end_matches(':'))
         .chain(
             lines[at + 1..]
                 .iter()
@@ -910,6 +931,75 @@ fn diagnostic(output: &str) -> String {
         )
         .collect::<Vec<_>>()
         .join(" — ")
+}
+
+/// Replace a location inside provreq's **generated** module with what that module actually is
+/// (#212).
+///
+/// TLC locates an error in the module it was checking, which here is `provreq_<id>` — generated
+/// into a scratch directory and taken away with it before the output is even read. So the operator
+/// was told to look at `line 6, col 6 … of module provreq_req001`: a file they never wrote, cannot
+/// open, and which no longer exists, for a mistake sitting in their own `provreq.yml` or binding.
+/// That is the complaint #119 was built to remove, arriving by another route.
+///
+/// provreq holds the generated text, so the dangling coordinates become the line itself — the
+/// lowered claim, which is what the operator needs to see to know which binding or constant the
+/// engine tripped over. Where the line cannot be quoted, the location is dropped rather than kept:
+/// a pointer that cannot be followed is worse than none, because it sends the reader somewhere.
+fn locate_in_generated(reason: &str, check: &Check) -> String {
+    // The module name, not `of module …`: TLC reaches for whichever preposition suits the
+    // sentence (`of module X`, `imported in module X`), and a needle that assumes one of them
+    // leaves the others naming a deleted file.
+    let needle = format!("module {}", check.name);
+    let mut out = reason.to_string();
+    while let Some(at) = out.find(&needle) {
+        let end = at + needle.len();
+        // The location reads `line 6, col 6 to line 6, col 59 of module <name>`, so the span to
+        // replace starts at its FIRST `line` — searching back once lands on the second and leaves
+        // `line 6, col 6 to` dangling in front of the replacement. A bare `module <name>` has no
+        // span at all, and start collapses onto the needle itself.
+        let mut start = out[..at].rfind("line ").unwrap_or(at);
+        while let Some(before) = out[..start].trim_end().strip_suffix("to") {
+            match before.rfind("line ") {
+                Some(previous) => start = previous,
+                None => break,
+            }
+        }
+        let quoted = generated_line(&out[start..at], &check.module)
+            .map(|text| format!(" (`{text}`)"))
+            .unwrap_or_default();
+        out = format!(
+            "{}in the temporal property provreq generated for this requirement{quoted}{}",
+            &out[..start],
+            &out[end..]
+        );
+    }
+    out
+}
+
+/// The text of the generated module's line, given the `line N, col …` span TLC printed for it.
+/// `None` when no line number can be read or the module has no such line — provreq quotes what it
+/// generated or says nothing, never a line it guessed at.
+fn generated_line<'a>(span: &str, module: &'a str) -> Option<&'a str> {
+    let number: usize = span
+        .strip_prefix("line ")?
+        .chars()
+        .take_while(char::is_ascii_digit)
+        .collect::<String>()
+        .parse()
+        .ok()?;
+    let text = module.lines().nth(number.checked_sub(1)?)?.trim();
+    (!text.is_empty()).then_some(text)
+}
+
+/// Whether a first error line is announcing a cause that follows, rather than being one.
+///
+/// Two markers, one per family. SANY's `***` lines (`*** Errors: N`, `***Parse Error***`) are
+/// always banners — a count or a heading, never a diagnosis. And any line ending in `:` is
+/// announcing what comes next, which is how TLC's own runtime errors introduce a cause they could
+/// not fit on one line (#212).
+fn is_banner(line: &str) -> bool {
+    line.starts_with("***") || line.ends_with(':')
 }
 
 /// How many lines after a SANY banner carry the cause. Two is what each banner family needs —
@@ -1432,6 +1522,100 @@ Error: The constant parameter MaxLen is not assigned a value by the configuratio
         assert!(reason.contains("not assigned"), "{reason}");
     }
 
+    // Verifies: REQ029 (#212) — an `Error:` line ENDING IN A COLON is a banner too, so the cause
+    // that follows it is carried. Captured verbatim from a real TLC run over a constant assigned a
+    // value the claim then quantifies over. #206 carried `Error:` lines unchanged on the reasoning
+    // that they always state their own cause; this is the case that refutes it, and the operator
+    // was getting a sentence that stopped at the colon.
+    #[test]
+    fn an_error_line_that_announces_its_cause_carries_it() {
+        let output = "\
+Starting...
+Error: TLC cannot handle the temporal formula line 4, col 6 to line 4, col 61 of module p:
+TLC encountered a non-enumerable quantifier bound
+3.
+line 4, col 15 to line 4, col 20 of module p
+";
+        let Outcome::Inconclusive { reason } = classify(output) else {
+            panic!("a formula TLC cannot handle decides nothing");
+        };
+        assert!(
+            reason.contains("non-enumerable quantifier bound"),
+            "{reason}"
+        );
+        assert!(
+            reason.contains("3."),
+            "the offending value is the cause: {reason}"
+        );
+        // And a self-contained `Error:` line is still carried alone — the #206 case must not
+        // start dragging unrelated log lines in behind it.
+        let Outcome::Inconclusive { reason } = classify(
+            "Error: The constant parameter MaxLen is not assigned a value by the configuration \
+             file.\nFinished in 00s\n",
+        ) else {
+            panic!("decides nothing");
+        };
+        assert!(!reason.contains("Finished"), "{reason}");
+    }
+
+    // Verifies: REQ029 (#212) — a location inside the GENERATED module is translated into the
+    // line provreq generated, because that module is deleted with the scratch dir before the
+    // output is read. Telling the operator to look at line 6 of `provreq_req001` sends them to a
+    // file they never wrote and cannot open — #119's complaint, arriving by another route.
+    #[test]
+    fn a_location_in_the_generated_module_becomes_what_provreq_generated() {
+        let check = Check {
+            name: "provreq_req001".into(),
+            module: "\\* generated\n---- MODULE provreq_req001 ----\nEXTENDS Msg\nProvreqProp ==\n    (\\A d \\in Drones : ([](Safe(d))))\n====\n".into(),
+            cfg: String::new(),
+        };
+        let out = locate_in_generated(
+            "Error: TLC cannot handle the temporal formula line 5, col 6 to line 5, col 40 of \
+             module provreq_req001: — TLC encountered a non-enumerable quantifier bound",
+            &check,
+        );
+        assert!(
+            !out.contains("provreq_req001"),
+            "a deleted file is not a location: {out}"
+        );
+        // The WHOLE span goes, not just its tail. TLC prints a range (`line 5, col 6 to line 5,
+        // col 40`), and searching back once lands on the second `line`, leaving the first half of
+        // the coordinates stranded in front of the replacement — which is what the live run showed
+        // while this test was passing.
+        assert!(!out.contains("line 5"), "the whole location must go: {out}");
+        assert!(
+            out.contains("\\A d \\in Drones"),
+            "the generated line is the location now: {out}"
+        );
+        assert!(
+            out.contains("non-enumerable"),
+            "the cause must survive: {out}"
+        );
+    }
+
+    // Verifies: REQ029 (#212) — a location provreq cannot quote is DROPPED, not kept. A pointer
+    // that cannot be followed is worse than none, because it still sends the reader somewhere.
+    #[test]
+    fn an_unquotable_generated_location_is_dropped_rather_than_kept() {
+        let check = Check {
+            name: "provreq_req001".into(),
+            module: "---- MODULE provreq_req001 ----\n====\n".into(),
+            cfg: String::new(),
+        };
+        // Line 99 does not exist, and a bare mention has no span at all.
+        for reason in [
+            "Error: something line 99, col 1 of module provreq_req001: — because",
+            "Error: parse failed in module provreq_req001 — because",
+        ] {
+            let out = locate_in_generated(reason, &check);
+            assert!(!out.contains("provreq_req001"), "{out}");
+            assert!(out.contains("because"), "the cause must survive: {out}");
+        }
+        // A reason that never names the generated module is untouched.
+        let untouched = "Error: The constant parameter MaxLen is not assigned a value.";
+        assert_eq!(locate_in_generated(untouched, &check), untouched);
+    }
+
     // Verifies: REQ029 (#206) — a SANY *semantic* failure reports the CAUSE, not the count.
     // Captured verbatim from a real TLC run over a wrong-arity model binding (`accepted(m)`
     // bound to a 0-ary VARIABLE): the actionable sentence sits three lines below the banner,
@@ -1856,6 +2040,58 @@ Residual stack trace follows:
             Outcome::Holds,
             "TLC must ignore it silently — that silence is what makes the refusal necessary: \
              {outcome:?}"
+        );
+    }
+
+    // Verifies: REQ029 (#212) — THE REAL ENGINE on a fault it locates inside provreq's own
+    // generated module, both halves at once: the cause after the announcing `Error:` line survives,
+    // and the deleted module's coordinates are replaced by the line provreq generated. The pure
+    // tests pin the parsing, but only the real engine proves TLC still frames this fault this way —
+    // and this whole class of message was invisible until a live run produced one.
+    #[test]
+    #[ignore = "needs TLC installed — run via `cargo test -- --ignored` (the CI `tlc` job)"]
+    fn real_tlc_faults_in_the_generated_module_read_as_what_provreq_generated() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        std::fs::write(
+            tmp.path().join("Msg.tla"),
+            "---- MODULE Msg ----\n\
+             EXTENDS Naturals\n\
+             CONSTANT Bound\n\
+             VARIABLES pc\n\
+             Init == pc = 0\n\
+             Next == pc' = 1 - pc\n\
+             Spec == Init /\\ [][Next]_pc\n\
+             Accepted(m) == pc = 0\n\
+             Succeeded(m) == pc = 0\n\
+             Message == Bound\n\
+             ====\n",
+        )
+        .expect("Msg.tla");
+        // `Message` is the sort's model set and resolves to `Bound`, so a scalar makes the claim's
+        // quantifier range over something TLC cannot enumerate — a mistake in provreq.yml that TLC
+        // can only report against the generated property.
+        let check = lower(
+            &req(MODEL_REQ),
+            "Msg",
+            &standard_bindings(),
+            &constants_from(&[("Bound", "3")]),
+            "provreq_smoke",
+        )
+        .expect("should lower");
+        let Outcome::Inconclusive { reason } = run(&site_for(&tmp), &check) else {
+            panic!("a formula TLC cannot handle decides nothing");
+        };
+        assert!(
+            reason.contains("non-enumerable"),
+            "the cause after the announcing line must survive: {reason}"
+        );
+        assert!(
+            !reason.contains("provreq_smoke"),
+            "the operator must not be sent to a module deleted with the scratch dir: {reason}"
+        );
+        assert!(
+            reason.contains("~>") || reason.contains("\\A"),
+            "the generated line is the location now: {reason}"
         );
     }
 
