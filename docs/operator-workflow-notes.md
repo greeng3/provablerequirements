@@ -535,8 +535,8 @@ separate axis from where it runs.
 - **R-pkg-4** — single binary, multiple entry modes: headless subcommands (the CLI-first
   spine, scriptable) **and** a `serve` mode running a **local** web server hosting the
   **embedded** web UI (the A6 gate surface), co-resident in the dev env. Local-served, not
-  hosted (hosted multi-repo = deferred A5-A, **#122**). `serve` foreground default; `--background` /
-  `--port` flags; no daemon manager yet.
+  hosted — **decided, see "provreq is a single-operator tool" below (#122)**. `serve` foreground
+  default; `--background` / `--port` flags; no daemon manager.
 
 ### Where the subject path goes (issue #130 / REQ056)
 
@@ -1007,6 +1007,42 @@ module name alone, not `of module …` — TLC reaches for whichever preposition
 `line 6, col 6 to` stranded in front of the replacement. The test asserted the module name was gone
 and the cause survived, both of which were true; only the live output showed the wreckage. The
 assertion now checks the whole span goes.
+
+### provreq is a single-operator tool (issue #122 — A5-A stays deferred, decided 2026-08-05)
+
+`serve` is one subject, one operator, one machine. **This is the product's shape, not a stage it is
+passing through**, and the deferral of hosted multi-repo serve (A5-A) is now a decision rather than
+a parenthetical.
+
+The limit was already load-bearing in three places, all confirmed against the code before deciding
+rather than taken from the issue's own account of itself:
+
+- `server::serve` binds `[127, 0, 0, 1]` — the visible half, and the least of it.
+- The router holds a single `Subject`, so **one process serves one repository by construction**.
+  Multi-repo is not a missing flag; it is a different program.
+- `verify_requirement` calls the synchronous `verify::verify` on the executor, so a request that
+  runs Kani or TLC holds its thread for however long the engine takes. There is no auth, no
+  tenancy, and no daemon manager.
+
+**Why it stays deferred.** The mechanics of _one_ operator using this on _one_ repository are still
+being worked out (#1 is open, and the last several end-to-end passes each found something the suite
+could not). Designing tenancy, identity, and a job queue on top of that would be building for a
+second operator before the first has worn the tool in — and the queue nobody needed is the classic
+way to get one.
+
+There is also a claim buried in the deployment question, which is the part worth remembering if
+this is ever reopened: **a hosted provreq proves verdicts in an environment nobody reading them is
+standing in.** The proving-environment drift axis (REQ049) exists because where a verdict was
+proved is part of what it says. Hosting does not merely relocate the prover; it separates the
+verdict from the machine the reader can inspect. That is a question about what a verdict _means_,
+and it should be answered deliberately rather than inherited from a deployment choice.
+
+**If it is reopened, it is not one issue.** At least: a job queue so verification stops blocking the
+request; identity and tenancy; per-subject isolation of the scratch dirs and generated harnesses
+every engine writes; and REQ049 re-answered for a prover the reader does not control.
+
+The boundary is now stated where an operator meets it — `serve`'s own startup line and its
+`--help` — rather than only here.
 
 ## Engine provisioning — Design A (old, superseded topology)
 
