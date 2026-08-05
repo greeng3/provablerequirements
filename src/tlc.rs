@@ -151,6 +151,61 @@ impl Constants {
         self.assignments.is_empty()
     }
 
+    /// Check every assignment against the constants the model actually declares (#211).
+    ///
+    /// **TLC silently ignores a `CONSTANT X = …` for a name its spec does not declare** — no
+    /// warning, no error, the run completes (probed directly against the real engine). Passing such
+    /// an assignment through therefore does worse than nothing: it lands on the verdict as part of
+    /// the model, and the verdict then describes a model that never existed. The ordinary way to
+    /// get there is renaming a constant in the spec and leaving the old assignment behind, which is
+    /// exactly the moment an operator most needs to be told.
+    ///
+    /// So it is refused **by name**, the discipline [`Constants::load`] already applies to a value
+    /// provreq cannot write. A verdict provreq cannot describe truthfully is not one it should
+    /// produce.
+    ///
+    /// ⚠️ **A model value is exempt, and it is not an edge case.** `CONSTANT d1 = d1` — a name
+    /// assigned to itself — is how TLC introduces a model value, an opaque element that exists
+    /// only in the `.cfg` and which the spec therefore never declares. Refusing those would reject
+    /// the most ordinary parameterised model there is: a set of drones `Drones = {d1, d2}` needs
+    /// `d1` and `d2` to be something. The first live run of this check rejected exactly that, on a
+    /// configuration that had produced a `holds` an hour earlier, with the whole suite green.
+    pub fn check_declared(
+        &self,
+        declared: &std::collections::BTreeSet<String>,
+    ) -> Result<(), String> {
+        let unknown: Vec<&str> = self
+            .assignments
+            .iter()
+            .filter(|(name, value)| {
+                !declared.contains(name.as_str()) && !is_model_value(name, value)
+            })
+            .map(|(name, _)| name.as_str())
+            .collect();
+        if unknown.is_empty() {
+            return Ok(());
+        }
+        let names = unknown.join("`, `");
+        let known = if declared.is_empty() {
+            "the model declares no constants at all".to_string()
+        } else {
+            format!(
+                "the model declares `{}`",
+                declared
+                    .iter()
+                    .map(String::as_str)
+                    .collect::<Vec<_>>()
+                    .join("`, `")
+            )
+        };
+        Err(format!(
+            "`tla.constants` in provreq.yml assigns `{names}`, which the subject's TLA+ does not \
+             declare as a CONSTANT — {known}. TLC ignores an assignment for a name its spec does \
+             not declare, so the verdict would report a model that was never used; rename or \
+             remove the assignment"
+        ))
+    }
+
     /// The `CONSTANT` lines this model contributes to the `.cfg`, one per assignment. Empty for a
     /// constant-free spec, which keeps its `.cfg` byte-for-byte what it was before this existed.
     fn cfg_lines(&self) -> String {
@@ -170,7 +225,12 @@ impl Constants {
     /// `None` when nothing is configured. Unlike Kani's bounds there is no silent default to warn
     /// about: a spec that declares a constant and is given none does not run at all, so the only
     /// way to reach a verdict with no constants is a spec that has none.
-    pub fn describe(&self) -> Option<String> {
+    ///
+    /// `lead` is how the outcome relates to this model, supplied by the caller so each verdict
+    /// states its own truth: a `holds` was *checked under* it, a `fails` was *refuted under* it,
+    /// and an `inconclusive` was only ever *supplied* it — nothing was checked, and a line saying
+    /// otherwise would be the same kind of small lie this whole check exists to remove (#211).
+    pub fn describe(&self, lead: &str) -> Option<String> {
         if self.assignments.is_empty() {
             return None;
         }
@@ -181,9 +241,16 @@ impl Constants {
             .collect::<Vec<_>>()
             .join(", ");
         Some(format!(
-            "checked under the model — {listed} (`tla.constants` in provreq.yml)"
+            "{lead} — {listed} (`tla.constants` in provreq.yml)"
         ))
     }
+}
+
+/// Whether an assignment declares a TLC **model value**: a name assigned to itself, which is how
+/// the `.cfg` introduces an opaque element that exists nowhere in the spec. It is the only kind of
+/// assignment whose name the spec is not expected to declare ([`Constants::check_declared`]).
+fn is_model_value(name: &str, value: &str) -> bool {
+    value.trim() == name
 }
 
 /// One configured constant as the TLA+ expression it will be assigned to.
@@ -242,25 +309,42 @@ impl Outcome {
     ///
     /// The load-bearing line is `Holds` → [`Basis::ModelCheckedBounded`]: TLC is bounded, so a
     /// pass is `model-checked (bounded)` and never `proven`.
-    /// `constants` rides along because a bounded pass is only meaningful against the model it ran
-    /// under (#121) — so the assignments are attached to the `holds`, never left for the operator
-    /// to assume.
+    ///
+    /// **`constants` rides along with every outcome, not just the pass (#211).** The model is not a
+    /// footnote on a `holds`; it decides what TLC established, whichever way the answer went:
+    ///
+    /// - a `fails` hands the operator a behaviour and tells them to replay it (D9), and that
+    ///   behaviour cannot be replayed without the assignments it was found under — the same claim
+    ///   about the same spec **holds** under one model and is **refuted** under a wider one, which
+    ///   [`tests::real_tlc_checks_a_parameterised_spec_under_the_operators_model`] demonstrates
+    ///   against the real engine;
+    /// - an `inconclusive` is often *about* the model — a value the spec's own `ASSUME` rejects
+    ///   names the assumption but not the value, and provreq is the one that supplied it.
+    ///
+    /// Kani's precedent ([`crate::kani::Bounds`]) attaches its bounds to the pass alone. It does not
+    /// transfer: a Kani counterexample is a concrete input the operator can run, while TLC's is a
+    /// behaviour that only exists relative to a model.
     pub fn into_evidence(&self, constants: &Constants) -> Evidence {
-        match self {
-            Outcome::Holds => {
-                let mut evidence = Evidence::holds("TLC (TLA+)", Basis::ModelCheckedBounded);
-                evidence.detail.extend(constants.describe());
-                evidence
-            }
-            Outcome::Fails { violated, witness } => Evidence::fails(
-                "TLC (TLA+)",
-                witness.clone(),
-                violated.iter().cloned().collect(),
+        let (mut evidence, lead) = match self {
+            Outcome::Holds => (
+                Evidence::holds("TLC (TLA+)", Basis::ModelCheckedBounded),
+                "checked under the model",
             ),
-            Outcome::Inconclusive { reason } => {
-                Evidence::inconclusive("TLC (TLA+)", vec![reason.clone()])
-            }
-        }
+            Outcome::Fails { violated, witness } => (
+                Evidence::fails(
+                    "TLC (TLA+)",
+                    witness.clone(),
+                    violated.iter().cloned().collect(),
+                ),
+                "refuted under the model",
+            ),
+            Outcome::Inconclusive { reason } => (
+                Evidence::inconclusive("TLC (TLA+)", vec![reason.clone()]),
+                "the model provreq supplied",
+            ),
+        };
+        evidence.detail.extend(constants.describe(lead));
+        evidence
     }
 }
 
@@ -491,6 +575,11 @@ pub struct SpecSite {
     /// Every directory SANY may resolve an `EXTENDS` from: the spec's own directory, plus each
     /// configured root, so a spec that extends a sibling module still parses.
     pub library: Vec<PathBuf>,
+    /// Every name the model declares as a `CONSTANT` — what a `.cfg` may assign, and so what
+    /// [`Constants::check_declared`] holds the operator's assignments to (#211). Carried here
+    /// because the specs are walked once, for this lookup, and walking them again to ask a second
+    /// question of the same files is the re-walk #144 removed.
+    pub declared_constants: std::collections::BTreeSet<String>,
 }
 
 /// The tla2tools.jar path — `TLA2TOOLS_JAR` if set, else the location the native provisioner
@@ -584,6 +673,7 @@ pub fn locate_spec(
         dir,
         module,
         library,
+        declared_constants: tla_adapter::declared_constants(&specs),
     })
 }
 
@@ -1007,6 +1097,101 @@ mod tests {
             .into_evidence(&Constants::default())
             .detail
             .is_empty());
+    }
+
+    // Verifies: REQ029 (#211) — an assignment for a name the model does not declare is REFUSED by
+    // name. TLC silently ignores it, so passing it through puts a constant on the verdict that was
+    // never part of the model the run used.
+    #[test]
+    fn an_assignment_the_model_does_not_declare_is_refused_by_name() {
+        let declared: std::collections::BTreeSet<String> =
+            ["Drones".to_string(), "MaxAlt".to_string()].into();
+        let reason = constants_from(&[("MaxAlt", "2"), ("Ceiling", "99")])
+            .check_declared(&declared)
+            .expect_err("an undeclared assignment is not a model");
+        assert!(reason.contains("`Ceiling`"), "{reason}");
+        // And it says what the model does declare, so the fix is one edit away.
+        assert!(reason.contains("Drones"), "{reason}");
+        // The declared ones alone are fine.
+        assert!(constants_from(&[("MaxAlt", "2")])
+            .check_declared(&declared)
+            .is_ok());
+        // A model that declares nothing cannot be assigned anything, and says so plainly.
+        let reason = constants_from(&[("MaxAlt", "2")])
+            .check_declared(&std::collections::BTreeSet::new())
+            .expect_err("nothing is assignable");
+        assert!(reason.contains("no constants at all"), "{reason}");
+        // Nothing configured is never a refusal — the constant-free subject.
+        assert!(Constants::default()
+            .check_declared(&std::collections::BTreeSet::new())
+            .is_ok());
+    }
+
+    // Verifies: REQ029 (#211) — A MODEL VALUE IS EXEMPT. `d1 = d1` is how a `.cfg` introduces an
+    // opaque element, so the spec never declares it and never can. The first live run of the
+    // check above rejected exactly this — on a configuration that had reached `holds` an hour
+    // earlier, with the whole suite green — which is why it is pinned here.
+    #[test]
+    fn a_model_value_needs_no_declaration_in_the_spec() {
+        let declared: std::collections::BTreeSet<String> = ["Drones".to_string()].into();
+        assert!(
+            constants_from(&[("Drones", "{d1, d2}"), ("d1", "d1"), ("d2", " d2 ")])
+                .check_declared(&declared)
+                .is_ok(),
+            "a set of model values is the ordinary parameterised model, not an edge case"
+        );
+        // Exempt because it names ITSELF — not because the name is unknown.
+        assert!(constants_from(&[("Ceiling", "99")])
+            .check_declared(&declared)
+            .is_err());
+    }
+
+    // Verifies: REQ029 (#211) — the model rides along with EVERY outcome, not just the pass. A
+    // `fails` witness cannot be replayed without it, and an `inconclusive` is often about it.
+    #[test]
+    fn every_outcome_reports_the_model_it_was_produced_under() {
+        let constants = constants_from(&[("MaxAlt", "3")]);
+        let fails = Outcome::Fails {
+            violated: Some("Temporal properties were violated.".into()),
+            witness: Some("State 1: pc = 0".into()),
+        }
+        .into_evidence(&constants);
+        assert!(
+            fails.detail.iter().any(|d| d.contains("MaxAlt = 3")),
+            "a witness that cannot be replayed is not a witness: {:?}",
+            fails.detail
+        );
+        let inconclusive = Outcome::Inconclusive {
+            reason: "Error: Assumption line 4 of module Base is false.".into(),
+        }
+        .into_evidence(&constants);
+        assert!(
+            inconclusive.detail.iter().any(|d| d.contains("MaxAlt = 3")),
+            "the value provreq supplied is the diagnosis: {:?}",
+            inconclusive.detail
+        );
+        // Each outcome states its own relation to the model. An `inconclusive` checked nothing,
+        // and must not say it did.
+        assert!(fails.detail.iter().any(|d| d.starts_with("refuted under")));
+        assert!(inconclusive
+            .detail
+            .iter()
+            .any(|d| d.starts_with("the model provreq supplied")));
+        assert!(Outcome::Holds
+            .into_evidence(&constants)
+            .detail
+            .iter()
+            .any(|d| d.starts_with("checked under")));
+        // Still nothing to say when nothing is configured, on every outcome.
+        assert_eq!(
+            Outcome::Fails {
+                violated: None,
+                witness: None,
+            }
+            .into_evidence(&Constants::default())
+            .detail,
+            Vec::<String>::new()
+        );
     }
 
     // Verifies: REQ029 (#121) — values are read from `tla.constants`, with the two scalars whose
@@ -1645,6 +1830,35 @@ Residual stack trace follows:
         );
     }
 
+    // Verifies: REQ029 (#211) — THE REAL ENGINE, pinning the premise the refusal rests on: TLC
+    // SILENTLY IGNORES a `CONSTANT` assignment for a name its spec does not declare. No warning,
+    // no error, the run completes and reports a pass — which is precisely why provreq must refuse
+    // it, since the assignment would otherwise land on the verdict as part of a model TLC never
+    // used. Nothing pure can establish this; it is a fact about the engine. If this ever stops
+    // holding, `Constants::check_declared` is redundant and should be re-derived, not assumed.
+    #[test]
+    #[ignore = "needs TLC installed — run via `cargo test -- --ignored` (the CI `tlc` job)"]
+    fn real_tlc_ignores_an_assignment_the_spec_does_not_declare() {
+        let tmp = tla_subject(true);
+        let check = lower(
+            &req(MODEL_REQ),
+            "Msg",
+            &standard_bindings(),
+            // `Msg.tla` declares no constants at all, so this assignment names nothing.
+            &constants_from(&[("Ghost", "1")]),
+            "provreq_smoke",
+        )
+        .expect("should lower");
+        assert!(check.cfg.contains("CONSTANT Ghost = 1"), "{}", check.cfg);
+        let outcome = run(&site_for(&tmp), &check);
+        assert_eq!(
+            outcome,
+            Outcome::Holds,
+            "TLC must ignore it silently — that silence is what makes the refusal necessary: \
+             {outcome:?}"
+        );
+    }
+
     // Verifies: REQ029 (D9) — THE REAL ENGINE refutes a false leads-to (no fairness: pc can
     // stall at 0 forever) and hands back a concrete counter-example behaviour.
     #[test]
@@ -1731,6 +1945,7 @@ Residual stack trace follows:
             dir: tmp.path().to_path_buf(),
             module: "Msg".into(),
             library: vec![tmp.path().to_path_buf()],
+            declared_constants: Default::default(),
         };
         let check = Check {
             name: "provreq_smoke".into(),

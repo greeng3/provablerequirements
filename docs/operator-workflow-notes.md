@@ -916,6 +916,50 @@ provreq generated _beside_ the spec, so relative resolution happened to land rig
 see it, because every test hands `locate_spec` an absolute tempdir. Library entries are now resolved
 where they are built.
 
+### The reported model must be the model that ran (issue #211 / REQ029)
+
+Two defects from the 8th end-to-end pass, both in what #121 had shipped hours earlier, both about
+the same thing: whether a verdict's account of the model is true.
+
+**A — an assignment TLC discarded was reported as part of the model.** TLC **silently ignores** a
+`CONSTANT X = …` for a name its spec does not declare — no warning, no error, the run completes
+(pinned now by a real-engine test, because the refusal is only justified while that stays true).
+provreq passed it through and put it on the verdict:
+
+```text
+- checked under the model — Ceiling = 99, Drones = {d1, d2}, MaxAlt = 2, …
+```
+
+`Ceiling` was declared nowhere. Rename a constant in the spec, leave the old assignment behind, and
+the verdict describes a model that never existed — the one failure the reporting exists to prevent.
+Now refused by name, and the refusal says what the model _does_ declare, so the fix is one edit
+away. `tla_adapter::declared_constants` reads it off the same walk `locate_spec` already does.
+
+⚠️ **A MODEL VALUE IS EXEMPT, and the first live run of this check is what proved it.** `d1 = d1` —
+a name assigned to itself — is how a `.cfg` introduces an opaque element, so no spec declares it or
+can. The check as first written refused `d1` and `d2` on the very configuration that had reached
+`holds` an hour earlier, **with 39 tests green**, including seven against the real engine. Static
+green is not evidence on this channel; the live subject is.
+
+**B — the model rode only on `holds`.** #121 followed `kani::Bounds`, which attaches its bounds to
+the pass alone. That precedent does not transfer, and #121's own real-engine test is the refutation:
+one spec, one claim, `holds` under `MaxAlt = 1` and **refuted** under `MaxAlt = 5`. A Kani
+counterexample is a concrete input the operator can run; TLC's is a behaviour that only exists
+relative to a model, so a `fails` that says "replay this" while withholding the model is not
+handing over a D9 witness at all.
+
+**Each outcome now states its own relation to the model**, because a line that overstates is the
+same small lie in miniature:
+
+```text
+holds         checked under the model — Drones = {d1, d2}, MaxAlt = 2, …
+fails         refuted under the model — Drones = {d1, d2}, MaxAlt = 2, …
+inconclusive  the model provreq supplied — Drones = {d1, d2}, MaxAlt = notanumber, …
+```
+
+That last line is the case worth seeing: TLC says `Assumption line 4 … of module Base is false` and
+names the assumption but not the value that broke it — and provreq is the one that supplied it.
+
 ## Engine provisioning — Design A (old, superseded topology)
 
 > **⚠️ The engine SPLIT (artifact-fed vs toolchain-welded) and R-eng-1..4 survive into Design B.**
