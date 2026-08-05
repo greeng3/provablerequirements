@@ -399,6 +399,12 @@ pub struct ProvenanceReport {
     /// cannot be established.
     #[serde(default)]
     pub environment: Option<crate::proving_env::ProvingEnv>,
+    /// A fingerprint of the specs this was proved against that live **outside** the subject tree
+    /// (#120), so the model moving makes the verdict stale. `None` — and skipped as a drift axis —
+    /// both for a verdict from before this existed and for a subject whose specs are all in-tree,
+    /// where `subject_commit` already covers them.
+    #[serde(default)]
+    pub spec_fingerprint: Option<String>,
 }
 
 /// A JSON-serializable view of a [`Verdict`] for the web surface (REQ038). The domain types are
@@ -441,12 +447,13 @@ pub fn report(v: &Verdict) -> VerdictReport {
             requirement_revision: v.provenance.requirement_revision.clone(),
             subject_commit: v.provenance.subject_commit.clone(),
             tool_version: v.provenance.tool_version.clone(),
-            // The formalization fingerprint and the proving environment are persistence concerns,
-            // not part of the in-memory verdict's identity — the verify flow stamps both on the
-            // stored copy (REQ045, REQ049). A live (unpersisted) report carries neither; nothing
-            // reads them off the wire.
+            // The formalization fingerprint, the proving environment, and the out-of-subject spec
+            // fingerprint are persistence concerns, not part of the in-memory verdict's identity —
+            // the verify flow stamps all three on the stored copy (REQ045, REQ049, #120). A live
+            // (unpersisted) report carries none of them; nothing reads them off the wire.
             formalization: None,
             environment: None,
+            spec_fingerprint: None,
         },
     }
 }

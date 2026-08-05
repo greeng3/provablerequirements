@@ -1023,6 +1023,7 @@ fn run_status(subject: &Path) -> Result<()> {
     let anchor = provreq::verdict_store::DriftAnchor::current(
         provreq::verify::subject_head_commit(subject),
         provreq::proving_env::ProvingEnv::current(&companion),
+        provreq::tla_adapter::current_external_fingerprint(subject, &companion),
     );
     let cov = provreq::status::coverage(&items, &triage_state, &draft_state, &verdicts, &anchor);
     println!("Coverage funnel:");

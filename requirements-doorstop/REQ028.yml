@@ -48,3 +48,28 @@ text: |
   structural read of the specification, not a full parse, so a name introduced only by a local
   binding or an imported module is not seen; a resolved binding reports what was checked and
   what was not, rather than implying more was checked.
+
+  Where the model lives is the operator's choice, not the tool's. Specifications are found under
+  the subject, and also under any locations the subject's configuration names; a team whose model
+  lives in a sibling repository or a shared directory can ground a model requirement without
+  moving it. A location resolves relative to the subject, since what is being described is where
+  the model sits relative to the thing being verified. A configured location that does not exist
+  contributes no specifications, and the requirement parks as it would for any name the model does
+  not define.
+
+  A specification outside the subject carries two obligations the tool must meet, and both are
+  properties of a verdict rather than conveniences.
+
+  The first is provenance. A verdict records what it was proved against, and the subject's own
+  revision does not cover a file outside the subject: such a file can change without any recorded
+  anchor moving, leaving a verdict that reports itself as current while the model it was checked
+  against has since changed. So the specifications outside the subject are themselves part of what
+  a verdict is anchored to, and one of them changing makes that verdict stale with a reason saying
+  so. Where every specification is inside the subject this adds nothing — the subject's own
+  revision already covers them, and the same drift must not be reported twice.
+
+  The second is that the tool writes nothing where the model lives. A configured location may be a
+  repository the operator did not offer for writing, or one the tool cannot write to at all. The
+  generated module and its configuration are therefore produced in the tool's own scratch space
+  and the model checker is directed to the specification, rather than the generated files being
+  placed beside it. The subject's tree and every configured location are only ever read.

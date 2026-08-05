@@ -120,6 +120,11 @@ pub fn verify(subject: &Path, id: &str) -> Result<Option<VerifyOutcome>> {
     // not what the subject declares it offers. Without it, a verdict proved under one engine build
     // and one proved under another are indistinguishable in the store.
     report.provenance.environment = Some(crate::proving_env::ProvingEnv::current(&companion));
+    // Stamp the fingerprint of any spec that lives outside the subject (#120). The subject's commit
+    // does not cover such a file, so without this a verdict proved against a sibling repo's model
+    // would stay `fresh` while that model moved. `None` when every spec is in-tree, where the
+    // subject commit already covers them and a second axis would only flag the same drift twice.
+    report.provenance.spec_fingerprint = resolved.spec_fingerprint.clone();
     let store = crate::verdict_store::load(&companion)?;
     let recorded = crate::verdict_store::record(&store, report);
     crate::verdict_store::save(&companion, &recorded)?;
@@ -311,7 +316,8 @@ fn tlc_evidence(
     requirement: &Requirement,
     bindings: &[Binding],
 ) -> verdict::Evidence {
-    let site = match crate::tlc::locate_spec(subject, companion) {
+    let spec_paths = crate::spec_paths::SpecPaths::load(subject, companion);
+    let site = match crate::tlc::locate_spec(subject, companion, &spec_paths) {
         Ok(site) => site,
         Err(reason) => return verdict::Evidence::inconclusive("TLC (TLA+)", vec![reason]),
     };

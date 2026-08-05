@@ -10,8 +10,14 @@
 //! subject writes its own TLA+ spec — the behaviour (`Init`/`Next`/`Spec`), the state
 //! operators, the sets. provreq generates a *new* module that `EXTENDS` that spec and adds a
 //! single temporal property, plus a `.cfg` naming the subject's `Spec` and provreq's property.
-//! Nothing in the subject's spec is edited; the generated files are removed after the run and
-//! an existing file is never clobbered.
+//! Nothing in the subject's spec is edited.
+//!
+//! Since #120 the generated files are not written **anywhere near** the spec: they go into
+//! provreq's own scratch directory, and TLC is pointed at the spec through its module search path.
+//! The subject's tree is only ever read. That began as a necessity — a spec may live in a
+//! configured root outside the subject, which could be a repository provreq has no business
+//! writing into — and it retires a guard and a sweeper along with it: there is no file to clobber
+//! and no trace spec to remove.
 //!
 //! **Honest by construction (D8).** TLC is a *bounded* model checker — it explores the states
 //! of the model the operator configured, not every execution — so a pass is
@@ -317,12 +323,17 @@ fn pattern_verb(pattern: &Pattern) -> &'static str {
 /// Where the subject's behaviour spec lives, so provreq can generate a module beside it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SpecSite {
-    /// The directory holding the spec module — TLC resolves `EXTENDS` from the main module's
-    /// own directory, so the generated module is written here.
+    /// The directory holding the spec module. **Not** where the generated module is written —
+    /// provreq writes into its own scratch dir and names this on TLC's module search path
+    /// instead, because a configured spec root may be a repository provreq has no business
+    /// writing into (#120). Kept because it is where the operator's spec actually is.
     pub dir: PathBuf,
     /// The spec's TLA+ module name (from its `---- MODULE X ----` header), which the generated
     /// module extends.
     pub module: String,
+    /// Every directory SANY may resolve an `EXTENDS` from: the spec's own directory, plus each
+    /// configured root, so a spec that extends a sibling module still parses.
+    pub library: Vec<PathBuf>,
 }
 
 /// The tla2tools.jar path — `TLA2TOOLS_JAR` if set, else the location the native provisioner
@@ -341,13 +352,17 @@ pub fn jar_path() -> String {
     })
 }
 
-/// Locate the subject's behaviour spec (the module defining `Spec`) so a check can be
-/// generated beside it. `Err` when there is no single `Spec` to check against — an honest
-/// `inconclusive`, never a guess at `Init`/`Next`.
-pub fn locate_spec(subject_root: &Path, companion_root: &Path) -> Result<SpecSite, String> {
+/// Locate the subject's behaviour spec (the module defining `Spec`) so a check can be generated
+/// against it. `Err` when there is no single `Spec` to check against — an honest `inconclusive`,
+/// never a guess at `Init`/`Next`.
+pub fn locate_spec(
+    subject_root: &Path,
+    companion_root: &Path,
+    extra: &crate::spec_paths::SpecPaths,
+) -> Result<SpecSite, String> {
     // One lookup, so this loads the specs for itself rather than taking a shared read (#144) — the
     // sharing that matters is a binding set's many symbols, which is `grounding::resolve_bindings`.
-    let specs = tla_adapter::SubjectSpecs::load(subject_root, companion_root);
+    let specs = tla_adapter::SubjectSpecs::load(subject_root, companion_root, extra);
     // A behaviour definition takes no arguments: the `.cfg` names `SPECIFICATION Spec`, which
     // TLC reads as a formula, not as something to apply.
     let at = match tla_adapter::resolve(&specs, SPEC_OPERATOR, 0) {
@@ -392,7 +407,19 @@ pub fn locate_spec(subject_root: &Path, companion_root: &Path) -> Result<SpecSit
             at.file
         )
     })?;
-    Ok(SpecSite { dir, module })
+    // The spec's own directory first, so a module beside it wins over a same-named one in a
+    // configured root — nearest-to-the-spec is the reading least likely to surprise.
+    let mut library = vec![dir.clone()];
+    for root in extra.roots() {
+        if !library.contains(root) {
+            library.push(root.clone());
+        }
+    }
+    Ok(SpecSite {
+        dir,
+        module,
+        library,
+    })
 }
 
 /// The module name from a spec's `---- MODULE X ----` header (the first such line).
@@ -425,9 +452,20 @@ fn module_header(text: &str) -> Option<String> {
 /// server's verify handler serves concurrent requests.
 ///
 /// The metadir doubles as the temp dir — it is already unique per run and swept with it.
-fn tlc_args(jar: &str, metadir: &Path, name: &str) -> Vec<String> {
-    vec![
-        format!("-Djava.io.tmpdir={}", metadir.display()),
+///
+/// **`-DTLA-Library` is what lets the generated module live away from the spec.** SANY resolves
+/// `EXTENDS` from the main module's own directory and from the directories this names, so provreq
+/// generates into its own scratch dir and points here at the spec instead of writing beside it
+/// (#120). That keeps provreq out of the subject's tree entirely, and out of a configured spec root
+/// it may have no business writing into. Verified against real TLC before being relied on.
+fn tlc_args(jar: &str, metadir: &Path, library: &[PathBuf], name: &str) -> Vec<String> {
+    let mut args = vec![format!("-Djava.io.tmpdir={}", metadir.display())];
+    // `join_paths` uses the platform's own separator, so a spec directory is never split on a
+    // character that is legal inside its name.
+    if let Ok(joined) = std::env::join_paths(library) {
+        args.push(format!("-DTLA-Library={}", joined.to_string_lossy()));
+    }
+    args.extend([
         "-cp".to_string(),
         jar.to_string(),
         "tlc2.TLC".to_string(),
@@ -437,31 +475,26 @@ fn tlc_args(jar: &str, metadir: &Path, name: &str) -> Vec<String> {
         "-config".to_string(),
         format!("{name}.cfg"),
         format!("{name}.tla"),
-    ]
+    ]);
+    args
 }
 
-/// Write the generated module + cfg beside the subject's spec, run TLC, and remove them again.
+/// Write the generated module + cfg into provreq's own scratch directory, run TLC there against
+/// the subject's spec, and take the whole directory away again.
 ///
-/// Additive and non-destructive, the Kani discipline: nothing in the subject's spec is
-/// touched, an existing file is never clobbered, and the generated files are removed on every
-/// path including failure. TLC's own scratch (`states/`) is redirected to a throwaway metadir
-/// outside the subject, so the run leaves no trace.
+/// Additive and non-destructive, the Kani discipline — and since #120, more strictly so: the
+/// generated files no longer go beside the spec at all. TLC finds the spec through
+/// `-DTLA-Library` instead ([`tlc_args`]). The subject's tree is never written to, so there is no
+/// file to clobber, no litter to sweep, and nothing to clean up on the failing path; and a spec
+/// root the operator configured — which may be a repository provreq has no business writing into,
+/// or one it cannot write to at all — is only ever read.
+///
+/// The scratch directory is the metadir, which already had to exist for TLC's own `states/`, so
+/// this costs nothing beyond the paths.
 ///
 /// `// ponytail: TLC's default worker/heap settings and no timeout — its own defaults until a
 /// real subject shows they are wrong; workers/timeout belong in provreq.yml config.`
 pub fn run(site: &SpecSite, check: &Check) -> Outcome {
-    let tla_path = site.dir.join(format!("{}.tla", check.name));
-    let cfg_path = site.dir.join(format!("{}.cfg", check.name));
-    for path in [&tla_path, &cfg_path] {
-        if path.exists() {
-            return Outcome::Inconclusive {
-                reason: format!(
-                    "{} already exists — refusing to overwrite a file provreq did not write",
-                    path.display()
-                ),
-            };
-        }
-    }
     let metadir = match tempfile::tempdir() {
         Ok(d) => d,
         Err(e) => {
@@ -470,6 +503,8 @@ pub fn run(site: &SpecSite, check: &Check) -> Outcome {
             }
         }
     };
+    let tla_path = metadir.path().join(format!("{}.tla", check.name));
+    let cfg_path = metadir.path().join(format!("{}.cfg", check.name));
     if let Err(e) = std::fs::write(&tla_path, &check.module) {
         return Outcome::Inconclusive {
             reason: format!(
@@ -479,22 +514,20 @@ pub fn run(site: &SpecSite, check: &Check) -> Outcome {
         };
     }
     if let Err(e) = std::fs::write(&cfg_path, &check.cfg) {
-        let _ = std::fs::remove_file(&tla_path);
         return Outcome::Inconclusive {
             reason: format!("could not write the config to {}: {e}", cfg_path.display()),
         };
     }
 
     let output = std::process::Command::new("java")
-        .args(tlc_args(&jar_path(), metadir.path(), &check.name))
-        .current_dir(&site.dir)
+        .args(tlc_args(
+            &jar_path(),
+            metadir.path(),
+            &site.library,
+            &check.name,
+        ))
+        .current_dir(metadir.path())
         .output();
-
-    // Remove the generated files before interpreting anything, so an early return cannot leak
-    // them; a violation trace spec (`<name>_TTrace_*.tla`) is swept too.
-    let _ = std::fs::remove_file(&tla_path);
-    let _ = std::fs::remove_file(&cfg_path);
-    remove_trace_specs(&site.dir, &check.name);
 
     match output {
         Ok(o) => classify(&format!(
@@ -511,23 +544,10 @@ pub fn run(site: &SpecSite, check: &Check) -> Outcome {
     }
 }
 
-/// Sweep any `<name>_TTrace_*.tla` trace-spec TLC may generate on a violation, so the subject
-/// is left exactly as provreq found it.
-fn remove_trace_specs(dir: &Path, name: &str) {
-    let prefix = format!("{name}_TTrace");
-    let Ok(entries) = std::fs::read_dir(dir) else {
-        return;
-    };
-    for entry in entries.flatten() {
-        if entry
-            .file_name()
-            .to_str()
-            .is_some_and(|n| n.starts_with(&prefix))
-        {
-            let _ = std::fs::remove_file(entry.path());
-        }
-    }
-}
+// The trace-spec sweeper that used to live here is gone with #120. It existed because a violation
+// makes TLC drop `<name>_TTrace_*.tla` beside the module it checked, which used to be the subject's
+// own directory. The module is now generated inside the scratch metadir, so the trace lands there
+// too and goes with it — the sweep has nothing left to sweep.
 
 /// Map TLC's output to an outcome. Pure and separately tested — the mapping is where a verdict
 /// could silently become dishonest, so it must be checkable without running TLC.
@@ -673,7 +693,12 @@ mod tests {
     #[test]
     fn every_run_gets_its_own_jvm_temp_dir() {
         let metadir = Path::new("/scratch/meta-xyz");
-        let args = tlc_args("/opt/tla2tools.jar", metadir, "provreq_smoke");
+        let args = tlc_args(
+            "/opt/tla2tools.jar",
+            metadir,
+            &[PathBuf::from("/subject/specs")],
+            "provreq_smoke",
+        );
 
         assert!(
             args.contains(&format!("-Djava.io.tmpdir={}", metadir.display())),
@@ -1092,9 +1117,14 @@ Residual stack trace follows:
     /// model beyond what the spec defines.
     fn tla_subject(fair: bool) -> tempfile::TempDir {
         let tmp = tempfile::tempdir().expect("tempdir");
+        std::fs::write(tmp.path().join("Msg.tla"), spec_text(fair)).expect("Msg.tla");
+        tmp
+    }
+
+    /// The same spec text, so a test can place it somewhere other than the subject root.
+    fn spec_text(fair: bool) -> String {
         let fairness = if fair { " /\\ WF_pc(Next)" } else { "" };
-        std::fs::write(
-            tmp.path().join("Msg.tla"),
+        {
             format!(
                 "---- MODULE Msg ----\n\
                  EXTENDS Naturals\n\
@@ -1106,14 +1136,17 @@ Residual stack trace follows:
                  Succeeded(m) == pc = 1\n\
                  Message == {{0}}\n\
                  ====\n"
-            ),
-        )
-        .expect("Msg.tla");
-        tmp
+            )
+        }
     }
 
     fn site_for(tmp: &tempfile::TempDir) -> SpecSite {
-        locate_spec(tmp.path(), &tmp.path().join("ProvableRequirements")).expect("Spec located")
+        locate_spec(
+            tmp.path(),
+            &tmp.path().join("ProvableRequirements"),
+            &crate::spec_paths::SpecPaths::default(),
+        )
+        .expect("Spec located")
     }
 
     // Verifies: REQ029 — THE REAL ENGINE, end to end: with fairness, `Accepted ~> Succeeded`
@@ -1165,6 +1198,49 @@ Residual stack trace follows:
             reason.contains("requires 0 arguments"),
             "the operator must get TLC's cause, not its count: {reason}"
         );
+    }
+
+    // Verifies: REQ028/REQ029 (#120) — THE REAL ENGINE against a spec that lives OUTSIDE the
+    // subject. The subject directory is empty; the spec sits in a sibling directory named only by
+    // a configured root. Before this, such a layout could not be checked at all.
+    //
+    // This is the test that matters for #120, because the mechanism it depends on is TLC's, not
+    // provreq's: SANY has to resolve `EXTENDS Msg` through `-DTLA-Library` from a module generated
+    // somewhere else entirely. Nothing pure can establish that.
+    #[test]
+    #[ignore = "needs TLC installed — run via `cargo test -- --ignored` (the CI `tlc` job)"]
+    fn real_tlc_checks_a_spec_outside_the_subject() {
+        let home = tempfile::tempdir().expect("tempdir");
+        let subject = home.path().join("subject");
+        let models = home.path().join("models");
+        std::fs::create_dir_all(&subject).expect("subject");
+        std::fs::create_dir_all(&models).expect("models");
+        std::fs::write(models.join("Msg.tla"), spec_text(true)).expect("Msg.tla");
+
+        let paths = crate::spec_paths::SpecPaths::from_roots(vec![models.clone()]);
+        let site = locate_spec(&subject, &subject.join("ProvableRequirements"), &paths)
+            .expect("the external Spec must be located");
+        let check = lower(
+            &req(MODEL_REQ),
+            &site.module,
+            &standard_bindings(),
+            "provreq_smoke",
+        )
+        .expect("should lower");
+
+        let outcome = run(&site, &check);
+        assert_eq!(
+            outcome,
+            Outcome::Holds,
+            "a spec outside the subject must still verify: {outcome:?}"
+        );
+        // And provreq wrote nothing into a directory it does not own.
+        let left: Vec<_> = std::fs::read_dir(&models)
+            .expect("readdir")
+            .flatten()
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(left, vec!["Msg.tla".to_string()], "{left:?}");
     }
 
     // Verifies: REQ029 (D9) — THE REAL ENGINE refutes a false leads-to (no fairness: pc can
@@ -1225,34 +1301,54 @@ Residual stack trace follows:
             "---- MODULE Msg ----\nVARIABLES pc\nInit == pc = 0\n====\n",
         )
         .expect("Msg.tla");
-        let err = locate_spec(tmp.path(), &tmp.path().join("ProvableRequirements"))
-            .expect_err("no Spec to check against");
+        let err = locate_spec(
+            tmp.path(),
+            &tmp.path().join("ProvableRequirements"),
+            &crate::spec_paths::SpecPaths::default(),
+        )
+        .expect_err("no Spec to check against");
         assert!(err.contains("Spec"), "{err}");
     }
 
-    // Verifies: REQ029 — an existing file is NEVER clobbered; a name collision stops the run.
+    // Verifies: REQ029 (#120) — a run writes NOTHING into the spec's directory, so a file already
+    // named like the generated module is not at risk in the first place.
+    //
+    // This replaces a test that asserted the run *refused* on a name collision. That guard was
+    // right while the module was generated beside the spec; a spec directory may now be a
+    // configured root in someone else's repository, so provreq generates into its own scratch dir
+    // instead and the collision cannot arise. Asserting the stronger property directly — the
+    // directory is untouched — is what keeps that from quietly regressing.
     #[test]
-    fn an_existing_file_is_never_overwritten() {
+    fn a_run_writes_nothing_into_the_spec_directory() {
         let tmp = tempfile::tempdir().expect("tempdir");
-        let victim = tmp.path().join("provreq_smoke.tla");
-        std::fs::write(&victim, "\\* the operator's own module\n").expect("write");
+        let neighbour = tmp.path().join("provreq_smoke.tla");
+        std::fs::write(&neighbour, "\\* the operator's own module\n").expect("write");
         let site = SpecSite {
             dir: tmp.path().to_path_buf(),
             module: "Msg".into(),
+            library: vec![tmp.path().to_path_buf()],
         };
         let check = Check {
             name: "provreq_smoke".into(),
             module: "\\* generated\n".into(),
             cfg: "SPECIFICATION Spec\n".into(),
         };
-        let Outcome::Inconclusive { reason } = run(&site, &check) else {
-            panic!("a collision must not be treated as a verdict");
-        };
-        assert!(reason.contains("refusing to overwrite"), "{reason}");
+        let _ = run(&site, &check);
+
         assert_eq!(
-            std::fs::read_to_string(&victim).expect("read"),
+            std::fs::read_to_string(&neighbour).expect("read"),
             "\\* the operator's own module\n",
             "the operator's file must be untouched"
+        );
+        let entries: Vec<String> = std::fs::read_dir(tmp.path())
+            .expect("readdir")
+            .flatten()
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(
+            entries,
+            vec!["provreq_smoke.tla".to_string()],
+            "the run must add nothing to the spec's directory"
         );
     }
 }
