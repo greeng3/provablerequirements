@@ -326,6 +326,12 @@ fn tlc_evidence(
         Ok(c) => c,
         Err(reason) => return verdict::Evidence::inconclusive("TLC (TLA+)", vec![reason]),
     };
+    // Held against what the model declares before it can reach a verdict (#211): TLC ignores an
+    // assignment for a name its spec does not declare, so an unchecked one would be reported as
+    // part of a model that never included it.
+    if let Err(reason) = constants.check_declared(&site.declared_constants) {
+        return verdict::Evidence::inconclusive("TLC (TLA+)", vec![reason]);
+    }
     let check = match crate::tlc::lower(
         requirement,
         &site.module,

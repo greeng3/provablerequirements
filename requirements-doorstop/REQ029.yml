@@ -31,10 +31,19 @@ text: |
   value is the tool's to choose: a property checked with a bound of three and the same property
   checked with a bound of ten are different claims. So the subject's configuration may assign a
   value to each parameter, once, and those assignments become part of the model the check is run
-  against and are recorded alongside a passing verdict — a pass says what it was checked under,
-  never leaving the reader to assume it. An assignment the tool cannot express in the model's own
-  language is reported as such, naming the parameter, rather than dropped — a dropped assignment
-  would surface as a parameter reported unassigned while the operator is looking straight at it.
+  against and are recorded alongside every verdict they produced — not the passing one alone. A
+  refutation is a behaviour that exists only relative to a model and cannot be re-checked without
+  it, and an undecided run is frequently undecided about the model itself. Each verdict states its
+  own relation to the model it was given, since a run that checked nothing must not report itself
+  as having checked anything.
+
+  An assignment the tool cannot express in the model's own language is reported as such, naming the
+  parameter, rather than dropped — a dropped assignment would surface as a parameter reported
+  unassigned while the operator is looking straight at it. An assignment for a parameter the
+  specification does not declare is refused the same way and for a stronger reason: the checker
+  ignores it silently, so passing it through would put it in the tool's account of the model while
+  the check that ran never contained it. An assignment naming itself is exempt, being how an opaque
+  element is introduced into a model that no specification declares.
 
   TLC is a bounded model checker: it establishes a passing property over the states it explored,
   not over every execution, so a pass is recorded as model-checked and never as proven. A

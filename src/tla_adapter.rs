@@ -370,6 +370,49 @@ pub fn current_external_fingerprint(subject_root: &Path, companion_root: &Path) 
 }
 
 /// Every TLA+ definition named `name` across the model's `.tla` files.
+/// Every name the model **declares as a `CONSTANT`**, across all its specs.
+///
+/// The one question [`crate::tlc::Constants`] needs answered before it writes an assignment: TLC
+/// silently ignores a `CONSTANT X = …` for a name the spec does not declare, so an assignment
+/// provreq passes through unchecked lands on the verdict as part of a model that never included it
+/// (#211). Reading this here keeps the division of labour intact — the adapter reads what the
+/// operator wrote in the spec, and the engine decides what to do about it.
+///
+/// A `CONSTANT` declaration specifically, not any definition: assigning an operator definition is a
+/// different thing (TLA+ spells it `Op <- Impl`) and provreq does not write it.
+///
+/// Existence across the model, the same reading as every other model lookup: a name declared by
+/// *some* spec in the subject counts, even when the module being checked does not reach it. A
+/// stricter answer would need the `EXTENDS` closure of the checked module, which provreq does not
+/// compute, and the loose direction is the safe one — it can miss a mis-assignment, never invent
+/// one.
+pub fn declared_constants(subject: &SubjectSpecs) -> std::collections::BTreeSet<String> {
+    let mut out = std::collections::BTreeSet::new();
+    for spec in &subject.specs {
+        for raw in spec.text.lines() {
+            let line = strip_comment(raw).trim_start();
+            let Some(rest) = constant_declaration_names(line) else {
+                continue;
+            };
+            out.extend(rest.split(',').filter_map(identifier).map(str::to_string));
+        }
+    }
+    out
+}
+
+/// The declared names after a `CONSTANT(S)` keyword — [`declaration_names`] narrowed to the
+/// constant half, since a `VARIABLE` is not something a `.cfg` may assign.
+fn constant_declaration_names(line: &str) -> Option<&str> {
+    for kw in ["CONSTANTS", "CONSTANT"] {
+        if let Some(rest) = line.strip_prefix(kw) {
+            if rest.starts_with(|c: char| c.is_whitespace()) {
+                return Some(rest);
+            }
+        }
+    }
+    None
+}
+
 fn find_definitions(subject: &SubjectSpecs, name: &str) -> Vec<SpecMatch> {
     let mut out = Vec::new();
     for spec in &subject.specs {
@@ -627,6 +670,52 @@ Init == queue = <<>>
         assert!(
             resolve_in(&tmp, "Message", 0).is_resolved(),
             "set-defining operator"
+        );
+    }
+
+    // Verifies: REQ028/REQ029 (#211) — the model's CONSTANT declarations are readable on their
+    // own, which is what lets a `.cfg` assignment be held to something. Constants only: a VARIABLE
+    // is not assignable, and neither is an operator definition (TLA+ spells that substitution
+    // `Op <- Impl`, which provreq does not write).
+    #[test]
+    fn the_models_declared_constants_are_readable_and_are_constants_only() {
+        let tmp = subject(SPEC);
+        let specs = SubjectSpecs::load(
+            tmp.path(),
+            &tmp.path().join("ProvableRequirements"),
+            &crate::spec_paths::SpecPaths::default(),
+        );
+        let declared = declared_constants(&specs);
+        assert!(declared.contains("MaxLen"), "{declared:?}");
+        assert!(!declared.contains("queue"), "a VARIABLE is not assignable");
+        assert!(
+            !declared.contains("Message"),
+            "a definition is not a CONSTANT"
+        );
+    }
+
+    // Verifies: REQ029 (#211) — every name on a multi-name `CONSTANTS` line is declared, and a
+    // name only mentioned in a comment is not. Both are the reads a refusal would get wrong in the
+    // operator's face: a missed name refuses a correct assignment, a commented one accepts a
+    // useless one.
+    #[test]
+    fn declared_constants_reads_whole_lines_and_ignores_comments() {
+        let tmp = subject(
+            "---- MODULE M ----\nCONSTANTS Drones, MaxAlt\n\\* CONSTANT Ghost\nCONSTANTinople == 1\n====\n",
+        );
+        let declared = declared_constants(&SubjectSpecs::load(
+            tmp.path(),
+            &tmp.path().join("ProvableRequirements"),
+            &crate::spec_paths::SpecPaths::default(),
+        ));
+        assert!(
+            declared.contains("Drones") && declared.contains("MaxAlt"),
+            "{declared:?}"
+        );
+        assert!(!declared.contains("Ghost"), "a comment declares nothing");
+        assert!(
+            !declared.contains("CONSTANTinople"),
+            "the keyword must be a whole word: {declared:?}"
         );
     }
 
