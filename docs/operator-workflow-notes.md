@@ -482,7 +482,8 @@ only; sort/type existence when cat-1 needs it`). Cat-1 now needs it: a harness c
       pattern outside that core (`precedes`/`occurs at most`/`can_reach`) → honest `NotLowerable` →
       `unknown`, never approximated (D2). The subject must define a behaviour `Spec` (located via
       `tla_adapter`); a missing/ambiguous `Spec`, an unassigned `CONSTANT`, or a parse error → honest
-      `inconclusive` — the TLC analog of Kani's uncompilable harness. Constant models deferred (**#121**).
+      `inconclusive` — the TLC analog of Kani's uncompilable harness. Constant models deferred
+      (**#121** — **done**; see "A parameterised spec is checked under the operator's model").
     - `engine.rs` honesty: `EngineProbe` gained `args: Vec<String>` + a `version_marker`, because TLC runs as
       `java -cp <jar> tlc2.TLC` (no PATH binary) and `java` present ≠ TLC present — only the `TLC2 Version`
       banner in the output counts, so a jar-absent host reads `Missing`, not falsely `Available`. Cat-2a gets
@@ -858,6 +859,62 @@ operator to disambiguate a file from itself. Files are deduplicated by canonical
 
 Live end to end: the spec moved to a sibling directory, the subject left holding only its
 requirements, and `REQ001` still reaches `holds — model-checked (bounded)`.
+
+### A parameterised spec is checked under the operator's model (issue #121 / REQ029)
+
+TLC needs a behaviour **and** a value for every `CONSTANT` the spec declares. provreq found the
+behaviour itself and supplied no values, so a parameterised spec — the common case in real TLA+ —
+returned an honest `inconclusive` and stayed there forever. Unlike #206's banner, TLC's message was
+never the problem: `Error: The constant parameter MaxLen is not assigned a value by the
+configuration file.` names the constant and says what is missing. This was **missing capability, not
+a reporting defect**, which is why no evidence pass was needed to justify building it.
+
+The assignments are declared once, in the companion `provreq.yml`, and written into the generated
+`.cfg`:
+
+```yaml
+tla:
+  constants:
+    MaxLen: 3
+    Kinds: "{1, 2}"
+```
+
+A value is the right-hand side of a `CONSTANT X = …` line — TLA+, passed through, because every set,
+record, tuple and model value the operator needs is already expressible there and translating YAML
+into TLA+ would be provreq guessing at the model. Numbers and booleans are rendered (`TRUE`/`FALSE`)
+since those are the two scalars where the two spellings coincide. A value provreq **cannot** write —
+a list, a map — is refused by name rather than dropped: dropping it would leave TLC reporting that
+constant unassigned while the operator is looking straight at it in their manifest.
+
+**The model is reported on the verdict, and that is the point.** `MaxLen = 3` and `MaxLen = 10` are
+different claims about the same spec, so the assignments ride along with a `holds` exactly as Kani's
+unwinding depth does (`kani::Bounds::describe`). The real-engine test drives both directions on one
+spec and one claim: it **holds** under `MaxLen = 1` and is **refuted** under `MaxLen = 5`. Live:
+
+```text
+REQ001: holds — model-checked (bounded): verified over the states the engine explored, NOT proven
+    - TLC (TLA+): holds (model-checked (bounded))
+    - checked under the model — Kinds = {1, 2}, MaxLen = 3 (`tla.constants` in provreq.yml)
+```
+
+**No seventh drift axis, deliberately.** `provreq.yml` lives in the companion tree inside the
+subject, so `subject_commit` already covers a changed assignment once committed — unlike #120's
+external specs, which nothing covered. Kani's engine config sets the precedent: report it, don't
+fingerprint it.
+
+**An unassigned constant is still left to TLC.** Pre-empting it at grounding (the #119 move) was
+considered and rejected: #119 existed because TLC's message pointed into a generated module that had
+already been deleted, and here it names the operator's own constant and the file that must assign
+it. A check that says nothing new is a check that can only be wrong.
+
+**The live pass found a second defect, invisible to every test.** `--path` defaults to `.`, so the
+ordinary `cd <subject> && provreq verify REQ001` handed `locate_spec` a relative subject root — and
+TLC runs with its working directory set to provreq's scratch metadir, where `-DTLA-Library=.` names
+the scratch directory rather than the operator's. SANY reported the subject's own spec as a module it
+could not find: `Cannot find source file for module queue`. It arrived with #120 (before that,
+provreq generated _beside_ the spec, so relative resolution happened to land right) and no test could
+see it, because every test hands `locate_spec` an absolute tempdir. Library entries are now resolved
+where they are built.
 
 ## Engine provisioning — Design A (old, superseded topology)
 

@@ -19,6 +19,11 @@
 //! writing into — and it retires a guard and a sweeper along with it: there is no file to clobber
 //! and no trace spec to remove.
 //!
+//! **The model is the operator's, and it is reported.** A parameterised spec needs a value for
+//! every `CONSTANT` before TLC will run at all; those come from `tla.constants` in the companion
+//! manifest ([`Constants`]) and ride along to the verdict, because a `holds` under `MaxLen = 3` is
+//! a different claim from one under `MaxLen = 10` (#121).
+//!
 //! **Honest by construction (D8).** TLC is a *bounded* model checker — it explores the states
 //! of the model the operator configured, not every execution — so a pass is
 //! [`crate::verdict::Basis::ModelCheckedBounded`] and **never** `proven`, the same rung Kani
@@ -60,6 +65,144 @@ pub struct Check {
     pub cfg: String,
 }
 
+/// The constant assignments that make a parameterised spec into a *model* TLC can run (#121).
+///
+/// TLC needs a behaviour and a value for every `CONSTANT` the spec declares. provreq finds the
+/// behaviour itself ([`locate_spec`]) but cannot invent the values — `MaxLen = 3` and
+/// `MaxLen = 10` are different claims, and only the operator knows which one their model is. So a
+/// spec with an unassigned constant was an honest `inconclusive` and stayed there, which put every
+/// parameterised spec — the common case in real TLA+ — out of reach.
+///
+/// The operator declares them once, in the companion `provreq.yml`:
+///
+/// ```yaml
+/// tla:
+///   constants:
+///     MaxLen: 3
+///     Data: "{1, 2}"
+///     NoOne: NoOne          # a TLC model value is an assignment to its own name
+/// ```
+///
+/// A value is written as the operator would write it **in the `.cfg`** — the right-hand side of
+/// `CONSTANT X = …` is a TLA+ expression, and provreq passes it through rather than translating
+/// YAML into TLA+. Numbers and booleans are rendered (`TRUE`/`FALSE`), because those are the two
+/// cases where YAML's own scalar and the TLA+ expression coincide and quoting them would be noise.
+///
+/// Empty for a constant-free spec, which is every spec that worked before this existed — so an
+/// unconfigured subject generates exactly the `.cfg` it generated before.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Constants {
+    /// Ordered so a `.cfg` — and the line the verdict carries — is the same on every run, whatever
+    /// order the manifest happened to list them in.
+    assignments: std::collections::BTreeMap<String, String>,
+}
+
+impl Constants {
+    /// Read `tla.constants` from the companion `provreq.yml`. A missing file, a missing block, or a
+    /// manifest that will not parse all mean "no constants" — the same forgiving read as
+    /// [`crate::kani::Bounds::load`] and [`crate::spec_paths::SpecPaths::load`], because a subject
+    /// that never configured this must not be broken by the field existing.
+    ///
+    /// `Err` is the one case that is *not* forgiving: a constant whose value provreq cannot render
+    /// as a TLA+ expression. Dropping it would leave that constant unassigned and TLC would report
+    /// it as missing, while the operator is looking straight at it in their manifest. The reason
+    /// says what to write instead.
+    pub fn load(companion_root: &Path) -> Result<Constants, String> {
+        #[derive(serde::Deserialize)]
+        struct ManifestTla {
+            #[serde(default)]
+            tla: Option<TlaBlock>,
+        }
+        #[derive(serde::Deserialize)]
+        struct TlaBlock {
+            #[serde(default)]
+            constants: std::collections::BTreeMap<String, serde_yaml::Value>,
+        }
+        let Ok(text) = std::fs::read_to_string(companion_root.join(crate::adopt::MANIFEST_FILE))
+        else {
+            return Ok(Constants::default());
+        };
+        let Ok(manifest) = serde_yaml::from_str::<ManifestTla>(&text) else {
+            return Ok(Constants::default());
+        };
+        let configured = manifest.tla.map(|t| t.constants).unwrap_or_default();
+        let mut assignments = std::collections::BTreeMap::new();
+        for (name, value) in configured {
+            let rendered = render_value(&value).ok_or_else(|| {
+                format!(
+                    "the model constant `{name}` in provreq.yml is not something provreq can write \
+                     as a TLA+ expression — `tla.constants` values are the right-hand side of a \
+                     `CONSTANT {name} = …` line, so write the expression as a string (for example \
+                     `{name}: \"{{1, 2}}\"`) rather than a list or a map"
+                )
+            })?;
+            assignments.insert(name, rendered);
+        }
+        Ok(Constants { assignments })
+    }
+
+    /// Build from already-rendered assignments — for callers that know the values (tests, and any
+    /// future caller that is not reading a manifest).
+    pub fn from_assignments(assignments: std::collections::BTreeMap<String, String>) -> Constants {
+        Constants { assignments }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.assignments.is_empty()
+    }
+
+    /// The `CONSTANT` lines this model contributes to the `.cfg`, one per assignment. Empty for a
+    /// constant-free spec, which keeps its `.cfg` byte-for-byte what it was before this existed.
+    fn cfg_lines(&self) -> String {
+        self.assignments
+            .iter()
+            .map(|(name, value)| format!("CONSTANT {name} = {value}\n"))
+            .collect()
+    }
+
+    /// The constants this run used, in one line, for the verdict that depends on them.
+    ///
+    /// TLC explores the states of *the model the operator configured*, so a `holds` under
+    /// `MaxLen = 3` is a different claim from one under `MaxLen = 10` — the assignment is part of
+    /// what the verdict says, exactly as Kani's unwinding depth is
+    /// ([`crate::kani::Bounds::describe`]).
+    ///
+    /// `None` when nothing is configured. Unlike Kani's bounds there is no silent default to warn
+    /// about: a spec that declares a constant and is given none does not run at all, so the only
+    /// way to reach a verdict with no constants is a spec that has none.
+    pub fn describe(&self) -> Option<String> {
+        if self.assignments.is_empty() {
+            return None;
+        }
+        let listed = self
+            .assignments
+            .iter()
+            .map(|(name, value)| format!("{name} = {value}"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        Some(format!(
+            "checked under the model — {listed} (`tla.constants` in provreq.yml)"
+        ))
+    }
+}
+
+/// One configured constant as the TLA+ expression it will be assigned to.
+///
+/// A string is passed through untouched: the operator is writing TLA+, and every set, record,
+/// tuple and model value they might need is already expressible there. A number or a boolean is
+/// rendered, because those are the two scalars where quoting would be pure ceremony — with `TRUE`/
+/// `FALSE` spelled TLA+'s way rather than YAML's. Anything else (a list, a map, `null`) is `None`:
+/// provreq would have to guess whether `[1, 2]` means the set `{1, 2}` or the tuple `<<1, 2>>`,
+/// and a guess about the model is a guess about the claim.
+fn render_value(value: &serde_yaml::Value) -> Option<String> {
+    match value {
+        serde_yaml::Value::String(s) if !s.trim().is_empty() => Some(s.trim().to_string()),
+        serde_yaml::Value::Number(n) => Some(n.to_string()),
+        serde_yaml::Value::Bool(b) => Some(if *b { "TRUE" } else { "FALSE" }.to_string()),
+        _ => None,
+    }
+}
+
 /// Why a gated category-2a requirement could not be lowered. Never an approximation — the
 /// reason is the operator's to read and act on.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -99,9 +242,16 @@ impl Outcome {
     ///
     /// The load-bearing line is `Holds` → [`Basis::ModelCheckedBounded`]: TLC is bounded, so a
     /// pass is `model-checked (bounded)` and never `proven`.
-    pub fn into_evidence(&self) -> Evidence {
+    /// `constants` rides along because a bounded pass is only meaningful against the model it ran
+    /// under (#121) — so the assignments are attached to the `holds`, never left for the operator
+    /// to assume.
+    pub fn into_evidence(&self, constants: &Constants) -> Evidence {
         match self {
-            Outcome::Holds => Evidence::holds("TLC (TLA+)", Basis::ModelCheckedBounded),
+            Outcome::Holds => {
+                let mut evidence = Evidence::holds("TLC (TLA+)", Basis::ModelCheckedBounded);
+                evidence.detail.extend(constants.describe());
+                evidence
+            }
             Outcome::Fails { violated, witness } => Evidence::fails(
                 "TLC (TLA+)",
                 witness.clone(),
@@ -136,6 +286,7 @@ pub fn lower(
     req: &Requirement,
     extends_module: &str,
     bindings: &[Binding],
+    constants: &Constants,
     name: &str,
 ) -> Result<Check, NotLowerable> {
     if req.require.is_empty() {
@@ -160,7 +311,13 @@ pub fn lower(
          {PROPERTY_NAME} ==\n    {body}\n\
          ====\n"
     );
-    let cfg = format!("SPECIFICATION {SPEC_OPERATOR}\nPROPERTY {PROPERTY_NAME}\n");
+    // The constant assignments sit between the behaviour and the property, which is where a
+    // hand-written TLC config puts them; a spec that declares none contributes no lines and the
+    // `.cfg` is what it always was.
+    let cfg = format!(
+        "SPECIFICATION {SPEC_OPERATOR}\n{}PROPERTY {PROPERTY_NAME}\n",
+        constants.cfg_lines()
+    );
     Ok(Check {
         name: name.to_string(),
         module,
@@ -409,10 +566,18 @@ pub fn locate_spec(
     })?;
     // The spec's own directory first, so a module beside it wins over a same-named one in a
     // configured root — nearest-to-the-spec is the reading least likely to surprise.
-    let mut library = vec![dir.clone()];
+    //
+    // **Absolute, always.** TLC runs with its working directory set to provreq's scratch metadir
+    // ([`run`]), so a relative library entry names a directory under the scratch dir rather than
+    // the operator's. The ordinary invocation produces exactly that: `--path` defaults to `.`, so
+    // `cd <subject> && provreq verify REQ001` gave `-DTLA-Library=.` and SANY reported the
+    // subject's own spec as a module it could not find. Configured roots are already absolute
+    // ([`crate::spec_paths`]); this is the spec's own directory catching up with them.
+    let mut library = vec![absolute(&dir)];
     for root in extra.roots() {
-        if !library.contains(root) {
-            library.push(root.clone());
+        let root = absolute(root);
+        if !library.contains(&root) {
+            library.push(root);
         }
     }
     Ok(SpecSite {
@@ -420,6 +585,13 @@ pub fn locate_spec(
         module,
         library,
     })
+}
+
+/// A directory as an absolute path, keeping the path as given when it cannot be canonicalized —
+/// the same forgiving resolution as [`crate::spec_paths`], because a path provreq cannot resolve is
+/// still the one to name in the diagnostic.
+fn absolute(dir: &Path) -> PathBuf {
+    std::fs::canonicalize(dir).unwrap_or_else(|_| dir.to_path_buf())
 }
 
 /// The module name from a spec's `---- MODULE X ----` header (the first such line).
@@ -742,6 +914,7 @@ mod tests {
             &req(MODEL_REQ),
             "Msg",
             &standard_bindings(),
+            &Constants::default(),
             "provreq_req001",
         )
     }
@@ -775,6 +948,115 @@ mod tests {
         assert!(c.cfg.contains("PROPERTY ProvreqProp"), "{}", c.cfg);
     }
 
+    fn constants_from(pairs: &[(&str, &str)]) -> Constants {
+        Constants::from_assignments(
+            pairs
+                .iter()
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .collect(),
+        )
+    }
+
+    fn subject_with_manifest(manifest: &str) -> tempfile::TempDir {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        std::fs::write(tmp.path().join(crate::adopt::MANIFEST_FILE), manifest).expect("manifest");
+        tmp
+    }
+
+    // Verifies: REQ029 (#121) — a configured constant becomes a `CONSTANT X = …` line in the
+    // generated `.cfg`, which is the whole of what makes a parameterised spec runnable.
+    #[test]
+    fn a_configured_constant_is_assigned_in_the_cfg() {
+        let c = lower(
+            &req(MODEL_REQ),
+            "Msg",
+            &standard_bindings(),
+            &constants_from(&[("MaxLen", "3"), ("Data", "{1, 2}")]),
+            "provreq_req001",
+        )
+        .expect("should lower");
+        assert!(c.cfg.contains("CONSTANT MaxLen = 3\n"), "{}", c.cfg);
+        assert!(c.cfg.contains("CONSTANT Data = {1, 2}\n"), "{}", c.cfg);
+        // Still a complete model: the behaviour and the property are what the constants sit between.
+        assert!(c.cfg.contains("SPECIFICATION Spec"), "{}", c.cfg);
+        assert!(c.cfg.contains("PROPERTY ProvreqProp"), "{}", c.cfg);
+    }
+
+    // Verifies: REQ029 (#121) — a subject that configured no constants generates exactly the
+    // `.cfg` it generated before this existed. A constant-free spec must not acquire a section.
+    #[test]
+    fn an_unconfigured_subject_gets_the_cfg_it_always_had() {
+        let c = lower_standard().expect("should lower");
+        assert_eq!(c.cfg, "SPECIFICATION Spec\nPROPERTY ProvreqProp\n");
+    }
+
+    // Verifies: REQ029 (#121) — the model a verdict was checked under is reported on the verdict.
+    // A `holds` under `MaxLen = 3` is a different claim from one under `MaxLen = 10`, so the
+    // assignments are part of what the evidence says (the `kani::Bounds::describe` discipline).
+    #[test]
+    fn a_bounded_holds_reports_the_model_it_was_checked_under() {
+        let evidence = Outcome::Holds.into_evidence(&constants_from(&[("MaxLen", "3")]));
+        assert!(
+            evidence.detail.iter().any(|d| d.contains("MaxLen = 3")),
+            "the constants must ride along with the verdict: {:?}",
+            evidence.detail
+        );
+        // Nothing configured means nothing to say — not a line about defaults nobody chose,
+        // because a spec that declares a constant and is given none never runs at all.
+        assert!(Outcome::Holds
+            .into_evidence(&Constants::default())
+            .detail
+            .is_empty());
+    }
+
+    // Verifies: REQ029 (#121) — values are read from `tla.constants`, with the two scalars whose
+    // YAML spelling and TLA+ spelling coincide rendered rather than demanded as strings.
+    #[test]
+    fn constants_are_read_from_the_manifest() {
+        let tmp = subject_with_manifest(
+            "tla:\n  constants:\n    MaxLen: 3\n    Data: \"{1, 2}\"\n    Strict: true\n",
+        );
+        let constants = Constants::load(tmp.path()).expect("readable");
+        assert_eq!(
+            constants.cfg_lines(),
+            "CONSTANT Data = {1, 2}\nCONSTANT MaxLen = 3\nCONSTANT Strict = TRUE\n"
+        );
+    }
+
+    // Verifies: REQ029 (#121) — the forgiving read of `kani::Bounds::load`: a subject with no
+    // manifest, no `tla:` block, no `constants:` key, or an unparseable manifest has no constants
+    // and behaves exactly as it did before this existed.
+    #[test]
+    fn a_subject_that_configured_nothing_has_no_constants() {
+        for manifest in [
+            "",
+            "tla: {}\n",
+            "kani:\n  default_unwind: 3\n",
+            "tla: [oops\n",
+        ] {
+            let tmp = subject_with_manifest(manifest);
+            assert!(
+                Constants::load(tmp.path()).expect("forgiving").is_empty(),
+                "{manifest:?}"
+            );
+        }
+        let empty = tempfile::tempdir().expect("tempdir");
+        assert!(Constants::load(empty.path())
+            .expect("no manifest")
+            .is_empty());
+    }
+
+    // Verifies: REQ029 (#121) — a value provreq cannot write as a TLA+ expression is REFUSED, not
+    // dropped. Dropping it would leave TLC reporting that constant as unassigned while the
+    // operator is looking straight at it in their manifest.
+    #[test]
+    fn a_constant_provreq_cannot_write_is_refused_by_name() {
+        let tmp = subject_with_manifest("tla:\n  constants:\n    Data:\n      - 1\n      - 2\n");
+        let reason = Constants::load(tmp.path()).expect_err("a list is not a TLA+ expression");
+        assert!(reason.contains("Data"), "{reason}");
+        assert!(reason.contains("string"), "{reason}");
+    }
+
     // Verifies: REQ029 — `always`/`never`/`eventually` each lower to their TLA+ operator.
     #[test]
     fn safety_and_eventually_patterns_lower_to_tla_operators() {
@@ -784,6 +1066,7 @@ mod tests {
             ),
             "M",
             &[binding("safe", "Safe")],
+            &Constants::default(),
             "h",
         )
         .expect("always");
@@ -793,6 +1076,7 @@ mod tests {
             &req("requirement r { category: 2a vocabulary { state bad } require { never bad } }"),
             "M",
             &[binding("bad", "Bad")],
+            &Constants::default(),
             "h",
         )
         .expect("never");
@@ -802,6 +1086,7 @@ mod tests {
             &req("requirement r { category: 2a vocabulary { state done } require { eventually done } }"),
             "M",
             &[binding("done", "Done")],
+            &Constants::default(),
             "h",
         )
         .expect("eventually");
@@ -823,6 +1108,7 @@ mod tests {
                 binding("accepted", "Accepted"),
                 binding("succeeded", "Succeeded"),
             ],
+            &Constants::default(),
             "h",
         )
         .expect_err("an unbound sort has no domain");
@@ -841,6 +1127,7 @@ mod tests {
                 binding("accepted", "Accepted"),
                 binding("Message", "Message"),
             ],
+            &Constants::default(),
             "h",
         )
         .expect_err("succeeded is unbound");
@@ -859,6 +1146,7 @@ mod tests {
             }"),
             "M",
             &[binding("p", "P"), binding("q", "Q")],
+            &Constants::default(),
             "h",
         )
         .expect_err("a real-time bound is not expressible in plain TLC");
@@ -877,6 +1165,7 @@ mod tests {
             }"),
             "M",
             &[binding("deadlock", "Deadlock")],
+            &Constants::default(),
             "h",
         )
         .expect_err("can_reach is CTL EF, not in the lowered core");
@@ -1056,6 +1345,35 @@ Residual stack trace follows:
         assert_eq!(module_header("VARIABLES x\nInit == x = 0\n"), None);
     }
 
+    // Verifies: REQ029 — the module search path TLC is given is ABSOLUTE, whatever the operator
+    // typed. `--path` defaults to `.`, and TLC runs with its working directory set to provreq's
+    // scratch metadir, so a relative entry names a directory inside the scratch dir: the ordinary
+    // `cd <subject> && provreq verify REQ001` reported the subject's own spec as a module SANY
+    // could not find. Found by a live run; nothing pure could see it, because every other test
+    // hands `locate_spec` an absolute tempdir.
+    #[test]
+    fn the_module_search_path_is_resolved_whatever_the_operator_typed() {
+        let tmp = tla_subject(true);
+        // An unresolved subject root, the way an operator's own path arrives. `.` is the case that
+        // bit — it cannot be used here without changing the process's working directory out from
+        // under every other test — but it fails for the same reason this one does: the path is
+        // read relative to a working directory that is no longer the operator's by the time TLC
+        // runs.
+        std::fs::create_dir(tmp.path().join("sub")).expect("sub");
+        let unresolved = tmp.path().join("sub").join("..");
+        let site = locate_spec(
+            &unresolved,
+            &unresolved.join("ProvableRequirements"),
+            &crate::spec_paths::SpecPaths::default(),
+        )
+        .expect("the spec is still located");
+        assert_eq!(
+            site.library,
+            vec![std::fs::canonicalize(tmp.path()).expect("canonical")],
+            "TLC runs in provreq's scratch dir, so every library entry must already be resolved"
+        );
+    }
+
     fn prov() -> Provenance {
         Provenance {
             requirement_revision: "rev-1".into(),
@@ -1068,7 +1386,11 @@ Residual stack trace follows:
     // explores a bounded model, so claiming ∀-executions would be the overclaim REQ024 guards.
     #[test]
     fn a_tlc_pass_is_bounded_model_checked_never_proven() {
-        let v = crate::verdict::aggregate("SR001", vec![Outcome::Holds.into_evidence()], prov());
+        let v = crate::verdict::aggregate(
+            "SR001",
+            vec![Outcome::Holds.into_evidence(&Constants::default())],
+            prov(),
+        );
         assert_eq!(v.status, crate::verdict::Status::Holds);
         assert_eq!(v.basis, Some(Basis::ModelCheckedBounded));
         let text = crate::verdict::render(&v);
@@ -1084,7 +1406,11 @@ Residual stack trace follows:
             violated: Some("Error: Temporal properties were violated.".into()),
             witness: Some("State 1: <Initial predicate>\npc = 0".into()),
         };
-        let v = crate::verdict::aggregate("SR002", vec![outcome.into_evidence()], prov());
+        let v = crate::verdict::aggregate(
+            "SR002",
+            vec![outcome.into_evidence(&Constants::default())],
+            prov(),
+        );
         assert_eq!(v.status, crate::verdict::Status::Fails);
         assert_eq!(v.basis, None, "a fails has a witness, not a basis");
         let text = crate::verdict::render(&v);
@@ -1100,7 +1426,11 @@ Residual stack trace follows:
         let outcome = Outcome::Inconclusive {
             reason: "Error: The constant parameter MaxLen is not assigned a value.".into(),
         };
-        let v = crate::verdict::aggregate("SR003", vec![outcome.into_evidence()], prov());
+        let v = crate::verdict::aggregate(
+            "SR003",
+            vec![outcome.into_evidence(&Constants::default())],
+            prov(),
+        );
         assert_eq!(v.status, crate::verdict::Status::Unknown);
         assert_eq!(v.reason, Some(crate::verdict::UnknownReason::Inconclusive));
         let text = crate::verdict::render(&v);
@@ -1159,6 +1489,7 @@ Residual stack trace follows:
             &req(MODEL_REQ),
             "Msg",
             &standard_bindings(),
+            &Constants::default(),
             "provreq_smoke",
         )
         .expect("should lower");
@@ -1188,6 +1519,7 @@ Residual stack trace follows:
                 binding("succeeded", "Succeeded"),
                 binding("Message", "Message"),
             ],
+            &Constants::default(),
             "provreq_smoke",
         )
         .expect("a wrong-arity binding still lowers — arity is not checked here");
@@ -1224,6 +1556,7 @@ Residual stack trace follows:
             &req(MODEL_REQ),
             &site.module,
             &standard_bindings(),
+            &Constants::default(),
             "provreq_smoke",
         )
         .expect("should lower");
@@ -1243,6 +1576,75 @@ Residual stack trace follows:
         assert_eq!(left, vec!["Msg.tla".to_string()], "{left:?}");
     }
 
+    // Verifies: REQ029 (#121) — THE REAL ENGINE on a PARAMETERISED spec, both directions. This is
+    // the test that matters for #121, because the mechanism is TLC's: a spec declaring a `CONSTANT`
+    // does not run at all until the `.cfg` assigns it, and nothing pure can establish that TLC
+    // accepts the assignment provreq writes. Same spec, same claim, two models — one where the
+    // property holds and one where the same property is refuted — so the assignment is shown to be
+    // load-bearing on the verdict, which is why it is reported alongside it.
+    #[test]
+    #[ignore = "needs TLC installed — run via `cargo test -- --ignored` (the CI `tlc` job)"]
+    fn real_tlc_checks_a_parameterised_spec_under_the_operators_model() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        std::fs::write(
+            tmp.path().join("Msg.tla"),
+            "---- MODULE Msg ----\n\
+             EXTENDS Naturals\n\
+             CONSTANT MaxLen\n\
+             VARIABLES pc\n\
+             Init == pc = 0\n\
+             Next == pc' = IF pc >= MaxLen THEN 0 ELSE pc + 1\n\
+             Spec == Init /\\ [][Next]_pc\n\
+             Accepted(m) == pc < 2\n\
+             Succeeded(m) == pc < 2\n\
+             Message == {0}\n\
+             ====\n",
+        )
+        .expect("Msg.tla");
+        let claim = "requirement r { category: 2a vocabulary { state accepted(m: Message) } \
+                     require { each m: Message . always accepted(m) } }";
+        let bindings = vec![
+            binding("accepted", "Accepted"),
+            binding("Message", "Message"),
+        ];
+        let check_for = |constants: &Constants| {
+            lower(&req(claim), "Msg", &bindings, constants, "provreq_smoke").expect("should lower")
+        };
+
+        // Unassigned: TLC will not run a spec whose constant has no value, and says so by name.
+        let Outcome::Inconclusive { reason } =
+            run(&site_for(&tmp), &check_for(&Constants::default()))
+        else {
+            panic!("an unassigned CONSTANT decides nothing");
+        };
+        assert!(reason.contains("MaxLen"), "{reason}");
+
+        // Under `MaxLen = 1` the machine never leaves {0, 1}, so the claim holds.
+        let small = constants_from(&[("MaxLen", "1")]);
+        let outcome = run(&site_for(&tmp), &check_for(&small));
+        assert_eq!(
+            outcome,
+            Outcome::Holds,
+            "a parameterised spec must be checkable under the operator's model: {outcome:?}"
+        );
+        assert!(Outcome::Holds
+            .into_evidence(&small)
+            .detail
+            .iter()
+            .any(|d| d.contains("MaxLen = 1")));
+
+        // Under `MaxLen = 5` the same claim about the same spec is false — which is exactly why
+        // the model has to be reported with the verdict.
+        let outcome = run(
+            &site_for(&tmp),
+            &check_for(&constants_from(&[("MaxLen", "5")])),
+        );
+        assert!(
+            matches!(outcome, Outcome::Fails { .. }),
+            "a wider model must refute the same claim: {outcome:?}"
+        );
+    }
+
     // Verifies: REQ029 (D9) — THE REAL ENGINE refutes a false leads-to (no fairness: pc can
     // stall at 0 forever) and hands back a concrete counter-example behaviour.
     #[test]
@@ -1253,6 +1655,7 @@ Residual stack trace follows:
             &req(MODEL_REQ),
             "Msg",
             &standard_bindings(),
+            &Constants::default(),
             "provreq_smoke",
         )
         .expect("should lower");
@@ -1275,6 +1678,7 @@ Residual stack trace follows:
             &req(MODEL_REQ),
             "Msg",
             &standard_bindings(),
+            &Constants::default(),
             "provreq_smoke",
         )
         .expect("should lower");
