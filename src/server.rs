@@ -46,11 +46,27 @@ pub fn router(subject: PathBuf) -> Router {
 
 /// Bind to the loopback interface on `port` and serve `subject` until the process stops.
 ///
+/// **One subject, one operator, this machine — decided, not pending (#122).** The loopback bind is
+/// the visible half; the rest is structural. The router holds a single [`Subject`], so one process
+/// serves one repository by construction. [`verify_requirement`] calls the synchronous verify
+/// directly, so a request that runs an engine holds its thread for minutes. There is no auth, no
+/// tenancy, and no daemon manager.
+///
+/// That is not an oversight to be corrected later. provreq is a single-operator instrument, and
+/// the mechanics of one operator and one repository are still being worked out (#1) — designing
+/// tenancy, a job queue and identity ahead of that would be building for a second operator before
+/// the first has worn the tool in. A hosted provreq would also prove verdicts in an environment
+/// nobody reading them is standing in, which is a claim about what a verdict *means*, not a
+/// deployment detail.
+///
 /// Implements: REQ005 (local server)
 pub async fn serve(port: u16, subject: PathBuf) -> std::io::Result<()> {
     let addr = SocketAddr::from(([127, 0, 0, 1], port));
     let listener = tokio::net::TcpListener::bind(addr).await?;
     println!("provreq serving {} on http://{addr}", subject.display());
+    // Said where the operator meets it, once, plainly: this is the shape of the tool, not the
+    // state of its configuration.
+    println!("  one subject, this machine only — no auth, no tenancy (provreq is single-operator)");
     axum::serve(listener, router(subject)).await
 }
 

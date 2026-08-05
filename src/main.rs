@@ -26,11 +26,15 @@ struct Cli {
 #[derive(Subcommand)]
 enum Command {
     /// Start the local web server and serve the embedded UI.
+    ///
+    /// Single-operator by design: one subject, bound to loopback, with no auth or tenancy. Serving
+    /// several repositories or several people is out of scope, not unimplemented.
     Serve {
         /// TCP port to bind on the loopback interface.
         #[arg(long, default_value_t = 8080)]
         port: u16,
-        /// Path to the subject repository the UI browses (defaults to the current directory).
+        /// Path to the one subject repository this process serves (defaults to the current
+        /// directory).
         #[arg(long, default_value = ".")]
         path: PathBuf,
     },
