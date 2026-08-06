@@ -1,8 +1,278 @@
 schema: 1
 items:
+  REQ001:
+    classification: stays-prose
+    revision: 7d7977514f3dcda1
+    origin: classified
+  REQ002:
+    classification: stays-prose
+    revision: e1eb529310b1b506
+    origin: classified
+  REQ003:
+    classification: stays-prose
+    revision: b4f430dcf24e36c7
+    origin: classified
+  REQ004:
+    classification: falsifiable-only
+    revision: 234ca9b22145c017
+    origin: classified
+  REQ005:
+    classification: falsifiable-only
+    revision: d171f10fdff9c293
+    origin: classified
+  REQ006:
+    classification: falsifiable-only
+    revision: fdafdaa9cac8785b
+    origin: classified
+  REQ007:
+    classification: falsifiable-only
+    revision: d7c05ca2fe2b7804
+    origin: classified
+  REQ008:
+    classification: falsifiable-only
+    revision: be9422ad8bda2aad
+    origin: classified
+  REQ009:
+    classification: formalizable-now
+    revision: c82b31023d7df5dc
+    origin: classified
+  REQ010:
+    classification: falsifiable-only
+    revision: f34baec707ecbcac
+    origin: classified
+  REQ011:
+    classification: formalizable-now
+    revision: b8ed731f29ea9b41
+    origin: operator
+  REQ012:
+    classification: stays-prose
+    revision: 2cc98dace52d41b5
+    origin: classified
+  REQ013:
+    classification: stays-prose
+    revision: 9ac67591ab3c4cfd
+    origin: classified
+  REQ014:
+    classification: formalizable-now
+    revision: 19597bc0d12ed865
+    origin: operator
+  REQ015:
+    classification: stays-prose
+    revision: 8642f5f29a74f652
+    origin: classified
+  REQ016:
+    classification: formalizable-now
+    revision: 3a05d30c142131f3
+    origin: classified
+  REQ017:
+    classification: formalizable-now
+    revision: de0a7d1453638353
+    origin: classified
+  REQ018:
+    classification: formalizable-now
+    revision: e78269aa0bf93a82
+    origin: classified
+  REQ019:
+    classification: stays-prose
+    revision: 7c267a2582aaabff
+    origin: classified
+  REQ020:
+    classification: falsifiable-only
+    revision: bb1e409b2ceeb79a
+    origin: classified
+  REQ021:
+    classification: falsifiable-only
+    revision: 60497c59a2f90192
+    origin: classified
+  REQ022:
+    classification: falsifiable-only
+    revision: 1f07ca7c19fe8f7c
+    origin: classified
+  REQ023:
+    classification: formalizable-now
+    revision: 823b1579ee7e1337
+    origin: operator
   REQ024:
     classification: formalizable-now
     revision: f334ca507028b616
+    origin: unrecorded
+  REQ025:
+    classification: falsifiable-only
+    revision: b1ad57a92be4dd55
+    origin: classified
+  REQ026:
+    classification: falsifiable-only
+    revision: 24ccba6545c71249
+    origin: classified
+  REQ027:
+    classification: falsifiable-only
+    revision: 37b6126c320ba5a7
+    origin: classified
+  REQ028:
+    classification: formalizable-now
+    revision: 6c9d4469e9e093a7
+    origin: operator
+  REQ029:
+    classification: falsifiable-only
+    revision: bb5f6148793ffc68
+    origin: classified
+  REQ030:
+    classification: formalizable-now
+    revision: 6a08ef0d7a1db2a8
+    origin: operator
+  REQ031:
+    classification: formalizable-now
+    revision: 53f26365ea0e5fee
+    origin: classified
+  REQ032:
+    classification: formalizable-now
+    revision: 17c0c6413ff6bae3
+    origin: classified
+  REQ033:
+    classification: formalizable-now
+    revision: b674bcba7acc4a32
+    origin: classified
+  REQ034:
+    classification: falsifiable-only
+    revision: 5f9f593e6abe43ac
+    origin: operator
+  REQ035:
+    classification: falsifiable-only
+    revision: 01cd658ae97bf366
+    origin: operator
+  REQ036:
+    classification: falsifiable-only
+    revision: 800ab1b81c4343cc
+    origin: operator
+  REQ037:
+    classification: falsifiable-only
+    revision: e6617bb7ae2dcf9e
+    origin: operator
+  REQ038:
+    classification: falsifiable-only
+    revision: 96cf3acb79bbee27
+    origin: operator
+  REQ039:
+    classification: formalizable-now
+    revision: df6dfaf27aa51e2d
+    origin: operator
+  REQ040:
+    classification: stays-prose
+    revision: a8479e0c4e6b971a
+    origin: classified
+  REQ041:
+    classification: stays-prose
+    revision: 20e24a76922db289
+    origin: classified
+  REQ042:
+    classification: falsifiable-only
+    revision: f47b5194181283a6
+    origin: classified
+  REQ043:
+    classification: formalizable-now
+    revision: ef7f0485693d2e86
+    origin: operator
+  REQ044:
+    classification: stays-prose
+    revision: ee466f9949fc3487
+    origin: classified
+  REQ045:
+    classification: formalizable-now
+    revision: 58c2817796da4397
+    origin: classified
+  REQ046:
+    classification: falsifiable-only
+    revision: 57979c24e8d66465
+    origin: classified
   REQ047:
     classification: formalizable-now
     revision: 17cf6ac844159fbe
+    origin: unrecorded
+  REQ048:
+    classification: formalizable-now
+    revision: 584cf1848a4c836b
+    origin: classified
+  REQ049:
+    classification: formalizable-now
+    revision: 3d0baccddd55cc7f
+    origin: classified
+  REQ050:
+    classification: formalizable-now
+    revision: 0cb060a297d1509a
+    origin: classified
+  REQ051:
+    classification: formalizable-now
+    revision: 8a599ee9255fd36d
+    origin: classified
+  REQ052:
+    classification: formalizable-now
+    revision: 6f2695b423b0f009
+    origin: classified
+  REQ053:
+    classification: falsifiable-only
+    revision: 529683fd93ea3077
+    origin: classified
+  REQ054:
+    classification: falsifiable-only
+    revision: cdfd6e0f1f6aa572
+    origin: classified
+  REQ055:
+    classification: formalizable-now
+    revision: 8c6acb94b363bdb1
+    origin: classified
+  REQ056:
+    classification: falsifiable-only
+    revision: f65a7e54e582c0ba
+    origin: classified
+  REQ057:
+    classification: formalizable-now
+    revision: 1be10fc9f814bd30
+    origin: classified
+  REQ058:
+    classification: formalizable-now
+    revision: de2f6af3cb39a0d1
+    origin: classified
+  REQ059:
+    classification: formalizable-now
+    revision: bc932cf8d5a8d7d7
+    origin: classified
+  REQ060:
+    classification: formalizable-now
+    revision: 5effa07e65bfb18a
+    origin: classified
+  REQ061:
+    classification: formalizable-now
+    revision: 966d07720e1ef8a7
+    origin: classified
+  REQ062:
+    classification: formalizable-now
+    revision: 85772c7040b12631
+    origin: classified
+  REQ063:
+    classification: falsifiable-only
+    revision: 185beddf556c9ccf
+    origin: classified
+  REQ064:
+    classification: falsifiable-only
+    revision: 327a53f5d671940c
+    origin: classified
+  REQ065:
+    classification: stays-prose
+    revision: 4ce01639dce217df
+    origin: classified
+  REQ066:
+    classification: formalizable-now
+    revision: 458d99f32ca4e5d5
+    origin: classified
+  REQ067:
+    classification: falsifiable-only
+    revision: b05e2cc06eb4658e
+    origin: classified
+  REQ068:
+    classification: formalizable-now
+    revision: 0c5638666586ec20
+    origin: classified
+  REQ069:
+    classification: formalizable-now
+    revision: 12a26c041ecbcc91
+    origin: classified
