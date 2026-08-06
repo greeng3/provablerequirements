@@ -98,11 +98,29 @@ impl DriftAnchor {
 /// A stored verdict paired with whether it still holds against the current world — the living-loop
 /// surface. Carries the verdict's own labels plus the freshness verdict and, when stale, the
 /// concrete reasons the operator must re-verify.
+///
+/// It carries the verdict's **grounds** too — the same `detail`, `witness`, and per-engine
+/// `evidence` a just-run verdict shows (#218). This surface used to carry the labels alone, which
+/// meant the model a category-2a verdict was checked under, and the counterexample behind a
+/// `refuted`, were visible only to whoever happened to press Verify, in the session they pressed it.
+/// Every later reader — the normal case, and the reason a verdict is stored at all — got the
+/// conclusion with the grounds removed. A conclusion is not a verdict without them.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub struct VerdictView {
     pub status: String,
     pub basis: Option<String>,
     pub reason: Option<String>,
+    /// The verdict's own lines — the aggregate reading, and for category 2a the model it was
+    /// checked under (#121, #211). The same strings the CLI prints, so the two surfaces cannot
+    /// word the same verdict differently.
+    pub detail: Vec<String>,
+    /// The counterexample behind a `refuted` verdict, when the engine produced one. The single
+    /// most actionable thing on the record: a stored `refuted` without it names a failure and
+    /// leaves the operator nothing to act on.
+    pub witness: Option<String>,
+    /// The per-engine breakdown (D2b) — which engine reached what, on what basis. An aggregate
+    /// verdict from an ensemble says less than the ensemble did.
+    pub evidence: Vec<crate::verdict::EvidenceReport>,
     /// The verdict is still anchored to the current world (nothing it depended on moved).
     pub fresh: bool,
     /// When not fresh, the concrete drifts — prose moved, code moved, tool changed — so the
@@ -216,6 +234,9 @@ pub fn view(
         status: stored.status.clone(),
         basis: stored.basis.clone(),
         reason: stored.reason.clone(),
+        detail: stored.detail.clone(),
+        witness: stored.witness.clone(),
+        evidence: stored.evidence.clone(),
         fresh: stale_reasons.is_empty(),
         stale_reasons,
         environment: stored.provenance.environment.as_ref().map(|e| e.describe()),
@@ -245,6 +266,37 @@ mod tests {
                 formalization: None,
             },
         }
+    }
+
+    // Verifies: #218 — a stored verdict is served with its grounds, not just its labels. The model
+    // a category-2a verdict was checked under and the counterexample behind a refutation live on
+    // the stored record; a view that dropped them let the browser show a conclusion whose basis was
+    // visible only in the session that produced it.
+    #[test]
+    fn a_stored_verdict_carries_the_grounds_it_was_reached_on() {
+        let mut v = stored("r1", Some("abc"), "0.0.1");
+        v.detail = vec!["checked under the model — Drones = {d1, d2}, MaxAlt = 2".into()];
+        v.witness = Some("state 2: alt = [d1 |-> 1]".into());
+        v.evidence = vec![crate::verdict::EvidenceReport {
+            engine: "TLC (TLA+)".into(),
+            status: "holds".into(),
+            basis: Some("model-checked (bounded)".into()),
+            witness: None,
+            detail: vec!["checked under the model — Drones = {d1, d2}, MaxAlt = 2".into()],
+        }];
+        let anchor = DriftAnchor {
+            spec_fingerprint: None,
+            environment: env(None, &[]),
+            subject_commit: Some("abc".into()),
+            tool_version: "0.0.1".into(),
+        };
+
+        let view = view(&v, "r1", None, &anchor);
+
+        assert!(view.fresh, "the fixture drifted nothing: {:?}", view.stale_reasons);
+        assert_eq!(view.detail, v.detail, "the verdict's own lines are dropped");
+        assert_eq!(view.witness, v.witness, "the counterexample is dropped");
+        assert_eq!(view.evidence, v.evidence, "the per-engine breakdown is dropped");
     }
 
     fn env(declared: Option<&str>, engines: &[&str]) -> crate::proving_env::ProvingEnv {

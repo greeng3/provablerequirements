@@ -94,8 +94,46 @@ function StoredVerdict({ verdict }: { verdict: VerdictView }) {
           ))}
         </ul>
       )}
+      <Grounds verdict={verdict} />
       <ProvedIn environment={verdict.environment} />
     </div>
+  );
+}
+
+/// What a verdict was reached on: its own lines (for category 2a, the model it was checked under),
+/// the counterexample behind a refutation, and the per-engine breakdown. Shared by the stored
+/// verdict and the just-run one on purpose (#218) — the same verdict must not read differently
+/// depending on whether the operator happened to press the button this session.
+function Grounds({ verdict }: { verdict: Pick<VerdictReport, "detail" | "witness" | "evidence"> }) {
+  return (
+    <>
+      {verdict.detail.length > 0 && (
+        <ul className="ml-1 list-inside list-disc text-xs text-muted">
+          {verdict.detail.map((d, i) => (
+            <li key={i}>{d}</li>
+          ))}
+        </ul>
+      )}
+
+      {verdict.witness && (
+        <div className="flex flex-col gap-1">
+          <span className="text-xs font-semibold uppercase tracking-wide text-muted">
+            Witness (replay to re-check)
+          </span>
+          <pre className="overflow-x-auto rounded-lg border border-border bg-surface-2 p-3 text-xs">
+            {verdict.witness}
+          </pre>
+        </div>
+      )}
+
+      {verdict.evidence.length > 0 && (
+        <ul className="flex flex-col gap-1.5 text-sm">
+          {verdict.evidence.map((e) => (
+            <EvidenceRow key={e.engine} evidence={e} />
+          ))}
+        </ul>
+      )}
+    </>
   );
 }
 
@@ -151,32 +189,7 @@ function VerdictView({ verdict, stale }: { verdict: VerdictReport; stale: boolea
         {stale && <Badge label="prose moved" tone="warn" />}
       </div>
 
-      {verdict.detail.length > 0 && (
-        <ul className="ml-1 list-inside list-disc text-xs text-muted">
-          {verdict.detail.map((d, i) => (
-            <li key={i}>{d}</li>
-          ))}
-        </ul>
-      )}
-
-      {verdict.witness && (
-        <div className="flex flex-col gap-1">
-          <span className="text-xs font-semibold uppercase tracking-wide text-muted">
-            Witness (replay to re-check)
-          </span>
-          <pre className="overflow-x-auto rounded-lg border border-border bg-surface-2 p-3 text-xs">
-            {verdict.witness}
-          </pre>
-        </div>
-      )}
-
-      {verdict.evidence.length > 0 && (
-        <ul className="flex flex-col gap-1.5 text-sm">
-          {verdict.evidence.map((e) => (
-            <EvidenceRow key={e.engine} evidence={e} />
-          ))}
-        </ul>
-      )}
+      <Grounds verdict={verdict} />
 
       <p className="text-[0.7rem] leading-snug text-muted">
         requirement@{verdict.provenance.requirement_revision} · subject@
