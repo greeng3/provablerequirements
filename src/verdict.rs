@@ -470,6 +470,43 @@ mod tests {
         }
     }
 
+    // Verifies: #220 — the invariant a surface rendering BOTH `detail` and `evidence` depends on.
+    // `aggregate` builds `detail` entirely by folding `evidence`, so every line is already
+    // attributable to an engine; `unknown` (the only other constructor, behind `from_grounding` and
+    // `no_engine`) carries the verdict's own lines and NO evidence. The two never mix, which is why
+    // the web surface can drop `detail` whenever evidence is present without a string match and
+    // without losing a line. Adding a verdict-level line to `aggregate`'s `detail` would break that
+    // silently — the browser would stop showing it — so it must break here first.
+    #[test]
+    fn detail_is_a_fold_of_evidence_or_evidence_is_empty() {
+        let engines = vec![
+            Evidence {
+                detail: vec!["checked under the model — MaxAlt = 2".into()],
+                ..Evidence::holds("TLC (TLA+)", Basis::ModelCheckedBounded)
+            },
+            Evidence::inconclusive("Kani", vec!["harness would not compile".into()]),
+        ];
+        let v = aggregate("REQ001", engines.clone(), prov());
+        let folded: Vec<String> = engines.iter().flat_map(describe_evidence).collect();
+        assert_eq!(v.detail, folded, "aggregate's detail is exactly the fold, nothing of its own");
+
+        for v in [
+            from_grounding("REQ001", &Grounding::Grounded, prov()),
+            from_grounding(
+                "REQ001",
+                &Grounding::Parked { reasons: vec!["nope".into()] },
+                prov(),
+            ),
+            no_engine("REQ001", vec!["no engine is wired for category 3".into()], prov()),
+        ] {
+            assert!(
+                v.evidence.is_empty(),
+                "a verdict carrying its own detail must carry no evidence: {:?}",
+                v.detail
+            );
+        }
+    }
+
     // Verifies: REQ023 — a grounded requirement with no engine yields unknown/no-engine,
     // never a fabricated holds.
     #[test]
