@@ -30,9 +30,25 @@
     "workspaceFolder": "/workspace",
     // doorstop-server (requirements web view), started on demand — see .devcontainer/README.md.
     // Port 17868 chosen to avoid clashing with the qrusty devcontainer (which uses 17867).
+    //
+    // 17869 is `provreq serve`'s default — the next port in the same reserved family, so the three
+    // tools never fight over one. It binds LOOPBACK INSIDE THE CONTAINER by design (#122), which is
+    // exactly what VS Code's forwarding is for: it reaches the port from inside and republishes it
+    // on the host, so the operator's browser gets there without the server ever listening on a
+    // routable address. Without this entry the UI runs and is visible to nothing.
     "forwardPorts": [
-        17868
+        17868,
+        17869
     ],
+    "portsAttributes": {
+        "17869": {
+            "label": "provreq UI",
+            "onAutoForward": "notify"
+        },
+        "17868": {
+            "label": "doorstop-server"
+        }
+    },
     // Mount Docker socket for Docker-in-Docker
     "mounts": [
         "source=/var/run/docker.sock,target=/var/run/docker.sock,type=bind",

@@ -28,7 +28,12 @@ enum Command {
     /// Start the local web server and serve the embedded UI.
     Serve {
         /// TCP port to bind on the loopback interface.
-        #[arg(long, default_value_t = 8080)]
+        ///
+        /// 17869 rather than something memorable: 8080 is the first port every other tool on a
+        /// dev box reaches for, and a default that collides is a default that wastes the
+        /// operator's afternoon. This sits in the range the repo already reserves — 17867 is
+        /// qrusty's devcontainer, 17868 is doorstop-server, and this is the next one.
+        #[arg(long, default_value_t = 17869)]
         port: u16,
         /// Path to the subject repository the UI browses (defaults to the current directory).
         #[arg(long, default_value = ".")]
