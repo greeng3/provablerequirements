@@ -31,7 +31,12 @@ enum Command {
     /// several repositories or several people is out of scope, not unimplemented.
     Serve {
         /// TCP port to bind on the loopback interface.
-        #[arg(long, default_value_t = 8080)]
+        ///
+        /// 17869 rather than something memorable: 8080 is the first port every other tool on a
+        /// dev box reaches for, and a default that collides is a default that wastes the
+        /// operator's afternoon. This sits in the range the repo already reserves — 17867 is
+        /// qrusty's devcontainer, 17868 is doorstop-server, and this is the next one.
+        #[arg(long, default_value_t = 17869)]
         port: u16,
         /// Path to the one subject repository this process serves (defaults to the current
         /// directory).
