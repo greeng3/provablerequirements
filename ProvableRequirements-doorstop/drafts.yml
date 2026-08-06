@@ -1,5 +1,42 @@
 schema: 1
 drafts:
+  REQ014:
+    revision: 19597bc0d12ed865
+    candidate: |-
+      requirement REQ014 { category: 1
+        vocabulary { state is_stale(d: Draft, i: Item)
+                     state is_admitted(d: Draft)
+                     state needs_reconfirmation(d: Draft, i: Item) }
+        require { always (not (is_stale(d, i) and is_admitted(d)) or needs_reconfirmation(d, i)) } }
+    gate:
+      status: passed
+      warnings: []
+    admission:
+      state: admitted
+      review: optional
+      by: greeng3
+      at_unix: 1786054424
+    bindings:
+    - symbol: Draft
+      category: code
+      observable: Draft
+      fidelity: definitional
+    - symbol: Item
+      category: code
+      observable: Item
+      fidelity: definitional
+    - symbol: is_stale
+      category: code
+      observable: is_stale
+      fidelity: definitional
+    - symbol: is_admitted
+      category: code
+      observable: Draft::is_admitted
+      fidelity: definitional
+    - symbol: needs_reconfirmation
+      category: code
+      observable: needs_reconfirmation
+      fidelity: definitional
   REQ047:
     revision: 17cf6ac844159fbe
     candidate: |-
