@@ -105,9 +105,17 @@ function StoredVerdict({ verdict }: { verdict: VerdictView }) {
 /// verdict and the just-run one on purpose (#218) — the same verdict must not read differently
 /// depending on whether the operator happened to press the button this session.
 function Grounds({ verdict }: { verdict: Pick<VerdictReport, "detail" | "witness" | "evidence"> }) {
+  // `detail` and `evidence` are never both meaningful (#220). A verdict built from engines folds
+  // every engine's lines into `detail` behind a head line, because the CLI renders `detail` alone
+  // and that fold is the only way engine detail reaches a terminal. A verdict with no engines —
+  // ungrounded, or no engine wired for the category — carries its own lines in `detail` and no
+  // evidence at all. So evidence, when present, already says everything `detail` would, and says
+  // it attributed to the engine that earned it. Pinned Rust-side by
+  // `detail_is_a_fold_of_evidence_or_evidence_is_empty`.
+  const showsDetail = verdict.evidence.length === 0;
   return (
     <>
-      {verdict.detail.length > 0 && (
+      {showsDetail && verdict.detail.length > 0 && (
         <ul className="ml-1 list-inside list-disc text-xs text-muted">
           {verdict.detail.map((d, i) => (
             <li key={i}>{d}</li>

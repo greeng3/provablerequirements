@@ -259,16 +259,40 @@ test("a stored verdict shows its grounds — the model, the witness, and each en
   };
 
   mockRoutes(SAMPLE, { REQ001: detail });
-  render(<App />);
+  const { unmount } = render(<App />);
   await user.click(await screen.findByRole("button", { name: "REQ001" }));
   const dialog = await screen.findByRole("dialog");
 
-  // No Verify was pressed: everything below comes from the stored record alone.
+  // No Verify was pressed: everything below comes from the stored record alone. #220 — the model
+  // line appears ONCE, under the engine that checked it, not also in a detached aggregate list.
   expect(
-    within(dialog).getAllByText(/checked under the model — Drones = \{d1, d2\}, MaxAlt = 2/).length,
-  ).toBeGreaterThan(0);
+    within(dialog).getAllByText(/checked under the model — Drones = \{d1, d2\}, MaxAlt = 2/),
+  ).toHaveLength(1);
   expect(within(dialog).getByText(/state 2: alt = \[d1 \|-> 1\]/)).toBeInTheDocument();
   expect(within(dialog).getByText("TLC (TLA+)")).toBeInTheDocument();
+  unmount();
+
+  // The other shape (#220): a verdict no engine produced carries its OWN lines in `detail` and no
+  // evidence at all. Those must still render — suppressing `detail` is only correct when evidence
+  // is there to say the same thing better.
+  mockRoutes(SAMPLE, {
+    REQ001: {
+      ...detail,
+      verdict: {
+        ...detail.verdict!,
+        status: "unknown",
+        basis: null,
+        reason: "no-engine",
+        detail: ["no engine is wired for category 2b"],
+        witness: null,
+        evidence: [],
+      },
+    },
+  });
+  render(<App />);
+  await user.click(await screen.findByRole("button", { name: "REQ001" }));
+  const second = await screen.findByRole("dialog");
+  expect(within(second).getByText(/no engine is wired for category 2b/)).toBeInTheDocument();
 });
 
 test("an engine that cannot start reads as a fault, not as one that is merely absent (REQ051)", async () => {
