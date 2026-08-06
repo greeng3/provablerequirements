@@ -52,10 +52,10 @@ const SAMPLE: Backlog = {
     stale: 1,
   },
   items: [
-    { id: "REQ001", title: "Login invariant", text: "prose", classification: "formalizable-now", classified_by: "classified", formalization: "drafting", verdict: { status: "holds", basis: "proven", reason: null, fresh: true, stale_reasons: [], environment: "declared `lab-2`; Kani 0.67.0" } },
+    { id: "REQ001", title: "Login invariant", text: "prose", classification: "formalizable-now", classified_by: "classified", formalization: "drafting", verdict: { status: "holds", basis: "proven", reason: null, detail: [], witness: null, evidence: [], fresh: true, stale_reasons: [], environment: "declared `lab-2`; Kani 0.67.0" } },
     { id: "REQ002", title: null, text: "some prose here", classification: null, classified_by: null, formalization: "none", verdict: null },
     // A seeded `stays-prose`: the exact pair #180 is about — same bucket as a judged one, worth less.
-    { id: "REQ003", title: "A note", text: "prose", classification: "stays-prose", classified_by: "seeded", formalization: "none", verdict: { status: "holds", basis: "proven", reason: null, fresh: false, stale_reasons: ["the subject code moved since this verdict (commit abc → def) — re-verify"], environment: null } },
+    { id: "REQ003", title: "A note", text: "prose", classification: "stays-prose", classified_by: "seeded", formalization: "none", verdict: { status: "holds", basis: "proven", reason: null, detail: [], witness: null, evidence: [], fresh: false, stale_reasons: ["the subject code moved since this verdict (commit abc → def) — re-verify"], environment: null } },
   ],
 };
 
@@ -189,6 +189,9 @@ test("a stored verdict says where it was proved, or that it was never recorded",
       status: "holds",
       basis: "proven",
       reason: null,
+      detail: [],
+      witness: null,
+      evidence: [],
       fresh: true,
       stale_reasons: [],
       environment: "declared `lab-2`; Kani 0.67.0",
@@ -212,6 +215,60 @@ test("a stored verdict says where it was proved, or that it was never recorded",
   dialog = await screen.findByRole("dialog");
   expect(within(dialog).getByText(/Environment not recorded/)).toBeInTheDocument();
   expect(within(dialog).queryByText(/Proved in:/)).not.toBeInTheDocument();
+});
+
+// #218 — a stored verdict must show what it was reached on, not just what it concluded. The model a
+// category-2a verdict was checked under and the counterexample behind a refutation live on the
+// record; before this they rendered only for the operator who happened to press Verify that session.
+test("a stored verdict shows its grounds — the model, the witness, and each engine", async () => {
+  const user = userEvent.setup();
+  const detail: Detail = {
+    id: "REQ001",
+    title: "Drone clearance",
+    text: "A drone is never airborne unless cleared.",
+    revision: "r1",
+    stale: false,
+    classification: "formalizable-now",
+    classified_by: "classified",
+    formalization: "admitted",
+    admission: { review: "optional", by: "gg" },
+    candidate: "requirement r { category: 2a ... }",
+    gate: { status: "passed", warnings: [] },
+    readback: "At every state, a drone that is airborne has been cleared.",
+    bindings: [],
+    grounding: null,
+    verdict: {
+      status: "fails",
+      basis: "model-checked (bounded)",
+      reason: null,
+      detail: ["checked under the model — Drones = {d1, d2}, MaxAlt = 2"],
+      witness: "state 2: alt = [d1 |-> 1], cleared = [d1 |-> FALSE]",
+      evidence: [
+        {
+          engine: "TLC (TLA+)",
+          status: "fails",
+          basis: "model-checked (bounded)",
+          witness: null,
+          detail: ["checked under the model — Drones = {d1, d2}, MaxAlt = 2"],
+        },
+      ],
+      fresh: true,
+      stale_reasons: [],
+      environment: "TLC (TLA+) 2.19",
+    },
+  };
+
+  mockRoutes(SAMPLE, { REQ001: detail });
+  render(<App />);
+  await user.click(await screen.findByRole("button", { name: "REQ001" }));
+  const dialog = await screen.findByRole("dialog");
+
+  // No Verify was pressed: everything below comes from the stored record alone.
+  expect(
+    within(dialog).getAllByText(/checked under the model — Drones = \{d1, d2\}, MaxAlt = 2/).length,
+  ).toBeGreaterThan(0);
+  expect(within(dialog).getByText(/state 2: alt = \[d1 \|-> 1\]/)).toBeInTheDocument();
+  expect(within(dialog).getByText("TLC (TLA+)")).toBeInTheDocument();
 });
 
 test("an engine that cannot start reads as a fault, not as one that is merely absent (REQ051)", async () => {

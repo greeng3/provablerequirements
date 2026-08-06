@@ -29,10 +29,17 @@ export interface Coverage {
 // Mirrors `verdict_store::VerdictView` from src/verdict_store.rs — a stored verdict paired with
 // whether it still holds against the current world (REQ039, the living loop). `fresh` is false when
 // any provenance axis drifted; `stale_reasons` names each drift the operator must re-verify.
+// It carries the verdict's grounds too (#218) — the same `detail`, `witness`, and per-engine
+// `evidence` a just-run verdict shows, so a stored verdict and a fresh one never present the same
+// verdict differently. Without them the model a cat-2a verdict was checked under, and the
+// counterexample behind a refutation, were visible only in the session that ran it.
 export interface VerdictView {
   status: string;
   basis: string | null;
   reason: string | null;
+  detail: string[];
+  witness: string | null;
+  evidence: EvidenceReport[];
   fresh: boolean;
   stale_reasons: string[];
   // Where this verdict was proved (REQ049/REQ050), or null when it predates environment recording.
