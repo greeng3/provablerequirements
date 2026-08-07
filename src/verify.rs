@@ -125,6 +125,10 @@ pub fn verify(subject: &Path, id: &str) -> Result<Option<VerifyOutcome>> {
     // would stay `fresh` while that model moved. `None` when every spec is in-tree, where the
     // subject commit already covers them and a second axis would only flag the same drift twice.
     report.provenance.spec_fingerprint = resolved.spec_fingerprint.clone();
+    // Stamp the fingerprint of the monitor's trace (#230), for the same reason and a faster clock:
+    // the subject's commit does not cover a log the subject produced, and that log keeps growing.
+    // `None` when no monitor is configured, which is every subject with no category-2b requirement.
+    report.provenance.trace_fingerprint = crate::monitor::current_fingerprint(subject, &companion);
     let store = crate::verdict_store::load(&companion)?;
     let recorded = crate::verdict_store::record(&store, report);
     crate::verdict_store::save(&companion, &recorded)?;

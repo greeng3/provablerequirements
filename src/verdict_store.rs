@@ -75,22 +75,30 @@ pub struct DriftAnchor {
     /// has none. A spec outside the subject tree is not covered by the subject's commit, so this is
     /// the only axis that can see it move.
     pub spec_fingerprint: Option<String>,
+    /// The fingerprint of the monitor's declared trace *now* (#230), or `None` when the subject has
+    /// no monitor configured or its trace cannot be read. Same reason as `spec_fingerprint`: the
+    /// subject's commit does not cover a log the subject produced, so this is the only axis that
+    /// can see it move — and a trace moves far more often than a spec does.
+    pub trace_fingerprint: Option<String>,
 }
 
 impl DriftAnchor {
     /// The anchor for the current world: this build's version, the caller-supplied subject HEAD
     /// (best-effort — `None` when the subject is not a git repo, never fabricated), and the
-    /// caller-probed environment (passed in, so this module stays filesystem-free).
+    /// caller-probed environment and fingerprints (passed in, so this module stays
+    /// filesystem-free).
     pub fn current(
         subject_commit: Option<String>,
         environment: crate::proving_env::ProvingEnv,
         spec_fingerprint: Option<String>,
+        trace_fingerprint: Option<String>,
     ) -> Self {
         Self {
             subject_commit,
             tool_version: env!("CARGO_PKG_VERSION").to_string(),
             environment,
             spec_fingerprint,
+            trace_fingerprint,
         }
     }
 }
@@ -223,6 +231,27 @@ pub fn view(
         }
     }
 
+    // Trace drift (#230): a monitor's evidence is the log it read, and a log grows. The subject's
+    // commit does not cover a file the subject produced, so a `not-falsified` verdict would
+    // otherwise read `fresh` against a trace that has since recorded the very violation it says it
+    // did not see. Same rule as every axis above — a verdict carrying no trace fingerprint is left
+    // alone rather than flagged on a basis we cannot establish.
+    if let Some(was) = &stored.provenance.trace_fingerprint {
+        match &anchor.trace_fingerprint {
+            Some(now) if now != was => stale_reasons.push(
+                "the monitored trace moved since this verdict — a monitor only ever saw the log as \
+                 it was then, so re-verify against the current trace"
+                    .to_string(),
+            ),
+            None => stale_reasons.push(
+                "this verdict was reached against a monitored trace that can no longer be read \
+                 (`monitor.trace` in provreq.yml) — re-verify"
+                    .to_string(),
+            ),
+            _ => {}
+        }
+    }
+
     if stored.provenance.tool_version != anchor.tool_version {
         stale_reasons.push(format!(
             "the tool changed since this verdict (provreq {} → {}) — re-verify",
@@ -259,6 +288,7 @@ mod tests {
             evidence: vec![],
             provenance: ProvenanceReport {
                 spec_fingerprint: None,
+                trace_fingerprint: None,
                 environment: None,
                 requirement_revision: revision.into(),
                 subject_commit: commit.map(str::to_string),
@@ -286,6 +316,7 @@ mod tests {
         }];
         let anchor = DriftAnchor {
             spec_fingerprint: None,
+            trace_fingerprint: None,
             environment: env(None, &[]),
             subject_commit: Some("abc".into()),
             tool_version: "0.0.1".into(),
@@ -323,6 +354,7 @@ mod tests {
         v.provenance.environment = Some(env(Some("lab-1"), &["Kani 0.67.0"]));
         let anchor = DriftAnchor {
             spec_fingerprint: None,
+            trace_fingerprint: None,
             environment: env(Some("ci-runner"), &["Kani 0.67.0"]),
             subject_commit: Some("abc".into()),
             tool_version: "0.0.1".into(),
@@ -344,6 +376,7 @@ mod tests {
         v.provenance.spec_fingerprint = Some("aaaa".into());
         let anchor = DriftAnchor {
             spec_fingerprint: Some("bbbb".into()),
+            trace_fingerprint: None,
             environment: crate::proving_env::ProvingEnv::default(),
             subject_commit: Some("abc".into()),
             tool_version: "0.0.1".into(),
@@ -368,6 +401,7 @@ mod tests {
         assert_eq!(v.provenance.spec_fingerprint, None);
         let anchor = DriftAnchor {
             spec_fingerprint: Some("bbbb".into()),
+            trace_fingerprint: None,
             environment: crate::proving_env::ProvingEnv::default(),
             subject_commit: Some("abc".into()),
             tool_version: "0.0.1".into(),
@@ -384,6 +418,7 @@ mod tests {
         v.provenance.spec_fingerprint = Some("aaaa".into());
         let anchor = DriftAnchor {
             spec_fingerprint: None,
+            trace_fingerprint: None,
             environment: crate::proving_env::ProvingEnv::default(),
             subject_commit: Some("abc".into()),
             tool_version: "0.0.1".into(),
@@ -397,6 +432,60 @@ mod tests {
         );
     }
 
+    // Verifies: #230 — the monitored trace is a drift axis of its own, and the one with the fastest
+    // clock. A log the subject keeps writing is not covered by the subject's commit, so without
+    // this a `not-falsified` verdict would read `fresh` against a trace that has since recorded the
+    // very violation it says it did not see.
+    #[test]
+    fn a_trace_that_moved_makes_the_verdict_stale() {
+        let mut v = stored("r1", Some("abc"), "0.0.1");
+        v.provenance.trace_fingerprint = Some("aaaa".into());
+        let fresh_anchor = |trace: Option<&str>| DriftAnchor {
+            spec_fingerprint: None,
+            trace_fingerprint: trace.map(str::to_string),
+            environment: crate::proving_env::ProvingEnv::default(),
+            subject_commit: Some("abc".into()),
+            tool_version: "0.0.1".into(),
+        };
+
+        assert!(view(&v, "r1", None, &fresh_anchor(Some("aaaa"))).fresh);
+
+        let moved = view(&v, "r1", None, &fresh_anchor(Some("bbbb")));
+        assert!(!moved.fresh, "the log grew under this verdict");
+        assert!(
+            moved.stale_reasons[0].contains("monitored trace moved"),
+            "{:?}",
+            moved.stale_reasons
+        );
+
+        // The trace becoming unreadable is drift too: the evidence is not merely different, it is
+        // out of reach, so the verdict cannot be confirmed.
+        let gone = view(&v, "r1", None, &fresh_anchor(None));
+        assert!(!gone.fresh);
+        assert!(
+            gone.stale_reasons[0].contains("monitor.trace"),
+            "{:?}",
+            gone.stale_reasons
+        );
+    }
+
+    // Verifies: #230 — a verdict carrying no trace fingerprint is left alone, whether it predates
+    // the axis or came from a subject with no monitor. Same rule as every other axis: never flag on
+    // a basis we cannot establish. Every category-1 and 2a verdict in existence is this case.
+    #[test]
+    fn a_verdict_without_a_trace_fingerprint_is_not_flagged() {
+        let v = stored("r1", Some("abc"), "0.0.1");
+        assert_eq!(v.provenance.trace_fingerprint, None);
+        let anchor = DriftAnchor {
+            spec_fingerprint: None,
+            trace_fingerprint: Some("bbbb".into()),
+            environment: crate::proving_env::ProvingEnv::default(),
+            subject_commit: Some("abc".into()),
+            tool_version: "0.0.1".into(),
+        };
+        assert!(view(&v, "r1", None, &anchor).fresh);
+    }
+
     // Verifies: REQ050 — the view distinguishes "proved here, unchanged" from "never recorded".
     // Both are `fresh`, so without a separate field the surface would render them identically and
     // an operator would read a guarantee the record does not carry.
@@ -404,6 +493,7 @@ mod tests {
     fn a_recorded_environment_is_distinguishable_from_an_unrecorded_one() {
         let anchor = DriftAnchor {
             spec_fingerprint: None,
+            trace_fingerprint: None,
             environment: env(Some("lab-1"), &["Kani 0.67.0"]),
             subject_commit: Some("abc".into()),
             tool_version: "0.0.1".into(),
@@ -435,6 +525,7 @@ mod tests {
         assert!(v.provenance.environment.is_none(), "the pre-axis shape");
         let anchor = DriftAnchor {
             spec_fingerprint: None,
+            trace_fingerprint: None,
             environment: env(Some("lab-1"), &["Kani 0.67.0"]),
             subject_commit: Some("abc".into()),
             tool_version: "0.0.1".into(),
@@ -450,6 +541,7 @@ mod tests {
         let v = stored("r1", Some("abc"), "0.0.1");
         let anchor = DriftAnchor {
             spec_fingerprint: None,
+            trace_fingerprint: None,
             environment: crate::proving_env::ProvingEnv::default(),
             subject_commit: Some("abc".into()),
             tool_version: "0.0.1".into(),
@@ -466,6 +558,7 @@ mod tests {
         let v = stored("r1", Some("abc"), "0.0.1");
         let anchor = DriftAnchor {
             spec_fingerprint: None,
+            trace_fingerprint: None,
             environment: crate::proving_env::ProvingEnv::default(),
             subject_commit: Some("def".into()),
             tool_version: "0.0.2".into(),
@@ -491,6 +584,7 @@ mod tests {
     fn fresh_anchor() -> DriftAnchor {
         DriftAnchor {
             spec_fingerprint: None,
+            trace_fingerprint: None,
             environment: crate::proving_env::ProvingEnv::default(),
             subject_commit: Some("abc".into()),
             tool_version: "0.0.1".into(),
