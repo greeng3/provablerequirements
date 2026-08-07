@@ -293,10 +293,17 @@ mod tests {
 
         let view = view(&v, "r1", None, &anchor);
 
-        assert!(view.fresh, "the fixture drifted nothing: {:?}", view.stale_reasons);
+        assert!(
+            view.fresh,
+            "the fixture drifted nothing: {:?}",
+            view.stale_reasons
+        );
         assert_eq!(view.detail, v.detail, "the verdict's own lines are dropped");
         assert_eq!(view.witness, v.witness, "the counterexample is dropped");
-        assert_eq!(view.evidence, v.evidence, "the per-engine breakdown is dropped");
+        assert_eq!(
+            view.evidence, v.evidence,
+            "the per-engine breakdown is dropped"
+        );
     }
 
     fn env(declared: Option<&str>, engines: &[&str]) -> crate::proving_env::ProvingEnv {

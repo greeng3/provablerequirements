@@ -3,6 +3,7 @@ import { verifyRequirement } from "../api";
 import type { EvidenceReport, VerdictReport, VerdictView, VerifyResponse } from "../types";
 import type { Tone } from "../labels";
 import { Badge } from "./Badge";
+import { BasisLabel } from "./BasisLabel";
 import { VerdictBadge } from "./VerdictBadge";
 
 type Props = {
@@ -85,7 +86,7 @@ function StoredVerdict({ verdict }: { verdict: VerdictView }) {
       <div className="flex flex-wrap items-center gap-2 text-sm">
         <span className="text-xs text-muted">Last verdict:</span>
         <VerdictBadge verdict={verdict} />
-        {verdict.basis && <span className="text-xs text-muted">{verdict.basis}</span>}
+        {verdict.basis && <BasisLabel basis={verdict.basis} />}
       </div>
       {!verdict.fresh && (
         <ul className="ml-1 list-inside list-disc text-xs text-warn">
@@ -192,7 +193,7 @@ function VerdictView({ verdict, stale }: { verdict: VerdictReport; stale: boolea
     <div className="flex flex-col gap-3">
       <div className="flex flex-wrap items-center gap-2">
         <Badge label={verdict.status} tone={statusTone(verdict.status)} />
-        {verdict.basis && <span className="text-xs text-muted">{verdict.basis}</span>}
+        {verdict.basis && <BasisLabel basis={verdict.basis} />}
         {verdict.reason && <span className="text-xs text-muted">({verdict.reason})</span>}
         {stale && <Badge label="prose moved" tone="warn" />}
       </div>
@@ -214,7 +215,7 @@ function EvidenceRow({ evidence }: { evidence: EvidenceReport }) {
       <div className="flex items-center gap-2">
         <Badge label={evidence.status} tone={statusTone(evidence.status)} />
         <code className="rounded bg-surface-2 px-1.5 py-0.5 text-xs">{evidence.engine}</code>
-        {evidence.basis && <span className="text-xs text-muted">{evidence.basis}</span>}
+        {evidence.basis && <BasisLabel basis={evidence.basis} />}
       </div>
       {evidence.detail.length > 0 && (
         <ul className="ml-2 list-inside list-disc text-xs text-muted">
