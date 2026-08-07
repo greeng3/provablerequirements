@@ -2028,8 +2028,17 @@ mod tests {
             "must name this subject's own dev-container image: {heavy}"
         );
 
-        // An unwired engine: installing it would not help, and that is provreq's gap.
-        let unwired = unsupported_reason("monpoly", subject);
+        // MonPoly joined the heavy tier in #233: it is wired now, so the answer is about the
+        // environment rather than about provreq's gap.
+        let monpoly = unsupported_reason("monpoly", subject);
+        assert!(
+            monpoly.starts_with("MonPoly has no native install"),
+            "{monpoly}"
+        );
+
+        // An unwired engine: installing it would not help, and that is provreq's gap. Category 3
+        // is the last one left in that bucket.
+        let unwired = unsupported_reason("selenium/playwright", subject);
         assert!(
             unwired.contains("no integration in provreq yet"),
             "{unwired}"
