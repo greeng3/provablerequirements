@@ -37,16 +37,20 @@ pub enum Status {
 ///   **cannot** yield `proven`.
 /// - Creusot is a **deductive** verifier (REQ031) — a discharged proof obligation holds for
 ///   *all* executions, spec-relative — so it yields [`Basis::Proven`], the strongest rung.
-///
-/// `// ponytail: two rungs, because two engines. `not-falsified` (empirical: N runs /
-/// coverage) arrives with the engine that earns it — adding it now would be scale we cannot
-/// back.`
+/// - MonPoly is a **runtime monitor** (#222) — it reads a trace of what actually ran, so its
+///   silence is [`Basis::NotFalsified`] and nothing stronger.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Basis {
     /// Deductive proof (Creusot): the property holds for every execution, relative to the
     /// spec — the strongest rung. Unlike a bounded checker, no state-space caveat applies.
     Proven,
     ModelCheckedBounded,
+    /// Empirical (#229): a monitor read a trace of executions that actually happened and found
+    /// no violation in it. That is neither `proven` (∀ executions) nor `model-checked` (∀ over
+    /// a model) — it is a statement about **what ran**, and only about what ran. The weakest
+    /// evidence provreq deals in, and the only rung whose extent must travel with it: see
+    /// [`Evidence::not_falsified`], which will not let an engine claim it bare.
+    NotFalsified,
 }
 
 impl Basis {
@@ -54,6 +58,7 @@ impl Basis {
         match self {
             Basis::Proven => "proven",
             Basis::ModelCheckedBounded => "model-checked (bounded)",
+            Basis::NotFalsified => "not-falsified",
         }
     }
 }
@@ -147,6 +152,20 @@ impl Evidence {
             basis: None,
             witness,
             detail,
+        }
+    }
+
+    /// The empirical rung (#229) — a monitor saw no violation in the trace it read.
+    ///
+    /// `over` is a parameter, not an optional detail line, and that is the whole point: a bare
+    /// `not-falsified` overclaims by omission the way a bare `holds` did before #121. What the
+    /// monitor actually read — which trace, how long, over what span — is what makes the claim
+    /// checkable at all, so the only constructor for this rung demands it. It lands in `detail`
+    /// beside the engine that earned it, exactly as TLC's model line does for category 2a.
+    pub fn not_falsified(engine: &str, over: impl Into<String>) -> Evidence {
+        Evidence {
+            detail: vec![format!("not falsified over — {}", over.into())],
+            ..Evidence::holds(engine, Basis::NotFalsified)
         }
     }
 
@@ -268,10 +287,15 @@ pub fn aggregate(id: &str, evidence: Vec<Evidence>, provenance: Provenance) -> V
 /// D8 rung ordering — higher is stronger, so [`aggregate`]'s `max_by_key` reports the
 /// strongest basis any holding engine earned: a `proven` outranks a bounded `model-checked`,
 /// which is how "proven by Creusot, corroborated bounded by Kani" comes out proven.
+///
+/// `not-falsified` sits at the bottom for the same reason, running the other way: a monitor
+/// corroborating a bounded `holds` must never *demote* it to the empirical rung — an
+/// observation of what ran adds confidence, it does not subtract the model check.
 fn basis_rank(basis: &Basis) -> u8 {
     match basis {
         Basis::Proven => 2,
         Basis::ModelCheckedBounded => 1,
+        Basis::NotFalsified => 0,
     }
 }
 
@@ -328,6 +352,10 @@ pub fn render(v: &Verdict) -> String {
             }
             Basis::ModelCheckedBounded => {
                 "verified over the states the engine explored, NOT proven for all executions"
+            }
+            Basis::NotFalsified => {
+                "no violation appeared in the trace a monitor actually read — a statement about \
+                 what ran, NOT about what can run"
             }
         };
         out.push_str(&format!(" — {}: {gloss}", basis.as_str()));
@@ -488,16 +516,25 @@ mod tests {
         ];
         let v = aggregate("REQ001", engines.clone(), prov());
         let folded: Vec<String> = engines.iter().flat_map(describe_evidence).collect();
-        assert_eq!(v.detail, folded, "aggregate's detail is exactly the fold, nothing of its own");
+        assert_eq!(
+            v.detail, folded,
+            "aggregate's detail is exactly the fold, nothing of its own"
+        );
 
         for v in [
             from_grounding("REQ001", &Grounding::Grounded, prov()),
             from_grounding(
                 "REQ001",
-                &Grounding::Parked { reasons: vec!["nope".into()] },
+                &Grounding::Parked {
+                    reasons: vec!["nope".into()],
+                },
                 prov(),
             ),
-            no_engine("REQ001", vec!["no engine is wired for category 3".into()], prov()),
+            no_engine(
+                "REQ001",
+                vec!["no engine is wired for category 3".into()],
+                prov(),
+            ),
         ] {
             assert!(
                 v.evidence.is_empty(),
@@ -700,6 +737,81 @@ mod tests {
         let text = render(&v);
         assert!(text.contains("Kani: holds"), "{text}");
         assert!(text.contains("Creusot: holds (proven)"), "{text}");
+    }
+
+    // Verifies: #229 (D8) — the empirical rung renders as what it is. `not-falsified` must never
+    // read like a proof or a model check: a monitor saw a trace, and that is all it saw.
+    #[test]
+    fn not_falsified_renders_as_a_statement_about_what_ran() {
+        let v = aggregate(
+            "SR030",
+            vec![Evidence::not_falsified(
+                "MonPoly",
+                "logs/events.jsonl — 4812 events, 2026-08-01T00:00Z … 2026-08-06T23:59Z",
+            )],
+            prov(),
+        );
+        assert_eq!(v.status, Status::Holds);
+        assert_eq!(v.basis, Some(Basis::NotFalsified));
+        let text = render(&v);
+        assert!(
+            text.contains("not-falsified: no violation appeared"),
+            "{text}"
+        );
+        assert!(
+            text.contains("NOT about what can run"),
+            "the rung must disclaim the reach it does not have: {text}"
+        );
+        assert!(
+            !text.contains("established deductively")
+                && !text.contains("states the engine explored"),
+            "an empirical result must not borrow a stronger rung's words: {text}"
+        );
+    }
+
+    // Verifies: #229 — the extent travels with the rung. A bare `not-falsified` overclaims by
+    // omission (the defect #121 fixed for the 2a model line), so the ONLY constructor for this
+    // rung takes what it was checked over and puts it beside the engine that earned it.
+    #[test]
+    fn not_falsified_says_what_it_was_checked_over() {
+        let e = Evidence::not_falsified("MonPoly", "logs/events.jsonl — 4812 events");
+        assert_eq!(e.basis, Some(Basis::NotFalsified));
+        assert_eq!(
+            e.detail,
+            vec!["not falsified over — logs/events.jsonl — 4812 events".to_string()]
+        );
+        let text = render(&aggregate("SR031", vec![e], prov()));
+        assert!(text.contains("MonPoly: holds (not-falsified)"), "{text}");
+        assert!(text.contains("4812 events"), "{text}");
+    }
+
+    // Verifies: #229 (D2b) — the empirical rung is the WEAKEST, and ranking is what keeps that
+    // true in both directions. A monitor corroborating a bounded model check must not demote the
+    // verdict to `not-falsified`; a monitor alone must not be promoted past what it saw.
+    #[test]
+    fn an_empirical_corroboration_never_demotes_a_model_check() {
+        let v = aggregate(
+            "SR032",
+            vec![
+                Evidence::not_falsified("MonPoly", "logs/events.jsonl — 4812 events"),
+                Evidence::holds("TLC (TLA+)", Basis::ModelCheckedBounded),
+            ],
+            prov(),
+        );
+        assert_eq!(
+            v.basis,
+            Some(Basis::ModelCheckedBounded),
+            "the strongest rung any holding engine earned wins, and empirical is not it"
+        );
+        assert!(basis_rank(&Basis::NotFalsified) < basis_rank(&Basis::ModelCheckedBounded));
+        assert!(basis_rank(&Basis::NotFalsified) < basis_rank(&Basis::Proven));
+        // Both engines still get their say — the weaker rung is outranked, not erased.
+        let text = render(&v);
+        assert!(text.contains("MonPoly: holds (not-falsified)"), "{text}");
+        assert!(
+            text.contains("TLC (TLA+): holds (model-checked (bounded))"),
+            "{text}"
+        );
     }
 
     // Verifies: REQ030 — every engine inconclusive yields unknown/inconclusive, not a fake

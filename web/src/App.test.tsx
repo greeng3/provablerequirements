@@ -217,6 +217,69 @@ test("a stored verdict says where it was proved, or that it was never recorded",
   expect(within(dialog).queryByText(/Proved in:/)).not.toBeInTheDocument();
 });
 
+// #229 — `not-falsified` is the weakest evidence provreq deals in: a monitor read a trace and saw no
+// violation. Rendered like the other rungs it would read as a guarantee, so the browser must set it
+// apart in words the operator does not have to have learned a colour convention to understand.
+test("the empirical rung does not read like a proof", async () => {
+  const user = userEvent.setup();
+  const base: Detail = {
+    id: "REQ001",
+    title: "Delivery deadline",
+    text: "Every accepted message is delivered within 5 seconds.",
+    revision: "r1",
+    stale: false,
+    classification: "formalizable-now",
+    classified_by: "classified",
+    formalization: "admitted",
+    admission: { review: "optional", by: "gg" },
+    candidate: "requirement r { category: 2b ... }",
+    gate: { status: "passed", warnings: [] },
+    readback: "Every accepted message is delivered within 5 seconds.",
+    bindings: [],
+    grounding: null,
+    verdict: {
+      status: "holds",
+      basis: "not-falsified",
+      reason: null,
+      detail: [],
+      witness: null,
+      evidence: [
+        {
+          engine: "MonPoly",
+          status: "holds",
+          basis: "not-falsified",
+          witness: null,
+          detail: ["not falsified over — logs/events.jsonl — 4812 events"],
+        },
+      ],
+      fresh: true,
+      stale_reasons: [],
+      environment: "MonPoly 2.4.0",
+    },
+  };
+
+  mockRoutes(SAMPLE, { REQ001: base });
+  const { unmount } = render(<App />);
+  await user.click(await screen.findByRole("button", { name: "REQ001" }));
+  const dialog = await screen.findByRole("dialog");
+  // Both the aggregate rung and the engine's own row carry the limit, and the extent it was
+  // checked over rides along beneath the engine that earned it.
+  expect(within(dialog).getAllByText(/what ran, not what can run/)).toHaveLength(2);
+  expect(within(dialog).getByText(/4812 events/)).toBeInTheDocument();
+  unmount();
+
+  // The stronger rungs are unchanged: the caveat is the empirical rung's, not decoration on every
+  // basis, or its presence would stop meaning anything.
+  mockRoutes(SAMPLE, {
+    REQ001: { ...base, verdict: { ...base.verdict!, basis: "proven", evidence: [] } },
+  });
+  render(<App />);
+  await user.click(await screen.findByRole("button", { name: "REQ001" }));
+  const second = await screen.findByRole("dialog");
+  expect(within(second).getByText("proven")).toBeInTheDocument();
+  expect(within(second).queryByText(/what ran, not what can run/)).not.toBeInTheDocument();
+});
+
 // #218 — a stored verdict must show what it was reached on, not just what it concluded. The model a
 // category-2a verdict was checked under and the counterexample behind a refutation live on the
 // record; before this they rendered only for the operator who happened to press Verify that session.
