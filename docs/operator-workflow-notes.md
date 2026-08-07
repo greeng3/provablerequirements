@@ -1114,8 +1114,8 @@ should not have to repeat. Arity is checked against `args:` and is not negotiabl
 already established that a binding checked at the wrong arity is a binding that proves nothing.
 
 **The decision this slice had to make: does a declared event that never occurs park, or ground?**
-It **grounds, with a warning**. The split is *declaration decides grounding; occurrence decides
-evidence*. Grounding asks whether the symbol binds to a real observable, and the declaration answers
+It **grounds, with a warning**. The split is _declaration decides grounding; occurrence decides
+evidence_. Grounding asks whether the symbol binds to a real observable, and the declaration answers
 that. Parking on "not in the trace right now" would make grounding depend on a file that changes by
 the minute — #230 made the trace a drift axis precisely because it moves — and a binding that flipped
 between grounded and parked as a log grew would be reporting the weather, not the requirement.
@@ -1131,8 +1131,8 @@ accepted → `accepted` resolves to the declared event `msg_accepted` taking (id
       having seen nothing of it
 ```
 
-"Never occurred" and "could not read the trace" never render the same. The second says *unknown —
-not zero*, because a dry-run must not fail on a log that does not exist yet; the loud version of that
+"Never occurred" and "could not read the trace" never render the same. The second says _unknown —
+not zero_, because a dry-run must not fail on a log that does not exist yet; the loud version of that
 question is `Extent::read`, at verification time.
 
 Counting occurrences is what added `event_field:` to the manifest — a jsonl record needs a key naming
@@ -1192,6 +1192,63 @@ sort `Message` being looked up as an event and parking — and every claim this 
 quantified. A monitor binds a quantified variable from the trace's own argument values, so unlike a
 model checker (which needs a finite domain to enumerate) there is **no domain to declare and nothing
 that could be wrong**; a 2b sort now resolves by construction and says so.
+
+### MonPoly runs, and its silence is read honestly (issue #233 — the 2b arc closes)
+
+The last slice, and the one that produces a verdict. Category 2b now goes prose → PRL → binding →
+formula → **a real answer from a real engine**.
+
+**⚠️ The exit code carries no information — it is 0 for everything**, measured in slice 0 and the
+trap this slice exists to survive:
+
+| situation | exit |
+| --- | --- |
+| clean run, no violations | `0` |
+| violations found | `0` |
+| **formula refused as not monitorable** | **`0`** |
+
+An adapter trusting that exit code reports a _refusal_ as a passing verdict — a fabricated `holds`
+of exactly the kind REQ024 and REQ051 exist to prevent. The sibling trap runs the other way and is
+already recorded for engine probes: a blanket non-zero rule is equally wrong, because Creusot and
+TLC exit 1 while perfectly healthy. **So the output is parsed, and the refusal is detected FIRST** —
+a refused formula also produces no violation lines, so checked in the other order it is
+indistinguishable from a clean run.
+
+Three answers, three verdicts, all three driven against the real engine:
+
+```text
+holds         REQ001: holds — not-falsified: … a statement about what ran, NOT about what can run
+                  - not falsified over — logs/events.jsonl — 2 events, 100 … 110
+fails         REQ001: fails
+                  - the deadline was missed 1 time(s) — checked over logs/events.jsonl — 2 events…
+                  witness: @100. (time point 0): (late7)
+inconclusive  REQ001: unknown (inconclusive)
+                  - the monitor trace `logs/events.jsonl` does not exist (looked in …) — provreq
+                    will not read a missing log as `no violations`
+```
+
+That third line is #230's refusal finally reaching a verdict rather than a return type. The witness
+is MonPoly's own violation line — timestamp, time-point index, and the offending tuple — which is
+the most legible counterexample any engine here produces after TLC's.
+
+**Where the binary comes from: `PATH`, with a `MONPOLY_BIN` override.** MonPoly is a single portable
+executable, so it probes like Kani rather than needing the toolchain welding Creusot and Prusti do;
+the override mirrors `TLA2TOOLS_JAR` and lets a vendored build be pointed at without touching the
+operator's `PATH`. Its `-version` prints `MonPoly (development build)` with no version number, so a
+probe reports `available (unknown)` rather than inventing one. Baking it into the devcontainer image
+is left as its own change — it is packaging, and nothing here waits on it.
+
+**A jsonl trace is converted to MonPoly's log syntax; a `monpoly` one is passed through untouched.**
+provreq does not rewrite a log the subject already produces in the engine's own syntax. Conversion
+requires **numeric** timestamps: MonPoly's log grammar takes a number of time units, provreq carries
+no date parser, and an ISO-8601 string is refused with the value it found rather than guessed at — a
+wrong epoch would silently move every deadline in the claim. A record naming no declared event still
+occupies its time point, because dropping the line would move every later event closer to its
+trigger.
+
+Nothing is written to the subject: signature, formula and converted log all go to a scratch
+directory that is removed when the run ends, so there is no generated file to clobber an operator's
+and none to sweep afterwards.
 
 ## Engine provisioning — Design A (old, superseded topology)
 

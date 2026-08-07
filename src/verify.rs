@@ -182,6 +182,7 @@ pub fn run_ensemble(
             "Creusot" => creusot_evidence(subject, id, requirement, bindings, resolved),
             "Prusti" => prusti_evidence(subject, id, requirement, bindings, resolved),
             "TLC (TLA+)" => tlc_evidence(subject, companion, id, requirement, bindings),
+            "MonPoly" => monpoly_evidence(subject, companion, requirement, bindings),
             // A ready engine with no lowering wired here is a gap in provreq, recorded as
             // inconclusive rather than silently skipped.
             other => verdict::Evidence::inconclusive(
@@ -308,6 +309,58 @@ fn prusti_evidence(
 /// lower to an additive TLA+ module with a temporal property, run TLC against the spec, map to
 /// evidence. A missing `Spec`, a constant provreq cannot write, or an un-lowerable claim is
 /// honestly `inconclusive`, never approximated (D2).
+/// Run MonPoly over the operator's declared trace (#233).
+///
+/// This is where #230's two refusals finally reach a verdict rather than a return type: a missing
+/// trace and an empty one both come back through [`crate::monitor::Extent::read`] as an honest
+/// `inconclusive` naming the path — never as a monitor that saw no violations.
+fn monpoly_evidence(
+    subject: &Path,
+    companion: &Path,
+    requirement: &Requirement,
+    bindings: &[Binding],
+) -> verdict::Evidence {
+    let engine = crate::monitor::ENGINE;
+    let monitor = match crate::monitor::Monitor::load(subject, companion) {
+        Ok(Some(m)) => m,
+        Ok(None) => {
+            return verdict::Evidence::inconclusive(
+                engine,
+                vec![
+                    "this subject declares no `monitor:` block in provreq.yml, so there is no \
+                     trace to monitor. A category-2b claim is about events in a log; provreq reads \
+                     one the subject already produces and never runs the subject itself"
+                        .to_string(),
+                ],
+            )
+        }
+        Err(reason) => return verdict::Evidence::inconclusive(engine, vec![reason]),
+    };
+    // Read the trace BEFORE lowering: a claim that lowers perfectly over a log that is missing or
+    // empty is still a claim about nothing, and the extent is what the verdict must carry (#229).
+    let extent = match crate::monitor::Extent::read(&monitor) {
+        Ok(e) => e,
+        Err(reason) => return verdict::Evidence::inconclusive(engine, vec![reason]),
+    };
+    // One property per requirement is what every other engine here checks; a `require` block with
+    // several is refused rather than half-checked.
+    let [prop] = &requirement.require[..] else {
+        return verdict::Evidence::inconclusive(
+            engine,
+            vec![format!(
+                "the requirement carries {} `require` claims, and provreq lowers one metric \
+                 deadline per run — split them, rather than have a verdict report on some of them",
+                requirement.require.len()
+            )],
+        );
+    };
+    let claim = match crate::monitor::lower(requirement, prop, &monitor, bindings) {
+        Ok(c) => c,
+        Err(e) => return verdict::Evidence::inconclusive(engine, vec![e.reason]),
+    };
+    crate::monitor::run(&monitor, &claim).into_evidence(&extent)
+}
+
 fn tlc_evidence(
     subject: &Path,
     companion: &Path,

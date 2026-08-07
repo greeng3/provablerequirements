@@ -262,7 +262,16 @@ pub fn registry() -> Vec<Engine> {
         Engine {
             category: BindCategory::Runtime,
             name: "MonPoly",
-            probe: None,
+            // #233 — MonPoly is a portable binary, so it probes like Kani: a `PATH` lookup with a
+            // version marker. `-version` prints `MonPoly (development build)` for a source build,
+            // which carries no version number — the marker is what proves it is really MonPoly, and
+            // an absent version is reported as such rather than invented.
+            probe: Some(EngineProbe {
+                bin: crate::monitor::monpoly_bin(),
+                args: vec!["-version".to_string()],
+                version_marker: Some("MonPoly".to_string()),
+                min_version: None,
+            }),
         },
         Engine {
             category: BindCategory::Ui,
@@ -503,7 +512,11 @@ mod tests {
     // still answers `no-engine`. Categories 1 (Kani) and 2a (TLC) are wired; 2b/3 are not.
     #[test]
     fn unwired_categories_are_not_probed_and_never_report_ready() {
-        for cat in [BindCategory::Runtime, BindCategory::Ui] {
+        // Category 3 is the LAST unwired one: 2b left this list in #233, when MonPoly gained a
+        // lowering and a run. The rule is what must survive, not the membership — an engine with
+        // no lowering must not be probed, because reporting it ready promises a verdict provreq
+        // cannot produce.
+        for cat in [BindCategory::Ui] {
             for engine in engines_for(cat) {
                 assert!(
                     engine.probe.is_none(),
