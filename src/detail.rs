@@ -14,11 +14,8 @@
 use crate::draft::{self, Admission, Draft, GateStatus, ReviewTier};
 use crate::grounding::{self, Binding, Grounding};
 use crate::prl::{self, Requirement};
-use crate::rust_adapter::{Resolution, TypeResolution};
 use crate::source::{Classification, Item};
 use crate::status::Formalization;
-use crate::tla_adapter::ModelResolution;
-use std::collections::BTreeMap;
 
 /// The review provenance of an admitted formalization (D12). `None` in [`Detail`] when the draft
 /// is not admitted, so the UI never invents a reviewer for an in-progress draft.
@@ -83,21 +80,26 @@ pub struct GroundingReport {
     pub bindings: Vec<BindingResolution>,
 }
 
-/// Map already-computed resolutions into a [`GroundingReport`]. Pure over the resolution maps —
-/// the caller runs the adapters via [`grounding::resolve_bindings`] — so it is testable without a
-/// filesystem, mirroring [`grounding::verdict`]. Each binding is answered by its own resolver
-/// (sort → type, predicate → function, model → TLA+), in the same order the CLI dry-run uses.
+/// Map an already-computed resolution run into a [`GroundingReport`]. Pure over it — the caller
+/// runs the adapters via [`grounding::resolve_bindings`] — so it is testable without a filesystem,
+/// mirroring [`grounding::verdict`]. Each binding is answered by its own resolver (sort → type,
+/// predicate → function, model → TLA+, runtime → declared event), in the same order the CLI dry-run
+/// uses.
 ///
 /// Implements: REQ036 (live D13 grounding dry-run in the item detail surface)
 pub fn grounding_report(
     requirement: &Requirement,
     bindings: &[Binding],
-    by_symbol: &BTreeMap<String, Resolution>,
-    by_sort: &BTreeMap<String, TypeResolution>,
-    by_model: &BTreeMap<String, ModelResolution>,
+    resolved: &grounding::Resolutions,
 ) -> GroundingReport {
+    let (by_symbol, by_sort, by_model, by_event) = (
+        &resolved.code,
+        &resolved.sorts,
+        &resolved.model,
+        &resolved.runtime,
+    );
     let grounded = matches!(
-        grounding::verdict(requirement, bindings, by_symbol, by_sort, by_model),
+        grounding::verdict(requirement, bindings, resolved),
         Grounding::Grounded
     );
     let resolutions = bindings
@@ -108,6 +110,8 @@ pub fn grounding_report(
             } else if let Some(r) = by_symbol.get(&b.symbol) {
                 (r.is_resolved(), r.describe(&b.symbol, &b.observable))
             } else if let Some(r) = by_model.get(&b.symbol) {
+                (r.is_resolved(), r.describe(&b.symbol, &b.observable))
+            } else if let Some(r) = by_event.get(&b.symbol) {
                 (r.is_resolved(), r.describe(&b.symbol, &b.observable))
             } else {
                 (
@@ -189,6 +193,8 @@ pub fn build(
 mod tests {
     use super::*;
     use crate::draft::DraftState;
+    use crate::rust_adapter::Resolution;
+    use std::collections::BTreeMap;
 
     fn item(id: &str) -> Item {
         Item {
@@ -319,9 +325,10 @@ mod tests {
         let report = grounding_report(
             &requirement,
             &bindings,
-            &by_symbol,
-            &BTreeMap::new(),
-            &BTreeMap::new(),
+            &grounding::Resolutions {
+                code: by_symbol,
+                ..Default::default()
+            },
         );
         assert!(!report.grounded, "an unresolved binding parks the whole");
         assert_eq!(report.bindings.len(), 2);

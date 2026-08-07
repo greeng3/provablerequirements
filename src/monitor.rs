@@ -29,8 +29,10 @@
 //!
 //! Implements: #230 (the operator declares the trace a monitor reads).
 
+mod binding;
 mod declaration;
 mod trace;
 
+pub use binding::{resolve, RuntimeResolution};
 pub use declaration::{Event, Monitor, TraceFormat};
-pub use trace::{current_fingerprint, Extent};
+pub use trace::{current_fingerprint, occurrences, Extent};

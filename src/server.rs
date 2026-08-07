@@ -316,9 +316,7 @@ fn grounding_report(
     Some(crate::detail::grounding_report(
         &requirement,
         &draft.bindings,
-        &resolved.code,
-        &resolved.sorts,
-        &resolved.model,
+        &resolved,
     ))
 }
 
