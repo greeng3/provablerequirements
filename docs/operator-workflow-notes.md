@@ -1044,6 +1044,60 @@ every engine writes; and REQ049 re-answered for a prover the reader does not con
 The boundary is now stated where an operator meets it — `serve`'s own startup line and its
 `--help` — rather than only here.
 
+### The empirical rung, and the trace it is over (issues #229, #230 — category 2b)
+
+`Basis` carried two rungs and a note saying the third would arrive with the engine that earns it.
+MonPoly is that engine: it reads a log of what actually ran, so its silence is neither `proven` (∀
+executions) nor `model-checked` (∀ over a model). **`not-falsified` is now representable**, ranked
+below `model-checked (bounded)` so an empirical corroboration never demotes a model check, and
+rendered with the limit stated — _a statement about what ran, NOT about what can run_.
+
+The rung is the weakest evidence provreq deals in, so it is the one that must not be claimable bare.
+`Evidence::not_falsified` takes what the monitor read as a **required argument**; there is no other
+constructor for it. A naked `not-falsified` would overclaim by omission exactly the way a naked
+`holds` did before the model line (#121). The browser gives it its own tone and says the limit in
+words, because tone alone is a convention the operator has to have learned.
+
+**The trace is the operator's to supply.** provreq reads a log the subject already produces and
+never runs the subject — running it is category 3's problem. So the trace is a declaration in
+`provreq.yml`, the same move `tla.spec_paths` and `tla.constants` already make, resolved against the
+**subject** for the same reason:
+
+```yaml
+monitor:
+    trace: logs/events.jsonl
+    format: jsonl # or `monpoly`, for a subject already writing MonPoly's own log
+    time_field: ts # jsonl only — a monpoly log carries its timestamp in the `@` prefix
+    events:
+        accepted: { name: msg_accepted, args: [id] }
+        succeeded: { name: msg_done, args: [id] }
+```
+
+Both formats are accepted, and the unit is named per format rather than flattened: a MonPoly line
+carrying three predicates is one **time point**, not three events, and counting it as three would
+overstate what was read.
+
+**Reading the block is forgiving; a half-written block is not.** A missing file, a missing block, or
+a manifest that will not parse all mean "no monitor configured" — a subject that never wanted one is
+not broken by the field existing. But once `monitor:` is there, an empty `trace:`, an unreadable
+`format:`, a missing `time_field:`, a `time_field:` under `monpoly`, or an event with no `name:` is
+an error naming the key and saying what to write. Silence is a choice not to configure; a
+half-written declaration is a mistake the operator is looking straight at.
+
+**Two refusals, and they are the point of the slice.** A **missing** trace is a loud failure naming
+the path and saying outright that provreq will not read a missing log as `no violations`. An
+**empty** trace is refused too: zero records cannot falsify anything, so monitoring one would report
+`not-falsified` having observed nothing at all. A record that will not parse is an error naming its
+line rather than a record quietly dropped — a dropped record shrinks the extent, and the extent is
+the whole claim.
+
+**The trace is a seventh drift axis**, for the same reason as out-of-subject specs and on a much
+faster clock: the subject's commit does not cover a log the subject _produced_, and that log grows.
+Without it a `not-falsified` verdict would read `fresh` against a trace that has since recorded the
+very violation it says it did not see. Same rule as every other axis — a verdict carrying no trace
+fingerprint (every category-1 and 2a verdict in existence) is left alone rather than flagged on a
+basis we cannot establish.
+
 ## Engine provisioning — Design A (old, superseded topology)
 
 > **⚠️ The engine SPLIT (artifact-fed vs toolchain-welded) and R-eng-1..4 survive into Design B.**

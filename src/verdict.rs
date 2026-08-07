@@ -433,6 +433,12 @@ pub struct ProvenanceReport {
     /// where `subject_commit` already covers them.
     #[serde(default)]
     pub spec_fingerprint: Option<String>,
+    /// A fingerprint of the trace a monitor read (#230). The subject's commit does not cover a log
+    /// the subject *produced*, and a log grows — so without this a verdict would read `fresh` while
+    /// the only evidence under it moved. `None`, and skipped as a drift axis, for a verdict from
+    /// before this existed or a subject with no monitor configured.
+    #[serde(default)]
+    pub trace_fingerprint: Option<String>,
 }
 
 /// A JSON-serializable view of a [`Verdict`] for the web surface (REQ038). The domain types are
@@ -475,13 +481,15 @@ pub fn report(v: &Verdict) -> VerdictReport {
             requirement_revision: v.provenance.requirement_revision.clone(),
             subject_commit: v.provenance.subject_commit.clone(),
             tool_version: v.provenance.tool_version.clone(),
-            // The formalization fingerprint, the proving environment, and the out-of-subject spec
-            // fingerprint are persistence concerns, not part of the in-memory verdict's identity —
-            // the verify flow stamps all three on the stored copy (REQ045, REQ049, #120). A live
-            // (unpersisted) report carries none of them; nothing reads them off the wire.
+            // The formalization fingerprint, the proving environment, the out-of-subject spec
+            // fingerprint and the monitor trace's are persistence concerns, not part of the
+            // in-memory verdict's identity — the verify flow stamps all four on the stored copy
+            // (REQ045, REQ049, #120, #230). A live (unpersisted) report carries none of them;
+            // nothing reads them off the wire.
             formalization: None,
             environment: None,
             spec_fingerprint: None,
+            trace_fingerprint: None,
         },
     }
 }

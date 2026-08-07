@@ -200,6 +200,7 @@ mod tests {
     fn anchor() -> DriftAnchor {
         DriftAnchor {
             spec_fingerprint: None,
+            trace_fingerprint: None,
             environment: crate::proving_env::ProvingEnv::default(),
             subject_commit: Some("head".into()),
             tool_version: "0.0.1".into(),
@@ -219,6 +220,7 @@ mod tests {
             evidence: vec![],
             provenance: ProvenanceReport {
                 spec_fingerprint: None,
+                trace_fingerprint: None,
                 environment: None,
                 requirement_revision: revision.into(),
                 subject_commit: Some("head".into()),

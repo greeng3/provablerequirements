@@ -19,6 +19,7 @@ pub mod kani;
 pub mod llm;
 pub mod lowering;
 pub mod mirror_draft;
+pub mod monitor;
 pub mod prl;
 pub mod proving_env;
 pub mod provision;
