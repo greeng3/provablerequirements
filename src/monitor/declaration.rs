@@ -64,6 +64,9 @@ pub struct Monitor {
     /// The JSON key carrying the timestamp. Empty for [`TraceFormat::Monpoly`], where the
     /// timestamp is the line's `@` prefix.
     time_field: String,
+    /// The JSON key carrying the event's name. Empty for [`TraceFormat::Monpoly`], where the name
+    /// is the predicate token after the timestamp.
+    event_field: String,
     events: BTreeMap<String, Event>,
 }
 
@@ -81,6 +84,8 @@ struct MonitorBlock {
     format: String,
     #[serde(default)]
     time_field: Option<String>,
+    #[serde(default)]
+    event_field: Option<String>,
     #[serde(default)]
     events: BTreeMap<String, EventBlock>,
 }
@@ -137,7 +142,8 @@ impl Monitor {
                 block.format.trim()
             )
         })?;
-        let time_field = time_field(format, block.time_field.as_deref())?;
+        let time_field = jsonl_key(&TIME_FIELD, format, block.time_field.as_deref())?;
+        let event_field = jsonl_key(&EVENT_FIELD, format, block.event_field.as_deref())?;
         let events = block
             .events
             .into_iter()
@@ -149,6 +155,7 @@ impl Monitor {
             declared,
             format,
             time_field,
+            event_field,
             events,
         })
     }
@@ -159,6 +166,7 @@ impl Monitor {
         trace: PathBuf,
         format: TraceFormat,
         time_field: impl Into<String>,
+        event_field: impl Into<String>,
         events: BTreeMap<String, Event>,
     ) -> Monitor {
         Monitor {
@@ -166,6 +174,7 @@ impl Monitor {
             trace,
             format,
             time_field: time_field.into(),
+            event_field: event_field.into(),
             events,
         }
     }
@@ -188,29 +197,83 @@ impl Monitor {
         &self.time_field
     }
 
+    pub fn event_field(&self) -> &str {
+        &self.event_field
+    }
+
+    /// The event an operator's binding names, looked up by the **alias** they declared it under.
+    ///
+    /// The alias is provreq's handle for the event; the `name` inside is the trace's own spelling,
+    /// which the adapter needs when it writes MonPoly's signature (#232/#233) and the operator
+    /// should not have to repeat. This mirrors category 2a, where a binding names the TLA+
+    /// definition it resolves to.
+    pub fn event(&self, alias: &str) -> Option<&Event> {
+        self.events.get(alias)
+    }
+
+    /// Every declared alias, in declaration order — what an unresolvable binding is told it could
+    /// have named. A "not declared" that does not say what *is* declared makes the operator go
+    /// read the manifest to find out what they typo'd.
+    pub fn aliases(&self) -> Vec<String> {
+        self.events.keys().cloned().collect()
+    }
+
     pub fn events(&self) -> &BTreeMap<String, Event> {
         &self.events
     }
 }
 
-/// The timestamp source, checked against the format rather than defaulted.
+/// One JSON key a `jsonl` trace needs the operator to name, and where a `monpoly` trace carries
+/// the same thing in its own syntax instead.
+struct JsonlKey {
+    key: &'static str,
+    needs: &'static str,
+    example: &'static str,
+    monpoly_carries: &'static str,
+}
+
+const TIME_FIELD: JsonlKey = JsonlKey {
+    key: "time_field",
+    needs: "each record's timestamp",
+    example: "time_field: ts",
+    monpoly_carries: "each line's `@` prefix",
+};
+
+const EVENT_FIELD: JsonlKey = JsonlKey {
+    key: "event_field",
+    needs: "each record's event name",
+    example: "event_field: event",
+    monpoly_carries: "the predicate name after each line's timestamp",
+};
+
+/// A jsonl key, checked against the format rather than defaulted.
 ///
-/// A guessed JSON key would not fail loudly — every record would parse as untimed and the trace
-/// would read as empty, which is the one reading #230 exists to prevent. And a `time_field` set
-/// under `monpoly` is a line of manifest the operator believes is doing something; saying so beats
-/// ignoring it.
-fn time_field(format: TraceFormat, configured: Option<&str>) -> Result<String, String> {
+/// A guessed key would not fail loudly — every record would parse as untimed or unnamed, and the
+/// trace would read as empty or as containing none of the declared events. Both are the reading
+/// #230 exists to prevent. And a key set under `monpoly` is a line of manifest the operator
+/// believes is doing something; saying so beats ignoring it.
+fn jsonl_key(
+    spec: &JsonlKey,
+    format: TraceFormat,
+    configured: Option<&str>,
+) -> Result<String, String> {
+    let JsonlKey {
+        key,
+        needs,
+        example,
+        monpoly_carries,
+    } = spec;
     let configured = configured.map(str::trim).filter(|f| !f.is_empty());
     match (format, configured) {
         (TraceFormat::Jsonl, Some(field)) => Ok(field.to_string()),
-        (TraceFormat::Jsonl, None) => Err("`monitor.time_field` in provreq.yml is missing — a \
-                                           jsonl trace needs the JSON key carrying each record's \
-                                           timestamp (for example `time_field: ts`)"
-            .into()),
+        (TraceFormat::Jsonl, None) => Err(format!(
+            "`monitor.{key}` in provreq.yml is missing — a jsonl trace needs the JSON key carrying \
+             {needs} (for example `{example}`)"
+        )),
         (TraceFormat::Monpoly, Some(field)) => Err(format!(
-            "`monitor.time_field: {field}` in provreq.yml does nothing for a `monpoly` trace — \
-             MonPoly's log carries the timestamp in each line's `@` prefix. Remove it, or switch \
-             `monitor.format` to `jsonl` if the trace really is JSON"
+            "`monitor.{key}: {field}` in provreq.yml does nothing for a `monpoly` trace — MonPoly's \
+             log carries that in {monpoly_carries}. Remove it, or switch `monitor.format` to \
+             `jsonl` if the trace really is JSON"
         )),
         (TraceFormat::Monpoly, None) => Ok(String::new()),
     }
@@ -258,7 +321,8 @@ mod tests {
         Monitor::load(tmp.path(), &tmp.path().join("ProvableRequirements"))
     }
 
-    const JSONL: &str = "monitor:\n  trace: logs/events.jsonl\n  format: jsonl\n  time_field: ts\n";
+    const JSONL: &str =
+        "monitor:\n  trace: logs/events.jsonl\n  format: jsonl\n  time_field: ts\n  event_field: event\n";
 
     // Verifies: #230 — the declaration loads, and the trace resolves against the SUBJECT, so the
     // operator describes where their log lives relative to the thing being verified.
@@ -362,6 +426,14 @@ mod tests {
         ))
         .expect_err("a time_field does nothing here");
         assert!(err.contains("`@` prefix"), "{err}");
+
+        // Same rule for the event key: MonPoly names the predicate itself, so declaring a JSON key
+        // for it is a line of manifest that would quietly do nothing.
+        let err = load(&subject_with_manifest(
+            "monitor:\n  trace: logs/trace.log\n  format: monpoly\n  event_field: event\n",
+        ))
+        .expect_err("an event_field does nothing here either");
+        assert!(err.contains("predicate name"), "{err}");
     }
 
     // Verifies: #230 — the declared events load with their names and arguments, which is what a
@@ -370,7 +442,7 @@ mod tests {
     #[test]
     fn declared_events_carry_their_name_and_arguments() {
         let tmp = subject_with_manifest(
-            "monitor:\n  trace: logs/e.jsonl\n  format: jsonl\n  time_field: ts\n  events:\n    \
+            "monitor:\n  trace: logs/e.jsonl\n  format: jsonl\n  time_field: ts\n  event_field: event\n  events:\n    \
              accepted: { name: msg_accepted, args: [id] }\n    succeeded: { name: msg_done, args: \
              [id, worker] }\n",
         );
@@ -385,7 +457,7 @@ mod tests {
         assert_eq!(m.events()["succeeded"].args, vec!["id", "worker"]);
 
         let err = load(&subject_with_manifest(
-            "monitor:\n  trace: logs/e.jsonl\n  format: jsonl\n  time_field: ts\n  events:\n    \
+            "monitor:\n  trace: logs/e.jsonl\n  format: jsonl\n  time_field: ts\n  event_field: event\n  events:\n    \
              accepted: { args: [id] }\n",
         ))
         .expect_err("an unnamed event resolves to nothing");
@@ -405,7 +477,7 @@ mod tests {
         std::fs::write(logs.join("events.jsonl"), "").expect("trace");
         std::fs::write(
             companion.join(crate::adopt::MANIFEST_FILE),
-            "monitor:\n  trace: ../logs/events.jsonl\n  format: jsonl\n  time_field: ts\n",
+            "monitor:\n  trace: ../logs/events.jsonl\n  format: jsonl\n  time_field: ts\n  event_field: event\n",
         )
         .expect("manifest");
 

@@ -1068,6 +1068,7 @@ monitor:
     trace: logs/events.jsonl
     format: jsonl # or `monpoly`, for a subject already writing MonPoly's own log
     time_field: ts # jsonl only — a monpoly log carries its timestamp in the `@` prefix
+    event_field: event # jsonl only — a monpoly log names the predicate after the timestamp
     events:
         accepted: { name: msg_accepted, args: [id] }
         succeeded: { name: msg_done, args: [id] }
@@ -1097,6 +1098,49 @@ Without it a `not-falsified` verdict would read `fresh` against a trace that has
 very violation it says it did not see. Same rule as every other axis — a verdict carrying no trace
 fingerprint (every category-1 and 2a verdict in existence) is left alone rather than flagged on a
 basis we cannot establish.
+
+### A 2b binding resolves against the declaration, not the code (issue #231)
+
+Category 1 resolves a binding against the subject's Rust, 2a against its TLA+. **Category 2b
+resolves against neither.** A 2b claim speaks of events that appear in a log, so whether `accepted`
+is a real observable is answered by whether the trace *declares* it — not by whether some Rust
+function happens to be named `accepted`. Resolving against the code would bind the claim to the
+wrong artifact entirely and would silently succeed on a subject whose logging says something else.
+
+The binding names the **alias** the operator declared the event under (`--ground accepted=accepted`),
+exactly as a 2a binding names a TLA+ definition. The alias is provreq's handle; the `name:` inside is
+the trace's own spelling, which the adapter needs when it writes MonPoly's signature and the operator
+should not have to repeat. Arity is checked against `args:` and is not negotiable — REQ026/#119
+already established that a binding checked at the wrong arity is a binding that proves nothing.
+
+**The decision this slice had to make: does a declared event that never occurs park, or ground?**
+It **grounds, with a warning**. The split is *declaration decides grounding; occurrence decides
+evidence*. Grounding asks whether the symbol binds to a real observable, and the declaration answers
+that. Parking on "not in the trace right now" would make grounding depend on a file that changes by
+the minute — #230 made the trace a drift axis precisely because it moves — and a binding that flipped
+between grounded and parked as a log grew would be reporting the weather, not the requirement.
+
+But a policy over an event that never fires is **vacuously satisfied**, and a monitor would report
+`not-falsified` having seen nothing of it. So the dry-run says that outright, before a verdict is
+produced from it:
+
+```text
+accepted → `accepted` resolves to the declared event `msg_accepted` taking (id)
+      ⚠ declared, but it does not occur even once in the trace as it stands — a policy over an
+      event that never fires is vacuously satisfied, and a monitor would report `not-falsified`
+      having seen nothing of it
+```
+
+"Never occurred" and "could not read the trace" never render the same. The second says *unknown —
+not zero*, because a dry-run must not fail on a log that does not exist yet; the loud version of that
+question is `Extent::read`, at verification time.
+
+Counting occurrences is what added `event_field:` to the manifest — a jsonl record needs a key naming
+its event, the same way it needs one naming its timestamp, and guessing either would fail quietly
+rather than loudly. `grounding::verdict` and `detail::grounding_report` now take the whole
+`Resolutions` rather than its maps positionally, which is what that type's own doc comment already
+argued for: the maps are produced together and travel together, and splitting them at a call site
+only invites passing three of the four.
 
 ## Engine provisioning — Design A (old, superseded topology)
 

@@ -856,14 +856,21 @@ fn dry_run_candidate(
     // binding reports what it resolved to (D13's "is that what you meant?"), which the
     // operator can only answer against a named observable at a named line.
     let resolved = grounding::resolve_bindings(subject, companion, &requirement, &draft.bindings);
-    let (by_symbol, by_sort, by_model) = (&resolved.code, &resolved.sorts, &resolved.model);
-    // ponytail: three names kept for the printing loop below; the run itself is one value.
+    let (by_symbol, by_sort, by_model, by_event) = (
+        &resolved.code,
+        &resolved.sorts,
+        &resolved.model,
+        &resolved.runtime,
+    );
+    // ponytail: four names kept for the printing loop below; the run itself is one value.
     for b in &draft.bindings {
         if let Some(r) = by_sort.get(&b.symbol) {
             println!("  {}", r.describe(&b.symbol, &b.observable));
         } else if let Some(r) = by_symbol.get(&b.symbol) {
             println!("  {}", r.describe(&b.symbol, &b.observable));
         } else if let Some(r) = by_model.get(&b.symbol) {
+            println!("  {}", r.describe(&b.symbol, &b.observable));
+        } else if let Some(r) = by_event.get(&b.symbol) {
             println!("  {}", r.describe(&b.symbol, &b.observable));
         } else {
             println!(
@@ -875,7 +882,7 @@ fn dry_run_candidate(
         }
     }
 
-    match grounding::verdict(&requirement, &draft.bindings, by_symbol, by_sort, by_model) {
+    match grounding::verdict(&requirement, &draft.bindings, &resolved) {
         Grounding::Grounded => {
             println!("\n{id}: GROUNDED — every symbol binds to a confirmed observable.");
         }

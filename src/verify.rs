@@ -79,13 +79,7 @@ pub fn verify(subject: &Path, id: &str) -> Result<Option<VerifyOutcome>> {
 
     // Live grounding dry-run against every wired observable world (code + model) → verdict.
     let resolved = grounding::resolve_bindings(subject, &companion, &requirement, &draft.bindings);
-    let grounding_result = grounding::verdict(
-        &requirement,
-        &draft.bindings,
-        &resolved.code,
-        &resolved.sorts,
-        &resolved.model,
-    );
+    let grounding_result = grounding::verdict(&requirement, &draft.bindings, &resolved);
 
     let provenance = Provenance {
         requirement_revision: draft.revision.clone(),

@@ -106,6 +106,77 @@ pub fn current_fingerprint(
     Some(fingerprint(monitor.declared(), &text))
 }
 
+/// How many times each **declared** event actually occurs in the trace right now, keyed by the
+/// alias the operator declared it under.
+///
+/// `None` when the trace cannot be read at all — no monitor, no file, or a record provreq cannot
+/// parse. That is deliberately quiet: this feeds the grounding dry-run, and a dry-run must not fail
+/// on a log that happens not to exist yet. The loud version of the same question is
+/// [`Extent::read`], which runs at verification time, where a missing trace is a refusal.
+///
+/// A declared event with **zero** occurrences is `Some(0)`, never absent — "never happened" and
+/// "could not look" are different answers and the read-back says which.
+pub fn occurrences(monitor: &Monitor) -> Option<std::collections::BTreeMap<String, usize>> {
+    let text = std::fs::read_to_string(monitor.trace()).ok()?;
+    let mut counts: std::collections::BTreeMap<String, usize> = monitor
+        .events()
+        .keys()
+        .map(|alias| (alias.clone(), 0))
+        .collect();
+    let by_name: std::collections::BTreeMap<&str, &str> = monitor
+        .events()
+        .iter()
+        .map(|(alias, e)| (e.name.as_str(), alias.as_str()))
+        .collect();
+
+    for line in text.lines().filter(|l| !l.trim().is_empty()) {
+        let names = match monitor.format() {
+            TraceFormat::Jsonl => jsonl_event_name(line, monitor.event_field())
+                .into_iter()
+                .collect::<Vec<_>>(),
+            TraceFormat::Monpoly => monpoly_event_names(line),
+        };
+        for name in names {
+            if let Some(alias) = by_name.get(name.as_str()) {
+                *counts.entry((*alias).to_string()).or_default() += 1;
+            }
+        }
+    }
+    Some(counts)
+}
+
+/// A record's event name, or `None` for one provreq cannot read. Unreadable records are skipped
+/// here rather than refused, because this is the quiet dry-run path — [`Extent::read`] is where a
+/// malformed trace is an error, and it names the line.
+fn jsonl_event_name(line: &str, event_field: &str) -> Option<String> {
+    let value: serde_json::Value = serde_json::from_str(line).ok()?;
+    match value.get(event_field)? {
+        serde_json::Value::String(s) => Some(s.clone()),
+        other => Some(other.to_string()),
+    }
+}
+
+/// Every predicate named on one MonPoly line: `@100 accepted (1) done (2)` names two. A time point
+/// carrying the same predicate twice is two occurrences of it, which is what a monitor sees.
+///
+// ponytail: a token scan, not a MonPoly parser. It answers one question — does this declared event
+// ever appear — and the authority on reading the log is MonPoly itself, once #233 runs it. If this
+// ever has to answer more than "how many times", replace it rather than extending it.
+fn monpoly_event_names(line: &str) -> Vec<String> {
+    let Some(rest) = line.trim_start().strip_prefix('@') else {
+        return Vec::new();
+    };
+    // Drop the timestamp, then take every token that is not an argument list. `(` starts arguments,
+    // so a name is the run of characters before one.
+    rest.split_whitespace()
+        .skip(1)
+        .flat_map(|tok| tok.split('('))
+        .map(str::trim)
+        .filter(|t| !t.is_empty() && !t.ends_with(')') && !t.contains(','))
+        .map(str::to_string)
+        .collect()
+}
+
 fn fingerprint(declared: &str, text: &str) -> String {
     use std::hash::{Hash, Hasher};
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
@@ -171,13 +242,26 @@ mod tests {
         if let Some(text) = contents {
             std::fs::write(&trace, text).expect("trace");
         }
-        let m = Monitor::new(trace, format, ts_field(format), BTreeMap::new());
+        let m = Monitor::new(
+            trace,
+            format,
+            ts_field(format),
+            ev_field(format),
+            BTreeMap::new(),
+        );
         (tmp, m)
     }
 
     fn ts_field(format: TraceFormat) -> &'static str {
         match format {
             TraceFormat::Jsonl => "ts",
+            TraceFormat::Monpoly => "",
+        }
+    }
+
+    fn ev_field(format: TraceFormat) -> &'static str {
+        match format {
+            TraceFormat::Jsonl => "event",
             TraceFormat::Monpoly => "",
         }
     }
@@ -278,6 +362,62 @@ mod tests {
         assert_eq!(Extent::read(&m).expect("reads").records(), 1);
     }
 
+    // Verifies: #231 — how often each DECLARED event occurs, keyed by the alias the operator
+    // declared it under, so the dry-run can warn that a policy is about to be vacuously satisfied.
+    // An event that never fires is 0, not absent: "never happened" is an answer.
+    #[test]
+    fn occurrences_counts_declared_events_and_reports_zero_as_zero() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let trace = tmp.path().join("events.log");
+        std::fs::write(
+            &trace,
+            "{\"ts\":\"1\",\"event\":\"msg_accepted\"}\n\
+             {\"ts\":\"2\",\"event\":\"msg_accepted\"}\n\
+             {\"ts\":\"3\",\"event\":\"something_else\"}\n",
+        )
+        .expect("trace");
+        let events = BTreeMap::from([
+            (
+                "accepted".to_string(),
+                super::super::declaration::Event {
+                    name: "msg_accepted".into(),
+                    args: vec!["id".into()],
+                },
+            ),
+            (
+                "swept".to_string(),
+                super::super::declaration::Event {
+                    name: "msg_swept".into(),
+                    args: vec![],
+                },
+            ),
+        ]);
+        let m = Monitor::new(trace, TraceFormat::Jsonl, "ts", "event", events.clone());
+        let counts = occurrences(&m).expect("readable");
+        assert_eq!(counts["accepted"], 2);
+        assert_eq!(counts["swept"], 0, "never fired is zero, not absent");
+
+        // MonPoly's own log: one line can name several predicates, and each is an occurrence.
+        let mono = tmp.path().join("trace.log");
+        std::fs::write(
+            &mono,
+            "@100 msg_accepted (1) msg_swept (2)\n@140 msg_accepted(3)\n",
+        )
+        .expect("trace");
+        let m = Monitor::new(mono, TraceFormat::Monpoly, "", "", events);
+        let counts = occurrences(&m).expect("readable");
+        assert_eq!(counts["accepted"], 2);
+        assert_eq!(counts["swept"], 1);
+    }
+
+    // Verifies: #231 — a trace that cannot be read at all is `None`, never a map of zeroes. The
+    // dry-run must be able to say "unknown" rather than assert that nothing ever happened.
+    #[test]
+    fn occurrences_over_an_unreadable_trace_is_unknown_not_zero() {
+        let (_tmp, m) = monitor_over(None, TraceFormat::Jsonl);
+        assert_eq!(occurrences(&m), None);
+    }
+
     // Verifies: #230 — the trace is a drift axis. A log that grew since the verdict was recorded
     // fingerprints differently, so the verdict cannot read `fresh` while its evidence moves.
     #[test]
@@ -310,7 +450,8 @@ mod tests {
 
         std::fs::write(
             companion.join(crate::adopt::MANIFEST_FILE),
-            "monitor:\n  trace: logs/events.jsonl\n  format: jsonl\n  time_field: ts\n",
+            "monitor:\n  trace: logs/events.jsonl\n  format: jsonl\n  time_field: ts\n  \
+             event_field: event\n",
         )
         .expect("manifest");
         assert_eq!(

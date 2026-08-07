@@ -345,6 +345,10 @@ pub struct Resolutions {
     pub sorts: BTreeMap<String, TypeResolution>,
     /// Category-2a symbols → the TLA+ definition each resolves to (REQ028).
     pub model: BTreeMap<String, ModelResolution>,
+    /// Category-2b symbols → the declared event each resolves to (#231). Against the operator's
+    /// `monitor:` declaration, never against the subject's code: a 2b claim speaks of events in a
+    /// log, and a Rust function that happens to share the name is not that event.
+    pub runtime: BTreeMap<String, crate::monitor::RuntimeResolution>,
     /// A fingerprint of the specs resolved against that live **outside** the subject tree, or
     /// `None` when there are none (#120). Produced here because this is the walk that already read
     /// them; consumed by the verify flow, which stamps it on the verdict so an external spec moving
@@ -417,21 +421,38 @@ pub fn resolve_bindings(
             )
         })
         .collect();
+    // Category 2b resolves against the operator's declaration, not the subject (#231). The trace is
+    // read once for the whole binding set — `occurrences` is a dry-run aid, so an unreadable trace
+    // is `None` here rather than a failure; the loud version runs at verification time.
+    let monitor = crate::monitor::Monitor::load(subject, companion)
+        .ok()
+        .flatten();
+    let counts = monitor.as_ref().and_then(crate::monitor::occurrences);
+    let runtime = in_category(BindCategory::Runtime)
+        .iter()
+        .map(|b| {
+            let arity = predicate_arity(requirement, &b.symbol).unwrap_or(0);
+            (
+                b.symbol.clone(),
+                crate::monitor::resolve(monitor.as_ref(), &b.observable, arity, counts.as_ref()),
+            )
+        })
+        .collect();
     Resolutions {
         code: predicates,
         sorts,
         model,
+        runtime,
         spec_fingerprint: specs.external_fingerprint(),
     }
 }
 
-pub fn verdict(
-    req: &Requirement,
-    bindings: &[Binding],
-    resolutions: &BTreeMap<String, Resolution>,
-    sort_resolutions: &BTreeMap<String, TypeResolution>,
-    model_resolutions: &BTreeMap<String, ModelResolution>,
-) -> Grounding {
+/// Decide grounding from one resolution run. Takes the whole [`Resolutions`] rather than its maps
+/// positionally for the reason that type already documents: the maps are produced together and
+/// travel together, and splitting them at a call site only invites passing three of the four.
+pub fn verdict(req: &Requirement, bindings: &[Binding], resolved: &Resolutions) -> Grounding {
+    let (resolutions, sort_resolutions, model_resolutions) =
+        (&resolved.code, &resolved.sorts, &resolved.model);
     let mut reasons = Vec::new();
 
     for sym in unbound_symbols(req, bindings) {
@@ -476,6 +497,15 @@ pub fn verdict(
                     b.symbol, b.observable
                 )),
             },
+            // Category 2b: against the declared event signature (#231), never the subject's code.
+            BindCategory::Runtime => match resolved.runtime.get(&b.symbol) {
+                Some(r) if r.is_resolved() => {}
+                Some(r) => reasons.push(r.describe(&b.symbol, &b.observable)),
+                None => reasons.push(format!(
+                    "{}: `{}` was not resolved against the declared event signature",
+                    b.symbol, b.observable
+                )),
+            },
             other => reasons.push(format!(
                 "{}: category {} dry-run deferred — engine not wired yet",
                 b.symbol,
@@ -495,6 +525,21 @@ pub fn verdict(
 mod tests {
     use super::*;
     use crate::prl::gate;
+
+    /// One resolution run from the three maps a test cares about. `verdict` takes the whole run
+    /// (see its doc), so the tests build one rather than passing maps positionally.
+    fn run(
+        code: &BTreeMap<String, Resolution>,
+        sorts: &BTreeMap<String, TypeResolution>,
+        model: &BTreeMap<String, ModelResolution>,
+    ) -> Resolutions {
+        Resolutions {
+            code: code.clone(),
+            sorts: sorts.clone(),
+            model: model.clone(),
+            ..Default::default()
+        }
+    }
     use crate::rust_adapter::PredicateForm;
 
     fn req(src: &str) -> Requirement {
@@ -627,7 +672,7 @@ mod tests {
         let sorts =
             BTreeMap::from([("User".to_string(), TypeResolution::Resolved(at("src/a.rs")))]);
         assert_eq!(
-            verdict(&r, &bindings, &resolutions, &sorts, &BTreeMap::new()),
+            verdict(&r, &bindings, &run(&resolutions, &sorts, &BTreeMap::new())),
             Grounding::Grounded
         );
     }
@@ -648,9 +693,7 @@ mod tests {
         let Grounding::Parked { reasons } = verdict(
             &r,
             &bindings,
-            &resolutions,
-            &BTreeMap::new(),
-            &BTreeMap::new(),
+            &run(&resolutions, &BTreeMap::new(), &BTreeMap::new()),
         ) else {
             panic!("an unresolved binding must park, never ground");
         };
@@ -669,39 +712,61 @@ mod tests {
             code_binding("has_session", "has_session"),
         ];
         let only_one = BTreeMap::from([("logged_in".to_string(), resolved("src/a.rs"))]);
-        let Grounding::Parked { reasons } =
-            verdict(&r, &bindings, &only_one, &BTreeMap::new(), &BTreeMap::new())
-        else {
+        let Grounding::Parked { reasons } = verdict(
+            &r,
+            &bindings,
+            &run(&only_one, &BTreeMap::new(), &BTreeMap::new()),
+        ) else {
             panic!("an unresolved-by-omission binding must park");
         };
         assert!(reasons.iter().any(|reason| reason.contains("has_session")));
     }
 
-    // Verifies: REQ021 (R-ground-1) — a non-code binding is honestly deferred, never
-    // silently grounded, because its engine has not run.
+    // Verifies: REQ021 (R-ground-1) — a category whose observable world is not wired is honestly
+    // deferred, never silently grounded. **Category 3 is the last one left**: 2b moved out from
+    // under this rule in #231, when the declared event signature became something to resolve
+    // against (see `runtime_requirement_grounds_against_the_declared_events`). What must not
+    // change is the rule itself — an unwired category parks.
     #[test]
-    fn verdict_defers_non_code_categories() {
+    fn verdict_defers_the_categories_with_no_observable_world() {
         let r = req("requirement r {
-            category: 2b
+            category: 3
             vocabulary { event fired(x) }
             require { always fired(x) }
         }");
         let bindings = vec![Binding {
             symbol: "fired".into(),
-            category: BindCategory::Runtime,
-            observable: "queue.events".into(),
-            fidelity: Fidelity::Observed,
+            category: BindCategory::Ui,
+            observable: "#submit".into(),
+            fidelity: Fidelity::Probed,
         }];
-        let Grounding::Parked { reasons } = verdict(
-            &r,
-            &bindings,
-            &BTreeMap::new(),
-            &BTreeMap::new(),
-            &BTreeMap::new(),
-        ) else {
+        let Grounding::Parked { reasons } = verdict(&r, &bindings, &Resolutions::default()) else {
             panic!("a deferred category must park");
         };
         assert!(reasons.iter().any(|reason| reason.contains("deferred")));
+    }
+
+    // Verifies: #231 (R-ground-1) — a 2b binding the caller did not resolve is treated exactly as a
+    // failed resolution, not as an absent question. The caller having skipped a symbol is never
+    // evidence that it grounds — the same rule the code and model arms have carried since REQ025.
+    #[test]
+    fn an_unresolved_runtime_binding_parks_rather_than_grounding_by_default() {
+        let r = req(&MODEL_REQ.replace("category: 2a", "category: 2b"));
+        let bindings = vec![Binding {
+            symbol: "accepted".into(),
+            category: BindCategory::Runtime,
+            observable: "accepted".into(),
+            fidelity: Fidelity::Observed,
+        }];
+        let Grounding::Parked { reasons } = verdict(&r, &bindings, &Resolutions::default()) else {
+            panic!("an unresolved runtime binding must park");
+        };
+        assert!(
+            reasons
+                .iter()
+                .any(|reason| reason.contains("declared event signature")),
+            "{reasons:?}"
+        );
     }
 
     // Verifies: REQ026 — the sorts a quantifier ranges over are bindable, alongside any
@@ -781,9 +846,7 @@ mod tests {
         let Grounding::Parked { reasons } = verdict(
             &r,
             &bindings,
-            &resolutions,
-            &BTreeMap::new(),
-            &BTreeMap::new(),
+            &run(&resolutions, &BTreeMap::new(), &BTreeMap::new()),
         ) else {
             panic!("an unbound sort must park");
         };
@@ -809,7 +872,7 @@ mod tests {
         ]);
         let sorts = BTreeMap::from([("User".to_string(), TypeResolution::NotFound)]);
         let Grounding::Parked { reasons } =
-            verdict(&r, &bindings, &resolutions, &sorts, &BTreeMap::new())
+            verdict(&r, &bindings, &run(&resolutions, &sorts, &BTreeMap::new()))
         else {
             panic!("an unresolved sort must park");
         };
@@ -979,8 +1042,80 @@ mod tests {
             ("Message".to_string(), ModelResolution::Resolved(spec_at())),
         ]);
         assert_eq!(
-            verdict(&r, &bindings, &BTreeMap::new(), &BTreeMap::new(), &model),
+            verdict(
+                &r,
+                &bindings,
+                &run(&BTreeMap::new(), &BTreeMap::new(), &model)
+            ),
             Grounding::Grounded
+        );
+    }
+
+    // Verifies: #231 — a category-2b binding grounds against the DECLARED EVENT SIGNATURE, and
+    // parks carrying that adapter's own explanation. `BindCategory::Runtime` had a label and no
+    // adapter; a 2b requirement could not ground at all, whatever the operator declared.
+    #[test]
+    fn runtime_requirement_grounds_against_the_declared_events() {
+        let r = req(&MODEL_REQ.replace("category: 2a", "category: 2b"));
+        let runtime_binding = |symbol: &str, observable: &str| Binding {
+            symbol: symbol.into(),
+            category: BindCategory::Runtime,
+            observable: observable.into(),
+            fidelity: Fidelity::Observed,
+        };
+        let bindings = vec![
+            runtime_binding("accepted", "accepted"),
+            runtime_binding("succeeded", "succeeded"),
+            runtime_binding("Message", "Message"),
+        ];
+        let event = |name: &str, args: usize| crate::monitor::RuntimeResolution::Resolved {
+            event: crate::monitor::Event {
+                name: name.into(),
+                args: vec!["id".to_string(); args],
+            },
+            occurrences: Some(3),
+        };
+        let all_declared = BTreeMap::from([
+            ("accepted".to_string(), event("msg_accepted", 1)),
+            ("succeeded".to_string(), event("msg_done", 1)),
+            ("Message".to_string(), event("message", 0)),
+        ]);
+        assert_eq!(
+            verdict(
+                &r,
+                &bindings,
+                &Resolutions {
+                    runtime: all_declared.clone(),
+                    ..Default::default()
+                }
+            ),
+            Grounding::Grounded
+        );
+
+        // An undeclared event parks, and the reason is the adapter's own — the operator reads one
+        // account of what happened rather than a summary of it.
+        let mut missing = all_declared;
+        missing.insert(
+            "succeeded".to_string(),
+            crate::monitor::RuntimeResolution::NotDeclared {
+                declared: vec!["accepted".into()],
+            },
+        );
+        let Grounding::Parked { reasons } = verdict(
+            &r,
+            &bindings,
+            &Resolutions {
+                runtime: missing,
+                ..Default::default()
+            },
+        ) else {
+            panic!("an undeclared event must park");
+        };
+        assert!(
+            reasons
+                .iter()
+                .any(|reason| reason.contains("succeeded") && reason.contains("monitor.events")),
+            "{reasons:?}"
         );
     }
 
@@ -999,9 +1134,11 @@ mod tests {
             ("succeeded".to_string(), ModelResolution::NotFound),
             ("Message".to_string(), ModelResolution::Resolved(spec_at())),
         ]);
-        let Grounding::Parked { reasons } =
-            verdict(&r, &bindings, &BTreeMap::new(), &BTreeMap::new(), &model)
-        else {
+        let Grounding::Parked { reasons } = verdict(
+            &r,
+            &bindings,
+            &run(&BTreeMap::new(), &BTreeMap::new(), &model),
+        ) else {
             panic!("an unresolved model binding must park");
         };
         assert!(reasons
@@ -1036,9 +1173,11 @@ mod tests {
             ),
             ("Message".to_string(), ModelResolution::Resolved(spec_at())),
         ]);
-        let Grounding::Parked { reasons } =
-            verdict(&r, &bindings, &BTreeMap::new(), &BTreeMap::new(), &model)
-        else {
+        let Grounding::Parked { reasons } = verdict(
+            &r,
+            &bindings,
+            &run(&BTreeMap::new(), &BTreeMap::new(), &model),
+        ) else {
             panic!("a wrong-arity model binding must park");
         };
         assert_eq!(
@@ -1080,9 +1219,11 @@ mod tests {
             ("accepted".to_string(), ModelResolution::Resolved(spec_at())),
             ("Message".to_string(), ModelResolution::Resolved(spec_at())),
         ]);
-        let Grounding::Parked { reasons } =
-            verdict(&r, &bindings, &BTreeMap::new(), &BTreeMap::new(), &only_two)
-        else {
+        let Grounding::Parked { reasons } = verdict(
+            &r,
+            &bindings,
+            &run(&BTreeMap::new(), &BTreeMap::new(), &only_two),
+        ) else {
             panic!("an unresolved-by-omission model binding must park");
         };
         assert!(reasons
