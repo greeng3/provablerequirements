@@ -431,11 +431,16 @@ pub fn resolve_bindings(
     let runtime = in_category(BindCategory::Runtime)
         .iter()
         .map(|b| {
-            let arity = predicate_arity(requirement, &b.symbol).unwrap_or(0);
-            (
-                b.symbol.clone(),
-                crate::monitor::resolve(monitor.as_ref(), &b.observable, arity, counts.as_ref()),
-            )
+            // A sort is not an event: a monitor binds a quantified variable from the trace's own
+            // values, so there is no domain to look up (see `RuntimeResolution::TraceBound`).
+            // Asking the event resolver for it would park every quantified 2b claim there is.
+            let resolution = if is_sort(requirement, &b.symbol) {
+                crate::monitor::RuntimeResolution::TraceBound
+            } else {
+                let arity = predicate_arity(requirement, &b.symbol).unwrap_or(0);
+                crate::monitor::resolve(monitor.as_ref(), &b.observable, arity, counts.as_ref())
+            };
+            (b.symbol.clone(), resolution)
         })
         .collect();
     Resolutions {

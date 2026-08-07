@@ -1103,7 +1103,7 @@ basis we cannot establish.
 
 Category 1 resolves a binding against the subject's Rust, 2a against its TLA+. **Category 2b
 resolves against neither.** A 2b claim speaks of events that appear in a log, so whether `accepted`
-is a real observable is answered by whether the trace *declares* it — not by whether some Rust
+is a real observable is answered by whether the trace _declares_ it — not by whether some Rust
 function happens to be named `accepted`. Resolving against the code would bind the claim to the
 wrong artifact entirely and would silently succeed on a subject whose logging says something else.
 
@@ -1141,6 +1141,57 @@ rather than loudly. `grounding::verdict` and `detail::grounding_report` now take
 `Resolutions` rather than its maps positionally, which is what that type's own doc comment already
 argued for: the maps are produced together and travel together, and splitting them at a call site
 only invites passing three of the four.
+
+### A metric deadline lowers to negated MFOTL (issue #232)
+
+`leads_to … within T` is the pattern only category 2b can decide — `src/tlc.rs` has refused it since
+Issue #121, naming an engine that did not exist. It now lowers, and **three rules shape the output, all
+measured against the real MonPoly before a line was written**:
+
+1. **No leading `ALWAYS`.** MonPoly evaluates at every time point implicitly, so emitting one is not
+   redundant but fatal: _"The formula contains an unbounded future temporal operator. It is hence
+   not monitorable."_
+2. **Emit the NEGATION.** MonPoly reports what _matches_. Handed the policy it printed `true` at
+   every satisfying time point — and the one **violating** point was absent from that output
+   entirely. Handed the violation pattern it prints nothing on a clean trace and the offending tuple
+   on a dirty one. Read the policy form as "output means violation" and every satisfied policy
+   reports as refuted.
+3. **The quantified variable stays FREE.** `¬∀x. P(x)` is `∃x. ¬P(x)`, so the violating value _is_
+   the witness — but `EXISTS id. …` printed a bare `true` and threw that witness away. Free form
+   prints `(2)`.
+
+```text
+(accepted(m)) AND NOT EVENTUALLY[0,30] (done(m))
+accepted(id:string)
+done(id:string)
+```
+
+The signature names the **trace-side** names (`done`), not the aliases the operator binds
+(`delivered`), and declares only the events the formula actually uses. Arguments are typed `string`
+deliberately: the declaration records argument names rather than types, this lowering never emits a
+comparison or an arithmetic term, and a numeric-looking value still matched and still produced its
+witness under `string`.
+
+**The deadline is converted or refused, never rounded.** `30s`/`5m`/`2h` become whole seconds;
+`500ms` is refused, because `EVENTUALLY[0,0.5]` is a **parse error** in MonPoly's interval grammar
+and rounding it up to a second would silently widen the very bound the requirement is about.
+
+**The emitted formula is shown on dry-run**, with a sentence saying what it is. A generated temporal
+formula the operator never sees is a claim they cannot check, and one that is the negation of what
+they wrote makes that worse rather than better.
+
+**The both-direction test is the point of the slice, not decoration.** The inversion above is the
+likeliest bug in the whole 2b arc, and it cannot be caught by asserting on a string: the same
+`AND NOT` that makes silence mean "clean" would, if dropped, make silence mean "broken". So two
+`#[ignore]`d tests drive the real engine — deadline met produces no output, deadline missed produces
+the offending id at exactly one time point — with a `monpoly` CI job to keep them running. MonPoly
+builds from bitbucket with ocaml + dune and nothing else.
+
+**Found live, and fixed here: a quantified 2b claim could never ground.** The dry-run showed the
+sort `Message` being looked up as an event and parking — and every claim this lowering emits is
+quantified. A monitor binds a quantified variable from the trace's own argument values, so unlike a
+model checker (which needs a finite domain to enumerate) there is **no domain to declare and nothing
+that could be wrong**; a 2b sort now resolves by construction and says so.
 
 ## Engine provisioning — Design A (old, superseded topology)
 

@@ -31,8 +31,10 @@
 
 mod binding;
 mod declaration;
+mod mfotl;
 mod trace;
 
 pub use binding::{resolve, RuntimeResolution};
 pub use declaration::{Event, Monitor, TraceFormat};
+pub use mfotl::{lower, MonitorClaim};
 pub use trace::{current_fingerprint, occurrences, Extent};
