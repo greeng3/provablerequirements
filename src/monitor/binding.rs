@@ -28,6 +28,12 @@ pub enum RuntimeResolution {
         /// read at all, which is not the same answer as zero and is not reported as one.
         occurrences: Option<usize>,
     },
+    /// A **sort** in a 2b claim: the variable a quantifier ranges over. Resolved by construction,
+    /// and this is not a shortcut — a monitor binds that variable from the trace's own argument
+    /// values, so unlike a model checker (which needs a finite domain to enumerate) there is no
+    /// domain to declare and nothing here that could be wrong. Without this a quantified 2b claim
+    /// could never ground, which is every claim #232 lowers.
+    TraceBound,
     /// No `monitor:` block at all, so there is no signature to resolve against.
     NoMonitor,
     /// The subject declares events, but none under that name.
@@ -45,7 +51,10 @@ pub enum RuntimeResolution {
 impl RuntimeResolution {
     /// Whether this binding resolved — the single question [`crate::grounding::verdict`] asks.
     pub fn is_resolved(&self) -> bool {
-        matches!(self, RuntimeResolution::Resolved { .. })
+        matches!(
+            self,
+            RuntimeResolution::Resolved { .. } | RuntimeResolution::TraceBound
+        )
     }
 
     /// The operator-facing read-back (D13: "here is what your binding resolves to — is that what
@@ -79,6 +88,11 @@ impl RuntimeResolution {
                     event.name
                 )
             }
+            RuntimeResolution::TraceBound => format!(
+                "{symbol} → `{observable}` is the domain of a quantified variable, which a monitor \
+                 binds from the trace's own values — there is no domain to declare, so nothing is \
+                 checked here"
+            ),
             RuntimeResolution::NoMonitor => format!(
                 "{symbol}: `{observable}` cannot resolve — this subject declares no `monitor:` \
                  block in provreq.yml, so there is no trace for a category-2b claim to be observed \
@@ -210,6 +224,20 @@ mod tests {
         let text = r.describe("accepted", "acepted");
         assert!(text.contains("monitor.events"), "{text}");
         assert!(text.contains("accepted, swept"), "{text}");
+    }
+
+    // Verifies: #232 — a SORT in a 2b claim resolves by construction. A monitor binds a quantified
+    // variable from the trace's own argument values, so there is no domain to declare — unlike a
+    // model checker, which needs a finite one to enumerate. Found live: without this, `Message` was
+    // looked up as an event and parked, so a quantified 2b claim could NEVER ground, which is every
+    // claim the MFOTL lowering emits.
+    #[test]
+    fn a_sort_in_a_runtime_claim_is_bound_by_the_trace_itself() {
+        let r = RuntimeResolution::TraceBound;
+        assert!(r.is_resolved());
+        let text = r.describe("Message", "Message");
+        assert!(text.contains("no domain to declare"), "{text}");
+        assert!(text.contains("nothing is checked here"), "{text}");
     }
 
     // Verifies: #231 — a subject with no monitor at all says so, rather than reporting the event as

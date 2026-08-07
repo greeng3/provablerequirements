@@ -882,6 +882,8 @@ fn dry_run_candidate(
         }
     }
 
+    print_monitor_claim(subject, companion, &requirement, &draft.bindings);
+
     match grounding::verdict(&requirement, &draft.bindings, &resolved) {
         Grounding::Grounded => {
             println!("\n{id}: GROUNDED — every symbol binds to a confirmed observable.");
@@ -1903,6 +1905,43 @@ fn confirm(prompt: &str) -> Result<bool> {
         line.trim().to_ascii_lowercase().as_str(),
         "y" | "yes"
     ))
+}
+
+/// Show the operator the MFOTL a category-2b claim lowers to, on dry-run (#232).
+///
+/// A generated temporal formula the operator never sees is a claim they cannot check — and this one
+/// is the **negation** of what they wrote, which makes that worse rather than better. The read-back
+/// says so in words beside the formula, so `AND NOT EVENTUALLY` cannot be misread as the
+/// requirement itself.
+///
+/// Silent for every other category, and for a 2b subject with no `monitor:` block: the binding
+/// dry-run above has already said what is wrong there, and repeating it here would be noise.
+fn print_monitor_claim(
+    subject: &Path,
+    companion: &Path,
+    requirement: &provreq::prl::Requirement,
+    bindings: &[grounding::Binding],
+) {
+    if grounding::default_category(requirement) != grounding::BindCategory::Runtime {
+        return;
+    }
+    let Ok(Some(monitor)) = provreq::monitor::Monitor::load(subject, companion) else {
+        return;
+    };
+    for prop in &requirement.require {
+        println!("\n  What MonPoly will be asked (the VIOLATION pattern — it matches where the");
+        println!("  requirement is BROKEN, so silence over the trace is what a pass looks like):");
+        match provreq::monitor::lower(requirement, prop, &monitor, bindings) {
+            Ok(claim) => {
+                println!("    formula   {}", claim.formula);
+                for line in claim.signature.lines() {
+                    println!("    signature {line}");
+                }
+                println!("    deadline  {}s", claim.within_seconds);
+            }
+            Err(e) => println!("    not lowerable — {}", e.reason),
+        }
+    }
 }
 
 #[cfg(test)]

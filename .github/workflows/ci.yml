@@ -201,3 +201,41 @@ jobs:
           java -cp "$TLA2TOOLS_JAR" tlc2.TLC 2>&1 | grep -q "TLC2 Version"
       - name: Run the real-engine tests
         run: "cargo test --lib tlc:: -- --ignored"
+
+  # The category-2b real-engine path (#232), on its own job — same design as `tlc` above. MonPoly
+  # is an OCaml/dune build from bitbucket (it is not in opam's repo and not on GitHub), and its
+  # whole dependency list is ocaml + dune + dune-build-info, so this job is cheap.
+  #
+  # It exists for one test pair, and that pair is the reason: the lowering emits the NEGATION of
+  # the requirement, so an inversion would make a satisfied policy report as refuted — or a
+  # violated one as clean. That cannot be caught by asserting on a string, only by running the
+  # real engine in both directions.
+  monpoly:
+    runs-on: ubuntu-latest
+    env:
+      MONPOLY_BIN: ${{ github.workspace }}/monpoly/_build/default/src/main.exe
+    steps:
+      - uses: actions/checkout@v5
+      # `cargo test` links the whole crate (axum, rust-embed), which embeds web/dist — so the
+      # frontend must exist on disk even though these tests never touch it.
+      - name: Set up Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Build frontend
+        run: npm --prefix web ci && npm --prefix web run build
+      - name: Set up OCaml
+        uses: ocaml/setup-ocaml@v3
+        with:
+          ocaml-compiler: "5.3"
+      - name: Build MonPoly
+        run: |
+          git clone --depth 1 https://bitbucket.org/monpoly/monpoly.git monpoly
+          opam install -y dune dune-build-info
+          opam exec -- dune build --root monpoly
+          # A refusal and a clean run BOTH exit 0, so prove the binary works by its output.
+          "$MONPOLY_BIN" -version
+      - name: Run the real-engine tests
+        run: "cargo test --lib monitor:: -- --ignored"
