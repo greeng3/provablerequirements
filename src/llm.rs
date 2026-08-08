@@ -242,8 +242,10 @@ You are triaging software requirements for a provable-requirements tool. Classif
 each requirement into exactly one bucket:
 - formalizable-now: makes a claim provable NOW against code by a deductive verifier \
 (a definite truth value a prover can discharge).
-- falsifiable-only: checkable or monitorable at runtime (safety, or timing bounded \
-by a deadline) but only falsifiable from finite observations, never proved.
+- falsifiable-only: checkable from finite observations of a running system — a \
+monitor reading its trace, or a browser driven against a live deployment — but only \
+falsifiable that way, never proved. Safety properties, timing bounded by a deadline, \
+and anything stated about what a user interface shows.
 - stays-prose: too vague to carry a definite truth value as written.
 
 Requirements:

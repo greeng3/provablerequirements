@@ -22,7 +22,8 @@
 //! verdict. REQ027 closed that gap from both ends: category 1 gained a real engine (Kani),
 //! and 2a/2b/3 lost the probes that would have reported a readiness nothing could honor. An
 //! engine is probed only if provreq can run it, so `Available` ⇒ a verdict is really
-//! obtainable.
+//! obtainable. Every category has since been wired — 2a (#206), 2b (#233), 3 (#245) — so the
+//! rule now holds with nothing left to exempt, and the probes came back one lowering at a time.
 //!
 //! Implements: REQ022 (engine coverage — detect installed engines, report readiness),
 //! REQ024 (a category-1 engine that is not wired never reports ready), REQ027 (category 1
@@ -191,12 +192,13 @@ impl EngineStatus {
 /// meaning of `probe: Option` — not "we know the binary's name", but "there is an
 /// integration behind it". Detecting a binary we cannot drive would report a readiness we
 /// cannot honor: the operator installs the tool, `engines` turns green, and `verify` still
-/// answers `no-engine`. REQ024 fixed exactly that overclaim for category 1; REQ027 keeps
-/// 2a/2b/3 honest by the same rule, and each gets its probe when its lowering is wired.
+/// answers `no-engine`. REQ024 fixed exactly that overclaim for category 1, and 2a/2b/3 each
+/// earned their probe when their lowering landed rather than before it.
 ///
 /// Routing follows the settled design (docs/requirement-language.md): 2a model checking is
-/// the TLA+ lineage (TLC), 2b runtime monitoring is MonPoly (MFOTL), 3 UI is a
-/// Selenium/Playwright driver.
+/// the TLA+ lineage (TLC), 2b runtime monitoring is MonPoly (MFOTL), 3 UI is Selenium driven
+/// over W3C WebDriver. Nothing here is unwired today; [`Probe`] is `Option` for the next
+/// engine, not for a category still waiting on one.
 pub fn registry() -> Vec<Engine> {
     vec![
         Engine {

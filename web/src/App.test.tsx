@@ -368,7 +368,16 @@ test("an engine that cannot start reads as a fault, not as one that is merely ab
       detail: "PRESENT BUT UNUSABLE (error while loading shared libraries: libstd.so)",
       reason: "error while loading shared libraries: libstd.so",
     },
-    { category: "2b", name: "MonPoly", state: "not-wired", detail: "NOT WIRED (no integration yet)", reason: null },
+    // A hypothetical engine, not a real one: every category is wired (#245), and a fixture that
+    // names a real engine as unwired teaches a reader something false. The `not-wired` tone still
+    // has to render — it is the honest state for the next engine anyone adds.
+    {
+      category: "1",
+      name: "an engine nobody has wired",
+      state: "not-wired",
+      detail: "NOT WIRED (no integration yet)",
+      reason: null,
+    },
   ]);
   render(<App />);
 

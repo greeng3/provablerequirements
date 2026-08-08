@@ -202,7 +202,12 @@ mod tests {
                 ("Creusot", available(UNKNOWN_VERSION)),
                 ("Prusti", available(UNKNOWN_VERSION)),
                 ("TLC (TLA+)", available("2.19")),
-                ("MonPoly", EngineStatus::NotWired),
+                // A hypothetical engine, not a real one. This slot used to read `("MonPoly",
+                // NotWired)` — true when written, false since #233, and a fixture naming a real
+                // engine teaches whoever reads it a fact that has stopped being true. Every
+                // category is wired now (#245), so there is no real engine left to borrow for
+                // this state; the state itself still has to render, and always will.
+                ("an engine nobody has wired", EngineStatus::NotWired),
             ],
         );
 
