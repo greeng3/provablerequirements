@@ -14,7 +14,10 @@ use anyhow::Result;
 pub enum Classification {
     /// Provable now against the code (a code-level verifier can discharge it).
     FormalizableNow,
-    /// Only falsifiable — checkable by a runtime monitor, not provable.
+    /// Only falsifiable — checkable from finite observations of a running system, never proved.
+    /// Two engines can do that: a monitor reading a trace the subject wrote (#233), and a browser
+    /// driven against a live deployment (#245). Named because the bucket predates both, and the
+    /// second one is easy to forget when classifying a requirement about a user interface.
     FalsifiableOnly,
     /// Stays prose — too vague to formalize as written.
     StaysProse,

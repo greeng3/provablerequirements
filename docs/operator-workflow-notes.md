@@ -515,6 +515,13 @@ The 2b/3 liveness-monitorability question (can a finite trace refute `eventually
 2b/3 from permissive. Until then a probe for them would promise a readiness nothing can honor, which
 is the REQ024 overclaim wearing a different hat.
 
+> **⚠️ OVERTAKEN (2026-08-08).** Both were wired — 2b by #233, 3 by #245 — and each got its probe
+> with its lowering, exactly as the rule required. The liveness question was answered rather than
+> left open, and answered differently in each world: a monitor takes only the **metric** deadline
+> `leads_to … within T` (#232), and a driver **refuses `eventually` outright** (#243), because over
+> one fixed script it would lower identically to `always` and the verdict would imply a distinction
+> it never checked. The paragraph above is kept as the reasoning that held while it was true.
+
 ## Packaging — Design A (old, superseded)
 
 > **⚠️ SUPERSEDED by Design B's scope cut.** Kept for reference. R-pkg-1/2/3's native-install
