@@ -82,9 +82,11 @@ pub struct GroundingReport {
 
 /// Map an already-computed resolution run into a [`GroundingReport`]. Pure over it — the caller
 /// runs the adapters via [`grounding::resolve_bindings`] — so it is testable without a filesystem,
-/// mirroring [`grounding::verdict`]. Each binding is answered by its own resolver (sort → type,
-/// predicate → function, model → TLA+, runtime → declared event), in the same order the CLI dry-run
-/// uses.
+/// mirroring [`grounding::verdict`]. Each binding is answered by [`grounding::Resolutions::describe`]
+/// — the same call the CLI dry-run makes, rather than a second chain over the same maps. This
+/// surface and the CLI once each hand-rolled that chain, which is the #218 defect in another guise:
+/// one binding read differently by path, and wiring a category meant remembering both places. #241
+/// caught it live, with `verify` reporting GROUNDED while `--dry-run` still said "not wired yet".
 ///
 /// Implements: REQ036 (live D13 grounding dry-run in the item detail surface)
 pub fn grounding_report(
@@ -92,12 +94,6 @@ pub fn grounding_report(
     bindings: &[Binding],
     resolved: &grounding::Resolutions,
 ) -> GroundingReport {
-    let (by_symbol, by_sort, by_model, by_event) = (
-        &resolved.code,
-        &resolved.sorts,
-        &resolved.model,
-        &resolved.runtime,
-    );
     let grounded = matches!(
         grounding::verdict(requirement, bindings, resolved),
         Grounding::Grounded
@@ -105,30 +101,12 @@ pub fn grounding_report(
     let resolutions = bindings
         .iter()
         .map(|b| {
-            let (resolved, summary) = if let Some(r) = by_sort.get(&b.symbol) {
-                (r.is_resolved(), r.describe(&b.symbol, &b.observable))
-            } else if let Some(r) = by_symbol.get(&b.symbol) {
-                (r.is_resolved(), r.describe(&b.symbol, &b.observable))
-            } else if let Some(r) = by_model.get(&b.symbol) {
-                (r.is_resolved(), r.describe(&b.symbol, &b.observable))
-            } else if let Some(r) = by_event.get(&b.symbol) {
-                (r.is_resolved(), r.describe(&b.symbol, &b.observable))
-            } else {
-                (
-                    false,
-                    format!(
-                        "{} → `{}` (category {}): dry-run deferred — engine not wired yet",
-                        b.symbol,
-                        b.observable,
-                        b.category.as_label()
-                    ),
-                )
-            };
+            let (is_resolved, summary) = resolved.describe(b);
             BindingResolution {
                 symbol: b.symbol.clone(),
                 observable: b.observable.clone(),
                 category: b.category.as_label().to_string(),
-                resolved,
+                resolved: is_resolved,
                 summary,
             }
         })

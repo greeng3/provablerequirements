@@ -41,6 +41,8 @@
 //!
 //! Implements: #239 (the operator declares the deployment a UI check drives).
 
+mod binding;
 mod declaration;
 
+pub use binding::{resolve, UiResolution};
 pub use declaration::{current_fingerprint, Step, Ui};

@@ -1330,6 +1330,77 @@ axes compiles cleanly and mislabels every drift the operator is later shown. `ve
 current_fingerprints` is the single place all three are read, so the browse surfaces cannot anchor
 against a different set of axes than `verify` stamped.
 
+### A UI binding resolves against the declared steps (issue #241)
+
+`BindCategory::Ui` had a label and no adapter, so a category-3 binding fell through
+`grounding::verdict`'s catch-all to "dry-run deferred — engine not wired yet" and a cat-3
+requirement could never ground, whatever the operator declared. It resolves against the **declared
+steps** now, by the alias they were written under — #231's rule one category further out, and for
+the same reason: a cat-3 claim speaks of what a browser does to a running page, so whether
+`checkout` is a real observable is answered by whether a step called `checkout` was declared, not by
+whether some Rust function shares the name.
+
+**The read-back names the action, not just the alias:**
+
+```text
+checkout → `checkout` resolves to the declared step `checkout` —
+           click the first element matching `button[data-test=checkout]`
+```
+
+A read-back that hides the selector cannot catch a check that clicks the wrong thing, which is the
+entire point of the D13 dry-run.
+
+**A sort does NOT resolve at category 3, and this is the decision the slice turns on.** Category 2b
+answers the same question with `TraceBound` (#232): a monitor binds the quantified variable from the
+_trace's own argument values_, so there is no domain to declare and nothing that could be wrong.
+_That reason does not exist here._ A driver runs a fixed script against one deployment; there is no
+set of values for a variable to range over and nothing to draw a domain from. So the mirror-image
+answer is the honest one — `UiResolution::NoDomain`, which parks. Copying `TraceBound` across would
+have grounded a claim nothing can drive, and the operator would only have found out at lowering,
+after the read-back had already told them it was fine. The refusal names category 2b as the one that
+_can_ bind such a variable, so an operator told "no" is not left with nowhere to go.
+
+Three smaller calls, each the analogue of one #231 made:
+
+- **A step takes no arguments** — it is a fixed action on a fixed selector, so a requirement applying
+  the symbol to arguments is refused at the binding, where the operator can see it, rather than
+  surfacing as something incomprehensible from the driver.
+- **No occurrence analogue, and none was invented.** 2b's vacuity warning counts events in a trace
+  that already exists. There is nothing here to count: nothing has run, and nothing may ever run. A
+  read-back implying otherwise would be worse than silence.
+- **Grounding never consults the grid.** Whether `WEBDRIVER_URL` or `ui.endpoint` is set is a fact
+  about the operator's machine (#239). A binding that flipped between grounded and parked as a
+  container came and went would be reporting the weather rather than the requirement.
+
+**The membership-vs-rule trap fired a fourth time, and this one had predicted itself.**
+`verdict_defers_the_categories_with_no_observable_world` asserted that a cat-3 binding parks with
+the reason `deferred`, and its own comment read: _"Category 3 is the last one left… what must not
+change is the rule itself."_ Wiring category 3 removed the last unwired category, so there was
+nothing left to re-point it at. It pins the rule directly now, across all four categories: **a
+binding the caller did not resolve parks — the caller having skipped a symbol is never evidence
+that it grounds.** That is one site of the slice-5 sweep, done early because it had to be.
+
+**Two read-back chains were one too many, and the live run is what found it.** 565 green tests said
+the slice was finished; the real CLI disagreed with itself — `verify` answered `GROUNDED` while
+`draft --dry-run` printed "dry-run deferred — engine not wired yet" for the same bindings, because
+the CLI and `detail::grounding_report` each hand-rolled their own if-else chain over the resolution
+maps and only one had gained a `ui` arm. That is the #218 defect in another guise: one binding
+reading differently by path. Fixed at the root rather than by adding a fifth arm twice —
+`Resolutions::describe(binding)` is now the single answer and both surfaces call it, which deleted
+both chains. A symbol no resolver answered for reads "no resolver answered for it, so it does not
+ground", never "engine not wired": the engine _is_ wired, and blaming it would send the operator
+after the wrong thing.
+
+**`--ground` says "Bound", not "Grounded".** It attaches a binding; whether that binding _grounds_
+is a question only the resolvers can answer. For a typo that parks the moment anything looks at it,
+the old wording announced:
+
+```text
+Grounded checkout → `chekout` (category 3, probed fidelity).
+```
+
+— the opposite of what had happened, in the one line the operator reads before moving on.
+
 ## Engine provisioning — Design A (old, superseded topology)
 
 > **⚠️ The engine SPLIT (artifact-fed vs toolchain-welded) and R-eng-1..4 survive into Design B.**

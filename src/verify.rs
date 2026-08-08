@@ -143,8 +143,10 @@ pub fn verify(subject: &Path, id: &str) -> Result<Option<VerifyOutcome>> {
 ///
 /// Dispatch is by engine name, not category, because category 1 is an **ensemble**: Kani AND
 /// Creusot AND Prusti all run and their evidence is aggregated. Category 2a routes to TLC. Each
-/// engine has its own lowering, and none silently inherits another's. 2b/3 have no wired engine,
-/// so they never reach a branch here — they are `no_engine` at the gate below.
+/// engine has its own lowering, and none silently inherits another's. 2b routes to MonPoly (#233).
+/// Category 3 has no wired engine yet, so it never reaches a branch here — it is `no_engine` at the
+/// gate below, which is what a grounded category-3 requirement now reaches instead of
+/// `missing-grounding` (#241).
 pub fn run_ensemble(
     subject: &Path,
     companion: &Path,
