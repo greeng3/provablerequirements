@@ -143,10 +143,10 @@ pub fn verify(subject: &Path, id: &str) -> Result<Option<VerifyOutcome>> {
 ///
 /// Dispatch is by engine name, not category, because category 1 is an **ensemble**: Kani AND
 /// Creusot AND Prusti all run and their evidence is aggregated. Category 2a routes to TLC. Each
-/// engine has its own lowering, and none silently inherits another's. 2b routes to MonPoly (#233).
-/// Category 3 has no wired engine yet, so it never reaches a branch here — it is `no_engine` at the
-/// gate below, which is what a grounded category-3 requirement now reaches instead of
-/// `missing-grounding` (#241).
+/// engine has its own lowering, and none silently inherits another's. 2b routes to MonPoly (#233),
+/// and 3 to a real browser through a WebDriver grid (#245) — the last category to be wired, which
+/// means the `no_engine` gate below no longer has an unwired category behind it. It now fires only
+/// when an engine that *is* wired is not installed here.
 pub fn run_ensemble(
     subject: &Path,
     companion: &Path,
@@ -164,7 +164,7 @@ pub fn run_ensemble(
     // honest no-engine that names who must act (wiring is ours, installing is the operator's).
     let ready: Vec<&crate::engine::Engine> = engines
         .iter()
-        .filter(|e| crate::engine::detect(e).is_ready())
+        .filter(|e| crate::engine::detect(e, Some(companion)).is_ready())
         .collect();
     if ready.is_empty() {
         let detail = engines
@@ -174,7 +174,7 @@ pub fn run_ensemble(
                     "category {} routes to {} — {}",
                     category.as_label(),
                     e.name,
-                    crate::engine::detect(e).describe()
+                    crate::engine::detect(e, Some(companion)).describe()
                 )
             })
             .collect();
@@ -189,6 +189,7 @@ pub fn run_ensemble(
             "Prusti" => prusti_evidence(subject, id, requirement, bindings, resolved),
             "TLC (TLA+)" => tlc_evidence(subject, companion, id, requirement, bindings),
             "MonPoly" => monpoly_evidence(subject, companion, requirement, bindings),
+            "Selenium (WebDriver)" => ui_evidence(companion, requirement, bindings),
             // A ready engine with no lowering wired here is a gap in provreq, recorded as
             // inconclusive rather than silently skipped.
             other => verdict::Evidence::inconclusive(
@@ -365,6 +366,54 @@ fn monpoly_evidence(
         Err(e) => return verdict::Evidence::inconclusive(engine, vec![e.reason]),
     };
     crate::monitor::run(&monitor, &claim).into_evidence(&extent)
+}
+
+/// Category 3 → a real browser, driven through a WebDriver grid (#245).
+///
+/// Mirrors [`monpoly_evidence`] and differs from it in exactly one way that matters: there is no
+/// artifact to read before running. A monitor's trace exists before the monitor does, so its extent
+/// is checked first; a driver *makes* the run it then judges, so what a verdict covers is only
+/// knowable afterwards — which is why the reach line is built from the outcome rather than read
+/// ahead of it.
+fn ui_evidence(
+    companion: &Path,
+    requirement: &Requirement,
+    bindings: &[Binding],
+) -> verdict::Evidence {
+    let engine = crate::ui::ENGINE;
+    let ui = match crate::ui::Ui::load(companion) {
+        Ok(Some(ui)) => ui,
+        Ok(None) => {
+            return verdict::Evidence::inconclusive(
+                engine,
+                vec![
+                    "this subject declares no `ui:` block in provreq.yml, so there is no \
+                     deployment to drive and no steps to drive it with. A category-3 claim is \
+                     about what a running system shows; the operator names it, and provreq never \
+                     starts one"
+                        .to_string(),
+                ],
+            )
+        }
+        Err(reason) => return verdict::Evidence::inconclusive(engine, vec![reason]),
+    };
+    // One property per requirement, as every other engine here checks — a `require` block with
+    // several is refused rather than half-driven.
+    let [prop] = &requirement.require[..] else {
+        return verdict::Evidence::inconclusive(
+            engine,
+            vec![format!(
+                "the requirement carries {} `require` claims, and provreq drives one script per \
+                 run — split them, rather than have a verdict report on some of them",
+                requirement.require.len()
+            )],
+        );
+    };
+    let claim = match crate::ui::lower(requirement, prop, &ui, bindings) {
+        Ok(c) => c,
+        Err(e) => return verdict::Evidence::inconclusive(engine, vec![e.reason]),
+    };
+    crate::ui::run(&ui, &claim).into_evidence(&ui, &claim)
 }
 
 fn tlc_evidence(

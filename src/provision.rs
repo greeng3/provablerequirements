@@ -164,7 +164,7 @@ pub fn java_present() -> bool {
 /// operator can act on, never a panic and never a silent partial install.
 pub async fn install_tlc(consent: bool) -> Result<InstallOutcome> {
     let tlc = tlc_engine();
-    let before = engine::detect(&tlc);
+    let before = engine::detect(&tlc, None);
     // TLC runs anywhere a JVM does, so the platform gate is always open for it.
     match decide_install(&before, true, java_present(), consent) {
         InstallDecision::AlreadyPresent => Ok(InstallOutcome::AlreadyPresent),
@@ -211,7 +211,7 @@ async fn download_and_verify() -> Result<InstallOutcome> {
 
     // Re-detect against the just-written jar so success means "provreq can actually run TLC", not
     // merely "a file landed". The detector reads TLA2TOOLS_JAR / the default path this wrote to.
-    match engine::detect(&tlc_engine()) {
+    match engine::detect(&tlc_engine(), None) {
         s if s.is_ready() => Ok(InstallOutcome::Installed { path: target }),
         s => Ok(InstallOutcome::Failed {
             reason: format!(
@@ -276,7 +276,7 @@ fn cargo_bin(name: &str) -> PathBuf {
 /// [`KANI_COMMANDS`] → re-detect. Light tier #2 per the Design-C decision; the heavy tier stays
 /// dev-container-first.
 pub async fn install_kani(consent: bool) -> Result<InstallOutcome> {
-    let before = engine::detect(&kani_engine());
+    let before = engine::detect(&kani_engine(), None);
     match decide_install(&before, kani_platform_supported(), cargo_present(), consent) {
         InstallDecision::AlreadyPresent => Ok(InstallOutcome::AlreadyPresent),
         InstallDecision::UnsupportedPlatform => Ok(InstallOutcome::Unsupported {
@@ -330,7 +330,7 @@ fn run_kani_commands() -> Result<InstallOutcome> {
     }
 
     // Success means "provreq can actually run Kani", not "cargo exited 0": re-detect the probe.
-    match engine::detect(&kani_engine()) {
+    match engine::detect(&kani_engine(), None) {
         s if s.is_ready() => Ok(InstallOutcome::Installed {
             path: cargo_bin("cargo-kani"),
         }),

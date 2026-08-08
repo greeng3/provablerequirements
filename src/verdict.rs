@@ -45,11 +45,15 @@ pub enum Basis {
     /// spec — the strongest rung. Unlike a bounded checker, no state-space caveat applies.
     Proven,
     ModelCheckedBounded,
-    /// Empirical (#229): a monitor read a trace of executions that actually happened and found
-    /// no violation in it. That is neither `proven` (∀ executions) nor `model-checked` (∀ over
+    /// Empirical (#229): executions that actually happened were observed, and no counterexample
+    /// appeared among them. That is neither `proven` (∀ executions) nor `model-checked` (∀ over
     /// a model) — it is a statement about **what ran**, and only about what ran. The weakest
     /// evidence provreq deals in, and the only rung whose extent must travel with it: see
     /// [`Evidence::not_falsified`], which will not let an engine claim it bare.
+    ///
+    /// Two engines hold it and they observe differently: MonPoly reads a trace the subject wrote
+    /// (#233), and a WebDriver session performs one run and watches the page (#245). The rung is
+    /// the same; the extent that travels with it is not.
     NotFalsified,
 }
 
@@ -353,9 +357,15 @@ pub fn render(v: &Verdict) -> String {
             Basis::ModelCheckedBounded => {
                 "verified over the states the engine explored, NOT proven for all executions"
             }
+            // Deliberately says nothing about *how* it was observed. #229 wrote "the trace a
+            // monitor actually read" when MonPoly was the only engine on this rung; #245 put a
+            // browser on it too, and a UI driver reads no trace — the CLI was printing a sentence
+            // about monitoring under a verdict produced by clicking a button. What each engine
+            // actually saw travels with the evidence (`not falsified over — …`), which is where a
+            // per-engine account belongs; this line is the rung, and the rung is the same for both.
             Basis::NotFalsified => {
-                "no violation appeared in the trace a monitor actually read — a statement about \
-                 what ran, NOT about what can run"
+                "no counterexample appeared in what was actually observed — a statement about what \
+                 ran, NOT about what can run"
             }
         };
         out.push_str(&format!(" — {}: {gloss}", basis.as_str()));
@@ -756,9 +766,45 @@ mod tests {
     }
 
     // Verifies: #229 (D8) — the empirical rung renders as what it is. `not-falsified` must never
-    // read like a proof or a model check: a monitor saw a trace, and that is all it saw.
+    // read like a proof or a model check: something was observed, and that is all it was.
+    //
+    // #245 put a second engine on this rung — a browser, which reads no trace — so the gloss says
+    // what the RUNG is and leaves how it was observed to the evidence's own extent line. It was
+    // previously MonPoly's sentence, and a UI verdict printed it: a `holds` produced by clicking a
+    // button announced itself as a trace a monitor had read. Both engines are checked here so the
+    // shared line cannot drift back toward either one's vocabulary.
     #[test]
     fn not_falsified_renders_as_a_statement_about_what_ran() {
+        for evidence in [
+            Evidence::not_falsified(
+                "MonPoly",
+                "logs/events.jsonl — 4812 events, 2026-08-01T00:00Z … 2026-08-06T23:59Z",
+            ),
+            Evidence::not_falsified(
+                crate::ui::ENGINE,
+                "one execution of the deployment at http://localhost:8080 in chrome 124.0",
+            ),
+        ] {
+            let engine = evidence.engine.clone();
+            let v = aggregate("SR030", vec![evidence], prov());
+            assert_eq!(v.status, Status::Holds);
+            assert_eq!(v.basis, Some(Basis::NotFalsified));
+            let text = render(&v);
+            assert!(
+                !text.contains("trace") && !text.contains("monitor"),
+                "the rung's gloss must not describe one engine's way of observing ({engine}): \
+                 {text}"
+            );
+            assert!(
+                text.contains("not-falsified: no counterexample appeared"),
+                "{text}"
+            );
+            assert!(
+                text.contains("NOT about what can run"),
+                "the rung must disclaim the reach it does not have: {text}"
+            );
+        }
+
         let v = aggregate(
             "SR030",
             vec![Evidence::not_falsified(
@@ -767,17 +813,7 @@ mod tests {
             )],
             prov(),
         );
-        assert_eq!(v.status, Status::Holds);
-        assert_eq!(v.basis, Some(Basis::NotFalsified));
         let text = render(&v);
-        assert!(
-            text.contains("not-falsified: no violation appeared"),
-            "{text}"
-        );
-        assert!(
-            text.contains("NOT about what can run"),
-            "the rung must disclaim the reach it does not have: {text}"
-        );
         assert!(
             !text.contains("established deductively")
                 && !text.contains("states the engine explored"),

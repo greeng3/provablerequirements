@@ -434,7 +434,8 @@ Three parts:
 3. **Adapters** — what each grounding compiles to: **1 (code)** a state predicate at a
    source location (ACSL/JML/Viper); **2a (model)** a direct model variable/action
    reference (definitional); **2b (runtime)** a query over an event/telemetry stream
-   (span/log/DB row); **3 (UI)** a probe (selector + assertion via Selenium/Playwright).
+   (span/log/DB row); **3 (UI)** a declared step — a selector or an asserted text — driven
+   through W3C WebDriver (#245).
 
 Three hard sub-problems the binding must handle: **identity/correlation** (which field is
 the quantified variable's identity — parametric-monitoring trace-slicing); **time source**

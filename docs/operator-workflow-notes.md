@@ -260,8 +260,8 @@ formalize pipeline with draft persistence (`R-draft-*`, `R-ground-*`). The reqfo
 
 - **Issue #34** — engine coverage report (REQ022, R-eng-2/3). `src/engine.rs` maps each PRL category
   to one engine (R-eng-1 split: cat 1 code = toolchain-welded per-language build toolchain, R-eng-4;
-  2a = TLA+/TLC, 2b = MonPoly, 3 = Selenium/Playwright driver), `detect`s presence + best-effort
-  version on `PATH` **without ever installing** (R-eng-2 — reports welded / available / missing /
+  2a = TLA+/TLC, 2b = MonPoly, 3 = Selenium via WebDriver), `detect`s presence + best-effort
+  version — on `PATH`, or for the grid at its endpoint (#245) — **without ever installing** (R-eng-2 — reports welded / available / missing /
   incompatible), and computes per-requirement `readiness` (pure). `provreq engines` lists engine
   status then, for every admitted requirement, whether its declared category's engine is ready —
   ready only when **every** declared category's engine is (multi-category names each blocker); an
@@ -1456,6 +1456,109 @@ The read-back shows the script, and leads with what the evidence is:
 ⚠️ **`--set` clears a draft's bindings**, so a live check that edits the candidate has to re-`--ground`
 before `--dry-run` says anything but "no grounding bindings yet". Cost an entirely confusing minute
 during #243's live run.
+
+### A UI check drives a real browser (issue #245)
+
+The step script from #243 is now driven through a W3C WebDriver session, and category 3 is wired —
+the last one. `provreq engines` no longer has a `NOT WIRED` row.
+
+**A step that fails to _run_ is not a refutation.** This is the rule the slice exists for, and it is
+the mirror of #233's: there, every MonPoly answer arrived on exit code 0, so a refusal could pass
+for a clean run. Here the danger runs the other way and is more tempting, because the wrong answer
+_looks like the tool working_.
+
+| what happened                       | who decided it     | verdict                  |
+| ----------------------------------- | ------------------ | ------------------------ |
+| the grid would not seat a session   | the environment    | `inconclusive`           |
+| `goto` could not load the page      | the environment    | `inconclusive`           |
+| `click` matched no element          | **the script**     | `inconclusive`           |
+| the asserted text was absent        | **the deployment** | `fails`, with a witness  |
+
+A selector that has gone stale means the check never became a check. Reporting it as a failed
+requirement would manufacture exactly the counterexample category 3 exists to produce — a red result
+nobody can act on, because nothing about the requirement was ever tested. Only the observation step
+can refute, and #243 already refuses to lower a claim that asserts anything else.
+
+**The probe is `GET <endpoint>/status`, and that is a gain rather than a workaround.** A `PATH` probe
+answers "a file with this name exists"; the grid answers "**I can seat a session right now**", and
+names the browser it would seat. `EngineProbe { bin, args, … }` cannot express that, so `Engine.probe`
+became `Option<Probe>` with `Command` and `Grid` arms — `Option` keeping its meaning exactly
+(`None` = not wired, ours to fix). `detect` gained a companion path, because that is where
+`ui.endpoint` lives, and both `provreq engines` and `GET /api/engines` pass it so the two surfaces
+cannot disagree. No endpoint, or nothing answering → `Missing` (the operator's environment).
+Answering with `ready: false` → `Unusable`, carrying the grid's own words — REQ051's distinction,
+one category further out.
+
+```console
+$ provreq engines .
+  category 3   Selenium (WebDriver)             available (grid seating chrome 124.0)
+```
+
+The registry entry stopped saying `Selenium/Playwright driver`. That slash described an undecided
+question; driving one settled it, and the name now says what runs.
+
+⚠️ **An empty `alwaysMatch` does not mean "anything you have" — it HANGS.** provreq has no opinion
+about which browser runs a check, so the first cut asked for none: `{"capabilities":{"alwaysMatch":{}}}`.
+Selenium Grid does not refuse that. It **queues the request until the session timeout**, so a
+perfectly healthy grid answers nothing for a full minute and the driver reports "the grid could not
+be reached" — a wrong reason for a working system, which is worse than a slow one. Reproduced with
+plain `curl` in 90 seconds of silence. The fix is to ask the grid what it has and then ask for that:
+the stereotype in `/status` is the operator's own statement about what they run. Guessing `chrome`
+would fail identically against a Firefox-only grid.
+
+⚠️ **The W3C element key is `element-6066-11e4-a52e-4f735466cecf`** — and the first cut had it typed
+from memory as `…-4f15f4f8fca4`, which no unit test could see. The live grid found it in one run.
+The code now reads the response's _single_ value rather than looking up a UUID it can typo.
+
+**The settle window, and why it is one loop.** A deployment is not obliged to have finished rendering
+when the driver looks, so the observation is **polled for presence** until it appears or the window
+closes (5s / 250ms). One loop, correct in both directions: an asserted text gets the window to show
+up, and a text asserted _absent_ gets the whole window to betray itself. Looking exactly once would
+turn a slow page into a fabricated `fails` — or a fabricated `holds` — depending only on which way
+the claim happened to be written. Measured against a page that renders its text after 2s: it holds,
+in 3.0s wall clock.
+
+**The driver runs on its own thread, with its own runtime, and that is load-bearing.** `verify` is
+synchronous and is called straight out of an async axum handler (`POST /api/requirements/:id/verify`),
+where blocking on a future from the calling thread panics. A fresh OS thread has no runtime context
+to conflict with, so one code path serves the CLI and the web surface — which is the whole point of
+`verify` being one flow. There is a real-grid test that drives from inside a multi-thread runtime for
+exactly this reason: every real caller is in that position, and it was the only one no test covered.
+
+**`Basis::NotFalsified`'s gloss was one engine's sentence on a shared rung, and the live run caught
+it.** #229 wrote "no violation appeared in the trace a monitor actually read" when MonPoly was the
+only engine on that rung. A UI verdict then printed it — a `holds` produced by clicking a button
+announcing itself as a trace a monitor had read. The rung's line now says only what the rung is
+("no counterexample appeared in what was actually observed"); _how_ it was observed travels with the
+evidence, in the `over` extent each engine supplies. The test checks both engines against it.
+
+**There is a fourth kind of "no" from `provreq install`.** A grid is not installed anywhere: it is a
+service you run and point provreq at. "No native install — use a devcontainer" would send the
+operator after something that does not go into a build environment, so `install selenium` now says
+to run a grid and set `WEBDRIVER_URL`.
+
+**The membership-vs-rule trap fired a fifth time**, in `engine.rs`: a test asserted that category 3's
+engine has no probe — true when it was written, false the moment this slice landed. It pins the rule
+in both directions now: every registered engine is probed, and an engine with no probe is `NotWired`
+and never ready (checked on a constructed engine, since the registry no longer holds one).
+
+What a category-3 verdict looks like, both ways, against a live deployment:
+
+```text
+REQ001: holds — not-falsified: no counterexample appeared in what was actually observed …
+    - Selenium (WebDriver): holds (not-falsified)
+    - not falsified over — one execution of the deployment at http://…:17870 in chrome 124.0.6367.78,
+      watching 5s for the result — 1. navigate to `/index.html`; 2. click the first element matching
+      `button[data-test=checkout]`; 3. then check the page contains `Order total`
+
+REQ001: fails
+  witness (D9 — replay it against the subject to re-check this):
+    the page at http://…:17870/index.html did not show `Free shipping`
+```
+
+**Not in scope, deliberately: the screenshot.** The most legible counterexample in the tool (#223)
+needs somewhere to live, a lifecycle, and an answer for what happens to it on the next run. The
+witness carries the replayable script and the URL it stopped at, which is actionable today.
 
 ## Engine provisioning — Design A (old, superseded topology)
 

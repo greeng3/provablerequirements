@@ -43,8 +43,10 @@
 
 mod binding;
 mod declaration;
+mod drive;
 mod script;
 
 pub use binding::{resolve, UiResolution};
-pub use declaration::{current_fingerprint, Step, Ui};
+pub use declaration::{current_fingerprint, endpoint, Step, Ui, ENDPOINT_VAR};
+pub use drive::{detect_grid, run, Outcome, ENGINE};
 pub use script::{lower, UiClaim};

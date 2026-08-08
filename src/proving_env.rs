@@ -56,7 +56,7 @@ impl ProvingEnv {
     pub fn current(companion_root: &Path) -> Self {
         let statuses: Vec<(&str, EngineStatus)> = engine::registry()
             .iter()
-            .map(|e| (e.name, engine::detect(e)))
+            .map(|e| (e.name, engine::detect(e, Some(companion_root))))
             .collect();
         Self::from_statuses(declared_label(companion_root), in_container(), &statuses)
     }

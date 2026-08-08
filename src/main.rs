@@ -1092,7 +1092,7 @@ fn run_engines(subject: &Path) -> Result<()> {
 
     println!("Verification engines:");
     for e in engine::registry() {
-        let status = engine::detect(&e);
+        let status = engine::detect(&e, Some(&companion));
         probed.push((e.name, status.clone()));
         println!(
             "  category {:<3} {:<32} {}",
@@ -1238,6 +1238,9 @@ fn registry_engine_named(arg: &str) -> Option<engine::Engine> {
 ///   is about *this subject's* build environment, not a generic "use a devcontainer".
 /// - **not wired**: provreq has no integration, so installing it would not make it usable. That is
 ///   ours to fix, not the operator's, and saying so is more honest than pointing at their env.
+/// - **not a binary at all**: the WebDriver grid is a *service* reached at an address (#245).
+///   "Install it into your build environment" is the wrong sentence for something that is not
+///   installed anywhere — the operator has to run one and say where it is.
 fn unsupported_reason(arg: &str, subject: &Path) -> String {
     let Some(found) = registry_engine_named(arg) else {
         let known: Vec<&str> = engine::registry().iter().map(|e| e.name).collect();
@@ -1252,6 +1255,16 @@ fn unsupported_reason(arg: &str, subject: &Path) -> String {
             "{} has no integration in provreq yet, so installing it would not make it usable — \
              that gap is provreq's to close, not yours.",
             found.name
+        );
+    }
+    if matches!(found.probe, Some(engine::Probe::Grid)) {
+        return format!(
+            "{} is not installed at all — it is a service provreq talks to over HTTP. Run a \
+             WebDriver grid (Selenium Grid, or a standalone browser container) and point provreq \
+             at it with {}, or with `ui.endpoint` in provreq.yml if every operator reaches the \
+             same one.",
+            found.name,
+            provreq::ui::ENDPOINT_VAR
         );
     }
     format!(
@@ -2050,16 +2063,17 @@ mod tests {
             "{monpoly}"
         );
 
-        // An unwired engine: installing it would not help, and that is provreq's gap. Category 3
-        // is the last one left in that bucket.
-        let unwired = unsupported_reason("selenium/playwright", subject);
+        // The fourth kind of no, and the reason there is a fourth (#245): a WebDriver grid is not
+        // installed anywhere. Telling the operator to put it in their build environment would send
+        // them after something that does not go there — they run a service and say where it is.
+        // The unwired branch above it can no longer be reached from the registry, because #245
+        // wired the last category; it stays for the engine that is wired next.
+        let grid = unsupported_reason("selenium", subject);
+        assert!(grid.contains("is not installed at all"), "{grid}");
+        assert!(grid.contains("WEBDRIVER_URL"), "{grid}");
         assert!(
-            unwired.contains("no integration in provreq yet"),
-            "{unwired}"
-        );
-        assert!(
-            !unwired.contains("dev-container"),
-            "an unwired engine is not the operator's environment to fix: {unwired}"
+            !grid.contains("dev-container"),
+            "a grid is not put into a build environment: {grid}"
         );
     }
 
