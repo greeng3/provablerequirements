@@ -34,6 +34,7 @@ pub mod subject_tree;
 pub mod tla_adapter;
 pub mod tlc;
 pub mod triage;
+pub mod ui;
 pub mod verdict;
 pub mod verdict_store;
 pub mod verify;
