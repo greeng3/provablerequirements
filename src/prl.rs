@@ -17,7 +17,7 @@ mod check;
 pub mod error;
 mod fragment;
 mod lexer;
-mod parser;
+pub(crate) mod parser;
 mod readback;
 mod vacuity;
 
