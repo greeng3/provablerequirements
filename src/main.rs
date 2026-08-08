@@ -789,19 +789,25 @@ fn ground_candidate(
     };
     let next = draft::set_binding(state, id, binding);
     draft::save(companion, &next)?;
+    // "Bound", not "Grounded": this attached a binding, and whether it *grounds* is a question only
+    // the resolvers can answer. The old wording announced "Grounded checkout → `chekout`" for a
+    // typo that parks the moment anything looks at it — telling the operator the opposite of what
+    // had happened, in the one message they read before moving on.
     println!(
-        "Grounded {symbol} → `{observable}` (category {}, {} fidelity). \
-         Dry-run it with `provreq draft {id} --dry-run`.",
+        "Bound {symbol} → `{observable}` (category {}, {} fidelity). \
+         Whether it resolves is what `provreq draft {id} --dry-run` answers.",
         category.as_label(),
         fidelity.as_str()
     );
     Ok(())
 }
 
-/// Live category-1 resolution lookup for a draft's bindings, keyed by symbol. The single
-/// place the observable world is consulted, so `ground --dry-run` and `verify` can never
-/// disagree about what grounds. Only category 1 (code) has a real observable world in this
-/// slice; other categories are absent from the map and park in [`grounding::verdict`].
+/// Live resolution lookup for a draft's bindings, keyed by symbol. The single place the observable
+/// worlds are consulted, so `--dry-run` and `verify` can never disagree about what grounds.
+///
+/// Every category has a real observable world now — code (REQ025), TLA+ (REQ028), the declared
+/// event signature (#231), and the declared UI steps (#241) — so the "only category 1 is wired"
+/// this comment used to carry is four slices out of date.
 ///
 /// The arity checked against is the one the **requirement** declares for that predicate —
 /// the binding is wrong if the two disagree, and which of them is at fault is the
@@ -856,30 +862,8 @@ fn dry_run_candidate(
     // binding reports what it resolved to (D13's "is that what you meant?"), which the
     // operator can only answer against a named observable at a named line.
     let resolved = grounding::resolve_bindings(subject, companion, &requirement, &draft.bindings);
-    let (by_symbol, by_sort, by_model, by_event) = (
-        &resolved.code,
-        &resolved.sorts,
-        &resolved.model,
-        &resolved.runtime,
-    );
-    // ponytail: four names kept for the printing loop below; the run itself is one value.
     for b in &draft.bindings {
-        if let Some(r) = by_sort.get(&b.symbol) {
-            println!("  {}", r.describe(&b.symbol, &b.observable));
-        } else if let Some(r) = by_symbol.get(&b.symbol) {
-            println!("  {}", r.describe(&b.symbol, &b.observable));
-        } else if let Some(r) = by_model.get(&b.symbol) {
-            println!("  {}", r.describe(&b.symbol, &b.observable));
-        } else if let Some(r) = by_event.get(&b.symbol) {
-            println!("  {}", r.describe(&b.symbol, &b.observable));
-        } else {
-            println!(
-                "  {} → `{}` (category {}): dry-run deferred — engine not wired yet",
-                b.symbol,
-                b.observable,
-                b.category.as_label()
-            );
-        }
+        println!("  {}", resolved.describe(b).1);
     }
 
     print_monitor_claim(subject, companion, &requirement, &draft.bindings);

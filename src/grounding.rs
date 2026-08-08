@@ -349,12 +349,56 @@ pub struct Resolutions {
     /// `monitor:` declaration, never against the subject's code: a 2b claim speaks of events in a
     /// log, and a Rust function that happens to share the name is not that event.
     pub runtime: BTreeMap<String, crate::monitor::RuntimeResolution>,
+    /// Category-3 symbols → the declared step each resolves to (#241). Against the operator's `ui:`
+    /// declaration, for the same reason `runtime` is: a category-3 claim speaks of what a browser
+    /// does to a running page, and a Rust function sharing the name is not that step.
+    pub ui: BTreeMap<String, crate::ui::UiResolution>,
     /// A fingerprint of the specs resolved against that live **outside** the subject tree, or
     /// `None` when there are none (#120). Produced here because this is the walk that already read
     /// them; consumed by the verify flow, which stamps it on the verdict so an external spec moving
     /// makes that verdict stale. Without it, a verdict proved against a sibling repo's spec would
     /// read `fresh` forever — the subject's commit does not cover a file outside the subject.
     pub spec_fingerprint: Option<String>,
+}
+
+impl Resolutions {
+    /// What one binding resolved to: whether it grounds, and the operator-facing read-back.
+    ///
+    /// **The single answer to that question.** The CLI dry-run and the detail surface used to
+    /// hand-roll the same if-else chain over the four maps, which is the #218 defect wearing a
+    /// different hat: one binding read differently depending on which surface the operator looked
+    /// at, and wiring a new category meant remembering both. #241 found exactly that live — `verify`
+    /// said GROUNDED while `--dry-run` still printed "engine not wired yet" for the same binding.
+    ///
+    /// A symbol in none of the maps is reported as unresolved, never as absent: the resolver not
+    /// having answered is not evidence that it grounds, the same rule [`verdict`] applies.
+    pub fn describe(&self, binding: &Binding) -> (bool, String) {
+        let symbol = &binding.symbol;
+        let observable = &binding.observable;
+        // A sort binds to a type and a predicate to a function, so the sort map is consulted first
+        // — see `verdict`, where the same order keeps a `struct login` from answering for the
+        // predicate `login`.
+        if let Some(r) = self.sorts.get(symbol) {
+            (r.is_resolved(), r.describe(symbol, observable))
+        } else if let Some(r) = self.code.get(symbol) {
+            (r.is_resolved(), r.describe(symbol, observable))
+        } else if let Some(r) = self.model.get(symbol) {
+            (r.is_resolved(), r.describe(symbol, observable))
+        } else if let Some(r) = self.runtime.get(symbol) {
+            (r.is_resolved(), r.describe(symbol, observable))
+        } else if let Some(r) = self.ui.get(symbol) {
+            (r.is_resolved(), r.describe(symbol, observable))
+        } else {
+            (
+                false,
+                format!(
+                    "{symbol} → `{observable}` (category {}): no resolver answered for it, so it \
+                     does not ground",
+                    binding.category.as_label()
+                ),
+            )
+        }
+    }
 }
 
 pub fn resolve_bindings(
@@ -443,11 +487,32 @@ pub fn resolve_bindings(
             (b.symbol.clone(), resolution)
         })
         .collect();
+    // Category 3 resolves against the declared steps (#241). No trace to read and nothing to count:
+    // nothing has run yet and nothing may ever run, so there is no occurrence analogue to 2b's
+    // vacuity warning and inventing one would be worse than silence. Note this deliberately does
+    // NOT consult the WebDriver endpoint — whether a grid is reachable is a fact about the
+    // operator's machine (#239), and a binding that flipped between grounded and parked as a
+    // container came and went would be reporting the weather rather than the requirement.
+    let ui_check = crate::ui::Ui::load(companion).ok().flatten();
+    let ui = in_category(BindCategory::Ui)
+        .iter()
+        .map(|b| {
+            let arity = predicate_arity(requirement, &b.symbol).unwrap_or(0);
+            let resolution = crate::ui::resolve(
+                ui_check.as_ref(),
+                &b.observable,
+                arity,
+                is_sort(requirement, &b.symbol),
+            );
+            (b.symbol.clone(), resolution)
+        })
+        .collect();
     Resolutions {
         code: predicates,
         sorts,
         model,
         runtime,
+        ui,
         spec_fingerprint: specs.external_fingerprint(),
     }
 }
@@ -511,11 +576,16 @@ pub fn verdict(req: &Requirement, bindings: &[Binding], resolved: &Resolutions) 
                     b.symbol, b.observable
                 )),
             },
-            other => reasons.push(format!(
-                "{}: category {} dry-run deferred — engine not wired yet",
-                b.symbol,
-                other.as_label()
-            )),
+            // Category 3: against the declared steps (#241), never the subject's code. A sort
+            // lands on `NoDomain` here rather than resolving — see `crate::ui::binding`.
+            BindCategory::Ui => match resolved.ui.get(&b.symbol) {
+                Some(r) if r.is_resolved() => {}
+                Some(r) => reasons.push(r.describe(&b.symbol, &b.observable)),
+                None => reasons.push(format!(
+                    "{}: `{}` was not resolved against the declared UI steps",
+                    b.symbol, b.observable
+                )),
+            },
         }
     }
 
@@ -727,28 +797,44 @@ mod tests {
         assert!(reasons.iter().any(|reason| reason.contains("has_session")));
     }
 
-    // Verifies: REQ021 (R-ground-1) — a category whose observable world is not wired is honestly
-    // deferred, never silently grounded. **Category 3 is the last one left**: 2b moved out from
-    // under this rule in #231, when the declared event signature became something to resolve
-    // against (see `runtime_requirement_grounds_against_the_declared_events`). What must not
-    // change is the rule itself — an unwired category parks.
+    // Verifies: REQ021 (R-ground-1) — a binding the caller did not resolve parks, never grounds by
+    // default. This test used to pin MEMBERSHIP — "category 3 is the deferred one" — and its own
+    // comment called category 3 the last one left. #241 wired it, so there is no unwired category
+    // to rewrite around any more, and the membership reading is gone for good. What it pins now is
+    // the rule that outlives every category being wired: **the caller having skipped a symbol is
+    // not evidence that it grounds**, whichever world the symbol lives in. The 2b twin below says
+    // the same thing about `BindCategory::Runtime`.
     #[test]
-    fn verdict_defers_the_categories_with_no_observable_world() {
+    fn a_binding_the_caller_did_not_resolve_parks_in_every_category() {
         let r = req("requirement r {
             category: 3
             vocabulary { event fired(x) }
             require { always fired(x) }
         }");
-        let bindings = vec![Binding {
-            symbol: "fired".into(),
-            category: BindCategory::Ui,
-            observable: "#submit".into(),
-            fidelity: Fidelity::Probed,
-        }];
-        let Grounding::Parked { reasons } = verdict(&r, &bindings, &Resolutions::default()) else {
-            panic!("a deferred category must park");
-        };
-        assert!(reasons.iter().any(|reason| reason.contains("deferred")));
+        for (category, fidelity, world) in [
+            (BindCategory::Ui, Fidelity::Probed, "declared UI steps"),
+            (BindCategory::Runtime, Fidelity::Observed, "declared event"),
+            (BindCategory::Model, Fidelity::Definitional, "TLA+ spec"),
+            (BindCategory::Code, Fidelity::Definitional, "source"),
+        ] {
+            let bindings = vec![Binding {
+                symbol: "fired".into(),
+                category,
+                observable: "#submit".into(),
+                fidelity,
+            }];
+            let Grounding::Parked { reasons } = verdict(&r, &bindings, &Resolutions::default())
+            else {
+                panic!("an unresolved {} binding must park", category.as_label());
+            };
+            assert!(
+                reasons
+                    .iter()
+                    .any(|reason| reason.contains("fired") && reason.contains(world)),
+                "category {}: {reasons:?}",
+                category.as_label()
+            );
+        }
     }
 
     // Verifies: #231 (R-ground-1) — a 2b binding the caller did not resolve is treated exactly as a
@@ -1122,6 +1208,214 @@ mod tests {
                 .any(|reason| reason.contains("succeeded") && reason.contains("monitor.events")),
             "{reasons:?}"
         );
+    }
+
+    // Verifies: #241 — `describe` agrees with `verdict` for every category, which is what the two
+    // hand-rolled read-back chains did not. Found live: `verify` reported GROUNDED for a cat-3
+    // requirement while `--dry-run` printed "engine not wired yet" for the very same bindings,
+    // because the CLI's chain had no `ui` arm. A binding that grounds must never read as one that
+    // does not, on any surface — the #218 rule, applied to the dry-run instead of the verdict.
+    #[test]
+    fn describe_agrees_with_verdict_for_every_category() {
+        let cases: Vec<(BindCategory, Fidelity, Resolutions)> = vec![
+            (
+                BindCategory::Ui,
+                Fidelity::Probed,
+                Resolutions {
+                    ui: BTreeMap::from([(
+                        "fired".to_string(),
+                        crate::ui::UiResolution::Resolved {
+                            alias: "fired".into(),
+                            step: crate::ui::Step::Click("#submit".into()),
+                        },
+                    )]),
+                    ..Default::default()
+                },
+            ),
+            (
+                BindCategory::Runtime,
+                Fidelity::Observed,
+                Resolutions {
+                    runtime: BTreeMap::from([(
+                        "fired".to_string(),
+                        crate::monitor::RuntimeResolution::TraceBound,
+                    )]),
+                    ..Default::default()
+                },
+            ),
+        ];
+
+        let r = req("requirement r {
+            category: 3
+            vocabulary { state fired }
+            require { always fired }
+        }");
+        for (category, fidelity, resolved) in cases {
+            let b = Binding {
+                symbol: "fired".into(),
+                category,
+                observable: "fired".into(),
+                fidelity,
+            };
+            let (describes_resolved, summary) = resolved.describe(&b);
+            let grounds = matches!(
+                verdict(&r, std::slice::from_ref(&b), &resolved),
+                Grounding::Grounded
+            );
+            assert_eq!(
+                describes_resolved,
+                grounds,
+                "category {}: the read-back and the verdict disagree — {summary}",
+                category.as_label()
+            );
+            assert!(
+                !summary.contains("not wired"),
+                "category {} is wired; its read-back must not say otherwise: {summary}",
+                category.as_label()
+            );
+        }
+
+        // And a symbol no resolver answered for reads as unresolved on both, never as absent.
+        let orphan = Binding {
+            symbol: "fired".into(),
+            category: BindCategory::Ui,
+            observable: "fired".into(),
+            fidelity: Fidelity::Probed,
+        };
+        let (resolved_flag, summary) = Resolutions::default().describe(&orphan);
+        assert!(!resolved_flag, "{summary}");
+        assert!(summary.contains("does not ground"), "{summary}");
+    }
+
+    // Verifies: #241 — a category-3 binding grounds against the DECLARED STEPS. `BindCategory::Ui`
+    // had a label and no adapter, so a cat-3 requirement fell through the catch-all arm and could
+    // never ground, whatever the operator declared.
+    #[test]
+    fn ui_requirement_grounds_against_the_declared_steps() {
+        let r = req("requirement u {
+            category: 3
+            vocabulary { state checkout state sees_total }
+            require { checkout leads_to sees_total }
+        }");
+        let ui_binding = |symbol: &str| Binding {
+            symbol: symbol.into(),
+            category: BindCategory::Ui,
+            observable: symbol.into(),
+            fidelity: Fidelity::Probed,
+        };
+        let bindings = vec![ui_binding("checkout"), ui_binding("sees_total")];
+        let step = |alias: &str, step: crate::ui::Step| {
+            (
+                alias.to_string(),
+                crate::ui::UiResolution::Resolved {
+                    alias: alias.into(),
+                    step,
+                },
+            )
+        };
+        let declared = BTreeMap::from([
+            step("checkout", crate::ui::Step::Click("#go".into())),
+            step("sees_total", crate::ui::Step::TextPresent("Total".into())),
+        ]);
+        assert_eq!(
+            verdict(
+                &r,
+                &bindings,
+                &Resolutions {
+                    ui: declared.clone(),
+                    ..Default::default()
+                }
+            ),
+            Grounding::Grounded
+        );
+
+        // An undeclared step parks, carrying the adapter's own account rather than a summary.
+        let mut missing = declared;
+        missing.insert(
+            "sees_total".to_string(),
+            crate::ui::UiResolution::NotDeclared {
+                declared: vec!["checkout".into()],
+            },
+        );
+        let Grounding::Parked { reasons } = verdict(
+            &r,
+            &bindings,
+            &Resolutions {
+                ui: missing,
+                ..Default::default()
+            },
+        ) else {
+            panic!("an undeclared step must park");
+        };
+        assert!(
+            reasons
+                .iter()
+                .any(|reason| reason.contains("sees_total") && reason.contains("ui.steps")),
+            "{reasons:?}"
+        );
+    }
+
+    // Verifies: #241 — the decision this slice turns on. Category 2b grounds a quantified claim
+    // because a monitor binds the variable from its trace's own values (`TraceBound`, #232). A UI
+    // driver runs a fixed script and has no such source, so the same claim must PARK here — the
+    // mirror image, not a copy. Grounding it would tell the operator a claim was fine and leave the
+    // refusal to a lowering they have not reached yet.
+    #[test]
+    fn a_quantified_ui_claim_parks_where_the_same_2b_claim_grounds() {
+        let quantified = "requirement q {
+            category: 3
+            vocabulary { sort Item event added(i) state shown(i) }
+            require { each i: Item . added(i) leads_to shown(i) }
+        }";
+        // 2b: the sort resolves, because the trace supplies the domain.
+        assert!(
+            crate::monitor::RuntimeResolution::TraceBound.is_resolved(),
+            "the 2b answer this must NOT be copied from"
+        );
+
+        // 3: the same sort has nothing to draw a domain from.
+        let r3 = req(quantified);
+        let bindings_3 = vec![Binding {
+            symbol: "Item".into(),
+            category: BindCategory::Ui,
+            observable: "Item".into(),
+            fidelity: Fidelity::Probed,
+        }];
+        let resolved = resolve_ui_only(&r3, &bindings_3);
+        assert_eq!(
+            resolved.ui.get("Item"),
+            Some(&crate::ui::UiResolution::NoDomain),
+            "a cat-3 sort must not borrow 2b's TraceBound answer"
+        );
+        let Grounding::Parked { reasons } = verdict(&r3, &bindings_3, &resolved) else {
+            panic!("a quantified category-3 claim must park");
+        };
+        assert!(
+            reasons.iter().any(|r| r.contains("fixed script")),
+            "{reasons:?}"
+        );
+    }
+
+    /// Resolve only the category-3 bindings of `req`, with no `ui:` block on disk — enough to pin
+    /// the sort decision without a subject tree, since a sort never reaches the declaration.
+    fn resolve_ui_only(req: &Requirement, bindings: &[Binding]) -> Resolutions {
+        Resolutions {
+            ui: bindings
+                .iter()
+                .map(|b| {
+                    (
+                        b.symbol.clone(),
+                        crate::ui::resolve(
+                            None,
+                            &b.observable,
+                            predicate_arity(req, &b.symbol).unwrap_or(0),
+                            is_sort(req, &b.symbol),
+                        ),
+                    )
+                })
+                .collect(),
+            ..Default::default()
+        }
     }
 
     // Verifies: REQ028 — a 2a binding to a name the spec does not define parks the
