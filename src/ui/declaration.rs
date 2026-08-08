@@ -226,6 +226,22 @@ fn resolve_endpoint(from_env: Option<&str>, declared: Option<&str>) -> Option<St
         .map(str::to_string)
 }
 
+/// Where to reach a WebDriver grid, without a loaded [`Ui`] — what the engine probe needs (#245).
+///
+/// [`Ui::endpoint`] answers the same question for a subject whose block has already been read; this
+/// answers it for `provreq engines`, which probes before any requirement is in hand and must work
+/// on a subject that declares no UI check at all. Both resolve through [`resolve_endpoint`], so the
+/// override rule is stated once.
+pub fn endpoint(companion_root: Option<&Path>) -> Option<String> {
+    let declared = companion_root
+        .and_then(|root| Ui::load(root).ok().flatten())
+        .and_then(|ui| ui.declared_endpoint);
+    resolve_endpoint(
+        std::env::var(ENDPOINT_VAR).ok().as_deref(),
+        declared.as_deref(),
+    )
+}
+
 /// The fingerprint of the subject's declared UI check *right now* — the 8th drift axis.
 ///
 /// `None` when no UI check is configured or the block will not load, which is every subject with no

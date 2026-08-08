@@ -8,8 +8,9 @@
 //! The R-eng-1 split: category 1 (code) is **toolchain-welded** — its engine needs the
 //! subject's own compiler (R-eng-4), so it is deployed into the dev env rather than fed a
 //! portable artifact. Categories 2a/2b/3 are **artifact-fed** portable engines (TLC,
-//! MonPoly, a UI driver). Both are detected the same way when wired — a `PATH` probe — and
-//! only category 1 (Kani) is wired today, so 2a/2b/3 report NotWired.
+//! MonPoly, a WebDriver grid). Every category is wired as of #245, and with the last one the
+//! "detected the same way" part stopped being true: a grid is reached at an address, not
+//! found on `PATH`, so [`Probe`] carries both kinds.
 //!
 //! "Toolchain-welded" classifies *how an engine is deployed*, never *whether it is
 //! present*: R-eng-2 requires welded engines to be provisioned into the dev env and
@@ -52,6 +53,29 @@ pub struct EngineProbe {
     pub min_version: Option<String>,
 }
 
+/// How an engine's presence is established. Every engine here was a `PATH` lookup until category 3
+/// arrived, and a grid is not a file: the honest check is `GET <endpoint>/status`, which answers
+/// "**this can seat a session right now**" rather than "a file with this name exists". That is a
+/// stronger signal, not a weaker substitute for one (#245).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Probe {
+    /// Run a command and read its version output.
+    Command(EngineProbe),
+    /// Ask a W3C WebDriver grid whether it is ready. Where the grid *is* comes from the operator's
+    /// environment (`WEBDRIVER_URL`) or the subject's `ui.endpoint`, so this carries no address.
+    Grid,
+}
+
+impl Probe {
+    /// The command behind a `PATH`-probed engine, for callers that reason about binaries.
+    pub fn command(&self) -> Option<&EngineProbe> {
+        match self {
+            Probe::Command(probe) => Some(probe),
+            Probe::Grid => None,
+        }
+    }
+}
+
 /// A verification engine a PRL category routes to. `probe` is `Some` exactly when provreq
 /// has an integration that can run the engine — so `None` means "not wired", which is ours
 /// to fix, and a failed probe means "not installed", which is the operator's.
@@ -59,7 +83,7 @@ pub struct EngineProbe {
 pub struct Engine {
     pub category: BindCategory,
     pub name: &'static str,
-    pub probe: Option<EngineProbe>,
+    pub probe: Option<Probe>,
 }
 
 /// The detected state of an engine (R-eng-2: presence *and* compatibility).
@@ -185,12 +209,12 @@ pub fn registry() -> Vec<Engine> {
             // binary `cargo kani` needs on PATH, so it is the one worth probing.
             category: BindCategory::Code,
             name: "Kani",
-            probe: Some(EngineProbe {
+            probe: Some(Probe::Command(EngineProbe {
                 bin: "cargo-kani".to_string(),
                 args: vec!["--version".to_string()],
                 version_marker: None,
                 min_version: None,
-            }),
+            })),
         },
         Engine {
             // Category 1 is an ENSEMBLE (D2b), not a single engine: Creusot joins Kani as the
@@ -215,12 +239,12 @@ pub fn registry() -> Vec<Engine> {
             // exactly how an unrelated build log became an engine version.
             category: BindCategory::Code,
             name: "Creusot",
-            probe: Some(EngineProbe {
+            probe: Some(Probe::Command(EngineProbe {
                 bin: "cargo-creusot".to_string(),
                 args: vec!["creusot".to_string(), "version".to_string()],
                 version_marker: Some("cargo-creusot".to_string()),
                 min_version: None,
-            }),
+            })),
         },
         Engine {
             // Category 1's THIRD ensemble member (D2b) — REQ032. Prusti is the second
@@ -233,12 +257,12 @@ pub fn registry() -> Vec<Engine> {
             // fix), making it the honest readiness signal.
             category: BindCategory::Code,
             name: "Prusti",
-            probe: Some(EngineProbe {
+            probe: Some(Probe::Command(EngineProbe {
                 bin: "cargo-prusti".to_string(),
                 args: vec!["--help".to_string()],
                 version_marker: None,
                 min_version: None,
-            }),
+            })),
         },
         Engine {
             // Category 2a is the model world: the temporal properties (safety AND liveness)
@@ -248,7 +272,7 @@ pub fn registry() -> Vec<Engine> {
             // the marker guards against java-present-but-jar-absent.
             category: BindCategory::Model,
             name: "TLC (TLA+)",
-            probe: Some(EngineProbe {
+            probe: Some(Probe::Command(EngineProbe {
                 bin: "java".to_string(),
                 args: vec![
                     "-cp".to_string(),
@@ -257,7 +281,7 @@ pub fn registry() -> Vec<Engine> {
                 ],
                 version_marker: Some("TLC2 Version".to_string()),
                 min_version: None,
-            }),
+            })),
         },
         Engine {
             category: BindCategory::Runtime,
@@ -266,17 +290,23 @@ pub fn registry() -> Vec<Engine> {
             // version marker. `-version` prints `MonPoly (development build)` for a source build,
             // which carries no version number — the marker is what proves it is really MonPoly, and
             // an absent version is reported as such rather than invented.
-            probe: Some(EngineProbe {
+            probe: Some(Probe::Command(EngineProbe {
                 bin: crate::monitor::monpoly_bin(),
                 args: vec!["-version".to_string()],
                 version_marker: Some("MonPoly".to_string()),
                 min_version: None,
-            }),
+            })),
         },
         Engine {
+            // #245 — the last unwired category. The registry said `Selenium/Playwright driver`
+            // while nothing was wired, because nothing had had to choose. Driving one settled it:
+            // what provreq speaks is **W3C WebDriver**, and what answers here is **Selenium, as a
+            // grid service** rather than a binary on `PATH` — which is why this probe cannot be an
+            // `EngineProbe`. A name with a slash in it described an undecided question; this one
+            // describes what ran.
             category: BindCategory::Ui,
-            name: "Selenium/Playwright driver",
-            probe: None,
+            name: "Selenium (WebDriver)",
+            probe: Some(Probe::Grid),
         },
     ]
 }
@@ -296,10 +326,16 @@ pub fn engines_for(category: BindCategory) -> Vec<Engine> {
 /// Detect an engine's status (R-eng-2). An engine with no probe has no integration yet and
 /// reports [`EngineStatus::NotWired`]; portable engines are looked up on `PATH` and
 /// version-checked. Never installs.
-pub fn detect(engine: &Engine) -> EngineStatus {
+///
+/// `companion` is where a subject's own `ui.endpoint` is read from, for the one engine that is
+/// reached at an address rather than found on `PATH` (#245). `None` is honest — `provreq engines`
+/// on an unadopted directory has no manifest to consult — and only narrows the grid lookup to
+/// `WEBDRIVER_URL`. Every other engine ignores it.
+pub fn detect(engine: &Engine, companion: Option<&std::path::Path>) -> EngineStatus {
     match &engine.probe {
         None => EngineStatus::NotWired,
-        Some(probe) => detect_probe(probe),
+        Some(Probe::Command(probe)) => detect_probe(probe),
+        Some(Probe::Grid) => crate::ui::detect_grid(companion),
     }
 }
 
@@ -476,7 +512,11 @@ mod tests {
         assert!(names.contains(&"Prusti"), "{names:?}");
         let kani = code.iter().find(|e| e.name == "Kani").expect("Kani wired");
         assert_eq!(
-            kani.probe.as_ref().expect("cat-1 is wired").bin,
+            kani.probe
+                .as_ref()
+                .and_then(Probe::command)
+                .expect("cat-1 is wired")
+                .bin,
             "cargo-kani"
         );
         let creusot = code
@@ -484,7 +524,12 @@ mod tests {
             .find(|e| e.name == "Creusot")
             .expect("Creusot wired");
         assert_eq!(
-            creusot.probe.as_ref().expect("Creusot is wired").bin,
+            creusot
+                .probe
+                .as_ref()
+                .and_then(Probe::command)
+                .expect("Creusot is wired")
+                .bin,
             "cargo-creusot"
         );
         let prusti = code
@@ -492,7 +537,12 @@ mod tests {
             .find(|e| e.name == "Prusti")
             .expect("Prusti wired");
         assert_eq!(
-            prusti.probe.as_ref().expect("Prusti is wired").bin,
+            prusti
+                .probe
+                .as_ref()
+                .and_then(Probe::command)
+                .expect("Prusti is wired")
+                .bin,
             "cargo-prusti"
         );
         // REQ029: category 2a is wired to TLC, probed via `java … tlc2.TLC`.
@@ -500,34 +550,45 @@ mod tests {
         assert_eq!(model.len(), 1);
         assert_eq!(model[0].name, "TLC (TLA+)");
         assert_eq!(
-            model[0].probe.as_ref().expect("cat-2a is wired").bin,
+            model[0]
+                .probe
+                .as_ref()
+                .and_then(Probe::command)
+                .expect("cat-2a is wired")
+                .bin,
             "java"
         );
     }
 
-    // Verifies: REQ027/REQ029 (R-eng-2/3) — an engine is probed ONLY if provreq can run it. A
-    // category with no lowering reports NotWired even when its binary is installed, because
-    // reporting `ready` for an engine nothing drives is the REQ024 overclaim wearing a
-    // different hat: the operator installs the tool, `engines` turns green, and `verify`
-    // still answers `no-engine`. Categories 1 (Kani) and 2a (TLC) are wired; 2b/3 are not.
+    // Verifies: REQ024/REQ027/REQ029 (R-eng-2/3) — **a probe exists exactly when provreq can run
+    // the engine.** Reporting `ready` for an engine nothing drives is the REQ024 overclaim wearing
+    // a different hat: the operator installs the tool, `engines` turns green, and `verify` still
+    // answers `no-engine`.
+    //
+    // This test used to name the categories that were unwired, and went out of date every time a
+    // slice wired one — 2b left the list in #233, and #245 wired category 3, the last one. There is
+    // no membership left to pin, which is the point: what has to survive is the RULE, in both
+    // directions.
     #[test]
-    fn unwired_categories_are_not_probed_and_never_report_ready() {
-        // Category 3 is the LAST unwired one: 2b left this list in #233, when MonPoly gained a
-        // lowering and a run. The rule is what must survive, not the membership — an engine with
-        // no lowering must not be probed, because reporting it ready promises a verdict provreq
-        // cannot produce.
-        for cat in [BindCategory::Ui] {
-            for engine in engines_for(cat) {
-                assert!(
-                    engine.probe.is_none(),
-                    "{} has no lowering, so probing its binary would promise a verdict provreq \
-                     cannot produce",
-                    engine.name
-                );
-                assert_eq!(detect(&engine), EngineStatus::NotWired);
-                assert!(!detect(&engine).is_ready());
-            }
+    fn a_probe_exists_exactly_when_provreq_can_run_the_engine() {
+        // Forward: every registered engine has a lowering behind it, so every one is probed.
+        for engine in registry() {
+            assert!(
+                engine.probe.is_some(),
+                "{} is registered, so provreq claims it can run it — an engine with a lowering \
+                 must be probed",
+                engine.name
+            );
         }
+        // Back: an engine with no probe reports NotWired and can never be ready, whatever is
+        // installed. Constructed rather than found, because the registry no longer holds one.
+        let unwired = Engine {
+            category: BindCategory::Ui,
+            name: "a driver nobody wired",
+            probe: None,
+        };
+        assert_eq!(detect(&unwired, None), EngineStatus::NotWired);
+        assert!(!detect(&unwired, None).is_ready());
     }
 
     // Verifies: REQ024 — `NotWired` can never back a verdict, whoever reports it.

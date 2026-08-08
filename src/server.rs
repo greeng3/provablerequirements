@@ -98,14 +98,17 @@ struct EngineReport {
 ///
 /// Probes rather than reads: an engine that cannot start is a fact about *this machine at this
 /// moment*, so it would be dishonest to serve it from a stored record. Needs no adopted subject —
-/// engine health is independent of the backlog, so this never 409s.
+/// engine health is independent of the backlog, so this never 409s. The companion is passed when
+/// there is one only because the grid probe reads `ui.endpoint` from it (#245); an unadopted
+/// subject simply narrows that lookup to `WEBDRIVER_URL`, exactly as the CLI's `engines` does.
 ///
 /// Implements: REQ051
-async fn engines() -> Response {
+async fn engines(State(subject): State<Subject>) -> Response {
+    let companion = crate::adopt::find_companion(&subject).ok().flatten();
     let reports: Vec<EngineReport> = crate::engine::registry()
         .iter()
         .map(|e| {
-            let status = crate::engine::detect(e);
+            let status = crate::engine::detect(e, companion.as_deref());
             let reason = match &status {
                 crate::engine::EngineStatus::Unusable { reason } => Some(reason.clone()),
                 _ => None,

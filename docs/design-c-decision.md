@@ -44,8 +44,8 @@ strongest evidence available, and it is unambiguous: the cost is **tiered, not u
 | **Kani** | 1 code | `cargo install --locked kani-verifier && cargo kani setup` (fetches CBMC + SAT/SMT) | **medium** | Linux/macOS; **no Windows** upstream |
 | **Prusti** | 1 code | **source-built** at a pinned tag — JVM + system `z3` + `prefer-dynamic` + staged `prusti-contracts` + a `uuid` version cap; **no release binary for arm64** | **heavy** | Linux/macOS; JVM-bound |
 | **Creusot** | 1 code | opam switch — `opam init`, why3 depexts (`autoconf`/`zlib`/`gmp`/`m4`/`rsync`), SMT provers (Z3/CVC5/Alt-Ergo); arm64 needed a **custom patch** to `creusot-setup` | **heavy** | opam → effectively Unix-only |
-| **MonPoly** | 2b runtime | not wired; OCaml/opam when it lands | **heavy** (proj.) | Unix-only |
-| **Selenium/Playwright** | 3 UI | not wired; node + browser drivers when it lands | **medium** (proj.) | cross-platform, bulky |
+| **MonPoly** | 2b runtime | wired (#233); built from source, OCaml/opam | **heavy** | Unix-only |
+| **Selenium (WebDriver)** | 3 UI | wired (#245); **nothing installed** — a grid reached over HTTP at `WEBDRIVER_URL` | **none** | any host that can reach a grid |
 
 ## Findings — where graceful degradation is *structurally forced*
 
