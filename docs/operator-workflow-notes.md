@@ -1401,6 +1401,62 @@ Grounded checkout → `chekout` (category 3, probed fidelity).
 
 — the opposite of what had happened, in the one line the operator reads before moving on.
 
+### A category-3 claim lowers to a step script (issue #243)
+
+The fact that decides this slice: **a UI driver makes the trace it then judges.** A model checker
+explores a state graph it did not build; a monitor reads a log the subject wrote (#230 — provreq
+never runs the subject). A driver performs the actions _and_ observes the result. So a claim whose
+outcome is decided by the script rather than by the deployment is not a check at all — it passes
+because provreq made it pass.
+
+Slice 1's step vocabulary already splits along the line that matters: `goto` and `click` are
+**actions** the driver decides; `text_present` is an **observation** the deployment decides. Hence
+the rule `ui/script.rs` enforces — **what a claim asserts must be an observation**:
+
+```prl
+require { checkout leads_to sees_total }   # action → observation: real
+require { open_cart leads_to checkout }    # action → action: refused
+```
+
+The second is refused with the reason and a way out, because a vacuously-passing UI check is worse
+than none: it yields a `not-falsified` verdict indistinguishable from the real thing.
+
+**`after` is the ordering mechanism, taken from the language rather than invented.** The declaration
+keys steps by alias with no order, and a claim names only the steps it mentions — so nothing would
+ever run the setup. The AST already carries Dwyer scopes, and `after open_cart` means exactly
+"having done that first". A monitor defers every scope (#232) because it reads a trace from its
+start; a driver is _already_ performing actions, so a setup action is the same kind of thing it does
+anyway. Conjunction in the antecedent is refused instead: `and` would have to be read as ordered,
+and it is not.
+
+**`eventually` is refused, deliberately.** Over a single run with a fixed step count, `always p` and
+`eventually p` lower to the identical script — do the setup, look once. Lowering both the same way
+would let the verdict imply a distinction it never checked, so only `always` is accepted (the
+reading one look supports) and the refusal tells the operator to write `always` if that is what they
+meant. `precedes` is refused because the script _is_ the order — it would be answered by what the
+operator wrote rather than by the deployment, and would hold every time. `occurs at most` is refused
+because a script performs a fixed number of actions, so the count is authored rather than observed.
+
+**#232's "emit the negation" rule does NOT carry over, and the code says so outright**, because
+anyone arriving from the 2b arc will look for it. MonPoly had to be handed the violation pattern —
+the policy form prints `true` at every satisfying point and omits the violating one, a measured fact
+about how that engine reports. A driver asserts directly and reports its own pass/fail, so a
+`UiClaim` carries the claim as written.
+
+The read-back shows the script, and leads with what the evidence is:
+
+```text
+  What a driver will run (one execution of one deployment — it can show the
+  requirement BROKEN, and can never show it holds):
+    1. navigate to `/cart`
+    2. click the first element matching `button[data-test=checkout]`
+    3. then check the page contains `Order total`
+```
+
+⚠️ **`--set` clears a draft's bindings**, so a live check that edits the candidate has to re-`--ground`
+before `--dry-run` says anything but "no grounding bindings yet". Cost an entirely confusing minute
+during #243's live run.
+
 ## Engine provisioning — Design A (old, superseded topology)
 
 > **⚠️ The engine SPLIT (artifact-fed vs toolchain-welded) and R-eng-1..4 survive into Design B.**

@@ -867,6 +867,7 @@ fn dry_run_candidate(
     }
 
     print_monitor_claim(subject, companion, &requirement, &draft.bindings);
+    print_ui_script(companion, &requirement, &draft.bindings);
 
     match grounding::verdict(&requirement, &draft.bindings, &resolved) {
         Grounding::Grounded => {
@@ -1921,6 +1922,36 @@ fn print_monitor_claim(
                     println!("    signature {line}");
                 }
                 println!("    deadline  {}s", claim.within_seconds);
+            }
+            Err(e) => println!("    not lowerable — {}", e.reason),
+        }
+    }
+}
+
+/// The step script a category-3 claim lowers to (#243).
+///
+/// Shown for the same reason `print_monitor_claim` shows the formula: a script assembled from
+/// bindings and an `after` scope is not obvious from the requirement text, and D12 is only faithful
+/// if the operator can read what will actually be run rather than being told it exists.
+fn print_ui_script(
+    companion: &Path,
+    requirement: &provreq::prl::Requirement,
+    bindings: &[grounding::Binding],
+) {
+    if grounding::default_category(requirement) != grounding::BindCategory::Ui {
+        return;
+    }
+    let Ok(Some(ui)) = provreq::ui::Ui::load(companion) else {
+        return;
+    };
+    for prop in &requirement.require {
+        println!("\n  What a driver will run (one execution of one deployment — it can show the");
+        println!("  requirement BROKEN, and can never show it holds):");
+        match provreq::ui::lower(requirement, prop, &ui, bindings) {
+            Ok(claim) => {
+                for line in claim.describe() {
+                    println!("    {line}");
+                }
             }
             Err(e) => println!("    not lowerable — {}", e.reason),
         }
