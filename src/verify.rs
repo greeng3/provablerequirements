@@ -123,6 +123,10 @@ pub fn verify(subject: &Path, id: &str) -> Result<Option<VerifyOutcome>> {
     // the subject's commit does not cover a log the subject produced, and that log keeps growing.
     // `None` when no monitor is configured, which is every subject with no category-2b requirement.
     report.provenance.trace_fingerprint = crate::monitor::current_fingerprint(subject, &companion);
+    // Stamp the fingerprint of the declared UI check (#239). No file to hash on the far end, so
+    // this is the declaration: it catches the steps or the deployment URL being edited out from
+    // under a verdict that was only ever about the check as it stood.
+    report.provenance.ui_fingerprint = crate::ui::current_fingerprint(&companion);
     let store = crate::verdict_store::load(&companion)?;
     let recorded = crate::verdict_store::record(&store, report);
     crate::verdict_store::save(&companion, &recorded)?;
@@ -411,6 +415,22 @@ pub fn subject_head_commit(subject: &Path) -> Option<String> {
     }
     let commit = String::from_utf8_lossy(&output.stdout).trim().to_string();
     (!commit.is_empty()).then_some(commit)
+}
+
+/// Every out-of-commit fingerprint for the current world, read in one place.
+///
+/// [`crate::verdict_store`] deliberately touches no filesystem, so the reading lives here — and
+/// gathering all three together means the browse surfaces cannot drift into anchoring against a
+/// different set of axes than `verify` stamped.
+pub fn current_fingerprints(
+    subject: &Path,
+    companion: &Path,
+) -> crate::verdict_store::Fingerprints {
+    crate::verdict_store::Fingerprints {
+        spec: crate::tla_adapter::current_external_fingerprint(subject, companion),
+        trace: crate::monitor::current_fingerprint(subject, companion),
+        ui: crate::ui::current_fingerprint(companion),
+    }
 }
 
 #[cfg(test)]

@@ -80,6 +80,24 @@ pub struct DriftAnchor {
     /// subject's commit does not cover a log the subject produced, so this is the only axis that
     /// can see it move — and a trace moves far more often than a spec does.
     pub trace_fingerprint: Option<String>,
+    /// The fingerprint of the subject's declared UI check *now* (#239), or `None` when the subject
+    /// has no category-3 check configured. The odd one out: a running deployment has no bytes to
+    /// hash, so this covers the **declaration** — it sees the check change and is blind to the
+    /// deployment moving underneath it at the same URL.
+    pub ui_fingerprint: Option<String>,
+}
+
+/// The out-of-commit fingerprints an anchor is built from — the axes that exist precisely because
+/// the subject's commit does not cover what they point at.
+///
+/// Grouped rather than passed as three positional `Option<String>`s, which is a silent swap waiting
+/// to happen: mixing up the spec and trace axes compiles cleanly and mislabels every drift the
+/// operator is later shown.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Fingerprints {
+    pub spec: Option<String>,
+    pub trace: Option<String>,
+    pub ui: Option<String>,
 }
 
 impl DriftAnchor {
@@ -90,15 +108,15 @@ impl DriftAnchor {
     pub fn current(
         subject_commit: Option<String>,
         environment: crate::proving_env::ProvingEnv,
-        spec_fingerprint: Option<String>,
-        trace_fingerprint: Option<String>,
+        fingerprints: Fingerprints,
     ) -> Self {
         Self {
             subject_commit,
             tool_version: env!("CARGO_PKG_VERSION").to_string(),
             environment,
-            spec_fingerprint,
-            trace_fingerprint,
+            spec_fingerprint: fingerprints.spec,
+            trace_fingerprint: fingerprints.trace,
+            ui_fingerprint: fingerprints.ui,
         }
     }
 }
@@ -180,6 +198,27 @@ pub fn view(
             None => stale_reasons.push(
                 "the formalization this verdict checked is no longer admitted (edited, \
                  un-admitted, or discarded) — re-verify"
+                    .to_string(),
+            ),
+            _ => {}
+        }
+    }
+
+    // UI-check drift (#239): a category-3 verdict is `not-falsified` over one run of one
+    // deployment, driven by exactly the steps the operator declared. Change a selector or point
+    // `base_url` somewhere else and the verdict is about a check that no longer exists. Same rule
+    // as every axis above — a verdict carrying no UI fingerprint is left alone rather than flagged
+    // on a basis we cannot establish.
+    if let Some(was) = &stored.provenance.ui_fingerprint {
+        match &anchor.ui_fingerprint {
+            Some(now) if now != was => stale_reasons.push(
+                "the declared UI check moved since this verdict — a driver only ever ran the steps \
+                 as they were then, so re-verify against the current check"
+                    .to_string(),
+            ),
+            None => stale_reasons.push(
+                "this verdict was reached against a UI check that is no longer declared (`ui` in \
+                 provreq.yml) — re-verify"
                     .to_string(),
             ),
             _ => {}
@@ -289,6 +328,7 @@ mod tests {
             provenance: ProvenanceReport {
                 spec_fingerprint: None,
                 trace_fingerprint: None,
+                ui_fingerprint: None,
                 environment: None,
                 requirement_revision: revision.into(),
                 subject_commit: commit.map(str::to_string),
@@ -317,6 +357,7 @@ mod tests {
         let anchor = DriftAnchor {
             spec_fingerprint: None,
             trace_fingerprint: None,
+            ui_fingerprint: None,
             environment: env(None, &[]),
             subject_commit: Some("abc".into()),
             tool_version: "0.0.1".into(),
@@ -355,6 +396,7 @@ mod tests {
         let anchor = DriftAnchor {
             spec_fingerprint: None,
             trace_fingerprint: None,
+            ui_fingerprint: None,
             environment: env(Some("ci-runner"), &["Kani 0.67.0"]),
             subject_commit: Some("abc".into()),
             tool_version: "0.0.1".into(),
@@ -377,6 +419,7 @@ mod tests {
         let anchor = DriftAnchor {
             spec_fingerprint: Some("bbbb".into()),
             trace_fingerprint: None,
+            ui_fingerprint: None,
             environment: crate::proving_env::ProvingEnv::default(),
             subject_commit: Some("abc".into()),
             tool_version: "0.0.1".into(),
@@ -402,6 +445,7 @@ mod tests {
         let anchor = DriftAnchor {
             spec_fingerprint: Some("bbbb".into()),
             trace_fingerprint: None,
+            ui_fingerprint: None,
             environment: crate::proving_env::ProvingEnv::default(),
             subject_commit: Some("abc".into()),
             tool_version: "0.0.1".into(),
@@ -419,6 +463,7 @@ mod tests {
         let anchor = DriftAnchor {
             spec_fingerprint: None,
             trace_fingerprint: None,
+            ui_fingerprint: None,
             environment: crate::proving_env::ProvingEnv::default(),
             subject_commit: Some("abc".into()),
             tool_version: "0.0.1".into(),
@@ -443,6 +488,7 @@ mod tests {
         let fresh_anchor = |trace: Option<&str>| DriftAnchor {
             spec_fingerprint: None,
             trace_fingerprint: trace.map(str::to_string),
+            ui_fingerprint: None,
             environment: crate::proving_env::ProvingEnv::default(),
             subject_commit: Some("abc".into()),
             tool_version: "0.0.1".into(),
@@ -469,6 +515,48 @@ mod tests {
         );
     }
 
+    // Verifies: #239 — the UI axis. A category-3 verdict is `not-falsified` over one run driven by
+    // exactly the declared steps, so editing a selector or repointing `base_url` leaves a verdict
+    // about a check that no longer exists. This is the axis that catches it; the subject's commit
+    // cannot, because the check lives in the companion manifest and the deployment lives nowhere in
+    // the repo at all.
+    #[test]
+    fn a_ui_check_that_moved_makes_the_verdict_stale() {
+        let mut v = stored("r1", Some("abc"), "0.0.1");
+        v.provenance.ui_fingerprint = Some("aaaa".into());
+        let fresh_anchor = |ui: Option<&str>| DriftAnchor {
+            spec_fingerprint: None,
+            trace_fingerprint: None,
+            ui_fingerprint: ui.map(str::to_string),
+            environment: crate::proving_env::ProvingEnv::default(),
+            subject_commit: Some("abc".into()),
+            tool_version: "0.0.1".into(),
+        };
+
+        assert!(view(&v, "r1", None, &fresh_anchor(Some("aaaa"))).fresh);
+
+        let moved = view(&v, "r1", None, &fresh_anchor(Some("bbbb")));
+        assert!(!moved.fresh, "the steps changed under this verdict");
+        assert!(
+            moved.stale_reasons[0].contains("declared UI check moved"),
+            "{:?}",
+            moved.stale_reasons
+        );
+
+        let gone = view(&v, "r1", None, &fresh_anchor(None));
+        assert!(!gone.fresh, "the check being removed is drift too");
+        assert!(
+            gone.stale_reasons[0].contains("no longer declared"),
+            "{:?}",
+            gone.stale_reasons
+        );
+
+        // And a verdict from before this axis existed is left alone rather than flagged on a basis
+        // that cannot be established — the same rule every other axis follows.
+        let older = stored("r1", Some("abc"), "0.0.1");
+        assert!(view(&older, "r1", None, &fresh_anchor(Some("bbbb"))).fresh);
+    }
+
     // Verifies: #230 — a verdict carrying no trace fingerprint is left alone, whether it predates
     // the axis or came from a subject with no monitor. Same rule as every other axis: never flag on
     // a basis we cannot establish. Every category-1 and 2a verdict in existence is this case.
@@ -479,6 +567,7 @@ mod tests {
         let anchor = DriftAnchor {
             spec_fingerprint: None,
             trace_fingerprint: Some("bbbb".into()),
+            ui_fingerprint: None,
             environment: crate::proving_env::ProvingEnv::default(),
             subject_commit: Some("abc".into()),
             tool_version: "0.0.1".into(),
@@ -494,6 +583,7 @@ mod tests {
         let anchor = DriftAnchor {
             spec_fingerprint: None,
             trace_fingerprint: None,
+            ui_fingerprint: None,
             environment: env(Some("lab-1"), &["Kani 0.67.0"]),
             subject_commit: Some("abc".into()),
             tool_version: "0.0.1".into(),
@@ -526,6 +616,7 @@ mod tests {
         let anchor = DriftAnchor {
             spec_fingerprint: None,
             trace_fingerprint: None,
+            ui_fingerprint: None,
             environment: env(Some("lab-1"), &["Kani 0.67.0"]),
             subject_commit: Some("abc".into()),
             tool_version: "0.0.1".into(),
@@ -542,6 +633,7 @@ mod tests {
         let anchor = DriftAnchor {
             spec_fingerprint: None,
             trace_fingerprint: None,
+            ui_fingerprint: None,
             environment: crate::proving_env::ProvingEnv::default(),
             subject_commit: Some("abc".into()),
             tool_version: "0.0.1".into(),
@@ -559,6 +651,7 @@ mod tests {
         let anchor = DriftAnchor {
             spec_fingerprint: None,
             trace_fingerprint: None,
+            ui_fingerprint: None,
             environment: crate::proving_env::ProvingEnv::default(),
             subject_commit: Some("def".into()),
             tool_version: "0.0.2".into(),
@@ -585,6 +678,7 @@ mod tests {
         DriftAnchor {
             spec_fingerprint: None,
             trace_fingerprint: None,
+            ui_fingerprint: None,
             environment: crate::proving_env::ProvingEnv::default(),
             subject_commit: Some("abc".into()),
             tool_version: "0.0.1".into(),

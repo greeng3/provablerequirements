@@ -439,6 +439,13 @@ pub struct ProvenanceReport {
     /// before this existed or a subject with no monitor configured.
     #[serde(default)]
     pub trace_fingerprint: Option<String>,
+    /// A fingerprint of the UI check this was driven by (#239) — the deployment URL and the steps.
+    /// The only out-of-commit axis with no file behind it: a running deployment has no bytes to
+    /// hash, so this covers what was *declared*, and is blind to that deployment changing at the
+    /// same URL. `None`, and skipped as a drift axis, for a verdict from before this existed or a
+    /// subject with no UI check configured.
+    #[serde(default)]
+    pub ui_fingerprint: Option<String>,
 }
 
 /// A JSON-serializable view of a [`Verdict`] for the web surface (REQ038). The domain types are
@@ -482,14 +489,15 @@ pub fn report(v: &Verdict) -> VerdictReport {
             subject_commit: v.provenance.subject_commit.clone(),
             tool_version: v.provenance.tool_version.clone(),
             // The formalization fingerprint, the proving environment, the out-of-subject spec
-            // fingerprint and the monitor trace's are persistence concerns, not part of the
-            // in-memory verdict's identity — the verify flow stamps all four on the stored copy
-            // (REQ045, REQ049, #120, #230). A live (unpersisted) report carries none of them;
-            // nothing reads them off the wire.
+            // fingerprint, the monitor trace's and the UI check's are persistence concerns, not
+            // part of the in-memory verdict's identity — the verify flow stamps all five on the
+            // stored copy (REQ045, REQ049, #120, #230, #239). A live (unpersisted) report carries
+            // none of them; nothing reads them off the wire.
             formalization: None,
             environment: None,
             spec_fingerprint: None,
             trace_fingerprint: None,
+            ui_fingerprint: None,
         },
     }
 }

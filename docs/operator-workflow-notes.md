@@ -1250,6 +1250,86 @@ Nothing is written to the subject: signature, formula and converted log all go t
 directory that is removed when the run ends, so there is no generated file to clobber an operator's
 and none to sweep afterwards.
 
+### The operator declares the deployment a UI check drives (issue #239 — category 3 opens)
+
+Category 3 is the last unwired world (#223), and it differs in kind from every other: a UI driver
+observes **one run of a live system**, so it can establish that a requirement _fails_ — with the
+most legible counterexample in the tool — and can never establish that one holds. The verdict
+vocabulary for that already exists and needed nothing new: `Basis::NotFalsified` with its required
+`over` (#229). The inversion is worth stating plainly, because it is unlike every category before
+it: **a category-3 `fails` is the strongest evidence provreq deals in, and its `holds` is the
+weakest** — both out of the same single run.
+
+**Selenium vs Playwright was settled by measurement, not preference.** Nothing browser-shaped is on
+`PATH` in this container — no `chromedriver`, no `geckodriver`, no browser — and a driver is
+reachable anyway:
+
+```console
+$ curl -s http://172.17.0.2:4444/status
+ready: True | Selenium Grid ready.
+ node http://172.17.0.2:4444 slots: [('chrome', '124.0')]
+```
+
+W3C WebDriver is an HTTP protocol, not a program. So the engine is drivable here with **nothing
+installed**, where Playwright would need node plus per-browser downloads in whatever environment
+provreq runs in. The consequence for `engine.rs` is that `EngineProbe { bin, args, version_marker,
+min_version }` cannot express this engine's probe: the right check is `GET <endpoint>/status` →
+`value.ready`, which is _stronger_ evidence than a `PATH` hit — a file existing versus the grid
+stating it can seat a session, and naming the browser it would seat. That probe lands with the run;
+this slice only makes the endpoint declarable.
+
+**The 2b rule carries over one category further out.** #230 settled that the operator supplies the
+trace and provreq never runs the subject. Here the operator declares a **deployment that is already
+up**: provreq never starts it, health-waits on it, or tears it down. That is what keeps this slice
+small — no lifecycle code at all, and the same seam category 2b already proved out.
+
+```yaml
+ui:
+  endpoint: http://localhost:4444      # the WebDriver grid (optional)
+  base_url: http://localhost:8080      # the deployment under check
+  steps:
+    open_cart:  { goto: /cart }
+    checkout:   { click: "button[data-test=checkout]" }
+    sees_total: { text_present: "Order total" }
+```
+
+**`endpoint` is deliberately the odd field out, because it is a different party's fact.** `base_url`
+and `steps` describe the _subject_ — required, committed, and what the drift axis fingerprints.
+`endpoint` describes _the machine provreq happens to be running on_: which grid is reachable from
+here. So it is optional in the manifest and overridden by `WEBDRIVER_URL`, the same shape as
+`MONPOLY_BIN` (#233). An address that differs per operator does not belong welded into a committed
+file — #225 is open against exactly that mistake for the LLM endpoint, and there was no reason to
+make it twice. Consequently **no endpoint configured** and **no engine wired** must never render the
+same: the first is the operator's to fix in their environment, the second is provreq's, and
+conflating them sends them looking in the wrong place.
+
+Forgiving to read, strict once present, as everywhere else: a missing file, missing block or
+unparseable manifest is "no UI check configured"; a block that _is_ there and is half-written is an
+error naming the key. A URL without a scheme is refused here, where the operator can still see which
+field caused it, rather than surfacing far downstream as an unexplained connection failure. A step
+is **exactly one** action — zero declares nothing, and two would leave the running order unstated,
+where silently picking one makes the manifest mean something unreadable from the manifest itself.
+The step vocabulary is three (`goto`, `click`, `text_present`) because three is what makes a check —
+go somewhere, do something, observe something — and every entry has to be both lowered to and driven
+over the wire, so an unused one is a liability in two places.
+
+**The 8th drift axis is the first with no file behind it.** `spec_fingerprint` (#120) and
+`trace_fingerprint` (#230) both hash bytes on disk; a running deployment has none. So this hashes the
+**declaration** — `base_url` plus the steps — and the gap is accepted knowingly rather than
+overlooked: it sees the operator's check change, and it is **blind to the deployment moving
+underneath it at the same URL**. The documented extension is hashing an operator-named version
+endpoint's response, deferred because it only works if the subject exposes one and a flaky endpoint
+would manufacture phantom drift. The grid endpoint is deliberately _excluded_ from the fingerprint:
+it is where the browser ran, not what was checked, and since it can come from `WEBDRIVER_URL`,
+folding it in would make a verdict go stale the moment a colleague ran against their own grid.
+"Where this was proved" is already the environment axis (REQ049).
+
+Three fingerprints of the same type also stopped fitting as positional arguments: `DriftAnchor::
+current` now takes a named `Fingerprints { spec, trace, ui }`, because swapping two `Option<String>`
+axes compiles cleanly and mislabels every drift the operator is later shown. `verify::
+current_fingerprints` is the single place all three are read, so the browse surfaces cannot anchor
+against a different set of axes than `verify` stamped.
+
 ## Engine provisioning — Design A (old, superseded topology)
 
 > **⚠️ The engine SPLIT (artifact-fed vs toolchain-welded) and R-eng-1..4 survive into Design B.**
