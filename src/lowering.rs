@@ -32,7 +32,9 @@
 
 use crate::grounding::Binding;
 use crate::prl::ast::{Atom, Binder, Expr, Pattern, Property, Requirement, Scope};
-use crate::rust_adapter::{CodeMatch, ParamMode, PredicateForm, Resolution, TypeResolution};
+use crate::rust_adapter::{
+    ArgResolution, CodeMatch, ParamMode, PredicateForm, Resolution, TypeResolution,
+};
 use std::collections::BTreeMap;
 
 /// Why a gated category-1 requirement could not be lowered to a harness. Never an approximation —
@@ -316,12 +318,14 @@ fn resolved_type(
             };
             let mut parts = Vec::with_capacity(args.len());
             for (arg, resolution) in args {
-                match resolved_type(Some(resolution), prefix, arg) {
-                    Some(Ok(path)) => parts.push(path),
+                match resolution {
+                    ArgResolution::Primitive(name) => parts.push(name.clone()),
                     // An argument that resolved but cannot be *reached* (a `None` module) is the
                     // same refusal as an unreachable sort, and it already names the argument.
-                    Some(Err(e)) => return Some(Err(e)),
-                    None => return None,
+                    ArgResolution::Resolved(at) => match item_path(prefix, at, arg) {
+                        Ok(path) => parts.push(path),
+                        Err(e) => return Some(Err(e)),
+                    },
                 }
             }
             Some(Ok(format!("{head}<{}>", parts.join(", "))))
@@ -795,7 +799,7 @@ mod tests {
                 at: at(vec!["wrap"]),
                 args: vec![(
                     "auth::User".to_string(),
-                    TypeResolution::Resolved(at(vec!["auth"])),
+                    ArgResolution::Resolved(at(vec!["auth"])),
                 )],
             },
         )]);
@@ -818,7 +822,7 @@ mod tests {
             "S".to_string(),
             TypeResolution::Applied {
                 at: at(vec!["wrap"]),
-                args: vec![("u32".to_string(), TypeResolution::Primitive("u32".into()))],
+                args: vec![("u32".to_string(), ArgResolution::Primitive("u32".into()))],
             },
         )]);
         let bindings = vec![binding("p", "is_ok"), binding("S", "wrap::Wrapper<u32>")];

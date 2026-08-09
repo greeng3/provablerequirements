@@ -489,6 +489,14 @@ fn unsupported_construct(output: &str) -> Option<String> {
 /// when rustc had already named the line in their own tree. The location is in the diagnostic; this
 /// reads it rather than discarding it.
 ///
+/// **Whose fault.** This knows the file that failed and nothing about how it got that way, so it
+/// says only that (#227). It used to add "if a draft was just staged there, it is the staged edit
+/// that needs fixing" to *every* subject-source failure. Measured: the failing file was
+/// `src/rust_adapter.rs`, which no draft had ever touched — the message named a cause it had not
+/// established, at the one moment the operator is most likely to act on it. The case where a staged
+/// mirror really is the cause has its own branch below, which recognises the error rather than
+/// guessing from the location.
+///
 /// **What to do.** The old hint offered `#[logic]` on any compile error. Since #158 that is the one
 /// action that cannot work: the attribute declares a *logical* function, so the item leaves the
 /// program namespace and every call site stops compiling. Where the error is the call-in-logic-context
@@ -509,8 +517,8 @@ fn build_error(output: &str) -> String {
         }
         Some(site) => format!(
             "the subject did not compile under Creusot — {err}, at {site}. That is the subject's \
-             own source, not the generated harness — if a draft was just staged there, it is the \
-             staged edit that needs fixing, and the line above says which"
+             own source, not the generated harness, and Creusot compiles the whole crate — so the \
+             file that failed need not be one the claim mentions, nor one a draft was staged in"
         ),
         None => format!("the proof harness did not compile — {err}"),
     };
@@ -863,6 +871,28 @@ mod tests {
         assert!(
             !reason.contains("harness provreq generated"),
             "it is NOT the harness: {reason}"
+        );
+    }
+
+    // Verifies (#227): the subject-source branch knows WHERE the failure is and nothing about how
+    // it got there, so it must not name a cause. Measured — `TypeResolution` in
+    // `src/rust_adapter.rs` was refused as a recursive type on a run whose only staged edits were
+    // mirrors in a different file, and the verdict told the operator to go fix the staged edit.
+    #[test]
+    fn a_subject_source_failure_does_not_blame_a_staged_draft() {
+        let output = "error: Illegal recursive type\n  --> src/rust_adapter.rs:465:1\n\
+                      error: could not compile `provreq` (lib) due to 1 previous error\n\
+                      Error: Compilation failed\n";
+        let Outcome::Inconclusive { reason } = classify(output) else {
+            panic!("a subject that does not compile decides nothing either");
+        };
+        assert!(
+            !reason.contains("staged edit that needs fixing"),
+            "provreq has not established that a staged edit is the cause: {reason}"
+        );
+        assert!(
+            reason.contains("whole crate"),
+            "and the operator needs the fact that explains an unrelated file failing: {reason}"
         );
     }
 

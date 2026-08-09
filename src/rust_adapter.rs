@@ -497,12 +497,11 @@ pub enum TypeResolution {
     Applied {
         /// Where the applied type itself is declared.
         at: CodeMatch,
-        /// One entry per written argument: the text as written, and what it resolved to. Every one
-        /// is [`TypeResolution::Resolved`] or [`TypeResolution::Primitive`] — an argument that
-        /// resolved to anything else makes the whole application
-        /// [`TypeResolution::UnusableTypeArguments`] instead, because a domain is only as real as
-        /// the types it is built from.
-        args: Vec<(String, TypeResolution)>,
+        /// One entry per written argument: the text as written, and what it resolved to. An
+        /// argument that resolves to anything but [`ArgResolution`]'s two outcomes makes the whole
+        /// application [`TypeResolution::UnusableTypeArguments`] instead, because a domain is only
+        /// as real as the types it is built from.
+        args: Vec<(String, ArgResolution)>,
     },
     /// The type name is fine, and the arguments written after it are not (#187) — a nested
     /// argument, the wrong number of them, or one that names no type.
@@ -515,6 +514,43 @@ pub enum TypeResolution {
         /// What is wrong, as a clause the read-back completes.
         reason: String,
     },
+}
+
+/// What one written **type argument** of a [`TypeResolution::Applied`] resolved to. Deliberately
+/// *not* [`TypeResolution`], for the same reason that is not [`Resolution`]: only the two grounding
+/// outcomes can occur here — [`apply`] turns every other one into
+/// [`TypeResolution::UnusableTypeArguments`] before an argument is ever kept — and an enum carrying
+/// variants a caller can never see misstates the state space.
+///
+/// It is also what keeps [`TypeResolution`] non-recursive, and that is not incidental (#227).
+/// Creusot compiles the whole subject crate and refuses a type that recurs under a type parameter
+/// of `Vec` — `Box` does not buy a way out, because it looks through it — so while the arguments
+/// held a `TypeResolution`, no category-1 requirement in this repository could reach the deductive
+/// route at all, whatever the claim. A type that already had no business being recursive was
+/// stopping every proof.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ArgResolution {
+    /// Exactly one `struct`, `enum`, or `type` alias of that name.
+    Resolved(CodeMatch),
+    /// One of the language's own primitive types, carrying no [`CodeMatch`] for the reason
+    /// [`TypeResolution::Primitive`] carries none.
+    Primitive(String),
+}
+
+impl ArgResolution {
+    /// The argument outcomes a resolution can be narrowed to, and `None` for every outcome that
+    /// means the argument did not ground. The caller turns that `None` into the refusal, because
+    /// the refusal needs the original resolution to say *which* way it failed.
+    fn of(r: &TypeResolution) -> Option<Self> {
+        match r {
+            TypeResolution::Resolved(at) => Some(ArgResolution::Resolved(at.clone())),
+            TypeResolution::Primitive(name) => Some(ArgResolution::Primitive(name.clone())),
+            // Includes `Applied`: `split_application` refuses a nested argument before this, so a
+            // nested application cannot arrive — and if one ever did, it is not something a harness
+            // could path, which is exactly what the refusal says.
+            _ => None,
+        }
+    }
 }
 
 impl TypeResolution {
@@ -573,12 +609,9 @@ impl TypeResolution {
                 at.text,
                 args.iter()
                     .map(|(written, r)| match r {
-                        TypeResolution::Primitive(name) => format!("`{name}` (the Rust primitive)"),
-                        TypeResolution::Resolved(a) =>
+                        ArgResolution::Primitive(name) => format!("`{name}` (the Rust primitive)"),
+                        ArgResolution::Resolved(a) =>
                             format!("`{written}` at {}:{}", a.file, a.line),
-                        // Unreachable by construction, and stated rather than unwrapped: an
-                        // `Applied` only ever holds arguments that resolved.
-                        _ => format!("`{written}`"),
                     })
                     .collect::<Vec<_>>()
                     .join(" and ")
@@ -745,12 +778,12 @@ fn apply(
         // Recursion, bounded to one level by construction: `split_application` refused any argument
         // carrying a `<`, so this call cannot reach `apply` again.
         let r = resolve_type(subject, written);
-        if !r.is_resolved() {
+        let Some(arg) = ArgResolution::of(&r) else {
             return TypeResolution::UnusableTypeArguments {
                 reason: argument_problem(written, &r),
             };
-        }
-        resolved.push(((*written).to_string(), r));
+        };
+        resolved.push(((*written).to_string(), arg));
     }
     TypeResolution::Applied { at, args: resolved }
 }
@@ -3097,7 +3130,7 @@ pub struct Held<'a, T> { pub held: &'a T }
         assert_eq!(at.line, 2);
         assert_eq!(args.len(), 1);
         assert_eq!(args[0].0, "u32");
-        assert!(matches!(&args[0].1, TypeResolution::Primitive(n) if n == "u32"));
+        assert!(matches!(&args[0].1, ArgResolution::Primitive(n) if n == "u32"));
         assert!(r.is_resolved(), "an application is a real domain");
     }
 
@@ -3110,7 +3143,7 @@ pub struct Held<'a, T> { pub held: &'a T }
         let TypeResolution::Applied { args, .. } = &r else {
             panic!("should resolve, got {r:?}")
         };
-        let TypeResolution::Resolved(at) = &args[0].1 else {
+        let ArgResolution::Resolved(at) = &args[0].1 else {
             panic!("the argument names a declared type, got {:?}", args[0].1)
         };
         assert_eq!((at.file.as_str(), at.line), ("src/auth.rs", 1));
