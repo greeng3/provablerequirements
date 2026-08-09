@@ -429,15 +429,15 @@ pub fn classify(output: &str) -> Outcome {
     // Above the build-error branch because it also prints `could not compile`, and the generic
     // branch would offer a `#[logic]` hint that cannot help: no contract makes an untranslatable
     // construct translatable. What CAN help is `#[trusted]`, so the message says so.
-    if let Some(construct) = unsupported_construct(output) {
+    if let Some((construct, lead)) = unsupported_construct(output) {
         return Outcome::Inconclusive {
             reason: format!(
                 "Creusot cannot translate a construct this crate uses — {construct}. It is a \
                  limit of the prover, not something wrong with the claim or its bindings, and it \
                  blocks every claim about this crate because Creusot translates the whole crate \
-                 rather than only what the claim mentions. Mark the items using that construct \
-                 `#[trusted]` to declare them out of scope, and the rest of the crate verifies \
-                 normally"
+                 rather than only what the claim mentions.{lead} Mark the items using that \
+                 construct `#[trusted]` to declare them out of scope, and the rest of the crate \
+                 verifies normally"
             ),
         };
     }
@@ -462,20 +462,71 @@ pub fn classify(output: &str) -> Outcome {
     }
 }
 
-/// The construct Creusot refused to translate, read off its own `is not currently supported`
-/// diagnostic and trimmed to the part that names it. `None` when the run failed some other way.
-fn unsupported_construct(output: &str) -> Option<String> {
-    output
-        .lines()
-        .map(str::trim)
-        .find(|l| l.contains("is not currently supported"))
-        .map(|l| {
-            l.trim_start_matches("error: ")
-                .trim_end_matches("is not currently supported")
-                .trim()
-                .to_string()
-        })
+/// The construct Creusot refused to translate, read off its own diagnostic and trimmed to the part
+/// that names it. `None` when the run failed some other way.
+///
+/// **Creusot says this two ways, and recognising one of them is recognising neither** (#250). The
+/// rvalue form — `the rvalue Coroutine(…) is not currently supported` — was the only one matched,
+/// so the constant form fell through to [`build_error`] and reached the operator as *the subject
+/// did not compile*. Measured against this repo: `format!("…{x}")` at `src/adopt.rs:37` produced
+/// `Unsupported constant value: Scalar(alloc412) of type &'{erased} [u8; 24_usize]`, and that
+/// crate compiles perfectly under rustc. Reporting a prover limit as the subject's own build
+/// failure sends the operator to fix code that was never broken — REQ067's case, answered with
+/// REQ064's mistake.
+///
+/// The site travels with it because `Scalar(alloc412)` is the prover's internal name for the value
+/// and there is nothing an operator can do with it. The line in their own tree is what they can
+/// read.
+///
+/// **Only the first diagnostic is consulted**, which is the same rule [`build_error`] follows and
+/// is load-bearing rather than tidy. Measured on a live `verify REQ014`: the staged harness failed
+/// first with `called program function … in logic context`, whose branch names the mirror channel
+/// and is the one thing the operator can act on. A scan of the whole output would let an
+/// untranslatable construct appearing *later* in the same run preempt that advice — trading an
+/// actionable message for an accurate one, which is the trade this whole area keeps getting wrong.
+///
+/// Returns the construct and the lead to offer about it, together, so the two cannot describe
+/// different diagnostics.
+fn unsupported_construct(output: &str) -> Option<(String, &'static str)> {
+    let lines: Vec<&str> = output.lines().map(str::trim).collect();
+    let idx = lines.iter().position(|l| l.starts_with("error"))?;
+    let line = lines[idx];
+    let lead = match () {
+        _ if line.contains(UNSUPPORTED_CONSTANT) => CONSTANT_LEAD,
+        _ if line.contains(UNSUPPORTED_RVALUE) => "",
+        _ => return None,
+    };
+    let named = line
+        .trim_start_matches("error: ")
+        .trim_end_matches(UNSUPPORTED_RVALUE)
+        .trim()
+        .to_string();
+    let named = match error_site(&lines, idx) {
+        Some(site) => format!("{named}, at {site}"),
+        None => named,
+    };
+    Some((named, lead))
 }
+
+/// The lead offered on an untranslatable *constant* — offered, not stated, which is REQ064's
+/// distinction between a diagnosis that is one possibility among several and one the tool
+/// determined.
+///
+/// Measured 2026-08-09: `format!`, `println!` and `write!` each produce this constant when they
+/// interpolate an argument, and each is translated without complaint when they do not —
+/// `format!("hello")` compiles, `format!("{s}")` does not. So a formatting macro is where this
+/// almost always comes from and is worth saying, while *this* line having one is not something
+/// provreq established. A byte-array constant is not exclusively a formatting artifact, and a flat
+/// claim that it is would send an operator hunting a `format!` that may not be there.
+const CONSTANT_LEAD: &str =
+    " A constant of that shape usually comes from a formatting macro interpolating an argument — \
+     `format!(\"{x}\")`, `println!(\"{x}\")`, `write!` — which is worth checking first, though the \
+     same macro with nothing to interpolate translates fine.";
+
+/// Creusot's two ways of declining to translate something. Matched as literals rather than
+/// paraphrased, because a near-miss here reads to the operator as a broken subject.
+const UNSUPPORTED_RVALUE: &str = "is not currently supported";
+const UNSUPPORTED_CONSTANT: &str = "Unsupported constant value";
 
 /// The first compiler error, reported with **where it is** and, where the error says so, what to do.
 ///
@@ -992,6 +1043,93 @@ mod tests {
         assert!(
             !reason.contains("`#[logic]`"),
             "no contract makes it translatable: {reason}"
+        );
+    }
+
+    // Verifies: REQ067 (#250) — Creusot has more than one way of saying "I cannot translate this",
+    // and the second one was reaching the operator as *your crate does not compile*. Real output,
+    // measured 2026-08-09 against this repo: `src/adopt.rs:37` is
+    // `format!("ProvableRequirements-{requirements_dirname}")`, which rustc compiles perfectly.
+    #[test]
+    fn an_untranslatable_constant_is_the_provers_limit_too() {
+        let output = "error: Unsupported constant value: Scalar(alloc412) of type \
+                      &'{erased} [u8; 24_usize]\n\
+                      --> src/adopt.rs:37:5\n\
+                      error: could not compile `provreq` (lib) due to 1 previous error\n\
+                      Error: Compilation failed\n";
+        let Outcome::Inconclusive { reason } = classify(output) else {
+            panic!("an untranslatable constant decides nothing");
+        };
+        assert!(
+            !reason.contains("did not compile"),
+            "the crate compiles under rustc — this is the prover's limit, not a broken subject: \
+             {reason}"
+        );
+        assert!(
+            reason.contains("limit of the prover"),
+            "does not blame the subject: {reason}"
+        );
+        assert!(
+            reason.contains("whole crate"),
+            "states the reach (REQ067): {reason}"
+        );
+        assert!(
+            reason.contains("`#[trusted]`"),
+            "offers the escape hatch (REQ067): {reason}"
+        );
+        assert!(
+            reason.contains("src/adopt.rs:37:5"),
+            "`Scalar(alloc412)` is not a thing an operator can look up; the line in their own tree \
+             is: {reason}"
+        );
+    }
+
+    // Verifies: REQ064 (#250) — what that constant comes from is offered as a possibility, not
+    // stated flatly. Measured: `format!`, `println!` and `write!` all produce this shape when they
+    // interpolate an argument, and all three are translated fine when they do not — so the
+    // formatting macro is a strong lead and not something provreq has established for a given line.
+    #[test]
+    fn the_constants_likely_source_is_offered_not_asserted() {
+        let output = "error: Unsupported constant value: Scalar(alloc1) of type \
+                      &'{erased} [u8; 10_usize]\n\
+                      --> src/adopt.rs:37:5\n\
+                      error: could not compile `provreq` (lib) due to 1 previous error\n";
+        let Outcome::Inconclusive { reason } = classify(output) else {
+            panic!("an untranslatable constant decides nothing");
+        };
+        assert!(
+            reason.contains("interpolat"),
+            "the lead is worth giving — it is what the operator would otherwise hunt for: {reason}"
+        );
+        assert!(
+            reason.contains("usually") || reason.contains("typically"),
+            "but it is a lead, not a determination (REQ064): {reason}"
+        );
+    }
+
+    // Verifies (#250): an untranslatable construct appearing *later* in a run must not preempt the
+    // first diagnostic. Found by a live `verify REQ014`, not by reading the code: the staged
+    // harness failed first with the call-in-logic-context error, whose branch names the mirror
+    // channel and is the only message here the operator can act on. Recognising the whole output
+    // would have swapped that for the prover-limit message — accurate, and useless.
+    #[test]
+    fn a_later_untranslatable_construct_does_not_preempt_the_first_error() {
+        let output = "error: called program function `draft::is_stale` in logic context\n\
+                      --> src/provreq_req014.rs:11:80\n\
+                      error: Unsupported constant value: Scalar(alloc412) of type \
+                      &'{erased} [u8; 24_usize]\n\
+                      --> src/adopt.rs:37:5\n\
+                      error: could not compile `provreq` (lib) due to 2 previous errors\n";
+        let Outcome::Inconclusive { reason } = classify(output) else {
+            panic!("a failed compile decides nothing");
+        };
+        assert!(
+            reason.contains("--draft-semantic"),
+            "the actionable message wins: {reason}"
+        );
+        assert!(
+            !reason.contains("limit of the prover"),
+            "the later construct must not take over the verdict: {reason}"
         );
     }
 

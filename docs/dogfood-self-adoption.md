@@ -652,15 +652,108 @@ recognises the *error* rather than guessing from the location.
 ### It was not the only one — see [#250](https://github.com/greeng3/provablerequirements/issues/250)
 
 With the recursive type gone, the whole-crate run got one file further and stopped at
-`src/adopt.rs:37`, which is `format!("ProvableRequirements-{requirements_dirname}")`. Measured:
-`format!("prefix-{s}")` is refused, `format!("{s}")` is refused, and a bare `"string literal"` is
-accepted. **`format!` itself is untranslatable by Creusot**, and provreq has 499 call sites of it
-across 39 files, because operator-facing prose is most of what this tool does.
+`src/adopt.rs:37`, which is `format!("ProvableRequirements-{requirements_dirname}")`.
+
+The first reading of this — recorded here and in #250 as "`format!` is untranslatable" — was wrong,
+and re-measuring one construct per run is what corrected it:
+
+| written | Creusot |
+| --- | --- |
+| `format!("hello")` | **accepted** |
+| `format!("prefix-{s}")` | refused |
+| `println!("hello")` | **accepted** |
+| `println!("{s}")` | refused |
+| `write!(o, "{s}")` | refused |
+| `"a literal"`, `s.to_string()`, `String::from("lit")` | accepted |
+
+The macro is not the trigger. A formatting macro with **nothing to interpolate** constant-folds to a
+plain literal and is translated fine; what Creusot refuses is one that interpolates **at least one
+argument**, because `format_args!` with arguments builds the `&[u8; N]` pieces constant the error
+names. `println!` is affected exactly as much as `format!`. The blocked surface is therefore not
+"499 `format!` sites" but roughly **275 interpolating `format!` + 68 `println!` + 3 others ≈ 346** —
+a lower bound, since the counting expression stops at the first `)`. Still most of the crate's
+operator-facing prose, so the conclusion stands and only the reason for it changed.
 
 That is a different kind of obstacle. #227 was a type that had no business being recursive, so
 fixing it improved the type. There is no equivalent here — the only lever is REQ067's own way out,
 `#[trusted]`, applied to most of the crate. Recorded in #250 as a decision to make rather than work
 to schedule.
+
+An earlier probe also appeared to show `vec![1, 2, 3]` refused. It is not: that was an ambiguity
+introduced by the glob `use creusot_std::prelude::*` in the fixture itself. A measurement taken
+through a fixture is a measurement of the fixture too.
+
+### The refusal was not being recognised as one (#250)
+
+Measuring the above turned up a defect rather than a decision. Creusot declines to translate things
+in **two** phrasings, and `classify` matched one:
+
+| Creusot says | matched before | reported as |
+| --- | --- | --- |
+| `the rvalue Coroutine(…) is not currently supported` | yes | the prover's limit ✓ |
+| `Unsupported constant value: Scalar(alloc412) of type &'{erased} [u8; 24_usize]` | **no** | *the subject did not compile* ✗ |
+
+So the `format!` case fell through to the generic build-failure branch and told the operator their
+crate does not compile. It compiles perfectly under rustc — this is REQ067's case (the checker's own
+limit, whole-crate in reach, `#[trusted]` as the way out) delivered as REQ064's mistake. The same
+disease as [#174](https://github.com/greeng3/provablerequirements/issues/174), one layer up: a true
+statement about the wrong thing, sending the operator to repair code that was never broken.
+
+Both phrasings now route to the one REQ067 message — one renderer, not two, because two would let
+the same refusal read differently by which words Creusot happened to choose. The site travels with
+it, since `Scalar(alloc412)` is the prover's internal name for a value and only the line in the
+operator's own tree is something they can read.
+
+The formatting lead is **offered, not asserted**, which is REQ064's own distinction between a
+diagnosis that is one possibility among several and one the tool actually determined. A byte-array
+constant is where an interpolating format macro lands, and it is not exclusively that — so the
+message says a constant of that shape *usually* comes from one, and names `format!`, `println!` and
+`write!` as the things to check first.
+
+Measured end to end — a real `cargo creusot` over this whole crate, its output through the real
+classifier. Before:
+
+```text
+the subject did not compile under Creusot — error: Unsupported constant value: Scalar(alloc412) of
+type &'{erased} [u8; 24_usize], at src/adopt.rs:37:5. That is the subject's own source, …
+```
+
+After:
+
+```text
+Creusot cannot translate a construct this crate uses — Unsupported constant value:
+Scalar(alloc415) of type &'{erased} [u8; 24_usize], at src/adopt.rs:37:5. It is a limit of the
+prover, not something wrong with the claim or its bindings, and it blocks every claim about this
+crate because Creusot translates the whole crate rather than only what the claim mentions. A
+constant of that shape usually comes from a formatting macro interpolating an argument —
+`format!("{x}")`, `println!("{x}")`, `write!` — which is worth checking first, though the same
+macro with nothing to interpolate translates fine. Mark the items using that construct
+`#[trusted]` to declare them out of scope, and the rest of the crate verifies normally
+```
+
+`alloc412` and `alloc415` are the same defect on two runs. The allocation id moves between runs,
+which is its own argument for why the site had to travel with the message: the only stable thing in
+that sentence an operator can act on is `src/adopt.rs:37:5`.
+
+### The live run found what four green tests did not
+
+Worth recording, because it is the second time in two passes. `verify REQ014` was run against the
+real ensemble to see the new message in place. It never showed up: Creusot failed earlier, on the
+staged harness (`called program function draft::is_stale in logic context`), and stopped there.
+
+That is the right verdict for REQ014 — the mirror channel is what the operator needs — but it
+exposed a defect in the first cut of this change. The new recognition scanned the **whole** output
+and ran *ahead* of the mirror-channel branch, so a run carrying both errors would have replaced
+actionable advice with an accurate but useless statement of the prover's limit. Four tests were
+green on it. The fix keys the decision to the **first** diagnostic, which is the rule `build_error`
+already followed, and a test now pins the two-error case using the shape the live run produced.
+
+The pattern from the fifth pass repeats exactly: on this channel a green suite is not evidence, and
+the run that finds the defect is the one against the real engine.
+
+What this does **not** do is decide #250. Whether to `#[trusted]` the formatting surface, and
+whether a crate that is mostly operator-facing prose is a sensible Creusot subject at all, are still
+open. This only makes the refusal legible when it happens.
 
 So the deductive route for provreq-as-its-own-subject is shut for three independent reasons: #153
 (async ICE, fixed upstream but in no tag), #227 (fixed here), and #250 (not fixable from inside this
