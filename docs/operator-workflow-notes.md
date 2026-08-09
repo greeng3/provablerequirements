@@ -1567,6 +1567,46 @@ REQ001: fails
 needs somewhere to live, a lifecycle, and an answer for what happens to it on the next run. The
 witness carries the replayable script and the URL it stopped at, which is actionable today.
 
+### The LLM endpoint stops being a committed fact (issue #225)
+
+Found during the #221 dogfood sweep and parked until the cat-3 arc closed. `provreq triage` needs an
+LLM, and `base_url`/`model` could only be set by editing the **committed** companion manifest — so
+pointing provreq at the Ollama box actually on the network meant hand-editing a tracked file,
+running the command, and remembering to revert it. A dirty-working-tree trap on a file that also
+carries `environment:`, the doorstop paths and `tla.constants`, all of which genuinely belong in the
+repo. The manifest's own comment had already conceded the problem: _"point base_url at whatever
+endpoint you actually run."_ It was the right default with no non-destructive way to depart from it.
+
+**`base_url` is machine topology, not project configuration** — the same split `api_key_env` drew
+from the start, and the one `MONPOLY_BIN` (#233) and `WEBDRIVER_URL` (#245) drew after it. So:
+`PROVREQ_LLM_BASE_URL` and `PROVREQ_LLM_MODEL`, resolved in `load_config` — the single place all
+four callers (`triage`, `draft --translate`, `verify --draft-semantic`, and the mirror drafter) come
+through, so none of them knows an override exists.
+
+```console
+$ provreq triage .                       # the manifest speaks; localhost is not listening here
+Classifying 1 of 1 item(s) with qwen3:32b via http://localhost:11434/v1, 1 at a time …
+Error: classified 0 of 1 item(s) …  Connection refused (os error 111)
+
+$ PROVREQ_LLM_BASE_URL=http://192.168.222.108:11434/v1 provreq triage .
+Classifying 1 of 1 item(s) with qwen3:32b via http://192.168.222.108:11434/v1 \
+  (PROVREQ_LLM_BASE_URL in effect), 1 at a time …
+  classified 1 of 1 …
+```
+
+**An override that took effect is named, and that is the part worth keeping.** The run banner
+already printed the endpoint and model, which is most of what the issue asked for — but an export
+set months ago and forgotten is otherwise invisible: the banner would name a host the committed file
+does not, and nothing on screen would explain the difference. `LlmConfig::overridden` is `#[serde(skip)]`,
+so the fact travels to the banner and **never back into the manifest** — writing it there would
+re-commit the address the override exists to keep out of the repo.
+
+Two smaller calls: an override replaces a **declared** endpoint and does not conjure one, so a
+subject with no `llm:` block stays unconfigured whatever is exported (triage already falls back to
+the prose floor, which is a real answer). And a variable exported as whitespace reads as unset —
+that is how a shell says "no value", and honoring it literally would point provreq at nothing and
+report a connection error instead of the configuration mistake.
+
 ## Engine provisioning — Design A (old, superseded topology)
 
 > **⚠️ The engine SPLIT (artifact-fed vs toolchain-welded) and R-eng-1..4 survive into Design B.**

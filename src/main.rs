@@ -367,10 +367,11 @@ async fn seed_backlog(
         Some(config) => {
             let batch_size = config.batch_size;
             println!(
-                "Classifying {count} of {} item(s) with {} via {}, {batch_size} at a time …",
+                "Classifying {count} of {} item(s) with {} via {}{}, {batch_size} at a time …",
                 items.len(),
                 config.model,
-                config.base_url
+                config.base_url,
+                config.override_note()
             );
             let classifier = LlmClassifier::new(HttpBackend::from_config(config)?);
             triage::seed_in_batches(state, &pending, &classifier, batch_size, persist).await?
@@ -543,8 +544,11 @@ async fn translate_gated_candidate(
         "no `llm:` block in provreq.yml — configure a provider to use `draft --translate`",
     )?;
     println!(
-        "Translating {} with {} via {} …",
-        item.id, config.model, config.base_url
+        "Translating {} with {} via {}{} …",
+        item.id,
+        config.model,
+        config.base_url,
+        config.override_note()
     );
     let translator = Translator::new(HttpBackend::from_config(config)?);
     translator.translate_gated(item).await
@@ -1536,8 +1540,10 @@ async fn stage_semantic_drafts(
         "one-shot draft"
     };
     println!(
-        "\n--draft-semantic ({mode}): drafting {engine} contracts for {id} with {} via {} …",
-        config.model, config.base_url
+        "\n--draft-semantic ({mode}): drafting {engine} contracts for {id} with {} via {}{} …",
+        config.model,
+        config.base_url,
+        config.override_note()
     );
     let drafter = Drafter::new(provreq::llm::HttpBackend::from_config(config)?);
 
