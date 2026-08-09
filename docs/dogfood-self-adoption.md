@@ -466,9 +466,12 @@ because that removes the item from the program and breaks every call site. Reach
 
 ```text
 the subject did not compile under Creusot — error[E0308]: mismatched types, at src/session.rs:27:59.
-That is the subject's own source, not the generated harness — if a draft was just staged there, it
-is the staged edit that needs fixing, and the line above says which
+That is the subject's own source, not the generated harness, and Creusot compiles the whole crate —
+so the file that failed need not be one the claim mentions, nor one a draft was staged in
 ```
+
+The second half of that wording is newer than the rest of this section; see
+[the #227 pass](#fifth-pass-2026-08-09--the-recursive-type-227) for why it changed.
 
 Both measured on the same subject, before and after, by staging the mirrors and then removing them.
 The second names the exact line the model got wrong (`failures == 0` against a `&u32`), which is
@@ -601,3 +604,64 @@ throughout: the engine panel distinguished available from not-wired, the funnel 
 exactly, the row carried `holds ⟳ stale`, and the item detail showed all three drift reasons plus a
 `Proved in:` line naming every engine version and the missing environment label. The bulk
 `Re-verify all stale (1)` action was present. Nothing on that surface overclaimed.
+
+## Fifth pass (2026-08-09) — the recursive type (#227)
+
+Not a walk of the workflow: one obstacle, run to ground. [#227](https://github.com/greeng3/provablerequirements/issues/227)
+recorded that `verify REQ014` failed inside `src/rust_adapter.rs` — a file no draft had touched —
+and left two things unestablished: whether the type Creusot named was really recursive, and whether
+it was the only one. Both are now measured.
+
+### It was recursive, and Creusot was right
+
+`TypeResolution::Applied` held `args: Vec<(String, TypeResolution)>`. Reduced to eight lines, the
+engine says exactly where the cycle is:
+
+```text
+error: Illegal recursive type
+  |     Applied { at: Match, args: Vec<(String, TypeResolution)> },
+  |                          ----------------------------------- Recursive occurrence of
+  |                          TypeResolution under parameter 0 of type `std::vec::Vec`
+```
+
+Three shapes, measured on the live engine: `Box<T>` is **accepted**, `Vec<T>` is refused, and
+`Vec<Box<T>>` is refused too — Creusot looks through the `Box`. So the limit is recursion under a
+type *parameter*, and there is no indirection that buys a way out.
+
+### The fix was one the type already wanted
+
+The field's own doc comment said the recursion could never be used: an argument is always `Resolved`
+or `Primitive`, because anything else turns the whole application into `UnusableTypeArguments`
+before an argument is kept. Five of seven variants were unreachable in that position — which is
+what `TypeResolution`'s doc comment calls a mistake in the sentence explaining why it is not
+`Resolution`, and what REQ069 already bounds when it says the tool confirms *one* level of
+application. So `args` now holds an `ArgResolution`, a two-variant `Resolved | Primitive` that
+cannot recur. Creusot accepting the crate is a consequence of stating the state space correctly,
+not a concession to the prover.
+
+### The hint was naming a cause it had not established
+
+The subject-source branch of `build_error` ended "if a draft was just staged there, it is the staged
+edit that needs fixing" on *every* such failure. Here the failing file had never been staged into,
+so the message sent the operator to repair something that was never wrong — REQ064's overclaim,
+moved from the answer into the explanation of the answer. It now says only what it knows: the file,
+and the fact that explains an unrelated file failing at all (REQ067's "reach" — Creusot compiles the
+whole crate). The case where a staged mirror really is the cause keeps its own branch, which
+recognises the *error* rather than guessing from the location.
+
+### It was not the only one — see [#250](https://github.com/greeng3/provablerequirements/issues/250)
+
+With the recursive type gone, the whole-crate run got one file further and stopped at
+`src/adopt.rs:37`, which is `format!("ProvableRequirements-{requirements_dirname}")`. Measured:
+`format!("prefix-{s}")` is refused, `format!("{s}")` is refused, and a bare `"string literal"` is
+accepted. **`format!` itself is untranslatable by Creusot**, and provreq has 499 call sites of it
+across 39 files, because operator-facing prose is most of what this tool does.
+
+That is a different kind of obstacle. #227 was a type that had no business being recursive, so
+fixing it improved the type. There is no equivalent here — the only lever is REQ067's own way out,
+`#[trusted]`, applied to most of the crate. Recorded in #250 as a decision to make rather than work
+to schedule.
+
+So the deductive route for provreq-as-its-own-subject is shut for three independent reasons: #153
+(async ICE, fixed upstream but in no tag), #227 (fixed here), and #250 (not fixable from inside this
+repository). Kani's bounded `holds` is unaffected by all three.
