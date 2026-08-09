@@ -758,3 +758,60 @@ open. This only makes the refusal legible when it happens.
 So the deductive route for provreq-as-its-own-subject is shut for three independent reasons: #153
 (async ICE, fixed upstream but in no tag), #227 (fixed here), and #250 (not fixable from inside this
 repository). Kani's bounded `holds` is unaffected by all three.
+
+## Sixth pass (2026-08-09, issue #253) — the record had gone stale, and said so
+
+Not a walk of the workflow and not a code change: the stored verdicts were re-run, because two
+passes of message fixes had left this repo's own record quoting sentences the tool can no longer
+emit.
+
+### The living loop was already right about it
+
+The first thing checked was whether provreq had noticed on its own, since assuming it had would
+have been assuming the thing under test. It had:
+
+```text
+Re-verify worklist (2 stale):
+  REQ014       last verdict: unknown
+      the subject code moved since this verdict (commit 2b198b9b… → f2e15bf0…) — re-verify
+  REQ047       last verdict: holds
+      the subject code moved since this verdict (commit 2b198b9b… → f2e15bf0…) — re-verify
+```
+
+Both stored verdicts sat at `subject_commit: 2b198b9b…`, many commits behind. The drift axis fired,
+named both items, gave both commits, and told the operator the command. Worth recording that the
+re-verify worklist now appears in the **CLI** — [#179](https://github.com/greeng3/provablerequirements/issues/179)
+reported it as web-only, and that is no longer true.
+
+### What was actually stale
+
+Only REQ014's *text* was wrong. Its Creusot detail still read "the subject did not compile under
+Creusot — error: Illegal recursive type … it is the staged edit that needs fixing" — a build failure
+that #227 made impossible, carrying advice #227 deleted for asserting an unestablished cause.
+REQ047's mirror-channel message was still current wording; only its provenance had drifted.
+
+After re-verifying both, that text is gone from the record entirely, and REQ014 now carries the
+message a real run produces today.
+
+### The record had been understating the tool
+
+The more interesting effect was in the funnel:
+
+| | before | after |
+| --- | --- | --- |
+| `verified` | 0 | **1** |
+| `stale` | 2 | **0** |
+
+REQ047 genuinely `holds` — Kani, model-checked (bounded) — and has since the fourth pass. Because
+its verdict had drifted, it dropped out of `verified`, and the repo's own coverage funnel reported
+**zero** verified requirements while the tool had in fact established one. That is the conservative
+direction to fail in, and it is the direction the design chose on purpose, but it is worth seeing
+what it costs: a record left un-refreshed does not merely age, it under-reports.
+
+### What this pass did not cover
+
+No code changed, so nothing here is evidence about the tool's behaviour beyond the two commands
+run. In particular the tool-version drift axis was **not** exercised and cannot be — see
+[#255](https://github.com/greeng3/provablerequirements/issues/255). Every stored verdict carries
+`provreq@0.0.1` and always will, so a verdict-message change is caught only through
+`subject_commit`, which works when provreq is its own subject and does nothing for anybody else's.
