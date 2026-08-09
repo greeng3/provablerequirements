@@ -7,8 +7,11 @@ documents:
 # container rebuild does not read as a changed environment the way a hostname would.
 environment: provreq-devcontainer
 # Triage's bulk pre-sort provider (REQ012). Pointed at a local Ollama, which is the portable
-# default; point base_url at whatever endpoint you actually run. A keyless endpoint needs no
-# credential, and an API key would be named here by env var (api_key_env), never inlined.
+# default. To use the endpoint actually on your network, export PROVREQ_LLM_BASE_URL (and
+# PROVREQ_LLM_MODEL) rather than editing this file — the address of one host on one network is
+# not a fact about this project, and a run says when an override is in effect (#225). A keyless
+# endpoint needs no credential, and an API key would be named here by env var (api_key_env),
+# never inlined.
 llm:
   provider: openai-compatible
   base_url: http://localhost:11434/v1

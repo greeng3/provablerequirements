@@ -50,7 +50,27 @@ pub struct LlmConfig {
     /// Tune it down for a slow local model, up for a fast hosted one.
     #[serde(default = "default_batch_size")]
     pub batch_size: usize,
+    /// Which fields an environment variable replaced (#225). Never read from or written to the
+    /// manifest — it is a fact about *this run*, not about the subject, which is the whole reason
+    /// the override exists.
+    ///
+    /// Carried so a caller printing "with `<model>` via `<url>`" can say where those came from. An
+    /// export set months ago and forgotten is otherwise invisible: the banner would name an
+    /// endpoint the committed file does not, and nothing would explain the difference.
+    #[serde(skip)]
+    pub overridden: Vec<&'static str>,
 }
+
+/// Environment overrides for the two `llm:` fields that are **machine topology, not project
+/// configuration** (#225): which host answers, and which model it serves.
+///
+/// The manifest is committed and shared, so an operator pointing provreq at the box actually on
+/// their network had to edit a tracked file and remember to revert it — a dirty-working-tree trap
+/// on a file that also carries `environment:`, the doorstop paths and `tla.constants`, all of which
+/// genuinely belong in the repo. Same split `WEBDRIVER_URL` (#245), `MONPOLY_BIN` (#233) and
+/// `api_key_env` already draw, and the same one the manifest's own comment conceded.
+pub const BASE_URL_VAR: &str = "PROVREQ_LLM_BASE_URL";
+pub const MODEL_VAR: &str = "PROVREQ_LLM_MODEL";
 
 /// Default per-request LLM timeout: 10 minutes. Long enough that a slow local model
 /// finishing a large completion is never cut off, short enough that a wedged endpoint
@@ -88,7 +108,58 @@ pub fn load_config(companion_root: &Path) -> Result<Option<LlmConfig>> {
     }
     let manifest: ManifestLlm =
         serde_yaml::from_str(&text).with_context(|| format!("parsing {}", path.display()))?;
-    Ok(manifest.llm)
+    Ok(manifest.llm.map(|config| {
+        apply_overrides(
+            config,
+            env_override(BASE_URL_VAR).as_deref(),
+            env_override(MODEL_VAR).as_deref(),
+        )
+    }))
+}
+
+/// The `llm:` block with any environment override applied — the one place the two sources are
+/// reconciled, so every caller (`triage`, `draft --translate`, `verify --draft-semantic`) sees the
+/// same answer without any of them knowing an override exists.
+///
+/// Pure over both inputs, so the precedence rule is testable without touching the process
+/// environment — the same split [`crate::ui`] draws for `WEBDRIVER_URL`.
+///
+/// A subject with **no** `llm:` block stays unconfigured whatever is exported. An override
+/// replaces a declared endpoint; it does not conjure a provider, a key, or a timeout the operator
+/// never chose, and "no LLM configured" is a real answer triage already handles by falling back to
+/// the prose floor.
+fn apply_overrides(config: LlmConfig, base_url: Option<&str>, model: Option<&str>) -> LlmConfig {
+    let overridden = [base_url.map(|_| BASE_URL_VAR), model.map(|_| MODEL_VAR)]
+        .into_iter()
+        .flatten()
+        .collect();
+    LlmConfig {
+        base_url: base_url.map(str::to_string).unwrap_or(config.base_url),
+        model: model.map(str::to_string).unwrap_or(config.model),
+        overridden,
+        ..config
+    }
+}
+
+/// An override's value, or `None` when it is unset **or blank**. Exporting an empty string is how a
+/// shell says "no value"; honoring it literally would point provreq at nothing and report a
+/// connection error instead of the configuration mistake.
+fn env_override(var: &str) -> Option<String> {
+    std::env::var(var)
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+}
+
+impl LlmConfig {
+    /// What to append to a run banner when an environment variable chose the endpoint or the model.
+    /// Empty when the manifest is speaking for itself.
+    pub fn override_note(&self) -> String {
+        match self.overridden.as_slice() {
+            [] => String::new(),
+            vars => format!(" ({} in effect)", vars.join(" + ")),
+        }
+    }
 }
 
 /// The single network call, factored out for offline testing.
@@ -511,6 +582,101 @@ mod tests {
         // Omitted timeout falls back to the generous default.
         assert_eq!(cfg.timeout_seconds, DEFAULT_TIMEOUT_SECS);
         assert_eq!(cfg.batch_size, DEFAULT_BATCH_SIZE);
+    }
+
+    /// The manifest's own portable default, as every subject ships it.
+    fn declared() -> LlmConfig {
+        LlmConfig {
+            provider: Provider::OpenaiCompatible,
+            base_url: "http://localhost:11434/v1".to_string(),
+            model: "qwen3:32b".to_string(),
+            api_key_env: None,
+            timeout_seconds: DEFAULT_TIMEOUT_SECS,
+            batch_size: DEFAULT_BATCH_SIZE,
+            overridden: Vec::new(),
+        }
+    }
+
+    // Verifies: #225 — the endpoint and model can be pointed at the box actually on this network
+    // without editing a tracked file, and NOTHING ELSE moves. The manifest carries `environment:`,
+    // the doorstop paths and `tla.constants` too, so "edit it and remember to revert" was a
+    // dirty-working-tree trap on a file that genuinely belongs in the repo.
+    #[test]
+    fn an_environment_override_replaces_the_endpoint_and_model_only() {
+        let overridden = apply_overrides(
+            declared(),
+            Some("http://192.168.222.108:11434/v1"),
+            Some("llama3"),
+        );
+        assert_eq!(overridden.base_url, "http://192.168.222.108:11434/v1");
+        assert_eq!(overridden.model, "llama3");
+        assert_eq!(
+            overridden.provider,
+            declared().provider,
+            "an override says WHERE, never how to speak to it"
+        );
+        assert_eq!(overridden.timeout_seconds, declared().timeout_seconds);
+        assert_eq!(overridden.batch_size, declared().batch_size);
+        assert_eq!(overridden.api_key_env, declared().api_key_env);
+    }
+
+    // Verifies: #225 — the manifest value stays the portable default. A subject that sets no
+    // override behaves exactly as it did before this existed.
+    #[test]
+    fn no_override_leaves_the_manifest_speaking_for_itself() {
+        let untouched = apply_overrides(declared(), None, None);
+        assert_eq!(untouched, declared());
+        assert_eq!(
+            untouched.override_note(),
+            "",
+            "a run banner must stay quiet when nothing overrode anything"
+        );
+    }
+
+    // Verifies: #225 — each field overrides on its own. Pointing at another host while keeping the
+    // model is the ordinary case, and it must not require restating the other.
+    #[test]
+    fn each_field_overrides_independently() {
+        let host_only = apply_overrides(declared(), Some("http://elsewhere:11434/v1"), None);
+        assert_eq!(host_only.base_url, "http://elsewhere:11434/v1");
+        assert_eq!(host_only.model, declared().model);
+
+        let model_only = apply_overrides(declared(), None, Some("llama3"));
+        assert_eq!(model_only.base_url, declared().base_url);
+        assert_eq!(model_only.model, "llama3");
+    }
+
+    // Verifies: #225 — an override that took effect is VISIBLE. An export set months ago and
+    // forgotten is otherwise invisible: the banner names an endpoint the committed file does not,
+    // and nothing on screen explains the difference.
+    #[test]
+    fn an_override_in_effect_is_named_in_the_banner() {
+        let both = apply_overrides(declared(), Some("http://elsewhere/v1"), Some("llama3"));
+        let note = both.override_note();
+        assert!(note.contains(BASE_URL_VAR), "{note}");
+        assert!(note.contains(MODEL_VAR), "{note}");
+
+        let one = apply_overrides(declared(), Some("http://elsewhere/v1"), None);
+        assert!(one.override_note().contains(BASE_URL_VAR));
+        assert!(
+            !one.override_note().contains(MODEL_VAR),
+            "an unset variable must not be reported as in effect: {}",
+            one.override_note()
+        );
+    }
+
+    // Verifies: #225 — the override never reaches the manifest. It is a fact about this run on this
+    // machine, which is the entire reason it exists; serializing it back would re-commit the
+    // address the override was invented to keep out of the repo.
+    #[test]
+    fn the_override_is_never_written_back_to_the_manifest() {
+        let overridden = apply_overrides(declared(), Some("http://elsewhere/v1"), Some("llama3"));
+        let yaml = serde_yaml::to_string(&overridden).unwrap();
+        assert!(!yaml.contains("overridden"), "{yaml}");
+        assert!(!yaml.contains(BASE_URL_VAR), "{yaml}");
+        // And a manifest that never carried the field still loads.
+        let round_tripped: LlmConfig = serde_yaml::from_str(&yaml).unwrap();
+        assert!(round_tripped.overridden.is_empty());
     }
 
     // Verifies: REQ042 — an explicit `timeout_seconds` overrides the default, and the client
