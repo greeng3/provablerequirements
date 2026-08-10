@@ -15,15 +15,25 @@ text: |
   place the operator has no way to check: a bucket per item, complete, with a model's name above
   it.
 
-  The danger is specific to a default that is otherwise correct. Falling back to the most
-  conservative bucket is the right answer for a single item the model skipped, because that bucket
-  claims nothing about the requirement and leaves the work visible. Applied to an entire backlog
-  because nothing parsed, the same fallback stops being a floor and becomes a fabricated
-  classification, indistinguishable from a model that read every requirement and judged them all
-  unformalizable.
+  The danger is specific to a default that looks conservative and is not. An omitted item has to
+  fall back to something, and the fallback must be a state that claims nothing — which rules out
+  every triage bucket, because each of them is an assertion. The bucket meaning *this will not be
+  formalized* is the sharpest case: it is a lifecycle claim about what the operator intends, kept
+  distinct from un-triaged for exactly that reason, and an item defaulted into it is not recorded
+  as unjudged but as judged unformalizable. It also leaves the un-triaged count, so the work still
+  owed stops being visible in the one report built to show what is owed. Applied to a whole backlog
+  because nothing parsed, the same fallback becomes a fabricated classification, indistinguishable
+  from a model that read every requirement and judged them all unformalizable.
 
-  The tool therefore separates a partial answer from no answer. Where some items are classified and
-  others are omitted, the omitted ones take the conservative default. Where the reply yields nothing
-  usable, the tool reports the failure, leaves existing classifications untouched, and treats the
-  run as it treats any other failed request — no state is written on the strength of an answer that
-  was never received.
+  The floor is therefore the absence of a classification, not the most conservative one. Where some
+  items are classified and others are omitted, the omitted ones stay un-triaged and keep counting
+  as work outstanding. Where the reply yields nothing usable, the tool reports the failure, leaves
+  existing classifications untouched, and treats the run as it treats any other failed request — no
+  state is written on the strength of an answer that was never received.
+
+  What the model is asked matters as much as what is done with silence. A classification is only
+  worth recording if the question put to the model is the question the bucket answers: whether the
+  claim can be lowered to something an engine can check. A prompt that names the buckets and leaves
+  their meaning to be inferred invites a sort on surface phrasing — whether a requirement mentions a
+  command, an interface, a release — which is a different question with a plausible-looking answer.
+  Where the tool knows what each category can actually express, it says so.
