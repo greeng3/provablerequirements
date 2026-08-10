@@ -118,15 +118,17 @@ pub fn save(companion_root: &Path, state: &TriageState) -> Result<()> {
     std::fs::write(&path, yaml).with_context(|| format!("writing {}", path.display()))
 }
 
-/// Bulk pre-sorts a backlog into advisory buckets (R-triage-1). Returns exactly
-/// one bucket per input item, in order. Fallible (an LLM classifier does I/O) and
-/// async; dispatched generically so no trait objects are needed. Every output is
-/// a seed the operator still confirms.
+/// Bulk pre-sorts a backlog into advisory buckets (R-triage-1). Returns exactly one **slot** per
+/// input item, in order, and a slot may be empty: `None` is a classifier declining to place that
+/// item, which leaves it un-triaged rather than pushing it into a bucket (REQ052, #226). There is
+/// no bucket that asserts nothing, so a classifier with nothing to say must be able to say nothing.
+/// Fallible (an LLM classifier does I/O) and async; dispatched generically so no trait objects are
+/// needed. Every output is a seed the operator still confirms.
 pub trait Classifier {
     fn classify(
         &self,
         items: &[Item],
-    ) -> impl std::future::Future<Output = Result<Vec<Classification>>> + Send;
+    ) -> impl std::future::Future<Output = Result<Vec<Option<Classification>>>> + Send;
 
     /// What this classifier's answers are worth, recorded on every entry it writes (#172). The
     /// default is [`Origin::Classified`], because a classifier that reads an item and judges it is
@@ -143,10 +145,16 @@ pub trait Classifier {
 pub struct ProseFloorClassifier;
 
 impl Classifier for ProseFloorClassifier {
-    async fn classify(&self, items: &[Item]) -> Result<Vec<Classification>> {
+    /// Deliberately still fills every slot, unlike the LLM classifier (#226). This is the adapter
+    /// an operator gets when no model is configured, and it exists to give the backlog a starting
+    /// state at all; returning `None` throughout would make `triage` a no-op that reports nothing.
+    /// What makes that honest is [`Origin::Seeded`] on every entry it writes — a bucket nothing
+    /// judged, labelled as such wherever it is shown (#172, #180). The LLM classifier has no such
+    /// excuse: it *did* read the item, so declining to place one is a real answer.
+    async fn classify(&self, items: &[Item]) -> Result<Vec<Option<Classification>>> {
         Ok(items
             .iter()
-            .map(|i| i.verification_hint.unwrap_or(Classification::StaysProse))
+            .map(|i| Some(i.verification_hint.unwrap_or(Classification::StaysProse)))
             .collect())
     }
 
@@ -169,6 +177,13 @@ async fn classify_into<C: Classifier>(
     let origin = classifier.origin();
     let mut next = state.items.clone();
     for (item, classification) in batch.iter().zip(buckets) {
+        // A declined item is left exactly as it was — which for an untriaged item means still
+        // untriaged, and for one already classified means the earlier answer stands (#226). Writing
+        // an entry here would be the tool inventing a judgement out of the model's silence, and
+        // erasing an existing one would let a decline destroy a classification somebody made.
+        let Some(classification) = classification else {
+            continue;
+        };
         next.insert(
             item.id.clone(),
             TriageEntry {
@@ -355,7 +370,12 @@ mod tests {
         let buckets = ProseFloorClassifier.classify(&items).await.unwrap();
         assert_eq!(
             buckets,
-            vec![Classification::StaysProse, Classification::FormalizableNow]
+            vec![
+                Some(Classification::StaysProse),
+                Some(Classification::FormalizableNow)
+            ],
+            "the prose floor still fills every slot — declining is the LLM classifier's answer, \
+             not this one's (#226)"
         );
     }
 
@@ -364,9 +384,49 @@ mod tests {
     struct JudgingClassifier;
 
     impl Classifier for JudgingClassifier {
-        async fn classify(&self, items: &[Item]) -> Result<Vec<Classification>> {
-            Ok(vec![Classification::FormalizableNow; items.len()])
+        async fn classify(&self, items: &[Item]) -> Result<Vec<Option<Classification>>> {
+            Ok(vec![Some(Classification::FormalizableNow); items.len()])
         }
+    }
+
+    /// Places nothing at all — the shape of a model that read every item and could commit to none.
+    struct DecliningClassifier;
+
+    impl Classifier for DecliningClassifier {
+        async fn classify(&self, items: &[Item]) -> Result<Vec<Option<Classification>>> {
+            Ok(vec![None; items.len()])
+        }
+    }
+
+    // Verifies: REQ052 (#226) — a classifier that declines to place an item leaves it un-triaged,
+    // and leaves an item somebody already classified exactly as it was. Two ways to get this wrong,
+    // both worse than doing nothing: inventing an entry out of the model's silence, or letting that
+    // silence erase a judgement that already existed.
+    #[tokio::test]
+    async fn a_declined_item_is_left_exactly_as_it_was() {
+        let items = [item("A", None), item("B", None)];
+        let before = seed_all(&TriageState::new(), &items, &JudgingClassifier)
+            .await
+            .unwrap();
+        assert_eq!(before.items.len(), 2, "both start classified");
+
+        let after = seed_all(&before, &items, &DecliningClassifier)
+            .await
+            .unwrap();
+        assert_eq!(
+            after.items.get("A").map(|e| e.classification),
+            Some(Classification::FormalizableNow),
+            "a decline must not destroy an existing classification"
+        );
+
+        let fresh = seed_all(&TriageState::new(), &items, &DecliningClassifier)
+            .await
+            .unwrap();
+        assert!(
+            fresh.items.is_empty(),
+            "nothing was placed, so nothing is written — the items stay untriaged, which is the \
+             one state that claims nothing about them"
+        );
     }
 
     // Verifies (#172): a seed is recorded as a seed, and a judgement as a judgement. They used to
@@ -561,7 +621,7 @@ mod tests {
     async fn a_failed_classifier_leaves_the_existing_state_untouched() {
         struct FailingClassifier;
         impl Classifier for FailingClassifier {
-            async fn classify(&self, _items: &[Item]) -> Result<Vec<Classification>> {
+            async fn classify(&self, _items: &[Item]) -> Result<Vec<Option<Classification>>> {
                 anyhow::bail!("the model returned no usable classification")
             }
         }
@@ -592,12 +652,12 @@ mod tests {
         calls: std::sync::atomic::AtomicUsize,
     }
     impl Classifier for FlakyClassifier {
-        async fn classify(&self, items: &[Item]) -> Result<Vec<Classification>> {
+        async fn classify(&self, items: &[Item]) -> Result<Vec<Option<Classification>>> {
             let n = self.calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
             if n >= self.fail_after {
                 anyhow::bail!("the model returned no usable classification");
             }
-            Ok(vec![Classification::FormalizableNow; items.len()])
+            Ok(vec![Some(Classification::FormalizableNow); items.len()])
         }
     }
 

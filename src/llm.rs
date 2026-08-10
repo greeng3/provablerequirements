@@ -299,7 +299,7 @@ impl<B: LlmBackend> LlmClassifier<B> {
 }
 
 impl<B: LlmBackend + Send + Sync> Classifier for LlmClassifier<B> {
-    async fn classify(&self, items: &[Item]) -> Result<Vec<Classification>> {
+    async fn classify(&self, items: &[Item]) -> Result<Vec<Option<Classification>>> {
         if items.is_empty() {
             return Ok(Vec::new());
         }
@@ -309,21 +309,36 @@ impl<B: LlmBackend + Send + Sync> Classifier for LlmClassifier<B> {
 }
 
 const PROMPT_HEADER: &str = "\
-You are triaging software requirements for a provable-requirements tool. Classify \
-each requirement into exactly one bucket:
-- formalizable-now: makes a claim provable NOW against code by a deductive verifier \
-(a definite truth value a prover can discharge).
-- falsifiable-only: checkable from finite observations of a running system — a \
-monitor reading its trace, or a browser driven against a live deployment — but only \
-falsifiable that way, never proved. Safety properties, timing bounded by a deadline, \
-and anything stated about what a user interface shows.
-- stays-prose: too vague to carry a definite truth value as written.
+You are triaging software requirements for a provable-requirements tool.
+
+The question is NOT how a requirement is worded. It is whether the claim it makes can be \
+LOWERED to something a checking engine can evaluate: a predicate bound to real code, a \
+property of a model, a pattern matched against a trace, or a step driven against a running \
+deployment. Judge the claim, not the vocabulary. That a requirement happens to mention a \
+command, an endpoint, a user interface or a release tells you nothing about which bucket it \
+belongs in, and sorting on that wording is the most common way to get this wrong.
+
+Classify each requirement into exactly one bucket:
+- formalizable-now: the claim lowers to an invariant over program state — something always \
+or never true, written as a predicate over values a deductive verifier can see. A claim \
+about a pure function, about which states a data type may hold, or about a decision the code \
+makes belongs here even when the prose sounds informal.
+- falsifiable-only: the claim can be checked from finite observations of a running system — \
+a monitor reading its trace, or a browser driven against a live deployment — but only \
+refuted that way, never proved. Deadlines and other timing bounds, and anything stated about \
+what a user interface shows.
+- stays-prose: the claim cannot be lowered at all. This asserts the requirement will NEVER be \
+formalized, so use it only where there is no claim carrying a definite truth value — not \
+merely because lowering it would be hard, or because the wording is loose.
+
+If you cannot place a requirement, OMIT it from your answer. An omitted requirement stays \
+untriaged for a human to look at, and that is more useful than a guess.
 
 Requirements:
 ";
 
-const PROMPT_FOOTER: &str = "\n\nRespond with ONLY a JSON array, one object per \
-requirement, no prose and no code fences: \
+const PROMPT_FOOTER: &str = "\n\nRespond with ONLY a JSON array, no prose and no code fences, \
+one object per requirement you can place — omit the ones you cannot: \
 [{\"id\": \"<id>\", \"bucket\": \"formalizable-now|falsifiable-only|stays-prose\"}]";
 
 /// Build the classification prompt (pure).
@@ -343,14 +358,26 @@ fn build_prompt(items: &[Item]) -> String {
 
 /// Map the model's reply back to one bucket per input item, in order.
 ///
-/// Any item the model omits or mislabels defaults to `stays-prose` — the honest floor for *that
-/// item*, which claims nothing about the requirement and leaves the work visible.
+/// Any item the model omits or mislabels gets **no** classification — `None`, which leaves it
+/// un-triaged (REQ052).
 ///
-/// A reply carrying **no** usable assignment is a different event: the request failed, and the
-/// same floor applied to every item stops being a floor and becomes a fabricated classification —
-/// indistinguishable from a model that read the whole backlog and judged it all unformalizable
-/// (REQ052). So that case is an error, not a result. Pure.
-fn parse_buckets(raw: &str, items: &[Item]) -> Result<Vec<Classification>> {
+/// This used to fall back to `stays-prose`, described as the honest floor because it "claims
+/// nothing and leaves the work visible". Both halves were wrong, and #226 measured the cost.
+/// `stays-prose` is not a floor: it is the lifecycle state meaning *this will not be formalized*,
+/// which REQ011 keeps deliberately distinct from un-triaged precisely because they are different
+/// facts. An item defaulted into it is recorded as judged unformalizable rather than as unjudged,
+/// and — worse — it leaves the `untriaged` count, so the work still owed vanishes from the one
+/// report built to show what is owed. Running this over provreq's own backlog took `untriaged`
+/// from 67 to 0 while eleven of the classifications were defensibly wrong.
+///
+/// The floor is the absence of a classification. There is no bucket that claims nothing, so the
+/// fallback cannot be a bucket.
+///
+/// A reply carrying **no** usable assignment stays a different event: the request failed, and a
+/// blanket fallback across the whole backlog would be a fabricated classification, indistinguishable
+/// from a model that read every requirement and judged them all unformalizable. That case is an
+/// error, not a result. Pure.
+fn parse_buckets(raw: &str, items: &[Item]) -> Result<Vec<Option<Classification>>> {
     let map = parse_assignments(raw);
     if map.is_empty() {
         bail!(
@@ -359,14 +386,7 @@ fn parse_buckets(raw: &str, items: &[Item]) -> Result<Vec<Classification>> {
             excerpt(raw)
         );
     }
-    Ok(items
-        .iter()
-        .map(|i| {
-            map.get(&i.id)
-                .copied()
-                .unwrap_or(Classification::StaysProse)
-        })
-        .collect())
+    Ok(items.iter().map(|i| map.get(&i.id).copied()).collect())
 }
 
 /// A short, single-line rendering of a reply for an error message — enough for the operator to
@@ -443,14 +463,19 @@ mod tests {
         let buckets = LlmClassifier::new(backend).classify(&items).await.unwrap();
         assert_eq!(
             buckets,
-            vec![Classification::FormalizableNow, Classification::StaysProse]
+            vec![
+                Some(Classification::FormalizableNow),
+                Some(Classification::StaysProse)
+            ]
         );
     }
 
-    // Verifies: REQ012 — omitted or unknown buckets default to the prose floor,
-    // and the output length always matches the input (never crashes triage).
+    // Verifies: REQ052 (#226) — an omitted or unreadable bucket yields NO classification, so the
+    // item stays un-triaged. It used to fall back to `stays-prose`, which is not a floor but the
+    // lifecycle claim *this will not be formalized*, and which drops the item out of `untriaged`.
+    // The output length still matches the input, so triage can never be knocked out of step.
     #[tokio::test]
-    async fn classify_defaults_missing_and_unknown_to_prose() {
+    async fn classify_leaves_missing_and_unknown_untriaged() {
         let items = [item("A", "x"), item("B", "y"), item("C", "z")];
         let backend = StubBackend {
             // A mislabeled, B present, C omitted entirely.
@@ -460,11 +485,8 @@ mod tests {
         let buckets = LlmClassifier::new(backend).classify(&items).await.unwrap();
         assert_eq!(
             buckets,
-            vec![
-                Classification::StaysProse,
-                Classification::FalsifiableOnly,
-                Classification::StaysProse
-            ]
+            vec![None, Some(Classification::FalsifiableOnly), None],
+            "a bucket the model did not give is not a bucket the tool may invent"
         );
     }
 
@@ -514,7 +536,8 @@ mod tests {
         let buckets = LlmClassifier::new(backend).classify(&items).await.unwrap();
         assert_eq!(
             buckets,
-            vec![Classification::StaysProse, Classification::FormalizableNow]
+            vec![None, Some(Classification::FormalizableNow)],
+            "one item was placed and one was not; the unplaced one stays un-triaged (#226)"
         );
     }
 
@@ -539,7 +562,7 @@ mod tests {
                 .into(),
         };
         let buckets = LlmClassifier::new(backend).classify(&items).await.unwrap();
-        assert_eq!(buckets, vec![Classification::FormalizableNow]);
+        assert_eq!(buckets, vec![Some(Classification::FormalizableNow)]);
     }
 
     // Verifies: REQ012 — the provider response shapes are read from the right
@@ -565,6 +588,36 @@ mod tests {
         assert!(prompt.contains("REQ001"));
         assert!(prompt.contains("REQ042"));
         assert!(prompt.contains("formalizable-now"));
+    }
+
+    // Verifies: REQ052 (#226) — the prompt must put the question the buckets answer, which is
+    // whether a claim can be *lowered* to something an engine can check. Measured over this repo's
+    // own 67 requirements: naming the buckets and leaving their meaning to be inferred produced a
+    // sort on surface phrasing — mentions a command → falsifiable-only, mentions a UI or a release
+    // → stays-prose — which put three requirements implemented by one pure, unit-tested module into
+    // three different buckets.
+    #[test]
+    fn the_prompt_asks_about_lowering_not_about_wording() {
+        let prompt = build_prompt(&[item("REQ001", "a")]);
+        assert!(
+            prompt.contains("lower"),
+            "the buckets answer a lowering question and the prompt must say so: {prompt}"
+        );
+        assert!(
+            prompt.contains("invariant"),
+            "category 1 is the temporal-free fragment (REQ024) — an invariant over a state \
+             predicate is what `formalizable-now` actually means: {prompt}"
+        );
+        assert!(
+            prompt.contains("wording") || prompt.contains("phrasing"),
+            "the measured failure was a sort on phrasing, so the prompt warns against it \
+             explicitly: {prompt}"
+        );
+        assert!(
+            prompt.contains("omit"),
+            "an item the model cannot place must be omitted rather than guessed — omission is now \
+             the floor, and the model has to be told that: {prompt}"
+        );
     }
 
     #[test]

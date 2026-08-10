@@ -815,3 +815,79 @@ run. In particular the tool-version drift axis was **not** exercised and cannot 
 [#255](https://github.com/greeng3/provablerequirements/issues/255). Every stored verdict carries
 `provreq@0.0.1` and always will, so a verdict-message change is caught only through
 `subject_commit`, which works when provreq is its own subject and does nothing for anybody else's.
+
+## Seventh pass (2026-08-10, issue #226) — the pre-sort re-measured
+
+#226 measured the LLM triage pre-sort sorting on phrasing: three requirements implemented by one
+pure, unit-tested module landed in three different buckets, and eleven corrections were defensible
+from the `Implements:` markers alone. Two changes were made — the floor and the question — and the
+same measurement was re-run: same 69 requirements, same model (qwen3:32b), the new prompt, in an
+isolated copy of the tree.
+
+### The floor first, because it was quietly load-bearing
+
+An item the model omitted or mislabeled used to default to `stays-prose`, documented as "the honest
+floor... claims nothing and leaves the work visible". Both halves were false. `stays-prose` is the
+lifecycle state meaning *this will not be formalized* — REQ011 keeps it deliberately distinct from
+un-triaged — and defaulting into it removes the item from `untriaged`, the one count built to show
+work owed. The floor is now the absence of a classification: an omitted item stays un-triaged, a
+declined item is left exactly as it was, and a decline can neither invent an entry nor erase one
+somebody made. REQ052 was amended to say so.
+
+### The question second, because the buckets answer one
+
+The old prompt named the buckets and left their meaning to be inferred, and the model inferred a
+sort on wording: mentions a command → `falsifiable-only`, mentions a UI or a release →
+`stays-prose`. The new prompt states the actual question — can this claim be **lowered** to
+something an engine can check — defines `formalizable-now` by the category-1 fragment (an invariant
+over program state), warns against the wording sort by name, states that `stays-prose` asserts
+*never*, and tells the model to omit what it cannot place.
+
+### Measured, on the operator-corrected items
+
+The committed `triage.yml` carries 12 classifications with `origin: operator` — items a human had
+to fix, which means the old prompt got every one of them wrong. The new prompt, cold, on the same
+text:
+
+| | old prompt | new prompt |
+| --- | --- | --- |
+| correct on the 12 operator-corrected items | 0 | **8** |
+| of the misses, `stays-prose` overclaims | most | **0** |
+
+The four remaining misses (REQ011, REQ014, REQ030, REQ039) are all the same boundary call —
+`formalizable-now` read as `falsifiable-only`. The issue's flagship case, REQ023, classifies
+correctly now, as do all five serve endpoints (REQ034–REQ038).
+
+### The distribution shift, which is the finding
+
+Across the whole backlog the model now uses `stays-prose` **zero** times (38 `falsifiable-only`,
+31 `formalizable-now`, nothing omitted). The failure #226 named — a confident *never formalize* on
+a pure function — did not get rarer; it is extinct in this run. The mirror cost: the 11 items the
+reference holds as genuinely prose were all pushed into a checkable bucket. Raw agreement with the
+committed reference is 44/69, and that number alone would read as a regression — what changed is the
+*species* of error. Every disagreement is now in the direction that keeps the item visible: an
+over-optimistic bucket sits in the funnel where one `--set` demotes it, where the old error wrote
+items off in a state that looks like a decision.
+
+Whether a classifier should ever say `stays-prose` is a fair question after this run — the bucket
+asserts the operator's intent, which is the one thing the model cannot see. Left open.
+
+### What this pass did not establish
+
+- **The abstain path never fired live.** The model placed all 69 items, so omission-stays-untriaged
+  is covered by unit tests only.
+- **A concrete new error, worth remembering:** REQ047 classified `falsifiable-only` — and the
+  verdict store holds a Kani `holds` for REQ047. The record itself refutes the classification, and
+  no prompt saw that record. The classifier still reads prose alone; #226's "give the classifier
+  what the question needs" remains open beyond what a prompt can carry.
+- The first attempt timed out mid-backlog after 10 items, and REQ054's batching held: the 10
+  persisted, the run said exactly what was and was not done, and a plain re-run resumed from item
+  11. The measurement in this section is the resumed run's.
+
+### Found on the way
+
+`--reclassify` puts every item back in front of the classifier regardless of origin, so it would
+have silently overwritten all 12 operator corrections — the very reference this measurement is
+scored against. Caught by reading `plan()` before running, measured in an isolated copy instead.
+Filed as [#257](https://github.com/greeng3/provablerequirements/issues/257): the flag contradicts
+`Origin::Operator`'s documented "never replaced by an automatic run".
