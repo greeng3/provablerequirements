@@ -333,18 +333,44 @@ async fn seed_backlog(
     // nothing is output that describes an action rather than reporting one.
     let pending = match triage::plan(state, items, reclassify) {
         triage::TriagePlan::Nothing { already } => {
-            println!(
-                "{already} item(s) already triaged; nothing to classify — re-run the classifier \
-                 over them with `--reclassify`."
-            );
+            // The same emptiness means opposite advice by flag (#257): without `--reclassify` the
+            // way forward is the flag; with it, everything left is the operator's own choice, and
+            // offering the flag again would advertise a run that can never do anything.
+            if reclassify {
+                println!(
+                    "all {already} item(s) are operator-set; `--reclassify` never replaces an \
+                     operator's choice — change one with `provreq triage --set <ID> <bucket>`."
+                );
+            } else {
+                println!(
+                    "{already} item(s) already triaged; nothing to classify — re-run the \
+                     classifier over them with `--reclassify`."
+                );
+            }
             return Ok(state.clone());
         }
-        triage::TriagePlan::Classify { pending } => pending,
+        triage::TriagePlan::Classify {
+            pending,
+            operator_kept,
+        } => {
+            // Said before the consent prompt, so what the operator consents to is what will
+            // happen — a count that quietly included their own entries gated the wrong question.
+            if !operator_kept.is_empty() {
+                println!(
+                    "keeping {} operator-set item(s) as they are ({}) — `--reclassify` never \
+                     replaces an operator's choice; change one with `provreq triage --set`.",
+                    operator_kept.len(),
+                    operator_kept.join(", ")
+                );
+            }
+            pending
+        }
     };
     let count = pending.len();
 
-    // Re-classifying replaces classifications the operator may have set by hand, so it is
-    // consent-gated like every other action that overwrites their work.
+    // Re-classifying replaces the classifier's own judgements, so it is consent-gated like every
+    // other action that overwrites recorded state. Operator-set entries are already out of
+    // `pending` (#257), so the count here is exactly what the run will touch.
     if reclassify
         && !yes
         && !confirm(&format!(
