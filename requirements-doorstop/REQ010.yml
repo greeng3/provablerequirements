@@ -12,6 +12,9 @@ text: |
   mutable companion state keyed by the source item id. Classification is advisory
   and freely re-triageable: seeding fills only items that have no entry yet and
   never overwrites an operator's choice, while an explicit set overrides one
-  item's bucket. The classifier is pluggable; the default seeds from the source's
-  verification hint when present and otherwise defaults to stays-prose, never
-  over-claiming that an item is formalizable.
+  item's bucket. Re-classification replaces the classifier's own judgements, and
+  likewise never an operator's choice: a hand-set classification is changed only
+  by another explicit set, whatever flags a run was given, and a run that keeps
+  hand-set entries says which ones it kept. The classifier is pluggable; the
+  default seeds from the source's verification hint when present and otherwise
+  defaults to stays-prose, never over-claiming that an item is formalizable.

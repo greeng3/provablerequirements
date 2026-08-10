@@ -289,11 +289,18 @@ pub fn set(state: &TriageState, item: &Item, classification: Classification) -> 
 /// completed run whose answer happened to match what was already recorded.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TriagePlan {
-    /// Every item is already classified and the operator did not ask for a re-run.
+    /// No item may be touched: everything is already classified and the operator did not ask for
+    /// a re-run — or asked for one, and every entry is their own choice, which a re-run never
+    /// replaces (#257).
     Nothing { already: usize },
     /// There is work: exactly these items go in front of the classifier. An ordinary run lists
-    /// only the untriaged ones (classification is additive); a re-classify lists them all.
-    Classify { pending: Vec<Item> },
+    /// only the untriaged and seeded ones; a re-classify lists the judged ones too, and
+    /// `operator_kept` names the hand-set entries it is leaving alone so the caller can say so
+    /// (REQ010) — empty on an ordinary run, where nothing claimed to replace them.
+    Classify {
+        pending: Vec<Item>,
+        operator_kept: Vec<String>,
+    },
 }
 
 /// Decide a triage run's scope. Pure, so the caller can report the decision rather than narrate an
@@ -305,10 +312,31 @@ pub enum TriagePlan {
 /// an operator who ran `triage` before configuring a provider had only one way to get their backlog
 /// judged: `--reclassify`, which also discards every classification they had set by hand. That is a
 /// choice between keeping nothing and re-running everything, and neither is what they wanted.
+///
+/// A re-classify replaces *judgements* — the classifier's own answers, and entries whose provenance
+/// was never recorded — and **never an operator's choice** (#257). `Origin::Operator` has said
+/// "never replaced by an automatic run" since #172, while this function put every item back in
+/// front of the classifier: one flag press, behind a consent prompt that never mentioned the
+/// hand-set entries and that `--yes` skips entirely, replaced all of them with whatever the model
+/// said this time. `--set` is the way to change an operator's answer, so nothing is lost by keeping
+/// them — and the kept ids are returned so the caller reports the keeping instead of doing it
+/// silently (REQ010).
 pub fn plan(state: &TriageState, items: &[Item], reclassify: bool) -> TriagePlan {
     if reclassify {
+        let (kept, pending): (Vec<&Item>, Vec<&Item>) = items.iter().partition(|i| {
+            state
+                .items
+                .get(&i.id)
+                .is_some_and(|e| e.origin == Origin::Operator)
+        });
+        if pending.is_empty() {
+            return TriagePlan::Nothing {
+                already: items.len(),
+            };
+        }
         return TriagePlan::Classify {
-            pending: items.to_vec(),
+            pending: pending.into_iter().cloned().collect(),
+            operator_kept: kept.into_iter().map(|i| i.id.clone()).collect(),
         };
     }
     let pending: Vec<Item> = items
@@ -324,7 +352,10 @@ pub fn plan(state: &TriageState, items: &[Item], reclassify: bool) -> TriagePlan
             already: items.len(),
         }
     } else {
-        TriagePlan::Classify { pending }
+        TriagePlan::Classify {
+            pending,
+            operator_kept: Vec::new(),
+        }
     }
 }
 
@@ -339,7 +370,7 @@ mod tests {
         items: &[Item],
         classifier: &C,
     ) -> Result<TriageState> {
-        let TriagePlan::Classify { pending } = plan(state, items, false) else {
+        let TriagePlan::Classify { pending, .. } = plan(state, items, false) else {
             return Ok(state.clone());
         };
         let batch = pending.len();
@@ -462,7 +493,7 @@ mod tests {
             .await
             .unwrap();
 
-        let TriagePlan::Classify { pending } = plan(&seeded, &items, false) else {
+        let TriagePlan::Classify { pending, .. } = plan(&seeded, &items, false) else {
             panic!("a seed is not a triage — both items are still work");
         };
         assert_eq!(pending.len(), 2);
@@ -477,10 +508,11 @@ mod tests {
         );
     }
 
-    // Verifies (#172): what a plain run must NOT touch. An operator's own choice and an entry whose
-    // provenance predates this field are both left alone — the first because it is a decision, the
-    // second because guessing it was a seed would be the very over-claim this exists to stop. Only
-    // `--reclassify`, which is consent-gated, replaces either.
+    // Verifies (#172, #257): what a plain run must NOT touch. An operator's own choice and an entry
+    // whose provenance predates this field are both left alone — the first because it is a decision,
+    // the second because guessing it was a seed would be the very over-claim this exists to stop.
+    // `--reclassify`, which is consent-gated, replaces the unrecorded one; the operator's choice it
+    // keeps, and names.
     #[tokio::test]
     async fn a_plain_run_replaces_only_seeds() {
         let items = [item("A", None), item("B", None)];
@@ -499,10 +531,66 @@ mod tests {
             TriagePlan::Nothing { already: 2 },
             "neither an operator's choice nor an unrecorded entry is a seed"
         );
-        let TriagePlan::Classify { pending } = plan(&state, &items, true) else {
-            panic!("--reclassify is the consent-gated way to replace them");
+        let TriagePlan::Classify {
+            pending,
+            operator_kept,
+        } = plan(&state, &items, true)
+        else {
+            panic!("--reclassify is the consent-gated way to replace the unrecorded one");
         };
-        assert_eq!(pending.len(), 2);
+        assert_eq!(
+            pending.iter().map(|i| i.id.as_str()).collect::<Vec<_>>(),
+            vec!["B"],
+            "the unrecorded entry is re-judged; the operator's is not"
+        );
+        assert_eq!(
+            operator_kept,
+            vec!["A".to_string()],
+            "and the kept entry is named, so the caller reports the keeping (REQ010)"
+        );
+    }
+
+    // Verifies: REQ010 (#257) — `--reclassify` replaces judgements, and an operator's own choice
+    // is not a judgement it may replace. `Origin::Operator` has documented "never replaced by an
+    // automatic run" since #172, while `plan` put every item back in front of the classifier — so
+    // one flag press (consent-gated by a prompt that never mentioned them, skipped entirely by
+    // `--yes`) replaced every hand-set classification with whatever the model said this time. The
+    // committed tree carries 12 such entries. `--set` is the way to change an operator's answer.
+    #[tokio::test]
+    async fn reclassify_never_replaces_an_operators_choice() {
+        let items = [item("A", None), item("B", None)];
+        let mut state = set(&TriageState::new(), &items[0], Classification::StaysProse);
+        state.items.insert(
+            "B".to_string(),
+            TriageEntry {
+                classification: Classification::FormalizableNow,
+                revision: "rev-B".into(),
+                origin: Origin::Classified,
+            },
+        );
+
+        let TriagePlan::Classify { pending, .. } = plan(&state, &items, true) else {
+            panic!("the judged item is still real re-classify work");
+        };
+        assert_eq!(
+            pending.iter().map(|i| i.id.as_str()).collect::<Vec<_>>(),
+            vec!["B"],
+            "the judgement goes back to the classifier; the operator's choice does not"
+        );
+    }
+
+    // Verifies: REQ010 (#257) — a backlog that is *all* operator-set plans no work under
+    // `--reclassify`, so the caller can say so instead of announcing a model it is not about to
+    // ask (REQ053's shape, one flag over).
+    #[tokio::test]
+    async fn a_fully_operator_set_backlog_reclassifies_nothing() {
+        let items = [item("A", None)];
+        let state = set(&TriageState::new(), &items[0], Classification::StaysProse);
+        assert_eq!(
+            plan(&state, &items, true),
+            TriagePlan::Nothing { already: 1 },
+            "there is nothing here --reclassify may touch"
+        );
     }
 
     // Verifies (#172): a `triage.yml` written before this field existed loads, and claims nothing.
@@ -542,7 +630,7 @@ mod tests {
         // A partly-triaged backlog is real work, counted honestly: only the pending item.
         let partial = set(&TriageState::new(), &items[0], Classification::StaysProse);
         match plan(&partial, &items, false) {
-            TriagePlan::Classify { pending } => {
+            TriagePlan::Classify { pending, .. } => {
                 assert_eq!(pending.len(), 1, "only the untriaged item is work");
                 assert_eq!(pending[0].id, "B");
             }
@@ -561,7 +649,7 @@ mod tests {
             .unwrap();
 
         match plan(&seeded, &items, true) {
-            TriagePlan::Classify { pending } => {
+            TriagePlan::Classify { pending, .. } => {
                 assert_eq!(pending.len(), 2, "nothing is treated as already done");
             }
             other => panic!("expected work, got {other:?}"),
@@ -579,7 +667,7 @@ mod tests {
         let before = seed_all(&TriageState::new(), &items, &ProseFloorClassifier)
             .await
             .unwrap();
-        let TriagePlan::Classify { pending } = plan(&before, &items, true) else {
+        let TriagePlan::Classify { pending, .. } = plan(&before, &items, true) else {
             panic!("a reclassify is always work");
         };
 
@@ -703,7 +791,7 @@ mod tests {
 
         // A retry over the persisted state asks only about what is left, and does not redo — or
         // undo — the work that landed.
-        let TriagePlan::Classify { pending } = plan(&outcome.state, &items, false) else {
+        let TriagePlan::Classify { pending, .. } = plan(&outcome.state, &items, false) else {
             panic!("one item is still untriaged, so a retry has work");
         };
         let resumed = seed_in_batches(
