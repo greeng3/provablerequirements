@@ -35,7 +35,10 @@
 //! `proven` verdict), REQ064 (a crashed prover is reported as a crash, no cause is asserted that
 //! was not established, and the crash report it drops in the subject is cleaned up — see #153),
 //! REQ067 (a construct Creusot cannot translate is the prover's limit, is whole-crate in reach,
-//! and carries the `#[trusted]` way out rather than a contract that cannot help).
+//! and carries the `#[trusted]` way out rather than a contract that cannot help), REQ070
+//! (recognition of a checker's output covers every phrasing the checker is known to emit, matched
+//! against real output; an unknown phrasing is unrecognised, never some other class of failure;
+//! the first diagnostic decides).
 
 use crate::grounding::Binding;
 use crate::lowering::{self, LoweredClaim};
@@ -1046,7 +1049,7 @@ mod tests {
         );
     }
 
-    // Verifies: REQ067 (#250) — Creusot has more than one way of saying "I cannot translate this",
+    // Verifies: REQ067, REQ070 (#250) — Creusot has more than one way of saying "I cannot translate this",
     // and the second one was reaching the operator as *your crate does not compile*. Real output,
     // measured 2026-08-09 against this repo: `src/adopt.rs:37` is
     // `format!("ProvableRequirements-{requirements_dirname}")`, which rustc compiles perfectly.
@@ -1107,7 +1110,7 @@ mod tests {
         );
     }
 
-    // Verifies (#250): an untranslatable construct appearing *later* in a run must not preempt the
+    // Verifies: REQ070 (#250) — an untranslatable construct appearing *later* in a run must not preempt the
     // first diagnostic. Found by a live `verify REQ014`, not by reading the code: the staged
     // harness failed first with the call-in-logic-context error, whose branch names the mirror
     // channel and is the only message here the operator can act on. Recognising the whole output
