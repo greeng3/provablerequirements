@@ -329,6 +329,29 @@ async fn seed_backlog(
     reclassify: bool,
     yes: bool,
 ) -> Result<TriageState> {
+    // Let the record answer before a model is asked (#265). An item with a stored verdict, or with
+    // an admitted formalization, has demonstrably been lowered already — that is not a question for
+    // a classifier, and asking one invites it to contradict our own store, which is exactly what
+    // happened to REQ047 in #258's measurement. Applied first so `plan` below sees these entries
+    // and leaves them out of the batch.
+    let verdicts = provreq::verdict_store::load(companion)?;
+    let drafts = provreq::draft::load(companion)?;
+    let demonstrated = |item: &Item| {
+        verdicts.verdicts.contains_key(&item.id)
+            || provreq::draft::admitted_fingerprint(&drafts, &item.id).is_some()
+    };
+    let (with_record, read_off_the_record) = triage::apply_demonstrated(state, items, demonstrated);
+    let state = &with_record;
+    if !read_off_the_record.is_empty() {
+        println!(
+            "{} item(s) read off the record as formalizable-now ({}) — each carries a stored \
+             verdict or an admitted formalization, so no classifier was asked about them.",
+            read_off_the_record.len(),
+            read_off_the_record.join(", ")
+        );
+        triage::save(companion, state)?;
+    }
+
     // Decide the scope BEFORE describing it (REQ053). Announcing a model and then classifying
     // nothing is output that describes an action rather than reporting one.
     let pending = match triage::plan(state, items, reclassify) {
@@ -352,6 +375,7 @@ async fn seed_backlog(
         triage::TriagePlan::Classify {
             pending,
             operator_kept,
+            demonstrated_kept,
         } => {
             // Said before the consent prompt, so what the operator consents to is what will
             // happen — a count that quietly included their own entries gated the wrong question.
@@ -361,6 +385,17 @@ async fn seed_backlog(
                      replaces an operator's choice; change one with `provreq triage --set`.",
                     operator_kept.len(),
                     operator_kept.join(", ")
+                );
+            }
+            // Said apart from the operator's own entries (#257): these were kept because the
+            // record already answers them, which is a different fact and a different remedy.
+            if !demonstrated_kept.is_empty() {
+                println!(
+                    "keeping {} item(s) the record already answers ({}) — a stored verdict or an \
+                     admitted formalization demonstrates these, so `--reclassify` does not re-ask \
+                     a model about them.",
+                    demonstrated_kept.len(),
+                    demonstrated_kept.join(", ")
                 );
             }
             pending
