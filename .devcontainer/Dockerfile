@@ -210,8 +210,21 @@ RUN apt-get update \
 # compilation stops at the first error, so whether this crate's own 87 async items would then need
 # `#[trusted]` is not yet known. It is the next thing to find out, not something to assume either
 # way.
-# `master` (318615b, "Release 0.13.0") carries the identical `unreachable!()`, so bumping the tag
-# is not the fix. Drop this patch once upstream lands one.
+# Upstream has since landed the fix (creusot-rs/creusot#2214, "Properly error on async"), but it is
+# in no tag yet, so the patch is still load-bearing at the tag below. Measured 2026-08-11 against a
+# clone of each: v0.12.0 and v0.13.0 both carry the bare `unreachable!()`; master (7c3d1e83) matches
+# `TyKind::Coroutine(..) | TyKind::CoroutineClosure(..)` explicitly and no longer needs the patch.
+# Drop it when v0.14.0 ships — that is issue #153, which has a daily tag check.
+#
+# The tag stays at v0.12.0 for now, deliberately. v0.12.0 does have one known defect the next
+# release fixes: it ICEs on a tuple-variant constructor used as a function value (`o.map(E::A)`) —
+# ordinary parser code, which we hit as `parser.map(Expr::Atom)` while measuring #262 and filed as
+# creusot-rs/creusot#2223. v0.12.0 is the only affected release. Bumping to v0.13.0 was measured as
+# viable (both patches below pass `git apply --check` against it) but was NOT done, because the tag
+# does not move alone: v0.13.0's `cargo-creusot` refuses outright with `creusot-std is out of date`
+# unless `Cargo.toml`'s `creusot-std` and the three literals in `src/creusot.rs`'s `cargo_subject`
+# helper move in lockstep — and CI runs a PREBUILT image, so either order is red for a while (see
+# issue #263). v0.14.0 makes the bump moot and retires the patch above, so the wait is cheap.
 ARG CREUSOT_TAG=v0.12.0
 ENV CREUSOT_DATA=/root/.local/share/creusot
 ENV PATH="${CREUSOT_DATA}/bin:${CREUSOT_DATA}/_opam/bin:${PATH}"
