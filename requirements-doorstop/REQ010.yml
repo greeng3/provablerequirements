@@ -18,3 +18,11 @@ text: |
   hand-set entries says which ones it kept. The classifier is pluggable; the
   default seeds from the source's verification hint when present and otherwise
   defaults to stays-prose, never over-claiming that an item is formalizable.
+  Before any classifier is asked, the companion record answers for itself: an
+  item carrying a stored verdict or an admitted formalization has demonstrably
+  been lowered already, so it is recorded as formalizable-now, marked as
+  demonstrated by the record rather than judged, and kept out of the
+  classifier's batch — including on a re-classification, which replaces
+  judgements and finds none here. A run that keeps such entries says so
+  separately from the hand-set ones it keeps, and an operator's own choice
+  still outranks a demonstration.

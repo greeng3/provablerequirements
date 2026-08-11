@@ -37,6 +37,13 @@ pub enum Origin {
     Seeded,
     /// The operator set it by hand ([`set`]). Never replaced by an automatic run.
     Operator,
+    /// Read off the companion record, not judged: the item has a stored verdict or an admitted
+    /// formalization, so the claim demonstrably *has* been lowered (#265, part of #259). Stronger
+    /// than a classification rather than weaker — a model was never asked, because the record
+    /// already answered. Recorded distinctly because the alternatives both misstate it:
+    /// `Classified` would claim a classifier ran, and `Seeded` means *nothing was determined* and
+    /// is replaceable by any later run.
+    Demonstrated,
     /// Written before provreq recorded this (#172). **Not** assumed to be either: an old entry may
     /// have come from a real classifier or from a seed, and guessing would be the very thing this
     /// enum exists to stop. Left alone by an automatic run, like a judgement.
@@ -52,6 +59,14 @@ impl Origin {
         matches!(self, Origin::Seeded)
     }
 
+    /// Whether an automatic run must leave this entry alone whatever flags it was given —
+    /// including `--reclassify`, which exists to replace *judgements*. An operator's choice is
+    /// theirs, and a demonstration is not a judgement to replace: the record that produced it is
+    /// still there, so re-deriving it is the same answer and asking a model is pure waste (#265).
+    pub fn survives_a_reclassify(self) -> bool {
+        matches!(self, Origin::Operator | Origin::Demonstrated)
+    }
+
     /// How this origin reads on a surface that lists classifications. Empty for a real
     /// classification, which needs no annotation — only the ones carrying less than they appear to.
     pub fn note(self) -> &'static str {
@@ -59,6 +74,7 @@ impl Origin {
             Origin::Classified => "",
             Origin::Seeded => "seeded — no classifier ran",
             Origin::Operator => "set by the operator",
+            Origin::Demonstrated => "demonstrated by the record — no classifier was asked",
             Origin::Unrecorded => "origin not recorded",
         }
     }
@@ -300,6 +316,11 @@ pub enum TriagePlan {
     Classify {
         pending: Vec<Item>,
         operator_kept: Vec<String>,
+        /// Entries the record demonstrates, which a re-classify also leaves alone (#265). Named
+        /// apart from `operator_kept` because a run that keeps entries must say *which kind* it
+        /// kept (#257): "we kept your choices" and "we kept what the store already proves" are
+        /// different facts, and reporting them as one would credit the operator for neither.
+        demonstrated_kept: Vec<String>,
     },
 }
 
@@ -323,20 +344,25 @@ pub enum TriagePlan {
 /// silently (REQ010).
 pub fn plan(state: &TriageState, items: &[Item], reclassify: bool) -> TriagePlan {
     if reclassify {
-        let (kept, pending): (Vec<&Item>, Vec<&Item>) = items.iter().partition(|i| {
-            state
-                .items
-                .get(&i.id)
-                .is_some_and(|e| e.origin == Origin::Operator)
-        });
+        let origin_of = |i: &Item| state.items.get(&i.id).map(|e| e.origin);
+        let (kept, pending): (Vec<&Item>, Vec<&Item>) = items
+            .iter()
+            .partition(|i| origin_of(i).is_some_and(Origin::survives_a_reclassify));
         if pending.is_empty() {
             return TriagePlan::Nothing {
                 already: items.len(),
             };
         }
+        let kept_with = |want: Origin| -> Vec<String> {
+            kept.iter()
+                .filter(|i| origin_of(i) == Some(want))
+                .map(|i| i.id.clone())
+                .collect()
+        };
         return TriagePlan::Classify {
             pending: pending.into_iter().cloned().collect(),
-            operator_kept: kept.into_iter().map(|i| i.id.clone()).collect(),
+            operator_kept: kept_with(Origin::Operator),
+            demonstrated_kept: kept_with(Origin::Demonstrated),
         };
     }
     let pending: Vec<Item> = items
@@ -355,8 +381,59 @@ pub fn plan(state: &TriageState, items: &[Item], reclassify: bool) -> TriagePlan
         TriagePlan::Classify {
             pending,
             operator_kept: Vec::new(),
+            demonstrated_kept: Vec::new(),
         }
     }
+}
+
+/// Record what the companion record already **demonstrates** about each item, before any classifier
+/// is asked (#265, part of #259).
+///
+/// `is_demonstrated` answers the only question that matters here: does the record show this claim
+/// has already been lowered? In production that is "the verdict store holds a verdict for it" or
+/// "its draft is admitted with a candidate and bindings" — either way the claim is
+/// [`Classification::FormalizableNow`] by demonstration, not by judgement. Taken as a predicate so
+/// this stays pure and testable without a subject on disk, like [`plan`].
+///
+/// This exists because a classifier reading prose cannot see it. Measured in PR #258: REQ047 was
+/// classified `falsifiable-only` while the verdict store held a Kani `holds` for REQ047 — the tool
+/// contradicting its own record. No prompt fixes that, because the refutation is not in the prose.
+///
+/// An operator's own choice is never overwritten, here as everywhere else (REQ010).
+///
+/// Returns the new state and the ids this call actually **changed** — not the ones it inserted.
+/// Those differ, and the difference is not academic: on the real subject REQ047 already carried an
+/// `unrecorded` entry, so a run that reported how much the map grew announced nothing while
+/// upgrading that entry's provenance. A second run over the same record changes nothing and so
+/// reports nothing, which is what keeps the message a report rather than a recurring banner.
+pub fn apply_demonstrated(
+    state: &TriageState,
+    items: &[Item],
+    is_demonstrated: impl Fn(&Item) -> bool,
+) -> (TriageState, Vec<String>) {
+    let mut next = state.items.clone();
+    let mut changed = Vec::new();
+    for item in items.iter().filter(|i| is_demonstrated(i)) {
+        let entry = TriageEntry {
+            classification: Classification::FormalizableNow,
+            revision: item.revision.clone(),
+            origin: Origin::Demonstrated,
+        };
+        match next.get(&item.id) {
+            Some(e) if e.origin == Origin::Operator => continue,
+            Some(e) if *e == entry => continue,
+            _ => {}
+        }
+        next.insert(item.id.clone(), entry);
+        changed.push(item.id.clone());
+    }
+    (
+        TriageState {
+            schema: state.schema,
+            items: next,
+        },
+        changed,
+    )
 }
 
 #[cfg(test)]
@@ -534,6 +611,7 @@ mod tests {
         let TriagePlan::Classify {
             pending,
             operator_kept,
+            ..
         } = plan(&state, &items, true)
         else {
             panic!("--reclassify is the consent-gated way to replace the unrecorded one");
@@ -877,5 +955,111 @@ mod tests {
     fn load_absent_state_is_empty() {
         let tmp = tempfile::tempdir().unwrap();
         assert!(load(tmp.path()).unwrap().items.is_empty());
+    }
+
+    // Verifies: #265/REQ010 — an item the record already answers never reaches the classifier, and
+    // is recorded as demonstrated rather than as a judgement or a seed.
+    #[test]
+    fn a_demonstrated_item_is_recorded_off_the_record() {
+        let items = [item("A", None), item("B", None)];
+        let (next, _) = apply_demonstrated(&TriageState::new(), &items, |i| i.id == "A");
+
+        let a = next.items.get("A").expect("A recorded");
+        assert_eq!(a.classification, Classification::FormalizableNow);
+        assert_eq!(a.origin, Origin::Demonstrated);
+        assert!(!next.items.contains_key("B"), "B has no record to read");
+    }
+
+    // Verifies: #265 — the whole point. A demonstrated item is excluded from the classifier's
+    // batch, so a model cannot contradict the store the way it did for REQ047.
+    #[test]
+    fn a_demonstrated_item_is_not_planned_for_the_classifier() {
+        let items = [item("A", None), item("B", None)];
+        let (state, _) = apply_demonstrated(&TriageState::new(), &items, |i| i.id == "A");
+
+        let TriagePlan::Classify { pending, .. } = plan(&state, &items, false) else {
+            panic!("B still needs classifying");
+        };
+        let ids: Vec<&str> = pending.iter().map(|i| i.id.as_str()).collect();
+        assert_eq!(ids, ["B"], "only the item the record cannot answer");
+    }
+
+    // Verifies: #265 — `--reclassify` replaces judgements, but a demonstration is not a judgement;
+    // re-asking a model about an item the record answers is the waste this removes.
+    #[test]
+    fn reclassify_keeps_demonstrated_entries_and_names_them_separately() {
+        let items = [item("A", None), item("B", None), item("C", None)];
+        let (mut state, _) = apply_demonstrated(&TriageState::new(), &items, |i| i.id == "A");
+        state = set(&state, &items[1], Classification::StaysProse);
+
+        let TriagePlan::Classify {
+            pending,
+            operator_kept,
+            demonstrated_kept,
+        } = plan(&state, &items, true)
+        else {
+            panic!("C is still classifiable");
+        };
+        let ids: Vec<&str> = pending.iter().map(|i| i.id.as_str()).collect();
+        assert_eq!(ids, ["C"]);
+        assert_eq!(operator_kept, ["B"], "the operator's own choice");
+        assert_eq!(
+            demonstrated_kept,
+            ["A"],
+            "named apart from the operator's (#257)"
+        );
+    }
+
+    // Verifies: #265 — an automatic run never overwrites an operator's choice, and a demonstration
+    // is an automatic run.
+    #[test]
+    fn a_demonstration_never_overwrites_an_operator() {
+        let items = [item("A", None)];
+        let state = set(&TriageState::new(), &items[0], Classification::StaysProse);
+
+        let (next, _) = apply_demonstrated(&state, &items, |_| true);
+
+        let a = next.items.get("A").expect("A still recorded");
+        assert_eq!(a.classification, Classification::StaysProse);
+        assert_eq!(a.origin, Origin::Operator);
+    }
+
+    // Verifies: #265 — a demonstrated entry carries a note saying where it came from, like every
+    // other origin that is not a plain classification (#172).
+    #[test]
+    fn demonstrated_says_what_it_is() {
+        assert!(!Origin::Demonstrated.note().is_empty());
+        assert!(!Origin::Demonstrated.is_replaceable_by_a_plain_run());
+    }
+
+    // Verifies: #265 — an item that ALREADY had an entry is still a change worth reporting. The
+    // live run on the real subject caught this: REQ047 carried an `unrecorded` entry, so counting
+    // how much the map grew reported nothing while the origin was in fact being upgraded.
+    #[test]
+    fn a_demonstration_reports_the_entries_it_changed_not_the_ones_it_added() {
+        let items = [item("A", None)];
+        let mut state = TriageState::new();
+        state.items.insert(
+            "A".into(),
+            TriageEntry {
+                classification: Classification::FalsifiableOnly,
+                revision: "rev-A".into(),
+                origin: Origin::Unrecorded,
+            },
+        );
+
+        let (next, changed) = apply_demonstrated(&state, &items, |_| true);
+        assert_eq!(changed, ["A"], "the origin was upgraded — say so");
+        assert_eq!(next.items["A"].origin, Origin::Demonstrated);
+        assert_eq!(
+            next.items["A"].classification,
+            Classification::FormalizableNow
+        );
+
+        let (_, again) = apply_demonstrated(&next, &items, |_| true);
+        assert!(
+            again.is_empty(),
+            "a second run changed nothing and must announce nothing"
+        );
     }
 }
