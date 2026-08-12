@@ -5,7 +5,7 @@ level: 1.39
 links: []
 normative: true
 ref: ''
-reviewed: null
+reviewed: oTXkeGzdWcBXgROY8dw_bx18v8CTvjRlT0W58dzKMzE=
 text: |
   Marking a predicate function transparent to the prover (REQ033) lets a deductive engine read
   inside it, but transparency alone does not state what the function guarantees. A deductive engine

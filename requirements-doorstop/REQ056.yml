@@ -5,7 +5,7 @@ level: 1.56
 links: []
 normative: true
 ref: ''
-reviewed: null
+reviewed: Tn40Ly5SOWbYv02O279vekVjGutgDcdC5J63JpY7B3k=
 text: |
   Where the tool knows what an operator was reaching for, it says so. Reporting that an input was
   rejected without naming the accepted form leaves the operator to rediscover a rule the tool

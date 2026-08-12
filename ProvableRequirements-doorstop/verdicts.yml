@@ -6,31 +6,31 @@ verdicts:
     reason: inconclusive
     witness: null
     detail:
-    - 'Kani: inconclusive'
-    - the sort `provreq::draft::Draft` cannot be instantiated by Kani — a bounded model checker needs a concrete value for every quantified variable, so a type it cannot enumerate stops the harness before the claim is reached. Nothing is wrong with the binding, the sort, or the claim. Either implement `kani::Arbitrary` for `provreq::draft::Draft` in the subject (an adoption step the subject owns, like a contracts dependency — provreq will not write it for you), or reach this claim through a deductive engine, whose `forall` is logical and needs no value at all
-    - 'Creusot: inconclusive'
-    - 'the proof harness provreq generated did not compile — error: called program function `draft::is_stale` in logic context (src/provreq_req014.rs:11:80). Pearlite may only call `#[logic]` functions, and that is an ordinary program function — marking it `#[logic]` is not the fix either, because that removes the item from the program and breaks every call site. Reach it through a `#[logic]` mirror instead, which leaves the function untouched: re-run `verify` with `--draft-semantic`'
-    - 'Prusti: inconclusive'
-    - 'Prusti''s pinned toolchain predates this subject''s dependency graph — its 2023 cargo cannot read a v4 lock file or a dependency declaring `edition = "2024"`. This is a toolchain ceiling, not a missing annotation: Prusti can only verify a subject whose whole dependency graph builds on a 2023 nightly, and upstream has published nothing newer'
-    evidence:
-    - engine: Kani
-      status: unknown
-      basis: null
-      witness: null
-      detail:
+      - "Kani: inconclusive"
       - the sort `provreq::draft::Draft` cannot be instantiated by Kani — a bounded model checker needs a concrete value for every quantified variable, so a type it cannot enumerate stops the harness before the claim is reached. Nothing is wrong with the binding, the sort, or the claim. Either implement `kani::Arbitrary` for `provreq::draft::Draft` in the subject (an adoption step the subject owns, like a contracts dependency — provreq will not write it for you), or reach this claim through a deductive engine, whose `forall` is logical and needs no value at all
-    - engine: Creusot
-      status: unknown
-      basis: null
-      witness: null
-      detail:
-      - 'the proof harness provreq generated did not compile — error: called program function `draft::is_stale` in logic context (src/provreq_req014.rs:11:80). Pearlite may only call `#[logic]` functions, and that is an ordinary program function — marking it `#[logic]` is not the fix either, because that removes the item from the program and breaks every call site. Reach it through a `#[logic]` mirror instead, which leaves the function untouched: re-run `verify` with `--draft-semantic`'
-    - engine: Prusti
-      status: unknown
-      basis: null
-      witness: null
-      detail:
+      - "Creusot: inconclusive"
+      - "the proof harness provreq generated did not compile — error: called program function `draft::is_stale` in logic context (src/provreq_req014.rs:11:80). Pearlite may only call `#[logic]` functions, and that is an ordinary program function — marking it `#[logic]` is not the fix either, because that removes the item from the program and breaks every call site. Reach it through a `#[logic]` mirror instead, which leaves the function untouched: re-run `verify` with `--draft-semantic`"
+      - "Prusti: inconclusive"
       - 'Prusti''s pinned toolchain predates this subject''s dependency graph — its 2023 cargo cannot read a v4 lock file or a dependency declaring `edition = "2024"`. This is a toolchain ceiling, not a missing annotation: Prusti can only verify a subject whose whole dependency graph builds on a 2023 nightly, and upstream has published nothing newer'
+    evidence:
+      - engine: Kani
+        status: unknown
+        basis: null
+        witness: null
+        detail:
+          - the sort `provreq::draft::Draft` cannot be instantiated by Kani — a bounded model checker needs a concrete value for every quantified variable, so a type it cannot enumerate stops the harness before the claim is reached. Nothing is wrong with the binding, the sort, or the claim. Either implement `kani::Arbitrary` for `provreq::draft::Draft` in the subject (an adoption step the subject owns, like a contracts dependency — provreq will not write it for you), or reach this claim through a deductive engine, whose `forall` is logical and needs no value at all
+      - engine: Creusot
+        status: unknown
+        basis: null
+        witness: null
+        detail:
+          - "the proof harness provreq generated did not compile — error: called program function `draft::is_stale` in logic context (src/provreq_req014.rs:11:80). Pearlite may only call `#[logic]` functions, and that is an ordinary program function — marking it `#[logic]` is not the fix either, because that removes the item from the program and breaks every call site. Reach it through a `#[logic]` mirror instead, which leaves the function untouched: re-run `verify` with `--draft-semantic`"
+      - engine: Prusti
+        status: unknown
+        basis: null
+        witness: null
+        detail:
+          - 'Prusti''s pinned toolchain predates this subject''s dependency graph — its 2023 cargo cannot read a v4 lock file or a dependency declaring `edition = "2024"`. This is a toolchain ceiling, not a missing annotation: Prusti can only verify a subject whose whole dependency graph builds on a 2023 nightly, and upstream has published nothing newer'
     provenance:
       requirement_revision: 19597bc0d12ed865
       subject_commit: f2e15bf013260cc92fba39037b2ab3ae3108c08b
@@ -39,11 +39,11 @@ verdicts:
       environment:
         declared: provreq-devcontainer
         engines:
-        - Creusot 0.12.0
-        - Kani 0.67.0
-        - TLC (TLA+) 2.19
+          - Creusot 0.12.0
+          - Kani 0.67.0
+          - TLC (TLA+) 2.19
         unversioned:
-        - Prusti
+          - Prusti
         container: true
       spec_fingerprint: null
       trace_fingerprint: null
@@ -55,31 +55,31 @@ verdicts:
     reason: null
     witness: null
     detail:
-    - 'Kani: holds (model-checked (bounded))'
-    - 'bounded by — unwind: Kani''s own default — no `kani.default_unwind` is set, so the depth this was checked to is Kani''s choice, not yours; no timeout'
-    - 'Creusot: inconclusive'
-    - 'the proof harness provreq generated did not compile — error: called program function `provision::decide_install` in logic context (src/provreq_req047.rs:11:96). Pearlite may only call `#[logic]` functions, and that is an ordinary program function — marking it `#[logic]` is not the fix either, because that removes the item from the program and breaks every call site. Reach it through a `#[logic]` mirror instead, which leaves the function untouched: re-run `verify` with `--draft-semantic`'
-    - 'Prusti: inconclusive'
-    - 'Prusti''s pinned toolchain predates this subject''s dependency graph — its 2023 cargo cannot read a v4 lock file or a dependency declaring `edition = "2024"`. This is a toolchain ceiling, not a missing annotation: Prusti can only verify a subject whose whole dependency graph builds on a 2023 nightly, and upstream has published nothing newer'
-    evidence:
-    - engine: Kani
-      status: holds
-      basis: model-checked (bounded)
-      witness: null
-      detail:
-      - 'bounded by — unwind: Kani''s own default — no `kani.default_unwind` is set, so the depth this was checked to is Kani''s choice, not yours; no timeout'
-    - engine: Creusot
-      status: unknown
-      basis: null
-      witness: null
-      detail:
-      - 'the proof harness provreq generated did not compile — error: called program function `provision::decide_install` in logic context (src/provreq_req047.rs:11:96). Pearlite may only call `#[logic]` functions, and that is an ordinary program function — marking it `#[logic]` is not the fix either, because that removes the item from the program and breaks every call site. Reach it through a `#[logic]` mirror instead, which leaves the function untouched: re-run `verify` with `--draft-semantic`'
-    - engine: Prusti
-      status: unknown
-      basis: null
-      witness: null
-      detail:
+      - "Kani: holds (model-checked (bounded))"
+      - "bounded by — unwind: Kani's own default — no `kani.default_unwind` is set, so the depth this was checked to is Kani's choice, not yours; no timeout"
+      - "Creusot: inconclusive"
+      - "the proof harness provreq generated did not compile — error: called program function `provision::decide_install` in logic context (src/provreq_req047.rs:11:96). Pearlite may only call `#[logic]` functions, and that is an ordinary program function — marking it `#[logic]` is not the fix either, because that removes the item from the program and breaks every call site. Reach it through a `#[logic]` mirror instead, which leaves the function untouched: re-run `verify` with `--draft-semantic`"
+      - "Prusti: inconclusive"
       - 'Prusti''s pinned toolchain predates this subject''s dependency graph — its 2023 cargo cannot read a v4 lock file or a dependency declaring `edition = "2024"`. This is a toolchain ceiling, not a missing annotation: Prusti can only verify a subject whose whole dependency graph builds on a 2023 nightly, and upstream has published nothing newer'
+    evidence:
+      - engine: Kani
+        status: holds
+        basis: model-checked (bounded)
+        witness: null
+        detail:
+          - "bounded by — unwind: Kani's own default — no `kani.default_unwind` is set, so the depth this was checked to is Kani's choice, not yours; no timeout"
+      - engine: Creusot
+        status: unknown
+        basis: null
+        witness: null
+        detail:
+          - "the proof harness provreq generated did not compile — error: called program function `provision::decide_install` in logic context (src/provreq_req047.rs:11:96). Pearlite may only call `#[logic]` functions, and that is an ordinary program function — marking it `#[logic]` is not the fix either, because that removes the item from the program and breaks every call site. Reach it through a `#[logic]` mirror instead, which leaves the function untouched: re-run `verify` with `--draft-semantic`"
+      - engine: Prusti
+        status: unknown
+        basis: null
+        witness: null
+        detail:
+          - 'Prusti''s pinned toolchain predates this subject''s dependency graph — its 2023 cargo cannot read a v4 lock file or a dependency declaring `edition = "2024"`. This is a toolchain ceiling, not a missing annotation: Prusti can only verify a subject whose whole dependency graph builds on a 2023 nightly, and upstream has published nothing newer'
     provenance:
       requirement_revision: 17cf6ac844159fbe
       subject_commit: f2e15bf013260cc92fba39037b2ab3ae3108c08b
@@ -88,11 +88,11 @@ verdicts:
       environment:
         declared: provreq-devcontainer
         engines:
-        - Creusot 0.12.0
-        - Kani 0.67.0
-        - TLC (TLA+) 2.19
+          - Creusot 0.12.0
+          - Kani 0.67.0
+          - TLC (TLA+) 2.19
         unversioned:
-        - Prusti
+          - Prusti
         container: true
       spec_fingerprint: null
       trace_fingerprint: null

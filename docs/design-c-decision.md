@@ -38,23 +38,23 @@ the [devcontainer Dockerfile](../.devcontainer/Dockerfile). It is, in effect, th
 would be productizing — and its comments record exactly how hard each engine was. That is the
 strongest evidence available, and it is unambiguous: the cost is **tiered, not uniform.**
 
-| Engine | Cat | Native install (per the Dockerfile) | Cost tier | Cross-platform reach |
-| --- | --- | --- | --- | --- |
-| **TLC** | 2a model | headless JRE + a ~2 MB `tla2tools.jar` | **light** | anywhere with Java |
-| **Kani** | 1 code | `cargo install --locked kani-verifier && cargo kani setup` (fetches CBMC + SAT/SMT) | **medium** | Linux/macOS; **no Windows** upstream |
-| **Prusti** | 1 code | **source-built** at a pinned tag — JVM + system `z3` + `prefer-dynamic` + staged `prusti-contracts` + a `uuid` version cap; **no release binary for arm64** | **heavy** | Linux/macOS; JVM-bound |
-| **Creusot** | 1 code | opam switch — `opam init`, why3 depexts (`autoconf`/`zlib`/`gmp`/`m4`/`rsync`), SMT provers (Z3/CVC5/Alt-Ergo); arm64 needed a **custom patch** to `creusot-setup` | **heavy** | opam → effectively Unix-only |
-| **MonPoly** | 2b runtime | wired (#233); built from source, OCaml/opam | **heavy** | Unix-only |
-| **Selenium (WebDriver)** | 3 UI | wired (#245); **nothing installed** — a grid reached over HTTP at `WEBDRIVER_URL` | **none** | any host that can reach a grid |
+| Engine                   | Cat        | Native install (per the Dockerfile)                                                                                                                                | Cost tier  | Cross-platform reach                 |
+| ------------------------ | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------- | ------------------------------------ |
+| **TLC**                  | 2a model   | headless JRE + a ~2 MB `tla2tools.jar`                                                                                                                             | **light**  | anywhere with Java                   |
+| **Kani**                 | 1 code     | `cargo install --locked kani-verifier && cargo kani setup` (fetches CBMC + SAT/SMT)                                                                                | **medium** | Linux/macOS; **no Windows** upstream |
+| **Prusti**               | 1 code     | **source-built** at a pinned tag — JVM + system `z3` + `prefer-dynamic` + staged `prusti-contracts` + a `uuid` version cap; **no release binary for arm64**        | **heavy**  | Linux/macOS; JVM-bound               |
+| **Creusot**              | 1 code     | opam switch — `opam init`, why3 depexts (`autoconf`/`zlib`/`gmp`/`m4`/`rsync`), SMT provers (Z3/CVC5/Alt-Ergo); arm64 needed a **custom patch** to `creusot-setup` | **heavy**  | opam → effectively Unix-only         |
+| **MonPoly**              | 2b runtime | wired (#233); built from source, OCaml/opam                                                                                                                        | **heavy**  | Unix-only                            |
+| **Selenium (WebDriver)** | 3 UI       | wired (#245); **nothing installed** — a grid reached over HTTP at `WEBDRIVER_URL`                                                                                  | **none**   | any host that can reach a grid       |
 
-## Findings — where graceful degradation is *structurally forced*
+## Findings — where graceful degradation is _structurally forced_
 
 The pressure-test does not merely say "some engines are annoying to install." It surfaces three
 findings that make degradation **mandatory by construction**, not a fallback:
 
 1. **The 6-binary matrix ≠ 6× full engine coverage.** Kani has no Windows support upstream; Creusot
    and MonPoly are opam/OCaml and effectively Unix-only. So on the two Windows targets, category-1
-   coverage is *at best* Prusti (JVM), and 2b never. A Windows operator gets a working tool with a
+   coverage is _at best_ Prusti (JVM), and 2b never. A Windows operator gets a working tool with a
    **narrower** engine set — exactly the R-eng-3 "unavailable — engine absent/incompatible" path.
    Degradation is the design, not an accident.
 
@@ -72,8 +72,8 @@ findings that make degradation **mandatory by construction**, not a fallback:
 ## The escape hatch the design already has
 
 Design C folds B in as a strategy branch: **if the subject ships a devcontainer, inherit its
-toolchain instead of provisioning natively.** The heavy tier (Creusot, Prusti, MonPoly) is *already
-baked into this repo's devcontainer image* (`build-devcontainer-image.yml` pays Kani setup + the
+toolchain instead of provisioning natively.** The heavy tier (Creusot, Prusti, MonPoly) is _already
+baked into this repo's devcontainer image_ (`build-devcontainer-image.yml` pays Kani setup + the
 Prusti source build + the Creusot opam switch once, per arch). So the engines that are expensive to
 provision natively are exactly the ones the dev-container branch supplies for free. The two branches
 are complementary: **native provisioning carries the light tier; the dev-container branch carries the

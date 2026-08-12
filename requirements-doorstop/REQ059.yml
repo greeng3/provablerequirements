@@ -5,7 +5,7 @@ level: 1.59
 links: []
 normative: true
 ref: ''
-reviewed: null
+reviewed: b9imvNS1iI2rYRQTnbT6_BocHTwKV2JyaQ6Q2auklXo=
 text: |
   A claim about program state speaks of values, and a value it speaks of has to come from somewhere
   before anything can be checked. Where the tool admits only one such value per claim, a property

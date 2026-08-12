@@ -16,7 +16,7 @@ Design C's front door selects a build-env strategy per subject
 → **inherit its toolchain** through the docker socket; no dev-container → **provision natively**.
 The native half is done. Should we build the docker half — and in what form?
 
-The trust cost is the crux. Design C's headline move was *removing* the seam: Design A's
+The trust cost is the crux. Design C's headline move was _removing_ the seam: Design A's
 UDS/agent and Design B's docker socket both "→ **gone**", the socket named explicitly as
 "a **privileged (root-equivalent) seam** — that's the trust cost". This branch re-introduces the
 exact thing the design deleted, in one code path. That is only worth it if the branch buys
@@ -42,11 +42,11 @@ subject needed a `creusot-std` dependency before anything could be discharged.
 **Consequence:** handing an unprepared subject a container full of engines changes nothing. It still
 answers `inconclusive`, for a reason no build env can fix.
 
-### E2 — "toolchain-welded" runs the *other* way: the **engine** pins the toolchain
+### E2 — "toolchain-welded" runs the _other_ way: the **engine** pins the toolchain
 
 The phrase suggests the engine must bend to the subject's toolchain, which is what makes
 `FROM subject-image` inheritance sound valuable. The code says the opposite. `cargo prusti` runs
-under a **pinned 2023-08 nightly** that the *subject* must pin, and provreq must actively stop its
+under a **pinned 2023-08 nightly** that the _subject_ must pin, and provreq must actively stop its
 own newer toolchain from leaking in ([src/prusti.rs:211-216](../src/prusti.rs#L211-L216)):
 
 > Prusti is toolchain-welded to its own nightly, which the subject pins, so the caller's toolchain
@@ -58,7 +58,7 @@ prusti driver and needs it at verify time", and a `uuid` cap at 1.10.0 that appl
 `cargo prusti` resolves" — because current `uuid` pulls an edition-2024 manifest this cargo cannot
 parse.
 
-**Consequence:** a subject that can be verified by Prusti has *already* pinned the toolchain Prusti
+**Consequence:** a subject that can be verified by Prusti has _already_ pinned the toolchain Prusti
 dictates. Inheriting the subject's env therefore buys far less fidelity than the general argument
 for inheritance assumes — the degrees of freedom inheritance protects were never free.
 
@@ -95,13 +95,13 @@ adopt without weighing.
 
 ## The option space
 
-| # | Option | Supplies the heavy tier? | Fidelity | Socket needed | Cost |
-| --- | --- | --- | --- | --- | --- |
-| 1 | **Run provreq inside the subject's dev-container** | Only if that image already has engines | Perfect (literal env) | **No** | Zero — works today |
-| 2 | **Derive an image**: `FROM subject-image` + build the engine layer | Yes | High | Yes | E3's hours-long hand-patched build, per subject, per arch, on the operator's machine |
-| 3 | **`COPY --from` a prebuilt engine image** onto the subject base | Yes, if it survives the copy | High if it works | Yes | Fragile: an opam switch, a prusti home of `prefer-dynamic` binaries, a JVM and a native `z3` copied onto an arbitrary base — glibc/arch/loader-path roulette |
-| 4 | **Mount the subject into our published engine image** | Yes | Reconstruction — subject's system deps and build config absent; provenance must downgrade | Yes | Low; the image already exists |
-| 5 | **Detect + advise; ship the engine layer as an opt-in devcontainer image/feature** | Yes, by the subject opting in once | Perfect (it becomes the subject's real env) | **No** | Low; the image already exists |
+| #   | Option                                                                             | Supplies the heavy tier?               | Fidelity                                                                                  | Socket needed | Cost                                                                                                                                                         |
+| --- | ---------------------------------------------------------------------------------- | -------------------------------------- | ----------------------------------------------------------------------------------------- | ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 1   | **Run provreq inside the subject's dev-container**                                 | Only if that image already has engines | Perfect (literal env)                                                                     | **No**        | Zero — works today                                                                                                                                           |
+| 2   | **Derive an image**: `FROM subject-image` + build the engine layer                 | Yes                                    | High                                                                                      | Yes           | E3's hours-long hand-patched build, per subject, per arch, on the operator's machine                                                                         |
+| 3   | **`COPY --from` a prebuilt engine image** onto the subject base                    | Yes, if it survives the copy           | High if it works                                                                          | Yes           | Fragile: an opam switch, a prusti home of `prefer-dynamic` binaries, a JVM and a native `z3` copied onto an arbitrary base — glibc/arch/loader-path roulette |
+| 4   | **Mount the subject into our published engine image**                              | Yes                                    | Reconstruction — subject's system deps and build config absent; provenance must downgrade | Yes           | Low; the image already exists                                                                                                                                |
+| 5   | **Detect + advise; ship the engine layer as an opt-in devcontainer image/feature** | Yes, by the subject opting in once     | Perfect (it becomes the subject's real env)                                               | **No**        | Low; the image already exists                                                                                                                                |
 
 Options 1 and 5 are the ones Design C's own R-eng-2 anticipated: "provision toolchain-welded engines
 into the dev env (**devcontainer feature** / documented install), with at most an opt-in,
@@ -110,14 +110,14 @@ consent-gated setup helper."
 ## Findings
 
 1. **The branch's true value is narrow.** By E1, it helps exactly one population: a subject that has
-   *already* adopted `prusti-contracts`/`creusot-contracts` and pinned the engine's toolchain, but
+   _already_ adopted `prusti-contracts`/`creusot-contracts` and pinned the engine's toolchain, but
    whose dev-container lacks the engine binaries. A subject that has done the adoption work has
    already touched its manifest and toolchain file; adding an image tag or a feature (option 5) is
    the same kind of edit, made once, in the open, under review.
 
 2. **Inheritance buys less than advertised.** By E2, the toolchain inheritance was the strongest
    argument for the socket, and the deductive engines invert it: they dictate the toolchain rather
-   than adapting to it. What inheritance still genuinely buys is the subject's *system* dependencies
+   than adapting to it. What inheritance still genuinely buys is the subject's _system_ dependencies
    and build configuration — real, but not the soundness argument that justified a privileged seam.
 
 3. **The privileged seam has a zero-privilege substitute for the case that matters.** Options 1 and
@@ -154,7 +154,7 @@ survive contact with the engines (Finding 2), and a zero-privilege path reaches 
   it was proved and stops being silently reused when that changes.
 
 **A5's "strategy-selected build-env seam" therefore resolves to: detect and advise, not detect and
-exec.** The strategy still varies per subject; what varies is the *advice*, not a privileged
+exec.** The strategy still varies per subject; what varies is the _advice_, not a privileged
 execution path.
 
 ## Revisit triggers

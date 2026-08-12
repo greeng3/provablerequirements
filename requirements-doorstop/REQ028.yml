@@ -5,7 +5,7 @@ level: 1.27
 links: []
 normative: true
 ref: ''
-reviewed: U4e9gp0zVgd6VkjLOvzhHJuEX7dMf66H-PtvH7N16Xc=
+reviewed: IqpG0up3I32eSLnp5FvgCD0tQpkFCe3-k-QLnCK_Hg4=
 text: |
   A category-2a grounding binds a requirement's vocabulary to a model, not to the subject's
   own code. The model is a TLA+ specification the operator wrote, and a 2a binding names a

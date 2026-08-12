@@ -5,7 +5,7 @@ level: 1.61
 links: []
 normative: true
 ref: ''
-reviewed: null
+reviewed: g4mTib1_CDfpkcIFH24Ap25IfJwnVRPo6mWdupe-PeM=
 text: |
   What is generated for a checker must name the subject's items the way that checker will read them.
   A name is not a bare identifier: a language places items within a structure, and the same

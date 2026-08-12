@@ -5,7 +5,7 @@ level: 1.68
 links: []
 normative: true
 ref: ''
-reviewed: null
+reviewed: idxxTD_uZCpPTgk4lxShcajF1AOv3sHJ7330sXBnOzo=
 text: |
   A deductive checker may refuse to let its specification language reach the subject's ordinary
   functions at all: a specification is a logical statement, and only the checker's own logical

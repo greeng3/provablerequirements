@@ -5,7 +5,7 @@ level: 1.44
 links: []
 normative: true
 ref: ''
-reviewed: null
+reviewed: DZ1_mxBThdyqet_ENlXA14Itxx6nasVqTHF9ifhD-9A=
 text: |
   A verdict records the provenance it was produced against so the living loop can tell when it has
   gone stale: the requirement revision, the subject commit, and the tool version (REQ039). But that

@@ -5,7 +5,7 @@ level: 1.32
 links: []
 normative: true
 ref: ''
-reviewed: null
+reviewed: jzlCEnmqlEu2LosLll3k89nKvQbNNvixqu2ubJIpNnY=
 text: |
   A category-1 requirement is verified deductively only when the predicate functions it is
   grounded to are transparent to the prover — marked as logical or pure functions. When a

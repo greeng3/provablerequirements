@@ -5,7 +5,7 @@ level: 1.9
 links: []
 normative: true
 ref: ''
-reviewed: 9bMlyAi3WNaTOcwpTpckn7U2OIPon9tYNbNmVIff3r0=
+reviewed: 8Fa1bZhw9kUhdTq5-pU9if0pOf1FYLxW9eqx8SY-KCY=
 text: |
   The `triage` command classifies each requirement item into one of
   formalizable-now, falsifiable-only, or stays-prose, and persists the result as

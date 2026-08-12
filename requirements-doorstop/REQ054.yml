@@ -5,7 +5,7 @@ level: 1.54
 links: []
 normative: true
 ref: ''
-reviewed: null
+reviewed: pZq0rIBP3cbGPwD7VR56tyyVAeUHhnwfJkcFTgACYuk=
 text: |
   Work the tool asks an external service to do is divided so that a failure costs a bounded part of
   it and never all of it. A single request covering an entire backlog has the property that its cost

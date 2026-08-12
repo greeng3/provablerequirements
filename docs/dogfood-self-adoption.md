@@ -23,11 +23,11 @@ anywhere in the chain from requirement to verdict.
 **Every defect found is in the LLM triage path, and all three are the same disease** — reporting
 work that was not done:
 
-| Issue | Defect |
-| --- | --- |
+| Issue                                                              | Defect                                                                                       |
+| ------------------------------------------------------------------ | -------------------------------------------------------------------------------------------- |
 | [#127](https://github.com/greeng3/provablerequirements/issues/127) | A failed LLM triage is reported as a confident all-prose classification of the whole backlog |
-| [#128](https://github.com/greeng3/provablerequirements/issues/128) | Bulk triage is one all-or-nothing request; 51 items ran 10 minutes and lost everything |
-| [#126](https://github.com/greeng3/provablerequirements/issues/126) | `triage` announces an LLM classification it does not perform |
+| [#128](https://github.com/greeng3/provablerequirements/issues/128) | Bulk triage is one all-or-nothing request; 51 items ran 10 minutes and lost everything       |
+| [#126](https://github.com/greeng3/provablerequirements/issues/126) | `triage` announces an LLM classification it does not perform                                 |
 
 That clustering is itself a result. The parts of the tool that were designed around the honesty
 thesis hold up under contact; the part that delegates a judgement to a model is where the thesis
@@ -73,8 +73,8 @@ Two items were then triaged by hand to carry on.
 
 ### 3. Formalize
 
-REQ047 — *"on a platform the engine's upstream does not support, the tool reports that plainly
-... rather than attempting an install that cannot succeed"* — formalized as a category-1
+REQ047 — _"on a platform the engine's upstream does not support, the tool reports that plainly
+... rather than attempting an install that cannot succeed"_ — formalized as a category-1
 invariant:
 
 ```text
@@ -187,7 +187,7 @@ over `EngineState`→`EngineStatus` against a parameter written `&EngineStatus`,
 ### Finding 1 — resolution walked the build directory (fixed here, REQ060)
 
 The first dry-run **timed out at two minutes**. `adopt` and `doorstop` have always pruned `.git`,
-`target`, `node_modules`, and `.venv`; the two *adapters* that resolve bindings never did, so every
+`target`, `node_modules`, and `.venv`; the two _adapters_ that resolve bindings never did, so every
 resolution traversed this repo's 2.6 GB `target/` — for 57 source files.
 
 Four walks with four opinions about which files count. Now one rule, `subject_tree::is_pruned_dir`,
@@ -239,7 +239,7 @@ predicate. **A PRL atom is always a predicate applied to terms, and a predicate 
 of the subject**, so there is no way to say "this boolean variable is true".
 
 The committed formalization works around that by binding a nullary `platform_supported` to
-`kani_platform_supported()` — which reads the *host OS*. That is a different proposition, and the
+`kani_platform_supported()` — which reads the _host OS_. That is a different proposition, and the
 resulting claim is not true of `decide_install`: nothing stops a caller passing
 `platform_supported = true` on an unsupported host. It is true only of the call site that composes
 them, and that call site does I/O, so the cat-1 fragment cannot reach it.
@@ -293,7 +293,7 @@ Three things this deliberately does not paper over:
 error[E0277]: the trait bound `provreq::engine::EngineStatus: kani::Arbitrary` is not satisfied
 ```
 
-`EngineStatus` carries an `Available { version: String }` variant, and Kani needs a *value* for every
+`EngineStatus` carries an `Available { version: String }` variant, and Kani needs a _value_ for every
 quantified variable. Nothing is wrong with the binding, the sort, or the claim — this is Kani's own
 precondition, and a deductive engine's logical `forall` would not need it. Tracked as
 [#148](https://github.com/greeng3/provablerequirements/issues/148), which is about saying so in the
@@ -347,7 +347,7 @@ pub enum Access { Granted, Refused, NeedsReview }
 pub fn decide(session: &Session, flagged: bool) -> Access { … }  // src/access.rs
 ```
 
-and the requirement: *a request is granted only from a trusted session*, grounded
+and the requirement: _a request is granted only from a trusted session_, grounded
 `trusted=Session::is_trusted`, `granted=decide::Granted`, `Sess=Session`, `Flag=bool`.
 
 ### What worked in the third pass
@@ -396,8 +396,8 @@ that leaves the subject unable to compile in any configuration.
 
 With no provider configured, `triage` seeds the prose-floor default and says so as it runs — but
 persists `classification: stays-prose` with no trace that no classifier ran. Here the seed was
-**wrong**: configuring the model and re-running gave `formalizable-now`. `stays-prose` means *this
-will not be formalized*, and the coverage funnel counts it.
+**wrong**: configuring the model and re-running gave `formalizable-now`. `stays-prose` means _this
+will not be formalized_, and the coverage funnel counts it.
 
 ### Friction, not defects
 
@@ -443,7 +443,7 @@ Both predicates mirrored, including `decide` — the function the prover had nam
 abandoned. The claim still does not discharge, now for an honest and different reason: the drafted
 `is_trusted_logic` writes `failures == 0` where matching a `&Session` binds `failures: &u32`. That is
 ordinary mirror-quality variance, the case the design is built to survive — nothing false is proved,
-and the mirror is staged for the operator to correct. Where the operator is *pointed* is a separate
+and the mirror is staged for the operator to correct. Where the operator is _pointed_ is a separate
 defect, filed as [#174](https://github.com/greeng3/provablerequirements/issues/174): a type error
 inside a staged mirror is reported as "the proof harness did not compile", sending them to a
 generated file they cannot edit instead of the line in their own tree.
@@ -515,8 +515,8 @@ REQ001       formalizable-now
     -> triage.yml: classification: formalizable-now / origin: classified
 ```
 
-The third step is the one the third pass could not reach: the seed said `stays-prose`, meaning *this
-will not be formalized*, and the model said `formalizable-now`. The annotation disappears once the
+The third step is the one the third pass could not reach: the seed said `stays-prose`, meaning _this
+will not be formalized_, and the model said `formalizable-now`. The annotation disappears once the
 bucket is a real classification, because a classification needs no annotation — only the states
 carrying less than they appear to do.
 
@@ -556,7 +556,7 @@ Both are now stated in `PEARLITE_RULES`, and re-running this same journey on a f
 subject reached `holds — proven` with **nothing corrected by hand**. Fixing them exposed a third
 miss of the same kind, in the same place: told the receiver becomes a parameter of "the SAME type
 INCLUDING its reference", the model wrote `s: &Self` — which satisfies that literally, since `&Self`
-*is* the receiver's type. A mirror is appended at module level, outside the `impl`, so the subject
+_is_ the receiver's type. A mirror is appended at module level, outside the `impl`, so the subject
 stopped compiling on its own source (`error[E0411]: cannot find type Self in this scope`). Saying
 where the item lands is what rules it out. The pattern worth carrying: each of these is a mechanical
 fact about the language the model is writing, invisible to every unit test, and costing a correction
@@ -566,13 +566,13 @@ apiece precisely because a mirror gets no repair round.
 
 Four of the five, each against a real edit, each read back from the funnel and the API:
 
-| axis | how it was driven | result |
-| --- | --- | --- |
-| subject commit | an unrelated commit to `src/lib.rs` | `verified 1 → 0`, `stale 0 → 1` |
-| requirement prose | edited `reqs/REQ001.yml` | stale, prose axis named |
-| formalization | `--set` a new candidate (un-admits) | stale, formalization axis named |
-| proving environment | added `environment: lab-1` | stale, `unlabelled → \`lab-1\`` |
-| tool version | **not driven** — needs a differently-versioned binary | uncovered |
+| axis                | how it was driven                                     | result                          |
+| ------------------- | ----------------------------------------------------- | ------------------------------- |
+| subject commit      | an unrelated commit to `src/lib.rs`                   | `verified 1 → 0`, `stale 0 → 1` |
+| requirement prose   | edited `reqs/REQ001.yml`                              | stale, prose axis named         |
+| formalization       | `--set` a new candidate (un-admits)                   | stale, formalization axis named |
+| proving environment | added `environment: lab-1`                            | stale, `unlabelled → \`lab-1\`` |
+| tool version        | **not driven** — needs a differently-versioned binary | uncovered                       |
 
 The reasons are exact and carry both sides of the change:
 
@@ -626,7 +626,7 @@ error: Illegal recursive type
 
 Three shapes, measured on the live engine: `Box<T>` is **accepted**, `Vec<T>` is refused, and
 `Vec<Box<T>>` is refused too — Creusot looks through the `Box`. So the limit is recursion under a
-type *parameter*, and there is no indirection that buys a way out.
+type _parameter_, and there is no indirection that buys a way out.
 
 ### The fix was one the type already wanted
 
@@ -634,7 +634,7 @@ The field's own doc comment said the recursion could never be used: an argument 
 or `Primitive`, because anything else turns the whole application into `UnusableTypeArguments`
 before an argument is kept. Five of seven variants were unreachable in that position — which is
 what `TypeResolution`'s doc comment calls a mistake in the sentence explaining why it is not
-`Resolution`, and what REQ069 already bounds when it says the tool confirms *one* level of
+`Resolution`, and what REQ069 already bounds when it says the tool confirms _one_ level of
 application. So `args` now holds an `ArgResolution`, a two-variant `Resolved | Primitive` that
 cannot recur. Creusot accepting the crate is a consequence of stating the state space correctly,
 not a concession to the prover.
@@ -642,12 +642,12 @@ not a concession to the prover.
 ### The hint was naming a cause it had not established
 
 The subject-source branch of `build_error` ended "if a draft was just staged there, it is the staged
-edit that needs fixing" on *every* such failure. Here the failing file had never been staged into,
+edit that needs fixing" on _every_ such failure. Here the failing file had never been staged into,
 so the message sent the operator to repair something that was never wrong — REQ064's overclaim,
 moved from the answer into the explanation of the answer. It now says only what it knows: the file,
 and the fact that explains an unrelated file failing at all (REQ067's "reach" — Creusot compiles the
 whole crate). The case where a staged mirror really is the cause keeps its own branch, which
-recognises the *error* rather than guessing from the location.
+recognises the _error_ rather than guessing from the location.
 
 ### It was not the only one — see [#250](https://github.com/greeng3/provablerequirements/issues/250)
 
@@ -657,14 +657,14 @@ With the recursive type gone, the whole-crate run got one file further and stopp
 The first reading of this — recorded here and in #250 as "`format!` is untranslatable" — was wrong,
 and re-measuring one construct per run is what corrected it:
 
-| written | Creusot |
-| --- | --- |
-| `format!("hello")` | **accepted** |
-| `format!("prefix-{s}")` | refused |
-| `println!("hello")` | **accepted** |
-| `println!("{s}")` | refused |
-| `write!(o, "{s}")` | refused |
-| `"a literal"`, `s.to_string()`, `String::from("lit")` | accepted |
+| written                                               | Creusot      |
+| ----------------------------------------------------- | ------------ |
+| `format!("hello")`                                    | **accepted** |
+| `format!("prefix-{s}")`                               | refused      |
+| `println!("hello")`                                   | **accepted** |
+| `println!("{s}")`                                     | refused      |
+| `write!(o, "{s}")`                                    | refused      |
+| `"a literal"`, `s.to_string()`, `String::from("lit")` | accepted     |
 
 The macro is not the trigger. A formatting macro with **nothing to interpolate** constant-folds to a
 plain literal and is translated fine; what Creusot refuses is one that interpolates **at least one
@@ -688,10 +688,10 @@ through a fixture is a measurement of the fixture too.
 Measuring the above turned up a defect rather than a decision. Creusot declines to translate things
 in **two** phrasings, and `classify` matched one:
 
-| Creusot says | matched before | reported as |
-| --- | --- | --- |
-| `the rvalue Coroutine(…) is not currently supported` | yes | the prover's limit ✓ |
-| `Unsupported constant value: Scalar(alloc412) of type &'{erased} [u8; 24_usize]` | **no** | *the subject did not compile* ✗ |
+| Creusot says                                                                     | matched before | reported as                     |
+| -------------------------------------------------------------------------------- | -------------- | ------------------------------- |
+| `the rvalue Coroutine(…) is not currently supported`                             | yes            | the prover's limit ✓            |
+| `Unsupported constant value: Scalar(alloc412) of type &'{erased} [u8; 24_usize]` | **no**         | _the subject did not compile_ ✗ |
 
 So the `format!` case fell through to the generic build-failure branch and told the operator their
 crate does not compile. It compiles perfectly under rustc — this is REQ067's case (the checker's own
@@ -707,7 +707,7 @@ operator's own tree is something they can read.
 The formatting lead is **offered, not asserted**, which is REQ064's own distinction between a
 diagnosis that is one possibility among several and one the tool actually determined. A byte-array
 constant is where an interpolating format macro lands, and it is not exclusively that — so the
-message says a constant of that shape *usually* comes from one, and names `format!`, `println!` and
+message says a constant of that shape _usually_ comes from one, and names `format!`, `println!` and
 `write!` as the things to check first.
 
 Measured end to end — a real `cargo creusot` over this whole crate, its output through the real
@@ -743,7 +743,7 @@ staged harness (`called program function draft::is_stale in logic context`), and
 
 That is the right verdict for REQ014 — the mirror channel is what the operator needs — but it
 exposed a defect in the first cut of this change. The new recognition scanned the **whole** output
-and ran *ahead* of the mirror-channel branch, so a run carrying both errors would have replaced
+and ran _ahead_ of the mirror-channel branch, so a run carrying both errors would have replaced
 actionable advice with an accurate but useless statement of the prover's limit. Four tests were
 green on it. The fix keys the decision to the **first** diagnostic, which is the rule `build_error`
 already followed, and a test now pins the two-error case using the shape the live run produced.
@@ -785,7 +785,7 @@ reported it as web-only, and that is no longer true.
 
 ### What was actually stale
 
-Only REQ014's *text* was wrong. Its Creusot detail still read "the subject did not compile under
+Only REQ014's _text_ was wrong. Its Creusot detail still read "the subject did not compile under
 Creusot — error: Illegal recursive type … it is the staged edit that needs fixing" — a build failure
 that #227 made impossible, carrying advice #227 deleted for asserting an unestablished cause.
 REQ047's mirror-channel message was still current wording; only its provenance had drifted.
@@ -797,10 +797,10 @@ message a real run produces today.
 
 The more interesting effect was in the funnel:
 
-| | before | after |
-| --- | --- | --- |
-| `verified` | 0 | **1** |
-| `stale` | 2 | **0** |
+|            | before | after |
+| ---------- | ------ | ----- |
+| `verified` | 0      | **1** |
+| `stale`    | 2      | **0** |
 
 REQ047 genuinely `holds` — Kani, model-checked (bounded) — and has since the fourth pass. Because
 its verdict had drifted, it dropped out of `verified`, and the repo's own coverage funnel reported
@@ -818,17 +818,17 @@ run. In particular the tool-version drift axis was **not** exercised and cannot 
 
 ## Seventh pass (2026-08-10, issue #226) — the pre-sort re-measured
 
-#226 measured the LLM triage pre-sort sorting on phrasing: three requirements implemented by one
-pure, unit-tested module landed in three different buckets, and eleven corrections were defensible
-from the `Implements:` markers alone. Two changes were made — the floor and the question — and the
-same measurement was re-run: same 69 requirements, same model (qwen3:32b), the new prompt, in an
-isolated copy of the tree.
+Issue #226 measured the LLM triage pre-sort sorting on phrasing: three requirements implemented by
+one pure, unit-tested module landed in three different buckets, and eleven corrections were
+defensible from the `Implements:` markers alone. Two changes were made — the floor and the question
+— and the same measurement was re-run: same 69 requirements, same model (qwen3:32b), the new prompt,
+in an isolated copy of the tree.
 
 ### The floor first, because it was quietly load-bearing
 
 An item the model omitted or mislabeled used to default to `stays-prose`, documented as "the honest
 floor... claims nothing and leaves the work visible". Both halves were false. `stays-prose` is the
-lifecycle state meaning *this will not be formalized* — REQ011 keeps it deliberately distinct from
+lifecycle state meaning _this will not be formalized_ — REQ011 keeps it deliberately distinct from
 un-triaged — and defaulting into it removes the item from `untriaged`, the one count built to show
 work owed. The floor is now the absence of a classification: an omitted item stays un-triaged, a
 declined item is left exactly as it was, and a decline can neither invent an entry nor erase one
@@ -841,7 +841,7 @@ sort on wording: mentions a command → `falsifiable-only`, mentions a UI or a r
 `stays-prose`. The new prompt states the actual question — can this claim be **lowered** to
 something an engine can check — defines `formalizable-now` by the category-1 fragment (an invariant
 over program state), warns against the wording sort by name, states that `stays-prose` asserts
-*never*, and tells the model to omit what it cannot place.
+_never_, and tells the model to omit what it cannot place.
 
 ### Measured, on the operator-corrected items
 
@@ -849,10 +849,10 @@ The committed `triage.yml` carries 12 classifications with `origin: operator` �
 to fix, which means the old prompt got every one of them wrong. The new prompt, cold, on the same
 text:
 
-| | old prompt | new prompt |
-| --- | --- | --- |
-| correct on the 12 operator-corrected items | 0 | **8** |
-| of the misses, `stays-prose` overclaims | most | **0** |
+|                                            | old prompt | new prompt |
+| ------------------------------------------ | ---------- | ---------- |
+| correct on the 12 operator-corrected items | 0          | **8**      |
+| of the misses, `stays-prose` overclaims    | most       | **0**      |
 
 The four remaining misses (REQ011, REQ014, REQ030, REQ039) are all the same boundary call —
 `formalizable-now` read as `falsifiable-only`. The issue's flagship case, REQ023, classifies
@@ -861,11 +861,11 @@ correctly now, as do all five serve endpoints (REQ034–REQ038).
 ### The distribution shift, which is the finding
 
 Across the whole backlog the model now uses `stays-prose` **zero** times (38 `falsifiable-only`,
-31 `formalizable-now`, nothing omitted). The failure #226 named — a confident *never formalize* on
+31 `formalizable-now`, nothing omitted). The failure #226 named — a confident _never formalize_ on
 a pure function — did not get rarer; it is extinct in this run. The mirror cost: the 11 items the
 reference holds as genuinely prose were all pushed into a checkable bucket. Raw agreement with the
 committed reference is 44/69, and that number alone would read as a regression — what changed is the
-*species* of error. Every disagreement is now in the direction that keeps the item visible: an
+_species_ of error. Every disagreement is now in the direction that keeps the item visible: an
 over-optimistic bucket sits in the funnel where one `--set` demotes it, where the old error wrote
 items off in a state that looks like a decision.
 
@@ -881,8 +881,7 @@ asserts the operator's intent, which is the one thing the model cannot see. Left
   no prompt saw that record. The classifier still reads prose alone; #226's "give the classifier
   what the question needs" remains open beyond what a prompt can carry.
 - The first attempt timed out mid-backlog after 10 items, and REQ054's batching held: the 10
-  persisted, the run said exactly what was and was not done, and a plain re-run resumed from item
-  11. The measurement in this section is the resumed run's.
+  persisted, the run said exactly what was and was not done, and a plain re-run resumed from item 11. The measurement in this section is the resumed run's.
 
 ### Found on the way
 

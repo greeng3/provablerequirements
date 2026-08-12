@@ -5,7 +5,7 @@ level: 1.25
 links: []
 normative: true
 ref: ''
-reviewed: null
+reviewed: pza8ZInxL97GxnZpBw97pIvFue6Dmg3I0Bt3Wa7nS4g=
 text: |
   A grounding binds the sorts a requirement speaks of, not only its predicates. The sorts
   are the types a quantified variable ranges over and any sort the vocabulary declares; a
