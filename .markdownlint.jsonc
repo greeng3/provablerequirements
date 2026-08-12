@@ -5,6 +5,11 @@
   "default": true,
   // Prose is wrapped by hand for readability, not to a fixed column width.
   "MD013": false,
+  // docs/dogfood-self-adoption.md is a log of successive passes, and each pass section
+  // legitimately repeats subheadings like "What this pass did not cover". Scoping MD024 to
+  // siblings keeps a real duplicate-within-one-section an error while letting the per-pass
+  // structure repeat, instead of forcing every new pass to invent a synonym.
+  "MD024": { "siblings_only": true },
   // Match Prettier's nested-list indent (4 spaces under a `- ` item). Prettier runs first
   // in `make fmt`, so MD007's default of 2 contradicted the formatter and made pre-merge
   // fail on exactly what step 2 had just written. Aligning the linter with the formatter is

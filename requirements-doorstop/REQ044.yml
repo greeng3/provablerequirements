@@ -5,7 +5,7 @@ level: 1.43
 links: []
 normative: true
 ref: ''
-reviewed: null
+reviewed: IfZmorzg2b85CS_ymxJM_O84n754YydJnZ9HOs0uS6U=
 text: |
   The living loop tallies how many stored verdicts have drifted (REQ043), but acting on that tally
   still meant opening each drifted item and re-verifying it one at a time. When several verdicts have

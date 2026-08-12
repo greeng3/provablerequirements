@@ -15,6 +15,10 @@ rules:
 ignore: |
   qrusty/
   requirements-doorstop/
+  # Written by provreq, not by hand: every over-length line is one YAML scalar holding an
+  # engine's own explanation, so it can be neither wrapped nor shortened, and the next run
+  # rewrites the file regardless.
+  ProvableRequirements-doorstop/verdicts.yml
   .venv/
   node_modules/
   .claude/

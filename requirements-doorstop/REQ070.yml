@@ -1,11 +1,11 @@
 active: true
 derived: false
 header: ''
-level: 1.70
+level: '1.70'
 links: []
 normative: true
 ref: ''
-reviewed: null
+reviewed: EfN2YaA3Qs0Yda9K_Ywguo2QxiT_uFTHHMynMmgP0e0=
 text: |
   A checker states one fact in more than one phrasing — by version, by code path, by the shape of
   the construct that triggered it. A reader that recognises one phrasing has not partially

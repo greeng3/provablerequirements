@@ -5,7 +5,7 @@ level: 1.26
 links: []
 normative: true
 ref: ''
-reviewed: null
+reviewed: AnK_2P3x7XLiZjonMx1XsAut_QohlcgCktRLeUQAgtU=
 text: |
   A grounded category-1 requirement earns a real verdict from a verification engine, rather
   than an honest placeholder. The engine is Kani, the first category-1 engine wired: a

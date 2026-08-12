@@ -5,7 +5,7 @@ level: 1.62
 links: []
 normative: true
 ref: ''
-reviewed: null
+reviewed: y-2UTzbXPkp37p_7YQoZE-qWqam9x9xmB_NKM30zIso=
 text: |
   What is generated for a checker must be expressible in the language that checker actually reads,
   which is not always the language the surrounding artifact is written in. A checker may accept an

@@ -5,7 +5,7 @@ level: 1.42
 links: []
 normative: true
 ref: ''
-reviewed: null
+reviewed: yipMSHAOTH-hUJT_Q2zTFzjl8m3ps3gcoOpiYOE4Qek=
 text: |
   The living loop (REQ039) detects when a stored verdict has drifted — its requirement prose, its
   subject code, or the tool moved since the verdict was produced — and marks each affected item as

@@ -17,26 +17,26 @@ drafts:
       by: greeng3
       at_unix: 1786054424
     bindings:
-    - symbol: Draft
-      category: code
-      observable: Draft
-      fidelity: definitional
-    - symbol: Item
-      category: code
-      observable: Item
-      fidelity: definitional
-    - symbol: is_stale
-      category: code
-      observable: is_stale
-      fidelity: definitional
-    - symbol: is_admitted
-      category: code
-      observable: Draft::is_admitted
-      fidelity: definitional
-    - symbol: needs_reconfirmation
-      category: code
-      observable: needs_reconfirmation
-      fidelity: definitional
+      - symbol: Draft
+        category: code
+        observable: Draft
+        fidelity: definitional
+      - symbol: Item
+        category: code
+        observable: Item
+        fidelity: definitional
+      - symbol: is_stale
+        category: code
+        observable: is_stale
+        fidelity: definitional
+      - symbol: is_admitted
+        category: code
+        observable: Draft::is_admitted
+        fidelity: definitional
+      - symbol: needs_reconfirmation
+        category: code
+        observable: needs_reconfirmation
+        fidelity: definitional
   REQ047:
     revision: 17cf6ac844159fbe
     candidate: |-
@@ -53,19 +53,19 @@ drafts:
       by: greeng3
       at_unix: 1785439058
     bindings:
-    - symbol: EngineState
-      category: code
-      observable: EngineStatus
-      fidelity: definitional
-    - symbol: Flag
-      category: code
-      observable: bool
-      fidelity: definitional
-    - symbol: ready
-      category: code
-      observable: EngineStatus::is_ready
-      fidelity: definitional
-    - symbol: install_proceeds
-      category: code
-      observable: decide_install::Proceed
-      fidelity: definitional
+      - symbol: EngineState
+        category: code
+        observable: EngineStatus
+        fidelity: definitional
+      - symbol: Flag
+        category: code
+        observable: bool
+        fidelity: definitional
+      - symbol: ready
+        category: code
+        observable: EngineStatus::is_ready
+        fidelity: definitional
+      - symbol: install_proceeds
+        category: code
+        observable: decide_install::Proceed
+        fidelity: definitional

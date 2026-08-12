@@ -5,7 +5,7 @@ level: 1.28
 links: []
 normative: true
 ref: ''
-reviewed: 9SjTRpYtH2vx7du2bbuoXDwuKQi3BLDC-3ekwUVCr_0=
+reviewed: eJbEnjfxMy2moH5EqWpjZSIXtRchnJb2C79CPimCowE=
 text: |
   Category 2a — the model world — has a verification engine: TLC, the TLA+ model checker. A
   grounded category-2a requirement earns a real verdict, the way a grounded category-1

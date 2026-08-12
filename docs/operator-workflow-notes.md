@@ -549,10 +549,10 @@ separate axis from where it runs.
 
 The positional slot is each command's **own primary subject**, so it holds different things:
 
-| positional | commands | subject path |
-| --- | --- | --- |
-| the path itself | `init`, `triage`, `status`, `engines` | positional `[PATH]` |
-| an id / engine name | `verify`, `draft`, `install` | `--path` |
+| positional          | commands                              | subject path        |
+| ------------------- | ------------------------------------- | ------------------- |
+| the path itself     | `init`, `triage`, `status`, `engines` | positional `[PATH]` |
+| an id / engine name | `verify`, `draft`, `install`          | `--path`            |
 
 The rule is consistent, but not self-evident from any single command, and the habit `status .`
 builds carries straight into `verify REQ047 .`. Clap's own answer named the problem without the
@@ -653,7 +653,7 @@ from, and the vocabulary already parsed `state p(d: EngineStatus)` into `Param {
   deliberately. `sort: Option<String>`, `None` when the requirement does not say (undeclared, or
   two applications disagreeing); nothing is guessed.
 - **`LoweredClaim.quantified` is a `Vec`**, and the three wrappers take N: `let v: T =
-  kani::any();` per binder, `forall<a: A, b: B>`, `forall(|a: A, b: B|)`.
+kani::any();` per binder, `forall<a: A, b: B>`, `forall(|a: A, b: B|)`.
 - **The read-back states the closure** — "for each d of type Decision and each f of type Flag, …
   — every variable the claim mentions is quantified". D12 is only faithful if the operator sees the
   quantification the harness is actually built with, not just the binder they typed.
@@ -827,8 +827,8 @@ where the model sits relative to the thing being verified):
 
 ```yaml
 tla:
-  spec_paths:
-    - ../models
+    spec_paths:
+        - ../models
 ```
 
 **Two consequences make this more than a search path, and both are about what a verdict means.**
@@ -881,9 +881,9 @@ The assignments are declared once, in the companion `provreq.yml`, and written i
 
 ```yaml
 tla:
-  constants:
-    MaxLen: 3
-    Kinds: "{1, 2}"
+    constants:
+        MaxLen: 3
+        Kinds: "{1, 2}"
 ```
 
 A value is the right-hand side of a `CONSTANT X = …` line — TLA+, passed through, because every set,
@@ -1208,10 +1208,10 @@ formula → **a real answer from a real engine**.
 **⚠️ The exit code carries no information — it is 0 for everything**, measured in slice 0 and the
 trap this slice exists to survive:
 
-| situation | exit |
-| --- | --- |
-| clean run, no violations | `0` |
-| violations found | `0` |
+| situation                              | exit    |
+| -------------------------------------- | ------- |
+| clean run, no violations               | `0`     |
+| violations found                       | `0`     |
 | **formula refused as not monitorable** | **`0`** |
 
 An adapter trusting that exit code reports a _refusal_ as a passing verdict — a fabricated `holds`
@@ -1292,12 +1292,12 @@ small — no lifecycle code at all, and the same seam category 2b already proved
 
 ```yaml
 ui:
-  endpoint: http://localhost:4444      # the WebDriver grid (optional)
-  base_url: http://localhost:8080      # the deployment under check
-  steps:
-    open_cart:  { goto: /cart }
-    checkout:   { click: "button[data-test=checkout]" }
-    sees_total: { text_present: "Order total" }
+    endpoint: http://localhost:4444 # the WebDriver grid (optional)
+    base_url: http://localhost:8080 # the deployment under check
+    steps:
+        open_cart: { goto: /cart }
+        checkout: { click: "button[data-test=checkout]" }
+        sees_total: { text_present: "Order total" }
 ```
 
 **`endpoint` is deliberately the odd field out, because it is a different party's fact.** `base_url`
@@ -1474,12 +1474,12 @@ the mirror of #233's: there, every MonPoly answer arrived on exit code 0, so a r
 for a clean run. Here the danger runs the other way and is more tempting, because the wrong answer
 _looks like the tool working_.
 
-| what happened                       | who decided it     | verdict                  |
-| ----------------------------------- | ------------------ | ------------------------ |
-| the grid would not seat a session   | the environment    | `inconclusive`           |
-| `goto` could not load the page      | the environment    | `inconclusive`           |
-| `click` matched no element          | **the script**     | `inconclusive`           |
-| the asserted text was absent        | **the deployment** | `fails`, with a witness  |
+| what happened                     | who decided it     | verdict                 |
+| --------------------------------- | ------------------ | ----------------------- |
+| the grid would not seat a session | the environment    | `inconclusive`          |
+| `goto` could not load the page    | the environment    | `inconclusive`          |
+| `click` matched no element        | **the script**     | `inconclusive`          |
+| the asserted text was absent      | **the deployment** | `fails`, with a witness |
 
 A selector that has gone stale means the check never became a check. Reporting it as a failed
 requirement would manufacture exactly the counterexample category 3 exists to produce — a red result

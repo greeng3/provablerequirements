@@ -5,7 +5,7 @@ level: 1.63
 links: []
 normative: true
 ref: ''
-reviewed: null
+reviewed: Tv29YBTXMXrJuzk9vYXE-bILeINzPa-m2K132mikfn4=
 text: |
   A checker can be unable to run for a reason that lies in the checker rather than in the subject or
   its formalization: what the checker is welded to may be older than what the subject's own

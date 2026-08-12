@@ -1,11 +1,11 @@
 active: true
 derived: false
 header: ''
-level: 1.4
+level: '1.40'
 links: []
 normative: true
 ref: ''
-reviewed: null
+reviewed: YTc9Wi1FmLGNS-unneWAo1IDnhrg6irlX5vytF4gKjo=
 text: |
   A drafted contract (REQ040) is only a proposal, and a proposal the prover cannot discharge is of
   no use. The logical clauses a deductive verifier reads are not checkable by an ordinary compile —

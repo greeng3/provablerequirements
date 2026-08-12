@@ -5,7 +5,7 @@ level: 1.41
 links: []
 normative: true
 ref: ''
-reviewed: null
+reviewed: fsChhokaEfDBTcMj9Qm6evkhDFp6oukcdHdfhIpqjGg=
 text: |
   Every LLM-backed step — bulk triage, forward-translation, and contract-drafting — makes a network
   call to an operator-configured endpoint. That endpoint may stall: a local model that wedges, a

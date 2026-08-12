@@ -11,7 +11,10 @@
 MARKDOWNLINT := markdownlint-cli2
 PRETTIER     := prettier
 YAMLLINT     := yamllint
-DOORSTOP     := doorstop
+# `-e` promotes doorstop's warnings to errors. Without it `doorstop` exits 0 while reporting
+# duplicate levels and unreviewed changes, so the gate passed for a long time with six of them
+# accumulated and invisible. A requirement tree that validates with warnings is not validated.
+DOORSTOP     := doorstop -e
 TRACEABILITY := uv run scripts/traceability.py
 TRACE_REPORT := docs/traceability_report.md
 CARGO        := cargo
@@ -40,7 +43,7 @@ help:
 	@echo "  traceability-check  Fail if any code tag references an unknown requirement"
 	@echo "  web                 Build the frontend into web/dist (embedded by cargo)"
 	@echo "  rust-check          cargo fmt --check, clippy -D warnings, and tests"
-	@echo "  audit               cargo audit — scan dependencies for known CVEs"
+	@echo "  audit               cargo audit + npm audit — scan dependencies for known CVEs"
 	@echo "  build               Build the frontend, then the release binary"
 	@echo "  test                Build the frontend, then run cargo + vitest suites"
 	@echo "  pre-merge           Preflight: traceability, fmt, lint, requirements, frontend, rust, audit"
@@ -113,10 +116,14 @@ rust-check:
 	@$(CARGO) clippy --all-targets -- -D warnings
 	@$(CARGO) test --all
 
-# Scan the dependency tree for known CVEs (RustSec advisory DB). Justified by the
-# HTTP/TLS stack (reqwest, rustls) pulled in for the LLM classifier.
+# Scan both dependency trees for known CVEs — Rust via the RustSec advisory DB, justified by the
+# HTTP/TLS stack (reqwest, rustls) pulled in for the LLM classifier; npm because the binary embeds
+# web/dist, so an unaudited frontend tree is an unaudited release. While this target ran only
+# `cargo audit`, the frontend carried a high-severity `nanoid` and a moderate `postcss` advisory
+# and the gate reported itself clean.
 audit:
 	@$(CARGO) audit
+	@$(NPM) audit
 
 build: web
 	@$(CARGO) build --release
@@ -146,7 +153,7 @@ pre-merge:
 	@$(MAKE) --no-print-directory web
 	@echo "[8/9] rust-check (fmt-check, clippy -D warnings, cargo test)"
 	@$(MAKE) --no-print-directory rust-check
-	@echo "[9/9] audit (cargo audit — dependency CVEs)"
+	@echo "[9/9] audit (cargo audit + npm audit — dependency CVEs)"
 	@$(MAKE) --no-print-directory audit
 	@echo ""
 	@echo "=== pre-merge passed ==="

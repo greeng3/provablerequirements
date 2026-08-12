@@ -5,7 +5,7 @@ level: 1.53
 links: []
 normative: true
 ref: ''
-reviewed: null
+reviewed: o66nsuQZ_5CMJs6-mAx4jMkpaYV_IsZbuzAHZ25YPQI=
 text: |
   A run announces what it is about to do only once it has decided to do it. Printing an intention
   before establishing that there is work — naming a model, an endpoint, an engine — produces output

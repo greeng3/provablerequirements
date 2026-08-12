@@ -5,7 +5,7 @@ level: 1.46
 links: []
 normative: true
 ref: ''
-reviewed: null
+reviewed: myVL72TQqVyBCjCQ4_bVXtUrhQPmOnhn0Bvt9NNHZkg=
 text: |
   Native provisioning of the light tier is not uniform across platforms. Some engines have upstream
   support only on some operating systems, so the tool treats platform support as a first-class gate

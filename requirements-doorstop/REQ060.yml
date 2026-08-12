@@ -1,11 +1,11 @@
 active: true
 derived: false
 header: ''
-level: 1.6
+level: '1.60'
 links: []
 normative: true
 ref: ''
-reviewed: null
+reviewed: oPmNAt57QyHX55P6w2pfHiCIVhDDOkg5BtaZrc9-nU8=
 text: |
   A subject repository contains more than the source its author wrote. Build outputs, fetched
   dependencies, and version-control metadata live in the same tree, are frequently far larger than

@@ -5,7 +5,7 @@ level: 1.45
 links: []
 normative: true
 ref: ''
-reviewed: null
+reviewed: 6c0695EXPSt1vrOtI-DR1xBT-EqMUlUZP7ep2cuUSLY=
 text: |
   Engine detection reports what is present but never installs anything (R-eng-2, detect half). The
   Design C decision commits to the install half for the light tier of engines — those with a clean,
