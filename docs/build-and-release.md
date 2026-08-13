@@ -6,8 +6,9 @@ REQ001–REQ006 and the packaging half of **Design C** (see
 
 > **Status: prototype.** `provreq serve` runs a local axum server (loopback)
 > that exposes `GET /health` (REQ005) and serves a React UI embedded into the
-> binary via `rust-embed` (REQ006). The UI content is still minimal — it renders
-> the backend health — pending the operator-workflow design.
+> binary via `rust-embed` (REQ006). The UI renders the coverage funnel, the
+> per-requirement detail (verdict, grounds, witness, evidence), a verify panel,
+> and the engines panel.
 
 ## Why a native executable
 
@@ -50,9 +51,11 @@ pipeline.
 
 ## Workflows
 
-- **`.github/workflows/ci.yml`** — on push to `main` and every PR: builds the
-  frontend (`npm ci`, `vitest`, `vite build`), then `cargo fmt --check`, `cargo
-clippy -D warnings`, `cargo test`. Fast, host-only.
+- **`.github/workflows/ci.yml`** — on push to `main` and every PR, six host-only
+  jobs: `test` (frontend `npm ci` + `vitest` + `vite build`, then `cargo fmt
+--check`, `cargo clippy -D warnings`, `cargo test`) plus one live-engine job per
+  verification engine — `kani`, `creusot`, `prusti`, `tlc`, `monpoly` — so an
+  engine-facing regression fails CI, not the first operator to run it.
 - **`.github/workflows/release.yml`** — on a version tag (`v*`): builds the
   frontend, then all six targets, packages each (`.tar.gz` on unix, `.zip` on
   Windows) with a `.sha256` sidecar, then a `release` job assembles the manifest
