@@ -2,11 +2,12 @@
 
 Design of the unified requirement language that sits at the core of the project (the
 trusted requirement layer of the layered-hybrid architecture). Working name: **PRL**
-(Provable Requirement Language). Tracked in issue #2; background and architecture in the
+(Provable Requirement Language). Background and architecture in the
 top-level [README](../README.md).
 
-Status: **in design.** This document records decisions as they are made; open items are
-listed at the end.
+Status: **implemented; open items remain.** The language, gate, read-back, grounding,
+and lowering described here exist in `src/prl/` and around it. This document records
+the decisions as they were made; the still-open items are listed at the end.
 
 ## Guiding principle
 
@@ -583,4 +584,5 @@ requirement no_message_lost {
   mandatory-review for vacuity-flagged candidates and optional otherwise, recording tier/reviewer/time.
   **The A6/D14 back-write now exists too (REQ020):** `provreq draft <ID> --writeback` stamps the
   confirmed PRL + review provenance onto the subject item via the source adapter's `annotate` seam,
-  refusing a drifted admission (needs-reconfirmation). **Remaining:** D13 grounding.
+  refusing a drifted admission (needs-reconfirmation). **D13 grounding now exists too
+  (REQ021, `src/grounding.rs`)** — its binding rules are the bullet above.

@@ -48,8 +48,8 @@ Requirements are not all the same _kind_ of claim. They differ along one deep ax
 > (empirical, existential).**
 
 Moving down that spine trades _universality_ for _fidelity to reality_. That tradeoff is
-why these are genuinely different categories, not a matter of taste. (Work so far has
-focused on category 1.)
+why these are genuinely different categories, not a matter of taste. (Every category now
+has a wired engine: 1 → Kani/Creusot/Prusti, 2a → TLC, 2b → MonPoly, 3 → WebDriver.)
 
 | #   | Category                                       | Artifact checked              | Method / engine                                                                                | Verdict strength                                                |
 | --- | ---------------------------------------------- | ----------------------------- | ---------------------------------------------------------------------------------------------- | --------------------------------------------------------------- |
@@ -588,12 +588,13 @@ drill down; fuller treatment lives in the sections above.
 ## Design Documents
 
 - [docs/requirement-language.md](docs/requirement-language.md) — design of the unified
-  requirement language (PRL). Tracked in issue #2.
+  requirement language (PRL).
 
 ## Development
 
-A [dev container](.devcontainer/README.md) provides the toolchain (git, `glab`, Doorstop,
-`uv`, and the Markdown/YAML linters and formatters). Open the repo in VS Code and
+A [dev container](.devcontainer/README.md) provides the toolchain (git, `gh`, Doorstop,
+`uv`, the Markdown/YAML linters and formatters, and the verification engines — Kani, TLC,
+Prusti, Creusot — baked into the image). Open the repo in VS Code and
 **"Dev Containers: Reopen in Container"**, then use the Makefile:
 
 ```sh
@@ -602,14 +603,24 @@ make fmt                   # format Markdown + YAML (prettier)
 make lint                  # markdownlint + yamllint
 make check-requirements    # validate the Doorstop tree
 make traceability          # requirements-to-code traceability report
-make pre-merge             # full local preflight (there is no CI)
+make pre-merge             # full local preflight; CI re-runs it plus the engine jobs
 make setup-hooks           # install the pre-commit gate
 ```
 
-Requirements are managed with Doorstop in [`requirements-doorstop/`](requirements-doorstop)
-(there are none yet). See [.devcontainer/README.md](.devcontainer/README.md) for details.
+Requirements are managed with Doorstop in [`requirements-doorstop/`](requirements-doorstop).
+See [.devcontainer/README.md](.devcontainer/README.md) for details.
 
 ## Status
 
-Brainstorming. No code yet — ideas, notes, and direction come first; implementation
-follows once the concepts are sharp enough to build on.
+Working prototype. The ideas above are implemented as **`provreq`** — a Rust CLI and
+local server that adopts an existing repo as a subject, manages its requirements
+through Doorstop, triages them (LLM-assisted, operator-corrected), formalizes the
+formalizable ones into PRL, grounds their vocabulary against the subject's code or
+models, and verifies them through the engine matching their category: Kani, Creusot,
+and Prusti (category 1), TLC (2a), MonPoly (2b), and WebDriver (3). Verdicts carry
+their basis and provenance, drift is detected against the subject's commit, and a
+React UI (embedded in the binary, `provreq serve`) shows the coverage funnel and
+per-requirement verdicts. CI runs the test suite plus one job per engine; releases
+cross-build six platform targets. This repo is itself an adopted subject — the
+companion tree [`ProvableRequirements-doorstop/`](ProvableRequirements-doorstop)
+holds its triage record and verdict store.
