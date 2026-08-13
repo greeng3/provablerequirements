@@ -91,6 +91,15 @@ preferred: ~100 lines we fully control, no extra build-time tool to install and
 pin, and a manifest schema we own rather than adapt to. If the release surface
 grows (installers, updaters, signing), revisit cargo-dist.
 
+## Version bumps (#255)
+
+The `0.0.x` patch version bumps **in the same PR** as any change to what verdicts can
+say or record — a new drift axis, a new provenance field, new verdict wording, a new
+basis. Not as a catch-up afterwards, and not for changes that leave the verdict
+surface untouched. The reason lives in the store: `tool_version` is itself a drift
+axis, so the bump is what makes a verdict produced by the old tool honestly stale
+under the new one instead of silently comparable.
+
 ## Not yet covered
 
 - **Code signing / notarization** — unsigned macOS binaries hit Gatekeeper and

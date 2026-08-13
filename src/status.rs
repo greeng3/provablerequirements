@@ -205,6 +205,7 @@ mod tests {
             environment: crate::proving_env::ProvingEnv::default(),
             subject_commit: Some("head".into()),
             tool_version: "0.0.1".into(),
+            source_fingerprint: None,
         }
     }
 
@@ -227,6 +228,7 @@ mod tests {
                 requirement_revision: revision.into(),
                 subject_commit: Some("head".into()),
                 tool_version: "0.0.1".into(),
+                source_fingerprint: None,
                 formalization: None,
             },
         }

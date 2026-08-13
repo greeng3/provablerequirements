@@ -127,6 +127,10 @@ pub fn verify(subject: &Path, id: &str) -> Result<Option<VerifyOutcome>> {
     // this is the declaration: it catches the steps or the deployment URL being edited out from
     // under a verdict that was only ever about the check as it stood.
     report.provenance.ui_fingerprint = crate::ui::current_fingerprint(&companion);
+    // Stamp the source fingerprint (REQ071, #271) — the code-drift axis at source granularity, so
+    // the commit that lands this very record does not stale it. The commit above stays for
+    // reproducibility; this is what freshness is decided on.
+    report.provenance.source_fingerprint = subject_source_fingerprint(subject);
     let store = crate::verdict_store::load(&companion)?;
     let recorded = crate::verdict_store::record(&store, report);
     crate::verdict_store::save(&companion, &recorded)?;
@@ -468,6 +472,83 @@ pub fn subject_head_commit(subject: &Path) -> Option<String> {
     (!commit.is_empty()).then_some(commit)
 }
 
+/// Best-effort fingerprint of the subject's tracked source at HEAD (#271, REQ071), excluding the
+/// companion tree and the doorstop document dirs — the records whose drift other axes already own
+/// (the per-item revision for prose, the store's own persistence for verdicts). This is what makes
+/// the code-drift axis source-granular: a commit that changes none of the fingerprinted source —
+/// most immediately, the commit that lands `verdicts.yml` itself — is not code drift.
+///
+/// `None` when the subject is not a git repo, exactly like [`subject_head_commit`] — never
+/// fabricated. Reads HEAD, so a dirty tree is as invisible here as it is to the commit axis.
+///
+/// Implements: REQ071
+pub fn subject_source_fingerprint(subject: &Path) -> Option<String> {
+    // The tracked tree at HEAD, NUL-separated so paths need no unquoting: `<mode> <type>
+    // <blob>\t<path>\0`. The blob hashes carry the content, so hashing the filtered listing
+    // fingerprints exactly the surviving files' contents and paths.
+    let listing = std::process::Command::new("git")
+        .arg("-C")
+        .arg(subject)
+        .args(["ls-tree", "-r", "-z", "HEAD"])
+        .output()
+        .ok()
+        .filter(|o| o.status.success())?;
+
+    // The records whose drift other axes own, relative to the subject root. Best-effort like the
+    // listing itself: an unadopted subject simply has no companion to exclude.
+    let mut excluded: Vec<std::path::PathBuf> = Vec::new();
+    if let Ok(Some(companion)) = crate::adopt::find_companion(subject) {
+        if let Ok(rel) = companion.strip_prefix(subject) {
+            excluded.push(rel.to_path_buf());
+        }
+    }
+    if let Ok(docs) = crate::doorstop::discover(subject) {
+        for doc in docs {
+            if let Ok(rel) = doc.dir.strip_prefix(subject) {
+                excluded.push(rel.to_path_buf());
+            }
+        }
+    }
+
+    let text = String::from_utf8_lossy(&listing.stdout);
+    let filtered: Vec<&str> = text
+        .split('\0')
+        .filter(|entry| {
+            let path = entry.split('\t').nth(1).unwrap_or("");
+            !excluded
+                .iter()
+                .any(|ex| std::path::Path::new(path).starts_with(ex))
+        })
+        .collect();
+    hash_lines(&filtered)
+}
+
+/// Hash a listing through `git hash-object --stdin` — content-addressed and stable across runs,
+/// with no hashing dependency of our own (std's hashers are seeded per process on purpose).
+fn hash_lines(lines: &[&str]) -> Option<String> {
+    use std::io::Write as _;
+    let mut child = std::process::Command::new("git")
+        .args(["hash-object", "--stdin"])
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .ok()?;
+    {
+        let mut stdin = child.stdin.take()?;
+        for line in lines {
+            stdin.write_all(line.as_bytes()).ok()?;
+            stdin.write_all(b"\n").ok()?;
+        }
+    }
+    let out = child
+        .wait_with_output()
+        .ok()
+        .filter(|o| o.status.success())?;
+    let hash = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    (!hash.is_empty()).then_some(hash)
+}
+
 /// Every out-of-commit fingerprint for the current world, read in one place.
 ///
 /// [`crate::verdict_store`] deliberately touches no filesystem, so the reading lives here — and
@@ -481,6 +562,7 @@ pub fn current_fingerprints(
         spec: crate::tla_adapter::current_external_fingerprint(subject, companion),
         trace: crate::monitor::current_fingerprint(subject, companion),
         ui: crate::ui::current_fingerprint(companion),
+        source: subject_source_fingerprint(subject),
     }
 }
 
@@ -511,6 +593,108 @@ mod tests {
     fn unadopted_subject_is_error() {
         let empty = tempfile::tempdir().unwrap();
         assert!(verify(empty.path(), "REQ001").is_err());
+    }
+
+    // Verifies: REQ071 / #271 — the fingerprint covers the tracked source and nothing the other
+    // drift axes already own: a commit touching only the companion tree or the requirement
+    // documents leaves it unchanged, a commit touching source moves it.
+    #[test]
+    fn source_fingerprint_ignores_the_records_other_axes_own() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        std::fs::create_dir_all(root.join("requirements-doorstop")).unwrap();
+        std::fs::write(
+            root.join("requirements-doorstop/.doorstop.yml"),
+            "settings:\n  prefix: REQ\n  digits: 3\n",
+        )
+        .unwrap();
+        std::fs::write(
+            root.join("requirements-doorstop/REQ001.yml"),
+            "active: true\nlevel: 1.0\nnormative: true\nref: ''\nreviewed: null\ntext: |\n  A requirement.\n",
+        )
+        .unwrap();
+        std::fs::create_dir_all(root.join("ProvableRequirements-doorstop")).unwrap();
+        std::fs::write(
+            root.join("ProvableRequirements-doorstop/provreq.yml"),
+            "version: 1\n",
+        )
+        .unwrap();
+        std::fs::write(root.join("lib.rs"), "fn a() {}\n").unwrap();
+        git(root, &["init", "-q"]);
+        git(root, &["add", "-A"]);
+        commit(root, "base");
+        let base = subject_source_fingerprint(root).expect("a repo has a fingerprint");
+
+        // A companion-only commit — the shape that previously staled every stored verdict.
+        std::fs::write(
+            root.join("ProvableRequirements-doorstop/verdicts.yml"),
+            "verdicts: {}\n",
+        )
+        .unwrap();
+        git(root, &["add", "-A"]);
+        commit(root, "store a verdict");
+        assert_eq!(
+            subject_source_fingerprint(root).as_ref(),
+            Some(&base),
+            "the companion tree's drift is the store's own concern, not code drift"
+        );
+
+        // A requirement-document commit — the per-item revision axis owns this.
+        std::fs::write(
+            root.join("requirements-doorstop/REQ001.yml"),
+            "active: true\nlevel: 1.0\nnormative: true\nref: ''\nreviewed: null\ntext: |\n  Moved prose.\n",
+        )
+        .unwrap();
+        git(root, &["add", "-A"]);
+        commit(root, "edit prose");
+        assert_eq!(
+            subject_source_fingerprint(root).as_ref(),
+            Some(&base),
+            "requirement documents belong to the prose axis"
+        );
+
+        // A source commit — the thing the axis exists to see.
+        std::fs::write(root.join("lib.rs"), "fn a() { let _ = 1; }\n").unwrap();
+        git(root, &["add", "-A"]);
+        commit(root, "edit source");
+        assert_ne!(
+            subject_source_fingerprint(root).as_ref(),
+            Some(&base),
+            "source movement must be visible"
+        );
+    }
+
+    // Verifies: REQ071 / #271 — `None` for a non-repo, exactly like `subject_head_commit`: never
+    // fabricated.
+    #[test]
+    fn a_non_repo_has_no_source_fingerprint() {
+        let dir = tempfile::tempdir().unwrap();
+        assert_eq!(subject_source_fingerprint(dir.path()), None);
+    }
+
+    fn git(root: &Path, args: &[&str]) {
+        let out = std::process::Command::new("git")
+            .arg("-C")
+            .arg(root)
+            .args(args)
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "git {args:?}: {out:?}");
+    }
+
+    fn commit(root: &Path, msg: &str) {
+        git(
+            root,
+            &[
+                "-c",
+                "user.email=t@t",
+                "-c",
+                "user.name=t",
+                "commit",
+                "-qm",
+                msg,
+            ],
+        );
     }
 
     /// A minimal adopted subject with one item and no drafts — mirrors the server test fixture.
