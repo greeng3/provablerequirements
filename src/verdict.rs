@@ -449,6 +449,17 @@ pub struct ProvenanceReport {
     /// before this existed or a subject with no monitor configured.
     #[serde(default)]
     pub trace_fingerprint: Option<String>,
+    /// A fingerprint of the subject's tracked source at HEAD, with the companion tree and the
+    /// requirement documents excluded (#271) — exactly the records whose drift other axes already
+    /// own. The commit is a coarser clock than the code: committing the verdict record itself
+    /// moves it, so under commit comparison a subject that keeps its record in-tree can never
+    /// hold a fresh verdict. When both the stored verdict and the anchor carry this, it decides
+    /// the code-drift axis and the commit stays as reproducibility metadata; a verdict from
+    /// before this axis existed falls back to the commit comparison — freshness is never widened
+    /// on a basis the stored verdict does not carry. Reads HEAD, so a dirty tree is as invisible
+    /// to it as it always was to the commit.
+    #[serde(default)]
+    pub source_fingerprint: Option<String>,
     /// A fingerprint of the UI check this was driven by (#239) — the deployment URL and the steps.
     /// The only out-of-commit axis with no file behind it: a running deployment has no bytes to
     /// hash, so this covers what was *declared*, and is blind to that deployment changing at the
@@ -499,15 +510,16 @@ pub fn report(v: &Verdict) -> VerdictReport {
             subject_commit: v.provenance.subject_commit.clone(),
             tool_version: v.provenance.tool_version.clone(),
             // The formalization fingerprint, the proving environment, the out-of-subject spec
-            // fingerprint, the monitor trace's and the UI check's are persistence concerns, not
-            // part of the in-memory verdict's identity — the verify flow stamps all five on the
-            // stored copy (REQ045, REQ049, #120, #230, #239). A live (unpersisted) report carries
-            // none of them; nothing reads them off the wire.
+            // fingerprint, the monitor trace's, the UI check's, and the source fingerprint are
+            // persistence concerns, not part of the in-memory verdict's identity — the verify flow
+            // stamps all six on the stored copy (REQ045, REQ049, #120, #230, #239, #271). A live
+            // (unpersisted) report carries none of them; nothing reads them off the wire.
             formalization: None,
             environment: None,
             spec_fingerprint: None,
             trace_fingerprint: None,
             ui_fingerprint: None,
+            source_fingerprint: None,
         },
     }
 }

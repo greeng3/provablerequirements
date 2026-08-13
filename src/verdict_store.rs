@@ -1,10 +1,11 @@
 //! Step 6 — the living loop: verdicts as durable state that drifts.
 //!
 //! A verdict is produced on demand (Step 4) but does not stay true forever: the requirement prose
-//! can move, the subject code can move, or the tool can change underneath it. The D9 provenance
-//! every verdict carries (`requirement_revision` + `subject_commit` + `tool_version`) is exactly
-//! the anchor to detect that — this module persists the verdict keyed by item id and compares its
-//! provenance against the current world to decide whether it is still fresh.
+//! can move, the subject source can move, or the tool can change underneath it. The D9 provenance
+//! every verdict carries (`requirement_revision`, `subject_commit`, the source fingerprint, and
+//! `tool_version`, plus the per-axis fingerprints below) is exactly the anchor to detect that —
+//! this module persists the verdict keyed by item id and compares its provenance against the
+//! current world to decide whether it is still fresh.
 //!
 //! Persisted as a companion `verdicts.yml`, mirroring `drafts.yml`/`triage.yml`. The stored shape
 //! IS the wire shape ([`crate::verdict::VerdictReport`]) — the web surface and the store never
@@ -67,6 +68,11 @@ pub fn record(store: &VerdictStore, verdict: VerdictReport) -> VerdictStore {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DriftAnchor {
     pub subject_commit: Option<String>,
+    /// The fingerprint of the subject's tracked source *now* (#271) — the tree at HEAD minus the
+    /// companion tree and the requirement documents, whose drift other axes own. `None` when the
+    /// subject is not a git repo. When both sides carry one, this decides the code-drift axis
+    /// instead of the commit, so committing the verdict record does not stale the record.
+    pub source_fingerprint: Option<String>,
     pub tool_version: String,
     /// The environment the tool is running in *now* (REQ049), so a stored verdict produced
     /// somewhere else can be seen for what it is.
@@ -98,6 +104,9 @@ pub struct Fingerprints {
     pub spec: Option<String>,
     pub trace: Option<String>,
     pub ui: Option<String>,
+    /// The subject's source fingerprint (#271) — in-commit, unlike its siblings, but grouped here
+    /// for the same reason they are: every anchor axis read in one place, one silent-swap surface.
+    pub source: Option<String>,
 }
 
 impl DriftAnchor {
@@ -112,6 +121,7 @@ impl DriftAnchor {
     ) -> Self {
         Self {
             subject_commit,
+            source_fingerprint: fingerprints.source,
             tool_version: env!("CARGO_PKG_VERSION").to_string(),
             environment,
             spec_fingerprint: fingerprints.spec,
@@ -225,19 +235,35 @@ pub fn view(
         }
     }
 
-    match (&stored.provenance.subject_commit, &anchor.subject_commit) {
-        (Some(was), Some(now)) if was != now => stale_reasons.push(format!(
-            "the subject code moved since this verdict (commit {was} → {now}) — re-verify",
-        )),
-        (Some(_), None) => stale_reasons.push(
-            "the subject's commit can no longer be read to confirm this verdict — re-verify"
-                .to_string(),
-        ),
-        (None, Some(_)) => stale_reasons.push(
-            "the subject is now a git repo; this verdict predates its history — re-verify"
-                .to_string(),
-        ),
-        _ => {}
+    // Code drift (REQ071, #271): when both sides carry a source fingerprint, it decides this axis.
+    // The commit is a coarser clock than the code — the commit that lands `verdicts.yml` itself
+    // moves it, so under bare commit comparison a subject keeping its record in-tree could never
+    // hold a fresh verdict. A verdict from before this axis keeps the commit comparison instead:
+    // freshness is never *widened* on a basis the stored verdict does not carry.
+    match (
+        &stored.provenance.source_fingerprint,
+        &anchor.source_fingerprint,
+    ) {
+        (Some(was), Some(now)) => {
+            if was != now {
+                stale_reasons
+                    .push("the subject's source moved since this verdict — re-verify".to_string());
+            }
+        }
+        _ => match (&stored.provenance.subject_commit, &anchor.subject_commit) {
+            (Some(was), Some(now)) if was != now => stale_reasons.push(format!(
+                "the subject code moved since this verdict (commit {was} → {now}) — re-verify",
+            )),
+            (Some(_), None) => stale_reasons.push(
+                "the subject's commit can no longer be read to confirm this verdict — re-verify"
+                    .to_string(),
+            ),
+            (None, Some(_)) => stale_reasons.push(
+                "the subject is now a git repo; this verdict predates its history — re-verify"
+                    .to_string(),
+            ),
+            _ => {}
+        },
     }
 
     // Environment drift (REQ049): a verdict is only about the environment that produced it. A
@@ -333,6 +359,7 @@ mod tests {
                 requirement_revision: revision.into(),
                 subject_commit: commit.map(str::to_string),
                 tool_version: tool.into(),
+                source_fingerprint: None,
                 formalization: None,
             },
         }
@@ -361,6 +388,7 @@ mod tests {
             environment: env(None, &[]),
             subject_commit: Some("abc".into()),
             tool_version: "0.0.1".into(),
+            source_fingerprint: None,
         };
 
         let view = view(&v, "r1", None, &anchor);
@@ -400,6 +428,7 @@ mod tests {
             environment: env(Some("ci-runner"), &["Kani 0.67.0"]),
             subject_commit: Some("abc".into()),
             tool_version: "0.0.1".into(),
+            source_fingerprint: None,
         };
 
         let view = view(&v, "r1", None, &anchor);
@@ -423,6 +452,7 @@ mod tests {
             environment: crate::proving_env::ProvingEnv::default(),
             subject_commit: Some("abc".into()),
             tool_version: "0.0.1".into(),
+            source_fingerprint: None,
         };
 
         let view = view(&v, "r1", None, &anchor);
@@ -449,6 +479,7 @@ mod tests {
             environment: crate::proving_env::ProvingEnv::default(),
             subject_commit: Some("abc".into()),
             tool_version: "0.0.1".into(),
+            source_fingerprint: None,
         };
         assert!(view(&v, "r1", None, &anchor).fresh);
     }
@@ -467,6 +498,7 @@ mod tests {
             environment: crate::proving_env::ProvingEnv::default(),
             subject_commit: Some("abc".into()),
             tool_version: "0.0.1".into(),
+            source_fingerprint: None,
         };
         let view = view(&v, "r1", None, &anchor);
         assert!(!view.fresh);
@@ -492,6 +524,7 @@ mod tests {
             environment: crate::proving_env::ProvingEnv::default(),
             subject_commit: Some("abc".into()),
             tool_version: "0.0.1".into(),
+            source_fingerprint: None,
         };
 
         assert!(view(&v, "r1", None, &fresh_anchor(Some("aaaa"))).fresh);
@@ -531,6 +564,7 @@ mod tests {
             environment: crate::proving_env::ProvingEnv::default(),
             subject_commit: Some("abc".into()),
             tool_version: "0.0.1".into(),
+            source_fingerprint: None,
         };
 
         assert!(view(&v, "r1", None, &fresh_anchor(Some("aaaa"))).fresh);
@@ -571,6 +605,7 @@ mod tests {
             environment: crate::proving_env::ProvingEnv::default(),
             subject_commit: Some("abc".into()),
             tool_version: "0.0.1".into(),
+            source_fingerprint: None,
         };
         assert!(view(&v, "r1", None, &anchor).fresh);
     }
@@ -587,6 +622,7 @@ mod tests {
             environment: env(Some("lab-1"), &["Kani 0.67.0"]),
             subject_commit: Some("abc".into()),
             tool_version: "0.0.1".into(),
+            source_fingerprint: None,
         };
 
         let mut recorded = stored("r1", Some("abc"), "0.0.1");
@@ -620,10 +656,82 @@ mod tests {
             environment: env(Some("lab-1"), &["Kani 0.67.0"]),
             subject_commit: Some("abc".into()),
             tool_version: "0.0.1".into(),
+            source_fingerprint: None,
         };
 
         let view = view(&v, "r1", None, &anchor);
         assert!(view.fresh, "{:?}", view.stale_reasons);
+    }
+
+    // Verifies: REQ071 / #271 — when both the stored verdict and the anchor carry a source
+    // fingerprint, it decides the code-drift axis: a commit that changes none of the fingerprinted
+    // source — most immediately, the commit that lands `verdicts.yml` itself — is not code drift,
+    // however far HEAD has moved. Under the bare commit rule a subject that keeps its verdict
+    // record in-tree could never hold a fresh verdict, because storing the answer moved the clock.
+    #[test]
+    fn a_companion_only_commit_is_not_code_drift() {
+        let mut v = stored("r1", Some("abc"), "0.0.1");
+        v.provenance.source_fingerprint = Some("src-1".into());
+        let anchor = DriftAnchor {
+            spec_fingerprint: None,
+            trace_fingerprint: None,
+            ui_fingerprint: None,
+            environment: crate::proving_env::ProvingEnv::default(),
+            subject_commit: Some("def".into()),
+            tool_version: "0.0.1".into(),
+            source_fingerprint: Some("src-1".into()),
+        };
+        let view = view(&v, "r1", None, &anchor);
+        assert!(view.fresh, "{:?}", view.stale_reasons);
+    }
+
+    // Verifies: REQ071 / #271 — the fingerprint deciding the axis cuts both ways: when the source
+    // itself moved, the verdict is stale and the reason names the source, not merely the commit.
+    #[test]
+    fn source_movement_is_code_drift() {
+        let mut v = stored("r1", Some("abc"), "0.0.1");
+        v.provenance.source_fingerprint = Some("src-1".into());
+        let anchor = DriftAnchor {
+            spec_fingerprint: None,
+            trace_fingerprint: None,
+            ui_fingerprint: None,
+            environment: crate::proving_env::ProvingEnv::default(),
+            subject_commit: Some("def".into()),
+            tool_version: "0.0.1".into(),
+            source_fingerprint: Some("src-2".into()),
+        };
+        let view = view(&v, "r1", None, &anchor);
+        assert!(!view.fresh);
+        assert!(
+            view.stale_reasons[0].contains("source moved"),
+            "{:?}",
+            view.stale_reasons
+        );
+    }
+
+    // Verifies: REQ071 / #271 — freshness is never widened on a basis the stored verdict does not
+    // carry: a verdict from before this axis keeps the commit comparison, so upgrading provreq
+    // does not quietly mark historical verdicts fresher than their own record can establish.
+    #[test]
+    fn a_verdict_without_a_source_fingerprint_keeps_the_commit_rule() {
+        let v = stored("r1", Some("abc"), "0.0.1");
+        assert_eq!(v.provenance.source_fingerprint, None, "the pre-axis shape");
+        let anchor = DriftAnchor {
+            spec_fingerprint: None,
+            trace_fingerprint: None,
+            ui_fingerprint: None,
+            environment: crate::proving_env::ProvingEnv::default(),
+            subject_commit: Some("def".into()),
+            tool_version: "0.0.1".into(),
+            source_fingerprint: Some("src-1".into()),
+        };
+        let view = view(&v, "r1", None, &anchor);
+        assert!(!view.fresh);
+        assert!(
+            view.stale_reasons[0].contains("commit"),
+            "{:?}",
+            view.stale_reasons
+        );
     }
 
     // Verifies: REQ039 — a verdict produced against the current world is fresh, with no reasons.
@@ -637,6 +745,7 @@ mod tests {
             environment: crate::proving_env::ProvingEnv::default(),
             subject_commit: Some("abc".into()),
             tool_version: "0.0.1".into(),
+            source_fingerprint: None,
         };
         let view = view(&v, "r1", None, &anchor);
         assert!(view.fresh);
@@ -655,6 +764,7 @@ mod tests {
             environment: crate::proving_env::ProvingEnv::default(),
             subject_commit: Some("def".into()),
             tool_version: "0.0.2".into(),
+            source_fingerprint: None,
         };
         let view = view(&v, "r2", None, &anchor);
         assert!(!view.fresh);
@@ -682,6 +792,7 @@ mod tests {
             environment: crate::proving_env::ProvingEnv::default(),
             subject_commit: Some("abc".into()),
             tool_version: "0.0.1".into(),
+            source_fingerprint: None,
         }
     }
 
