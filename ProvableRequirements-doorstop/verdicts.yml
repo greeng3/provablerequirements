@@ -33,8 +33,8 @@ verdicts:
           - 'Prusti''s pinned toolchain predates this subject''s dependency graph — its 2023 cargo cannot read a v4 lock file or a dependency declaring `edition = "2024"`. This is a toolchain ceiling, not a missing annotation: Prusti can only verify a subject whose whole dependency graph builds on a 2023 nightly, and upstream has published nothing newer'
     provenance:
       requirement_revision: 19597bc0d12ed865
-      subject_commit: f2e15bf013260cc92fba39037b2ab3ae3108c08b
-      tool_version: 0.0.1
+      subject_commit: 6d8ac5ed796e146575947684264fcd88b6f37272
+      tool_version: 0.0.2
       formalization: 5fd8c1345fce1d0f
       environment:
         declared: provreq-devcontainer
@@ -47,6 +47,7 @@ verdicts:
         container: true
       spec_fingerprint: null
       trace_fingerprint: null
+      source_fingerprint: bf010144a5cf650617d56b9213fdb5cc3f791a59
       ui_fingerprint: null
   REQ047:
     id: REQ047
@@ -82,8 +83,8 @@ verdicts:
           - 'Prusti''s pinned toolchain predates this subject''s dependency graph — its 2023 cargo cannot read a v4 lock file or a dependency declaring `edition = "2024"`. This is a toolchain ceiling, not a missing annotation: Prusti can only verify a subject whose whole dependency graph builds on a 2023 nightly, and upstream has published nothing newer'
     provenance:
       requirement_revision: 17cf6ac844159fbe
-      subject_commit: f2e15bf013260cc92fba39037b2ab3ae3108c08b
-      tool_version: 0.0.1
+      subject_commit: 6d8ac5ed796e146575947684264fcd88b6f37272
+      tool_version: 0.0.2
       formalization: cf223ee274800417
       environment:
         declared: provreq-devcontainer
@@ -96,4 +97,5 @@ verdicts:
         container: true
       spec_fingerprint: null
       trace_fingerprint: null
+      source_fingerprint: bf010144a5cf650617d56b9213fdb5cc3f791a59
       ui_fingerprint: null
