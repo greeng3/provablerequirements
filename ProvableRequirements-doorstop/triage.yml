@@ -187,7 +187,7 @@ items:
   REQ047:
     classification: formalizable-now
     revision: 17cf6ac844159fbe
-    origin: unrecorded
+    origin: demonstrated
   REQ048:
     classification: formalizable-now
     revision: 584cf1848a4c836b
@@ -275,4 +275,12 @@ items:
   REQ069:
     classification: formalizable-now
     revision: 12a26c041ecbcc91
+    origin: classified
+  REQ070:
+    classification: formalizable-now
+    revision: 3b841379c857bcdb
+    origin: classified
+  REQ071:
+    classification: formalizable-now
+    revision: e3e80250573d5c99
     origin: classified
