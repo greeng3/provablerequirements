@@ -116,6 +116,73 @@ fn out_of_fragment(category: Category, pattern: &Pattern) -> Option<(&'static st
     }
 }
 
+/// One category's triage view of the fragment rules (REQ072): the surface verbs its engine
+/// admits and the ones it refuses.
+pub struct CategoryBoundary {
+    pub category: &'static str,
+    pub admits: Vec<&'static str>,
+    pub refuses: Vec<&'static str>,
+}
+
+/// The fragment rules as the triage classifier consumes them (REQ072, #259): every category
+/// walked against a representative pattern of every shape, through the same [`out_of_fragment`]
+/// the gate enforces — so the prompt's boundary text cannot drift from the gate.
+///
+/// Implements: REQ072
+pub fn triage_boundaries() -> Vec<CategoryBoundary> {
+    let atom = || {
+        Expr::Atom(Atom {
+            name: "p".into(),
+            args: Vec::new(),
+            guard: None,
+            line: 0,
+        })
+    };
+    let samples = [
+        Pattern::Never(atom()),
+        Pattern::Always(atom()),
+        Pattern::Eventually(atom()),
+        Pattern::LeadsTo {
+            from: atom(),
+            to: atom(),
+            within: None,
+        },
+        Pattern::Precedes {
+            first: atom(),
+            then: atom(),
+        },
+        Pattern::OccursAtMost {
+            event: atom(),
+            k: 1,
+        },
+        Pattern::CanReach(atom()),
+    ];
+    [
+        Category::Code,
+        Category::Model,
+        Category::Runtime,
+        Category::Ui,
+    ]
+    .into_iter()
+    .map(|category| {
+        let mut admits = Vec::new();
+        let mut refuses = Vec::new();
+        for pattern in &samples {
+            if out_of_fragment(category, pattern).is_none() {
+                admits.push(pattern_verb(pattern));
+            } else {
+                refuses.push(pattern_verb(pattern));
+            }
+        }
+        CategoryBoundary {
+            category: category.as_label(),
+            admits,
+            refuses,
+        }
+    })
+    .collect()
+}
+
 /// The surface verb for a pattern, as the author wrote it — so an error quotes the token
 /// the author must actually change.
 fn pattern_verb(pattern: &Pattern) -> &'static str {
@@ -137,6 +204,42 @@ mod tests {
 
     fn errors_of(src: &str) -> Vec<GateError> {
         check(&parse(src).expect("should parse"))
+    }
+
+    // Verifies: REQ072 / #259 — the triage boundary view is complete and single-sourced: every
+    // category appears in order, every surface verb is placed exactly once per category, and the
+    // two design rules read straight off it (the code fragment refuses liveness/ordering; only
+    // the model category admits branching reachability).
+    #[test]
+    fn triage_boundaries_place_every_verb_once_per_category() {
+        let boundaries = triage_boundaries();
+        let labels: Vec<_> = boundaries.iter().map(|b| b.category).collect();
+        assert_eq!(labels, ["1", "2a", "2b", "3"]);
+        let verbs = [
+            "never",
+            "always",
+            "eventually",
+            "leads_to",
+            "precedes",
+            "occurs at most",
+            "can_reach",
+        ];
+        for boundary in &boundaries {
+            for verb in verbs {
+                let admitted = boundary.admits.contains(&verb);
+                let refused = boundary.refuses.contains(&verb);
+                assert!(
+                    admitted ^ refused,
+                    "category {} must place `{verb}` exactly once (admits: {admitted}, refuses: {refused})",
+                    boundary.category
+                );
+            }
+        }
+        let code = &boundaries[0];
+        assert!(code.admits.contains(&"always") && code.refuses.contains(&"leads_to"));
+        assert!(boundaries[1].admits.contains(&"can_reach"));
+        assert!(boundaries[2].refuses.contains(&"can_reach"));
+        assert!(boundaries[3].refuses.contains(&"can_reach"));
     }
 
     // Verifies: REQ024 — the exact gap found while smoke-testing #36: a liveness claim

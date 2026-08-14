@@ -313,7 +313,7 @@ async fn run_triage(
             println!("Set {id} = {}", classification.as_str());
             next
         }
-        None => seed_backlog(&companion, &state, &items, reclassify, yes).await?,
+        None => seed_backlog(subject, &companion, &state, &items, reclassify, yes).await?,
     };
 
     print_triage(&items, &state);
@@ -323,6 +323,7 @@ async fn run_triage(
 /// Seed the pending backlog using the operator's configured LLM classifier, or
 /// the honest prose-floor default when no `llm:` block is present.
 async fn seed_backlog(
+    subject: &Path,
     companion: &Path,
     state: &TriageState,
     items: &[Item],
@@ -434,7 +435,15 @@ async fn seed_backlog(
                 config.base_url,
                 config.override_note()
             );
-            let classifier = LlmClassifier::new(HttpBackend::from_config(config)?);
+            // What the subject declares, so the classifier judges bindability rather than
+            // guessing it from prose (REQ072, #259).
+            let parsed = provreq::rust_adapter::ParsedSubject::load(subject, companion);
+            let inv = provreq::rust_adapter::inventory(&parsed);
+            let context = provreq::llm::SubjectContext {
+                predicates: inv.predicates,
+                sorts: inv.sorts,
+            };
+            let classifier = LlmClassifier::new(HttpBackend::from_config(config)?, context);
             triage::seed_in_batches(state, &pending, &classifier, batch_size, persist).await?
         }
         None => {

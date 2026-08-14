@@ -287,14 +287,28 @@ async fn send_json(req: reqwest::RequestBuilder) -> Result<serde_json::Value> {
     serde_json::from_str(&text).context("parsing the LLM response as JSON")
 }
 
-/// The bulk pre-sort classifier. Generic over its backend so tests inject a stub.
+/// What the subject declares, for the classifier's prompt (REQ072, #259): the caller builds it
+/// from the code adapter's inventory. Whether a claim can be lowered depends on what there is to
+/// bind to, and a classifier shown only prose is guessing at that — the measured failure mode.
+/// Empty lists render nothing: a subject whose observables live elsewhere (a TLA+ model) must
+/// not be described as declaring nothing.
+#[derive(Debug, Default, Clone)]
+pub struct SubjectContext {
+    pub predicates: Vec<String>,
+    pub sorts: Vec<String>,
+}
+
+/// The bulk pre-sort classifier. Generic over its backend so tests inject a stub. Carries the
+/// subject's [`SubjectContext`] so every batch prompt states what there is to bind to (REQ072) —
+/// the `Classifier` seam stays unchanged.
 pub struct LlmClassifier<B: LlmBackend> {
     backend: B,
+    context: SubjectContext,
 }
 
 impl<B: LlmBackend> LlmClassifier<B> {
-    pub fn new(backend: B) -> Self {
-        Self { backend }
+    pub fn new(backend: B, context: SubjectContext) -> Self {
+        Self { backend, context }
     }
 }
 
@@ -303,7 +317,10 @@ impl<B: LlmBackend + Send + Sync> Classifier for LlmClassifier<B> {
         if items.is_empty() {
             return Ok(Vec::new());
         }
-        let raw = self.backend.complete(&build_prompt(items)).await?;
+        let raw = self
+            .backend
+            .complete(&build_prompt(items, &self.context))
+            .await?;
         parse_buckets(&raw, items)
     }
 }
@@ -333,17 +350,25 @@ merely because lowering it would be hard, or because the wording is loose.
 
 If you cannot place a requirement, OMIT it from your answer. An omitted requirement stays \
 untriaged for a human to look at, and that is more useful than a guess.
-
-Requirements:
 ";
 
 const PROMPT_FOOTER: &str = "\n\nRespond with ONLY a JSON array, no prose and no code fences, \
 one object per requirement you can place — omit the ones you cannot: \
 [{\"id\": \"<id>\", \"bucket\": \"formalizable-now|falsifiable-only|stays-prose\"}]";
 
-/// Build the classification prompt (pure).
-fn build_prompt(items: &[Item]) -> String {
+/// How many observable names a prompt lists per kind before cutting the list — with the cut
+/// stated in the prompt, never applied silently (REQ072).
+const OBSERVABLE_CAP: usize = 100;
+
+/// Build the classification prompt (pure): the header, the gate's own category boundaries,
+/// the subject's declared observables (capped, openly), the items, the answer format.
+///
+/// Implements: REQ072
+fn build_prompt(items: &[Item], context: &SubjectContext) -> String {
     let mut prompt = String::from(PROMPT_HEADER);
+    prompt.push_str(&boundary_section());
+    prompt.push_str(&observables_section(context));
+    prompt.push_str("\nRequirements:\n");
     for item in items {
         // Flatten prose to a single line so the list stays unambiguous.
         prompt.push_str(&format!(
@@ -354,6 +379,75 @@ fn build_prompt(items: &[Item]) -> String {
     }
     prompt.push_str(PROMPT_FOOTER);
     prompt
+}
+
+/// The category boundaries, rendered from the gate's own fragment encoding (REQ072) — the same
+/// `rule` that will later admit or refuse the formalization, so the classifier is told the
+/// boundary the pipeline actually enforces, not a paraphrase that can drift from it.
+fn boundary_section() -> String {
+    let mut out = String::from(
+        "\nThe exact expressibility boundary, from the tool's own gate. Categories 1 (deductive \
+         over code) and 2a (model checking) are the formalizable-now engines; 2b (runtime \
+         monitor) and 3 (UI driver) are the falsifiable-only engines. A claim whose temporal \
+         shape only a falsifiable-only engine admits belongs in falsifiable-only even when it \
+         reads like a code property:\n",
+    );
+    for boundary in crate::prl::triage_boundaries() {
+        out.push_str(&format!(
+            "- category {}: expresses {}; cannot express {}\n",
+            boundary.category,
+            join_or_none(&boundary.admits),
+            join_or_none(&boundary.refuses),
+        ));
+    }
+    out
+}
+
+fn join_or_none(verbs: &[&str]) -> String {
+    if verbs.is_empty() {
+        "nothing beyond the others".to_string()
+    } else {
+        verbs.join(", ")
+    }
+}
+
+/// The subject's declared observables (REQ072): what a formalizable claim has to bind to. A
+/// list over [`OBSERVABLE_CAP`] is cut and the cut is stated — a silently trimmed list would
+/// read as the whole subject. Empty context renders nothing at all: a subject whose
+/// observables live elsewhere (a TLA+ model) must not be described as declaring nothing.
+fn observables_section(context: &SubjectContext) -> String {
+    if context.predicates.is_empty() && context.sorts.is_empty() {
+        return String::new();
+    }
+    let mut out = String::from(
+        "\nThe subject's code declares these observables. A claim that binds to them has \
+         something real to lower to — but binding decides only WHERE a claim could attach, and \
+         the boundary above still decides HOW: a claim about these names whose shape categories \
+         1 or 2a admit is formalizable-now; one whose shape only a monitor or driver admits is \
+         falsifiable-only even though it names them. A claim mentioning none of them may still \
+         lower through a model's observables:\n",
+    );
+    out.push_str(&capped_list("predicates", &context.predicates));
+    out.push_str(&capped_list("sorts", &context.sorts));
+    out
+}
+
+fn capped_list(label: &str, names: &[String]) -> String {
+    if names.is_empty() {
+        return String::new();
+    }
+    let shown: Vec<&str> = names
+        .iter()
+        .take(OBSERVABLE_CAP)
+        .map(String::as_str)
+        .collect();
+    let cut = names.len().saturating_sub(OBSERVABLE_CAP);
+    let suffix = if cut > 0 {
+        format!(" …(and {cut} more not listed)")
+    } else {
+        String::new()
+    };
+    format!("- {label}: {}{suffix}\n", shown.join(", "))
 }
 
 /// Map the model's reply back to one bucket per input item, in order.
@@ -429,6 +523,52 @@ fn extract_json_array(raw: &str) -> Option<&str> {
 mod tests {
     use super::*;
 
+    // Verifies: REQ072 / #259 — the prompt names the subject's declared observables, and a list
+    // longer than the cap is cut *openly*: the prompt says how many were omitted, never silently.
+    #[test]
+    fn prompt_carries_observables_and_states_its_cap() {
+        let context = SubjectContext {
+            predicates: (0..150).map(|i| format!("pred{i:03}")).collect(),
+            sorts: vec!["User".into()],
+        };
+        let prompt = build_prompt(&[item("REQ001", "some claim")], &context);
+        assert!(prompt.contains("pred000"), "observables are listed");
+        assert!(prompt.contains("User"), "sorts are listed");
+        assert!(
+            !prompt.contains("pred149"),
+            "the cap actually cuts the list"
+        );
+        assert!(
+            prompt.contains("50 more not listed"),
+            "a cut list says how much was omitted:\n{prompt}"
+        );
+    }
+
+    // Verifies: REQ072 / #259 — an empty context renders no observables section at all: a subject
+    // whose observables live elsewhere (a TLA+ model) must not be described as declaring nothing.
+    #[test]
+    fn an_empty_context_renders_no_observables_section() {
+        let prompt = build_prompt(&[item("REQ001", "t")], &SubjectContext::default());
+        assert!(!prompt.contains("declares these observables"), "{prompt}");
+    }
+
+    // Verifies: REQ072 / #259 — the category boundaries in the prompt come from the gate's own
+    // fragment encoding, not parallel prose: every verb the gate places appears, including the
+    // one (`can_reach`) only the gate's rules would put anywhere.
+    #[test]
+    fn prompt_boundaries_come_from_the_gate() {
+        let prompt = build_prompt(&[item("REQ001", "t")], &SubjectContext::default());
+        for boundary in crate::prl::triage_boundaries() {
+            for verb in boundary.admits.iter().chain(boundary.refuses.iter()) {
+                assert!(
+                    prompt.contains(verb),
+                    "the gate places `{verb}` but the prompt never mentions it"
+                );
+            }
+        }
+        assert!(prompt.contains("can_reach"), "{prompt}");
+    }
+
     fn item(id: &str, text: &str) -> Item {
         Item {
             id: id.into(),
@@ -460,7 +600,10 @@ mod tests {
                        {"id":"REQ002","bucket":"stays-prose"}]"#
                 .into(),
         };
-        let buckets = LlmClassifier::new(backend).classify(&items).await.unwrap();
+        let buckets = LlmClassifier::new(backend, SubjectContext::default())
+            .classify(&items)
+            .await
+            .unwrap();
         assert_eq!(
             buckets,
             vec![
@@ -482,7 +625,10 @@ mod tests {
             reply: r#"[{"id":"A","bucket":"nonsense"},{"id":"B","bucket":"falsifiable-only"}]"#
                 .into(),
         };
-        let buckets = LlmClassifier::new(backend).classify(&items).await.unwrap();
+        let buckets = LlmClassifier::new(backend, SubjectContext::default())
+            .classify(&items)
+            .await
+            .unwrap();
         assert_eq!(
             buckets,
             vec![None, Some(Classification::FalsifiableOnly), None],
@@ -513,7 +659,7 @@ mod tests {
             let backend = StubBackend {
                 reply: reply.into(),
             };
-            let err = LlmClassifier::new(backend)
+            let err = LlmClassifier::new(backend, SubjectContext::default())
                 .classify(&items)
                 .await
                 .expect_err(&format!("{label} must not pass as a classification"));
@@ -533,7 +679,10 @@ mod tests {
         let backend = StubBackend {
             reply: r#"garbage before [{"id":"B","bucket":"formalizable-now"}] and after"#.into(),
         };
-        let buckets = LlmClassifier::new(backend).classify(&items).await.unwrap();
+        let buckets = LlmClassifier::new(backend, SubjectContext::default())
+            .classify(&items)
+            .await
+            .unwrap();
         assert_eq!(
             buckets,
             vec![None, Some(Classification::FormalizableNow)],
@@ -561,7 +710,10 @@ mod tests {
             reply: "Here you go:\n```json\n[{\"id\":\"A\",\"bucket\":\"formalizable-now\"}]\n```"
                 .into(),
         };
-        let buckets = LlmClassifier::new(backend).classify(&items).await.unwrap();
+        let buckets = LlmClassifier::new(backend, SubjectContext::default())
+            .classify(&items)
+            .await
+            .unwrap();
         assert_eq!(buckets, vec![Some(Classification::FormalizableNow)]);
     }
 
@@ -584,7 +736,10 @@ mod tests {
 
     #[test]
     fn prompt_lists_every_item_id() {
-        let prompt = build_prompt(&[item("REQ001", "a"), item("REQ042", "b")]);
+        let prompt = build_prompt(
+            &[item("REQ001", "a"), item("REQ042", "b")],
+            &SubjectContext::default(),
+        );
         assert!(prompt.contains("REQ001"));
         assert!(prompt.contains("REQ042"));
         assert!(prompt.contains("formalizable-now"));
@@ -598,7 +753,7 @@ mod tests {
     // three different buckets.
     #[test]
     fn the_prompt_asks_about_lowering_not_about_wording() {
-        let prompt = build_prompt(&[item("REQ001", "a")]);
+        let prompt = build_prompt(&[item("REQ001", "a")], &SubjectContext::default());
         assert!(
             prompt.contains("lower"),
             "the buckets answer a lowering question and the prompt must say so: {prompt}"
