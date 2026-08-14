@@ -1869,6 +1869,72 @@ fn param_mode(arg: &syn::FnArg) -> ParamMode {
     }
 }
 
+/// What the subject declares that a binding could name (REQ072, #259): bool-returning
+/// functions as predicate candidates, declared types as sort candidates. Names only, sorted,
+/// deduplicated — the triage prompt needs what exists, not where it lives; resolution
+/// (REQ025/REQ026) stays the sole authority on whether a specific binding holds.
+pub struct Inventory {
+    pub predicates: Vec<String>,
+    pub sorts: Vec<String>,
+}
+
+/// Enumerate the parsed subject's observable candidates (REQ072). The predicate test is the
+/// same syntactic `-> bool` this adapter grounds by ([`return_type`]) — a `Result<bool>` is
+/// not a predicate here for the same reason it does not ground as one.
+///
+/// Implements: REQ072
+pub fn inventory(subject: &ParsedSubject) -> Inventory {
+    let mut predicates = std::collections::BTreeSet::new();
+    let mut sorts = std::collections::BTreeSet::new();
+    subject.each(|ast, _, _, _| collect_inventory(&ast.items, &mut predicates, &mut sorts));
+    Inventory {
+        predicates: predicates.into_iter().collect(),
+        sorts: sorts.into_iter().collect(),
+    }
+}
+
+/// The inventory walk, descending into inline modules and impl blocks exactly as
+/// [`collect_fns`] does — the two must agree on where a declaration can live.
+fn collect_inventory(
+    items: &[syn::Item],
+    predicates: &mut std::collections::BTreeSet<String>,
+    sorts: &mut std::collections::BTreeSet<String>,
+) {
+    for item in items {
+        match item {
+            syn::Item::Fn(f) => {
+                if return_type(&f.sig) == "bool" {
+                    predicates.insert(f.sig.ident.to_string());
+                }
+            }
+            syn::Item::Struct(s) => {
+                sorts.insert(s.ident.to_string());
+            }
+            syn::Item::Enum(e) => {
+                sorts.insert(e.ident.to_string());
+            }
+            syn::Item::Type(t) => {
+                sorts.insert(t.ident.to_string());
+            }
+            syn::Item::Impl(imp) => {
+                for impl_item in &imp.items {
+                    if let syn::ImplItem::Fn(f) = impl_item {
+                        if return_type(&f.sig) == "bool" {
+                            predicates.insert(f.sig.ident.to_string());
+                        }
+                    }
+                }
+            }
+            syn::Item::Mod(m) => {
+                if let Some((_, inner)) = &m.content {
+                    collect_inventory(inner, predicates, sorts);
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
 /// How a signature's return type is *written* — the syntactic check this adapter can
 /// honestly make. A bare `-> bool` reads as `bool`; anything else keeps its own text so
 /// the operator sees exactly what the subject says.
@@ -2026,6 +2092,27 @@ mod tests {
 
     fn want(ty: &str) -> Option<String> {
         Some(ty.to_string())
+    }
+
+    // Verifies: REQ072 / #259 — the inventory names what an adapter could bind: bool-returning
+    // functions (free, methods, and inside inline modules) as predicates, declared types as
+    // sorts — and nothing else. Sorted and deduplicated, so the prompt is deterministic.
+    #[test]
+    fn inventory_names_predicates_and_sorts() {
+        let tmp = subject(
+            "pub struct User { ok: bool }\n\
+             pub enum Mode { A }\n\
+             pub type Alias = u8;\n\
+             pub fn is_ready(u: &User) -> bool { u.ok }\n\
+             pub fn count() -> u32 { 0 }\n\
+             pub fn fallible() -> Result<bool, ()> { Ok(true) }\n\
+             impl User { pub fn is_clear(&self) -> bool { self.ok } }\n\
+             mod inner { pub fn is_deep() -> bool { true } }\n",
+        );
+        let parsed = ParsedSubject::load(tmp.path(), &tmp.path().join("no-companion"));
+        let inv = inventory(&parsed);
+        assert_eq!(inv.predicates, ["is_clear", "is_deep", "is_ready"]);
+        assert_eq!(inv.sorts, ["Alias", "Mode", "User"]);
     }
 
     // Verifies: REQ025 — a predicate resolves to a real function at a real location, which

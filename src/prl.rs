@@ -16,6 +16,7 @@ pub mod ast;
 mod check;
 pub mod error;
 mod fragment;
+pub use fragment::{triage_boundaries, CategoryBoundary};
 mod lexer;
 pub(crate) mod parser;
 mod readback;
