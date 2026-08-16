@@ -1186,17 +1186,60 @@ mod tests {
         assert!(crate::verdict::render(&v).contains("could not discharge"));
     }
 
+    /// The `creusot-std` every fixture below depends on. Not free to differ from the installed
+    /// tool: `cargo-creusot` refuses before running any subcommand when they disagree
+    /// (`creusot-std is out of date. creusot-std 0.12.0 / creusot 0.13.0`).
+    const CREUSOT_STD_VERSION: &str = "0.13.0";
+
+    /// The manifest every real-engine fixture writes. One place, because the version in it is
+    /// locked to the Dockerfile's tag.
+    fn fixture_manifest(name: &str) -> String {
+        format!(
+            "[package]\nname = \"{name}\"\nversion = \"0.1.0\"\nedition = \"2024\"\n\n\
+             [dependencies]\ncreusot-std = \"{CREUSOT_STD_VERSION}\"\n\n\
+             [lints.rust]\nunexpected_cfgs = {{ level = \"warn\", check-cfg = ['cfg(creusot)'] }}\n"
+        )
+    }
+
+    // Verifies: the fixtures, this crate's own `creusot-std` dependency, and the Creusot the
+    // image installs are ONE version. A mismatch is not a subtle degradation — `cargo-creusot`
+    // refuses outright — and nothing else catches it until the CI `creusot` job runs against a
+    // freshly built image, a 1-2h loop for a one-character slip.
+    #[test]
+    fn creusot_std_moves_in_lockstep_with_the_installed_tag() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+        let dockerfile = std::fs::read_to_string(root.join(".devcontainer/Dockerfile"))
+            .expect("the Dockerfile that installs Creusot");
+        let tag = dockerfile
+            .lines()
+            .find_map(|l| l.trim().strip_prefix("ARG CREUSOT_TAG=v"))
+            .expect("ARG CREUSOT_TAG=v… in the Dockerfile");
+        assert_eq!(
+            tag, CREUSOT_STD_VERSION,
+            "the image installs Creusot {tag} but the fixtures ask for creusot-std \
+             {CREUSOT_STD_VERSION}; cargo-creusot refuses the pair"
+        );
+
+        let manifest =
+            std::fs::read_to_string(root.join("Cargo.toml")).expect("this crate's manifest");
+        let dep = manifest
+            .lines()
+            .find_map(|l| l.strip_prefix("creusot-std = \""))
+            .map(|rest| rest.trim_end_matches('"'))
+            .expect("a creusot-std dependency in Cargo.toml");
+        assert!(
+            CREUSOT_STD_VERSION.starts_with(&format!("{dep}.")),
+            "this crate depends on creusot-std {dep}, which does not cover \
+             {CREUSOT_STD_VERSION} — provreq is its own Creusot subject, so it would be refused"
+        );
+    }
+
     /// A real cargo subject: a sort and two `#[logic]` predicates over it, `has_session`'s
     /// body supplied so a test can make the invariant true or false.
     fn cargo_subject(has_session_body: &str) -> tempfile::TempDir {
         let tmp = tempfile::tempdir().expect("tempdir");
-        std::fs::write(
-            tmp.path().join("Cargo.toml"),
-            "[package]\nname = \"csmoke\"\nversion = \"0.1.0\"\nedition = \"2024\"\n\n\
-             [dependencies]\ncreusot-std = \"0.12.0\"\n\n\
-             [lints.rust]\nunexpected_cfgs = { level = \"warn\", check-cfg = ['cfg(creusot)'] }\n",
-        )
-        .expect("manifest");
+        std::fs::write(tmp.path().join("Cargo.toml"), fixture_manifest("csmoke"))
+            .expect("manifest");
         std::fs::create_dir_all(tmp.path().join("src")).expect("src");
         std::fs::write(
             tmp.path().join("src/lib.rs"),
@@ -1262,13 +1305,8 @@ mod tests {
     #[ignore = "needs Creusot installed — run via `cargo test -- --ignored` (the CI `creusot` job)"]
     fn real_creusot_is_inconclusive_on_opaque_predicates() {
         let tmp = tempfile::tempdir().expect("tempdir");
-        std::fs::write(
-            tmp.path().join("Cargo.toml"),
-            "[package]\nname = \"csmoke\"\nversion = \"0.1.0\"\nedition = \"2024\"\n\n\
-             [dependencies]\ncreusot-std = \"0.12.0\"\n\n\
-             [lints.rust]\nunexpected_cfgs = { level = \"warn\", check-cfg = ['cfg(creusot)'] }\n",
-        )
-        .expect("manifest");
+        std::fs::write(tmp.path().join("Cargo.toml"), fixture_manifest("csmoke"))
+            .expect("manifest");
         std::fs::create_dir_all(tmp.path().join("src")).expect("src");
         // Ordinary program fns — pearlite cannot call them.
         std::fs::write(
@@ -1307,9 +1345,7 @@ mod tests {
         let tmp = tempfile::tempdir().expect("tempdir");
         std::fs::write(
             tmp.path().join("Cargo.toml"),
-            "[package]\nname = \"mirrorsmoke\"\nversion = \"0.1.0\"\nedition = \"2024\"\n\n\
-             [dependencies]\ncreusot-std = \"0.12.0\"\n\n\
-             [lints.rust]\nunexpected_cfgs = { level = \"warn\", check-cfg = ['cfg(creusot)'] }\n",
+            fixture_manifest("mirrorsmoke"),
         )
         .expect("manifest");
         std::fs::create_dir_all(tmp.path().join("src")).expect("src");

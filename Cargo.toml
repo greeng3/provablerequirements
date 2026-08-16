@@ -38,10 +38,12 @@ proc-macro2 = { version = "1", features = ["span-locations"] }
 tempfile = "3"
 # `cargo creusot` refuses any subject that does not depend on `creusot-std` — the refusal comes
 # from cargo-creusot itself, so this is what makes provreq verifiable by its own Creusot engine
-# rather than a dependency provreq's code uses. Measured inert on a stable build: it and its eight
+# rather than a dependency provreq's code uses. Measured inert on a stable build: it and its
 # transitive crates are pure Rust with no nightly-only requirement, so the release matrix is
 # unaffected and `#[logic]`/`proof_assert!` remain available only under `cfg(creusot)`.
-creusot-std = "0.12"
+# Locked to `ARG CREUSOT_TAG` in `.devcontainer/Dockerfile` — cargo-creusot refuses a mismatched
+# pair outright. `creusot_std_moves_in_lockstep_with_the_installed_tag` fails if they drift.
+creusot-std = "0.13"
 
 # `cfg(kani)` is set only by `cargo kani`, so an ordinary build has to be told it is a real cfg —
 # otherwise the `kani::Arbitrary` impl in src/engine.rs trips `unexpected_cfgs` under
