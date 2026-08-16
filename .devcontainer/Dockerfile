@@ -216,16 +216,21 @@ RUN apt-get update \
 # `TyKind::Coroutine(..) | TyKind::CoroutineClosure(..)` explicitly and no longer needs the patch.
 # Drop it when v0.14.0 ships — that is issue #153, which has a daily tag check.
 #
-# The tag stays at v0.12.0 for now, deliberately. v0.12.0 does have one known defect the next
-# release fixes: it ICEs on a tuple-variant constructor used as a function value (`o.map(E::A)`) —
-# ordinary parser code, which we hit as `parser.map(Expr::Atom)` while measuring #262 and filed as
-# creusot-rs/creusot#2223. v0.12.0 is the only affected release. Bumping to v0.13.0 was measured as
-# viable (both patches below pass `git apply --check` against it) but was NOT done, because the tag
-# does not move alone: v0.13.0's `cargo-creusot` refuses outright with `creusot-std is out of date`
-# unless `Cargo.toml`'s `creusot-std` and the three literals in `src/creusot.rs`'s `cargo_subject`
-# helper move in lockstep — and CI runs a PREBUILT image, so either order is red for a while (see
-# issue #263). v0.14.0 makes the bump moot and retires the patch above, so the wait is cheap.
-ARG CREUSOT_TAG=v0.12.0
+# The tag is v0.13.0 (issue #278). It clears two defects of v0.12.0, both of which we hit in real
+# measurement rather than in theory:
+#   - `std::env::consts::OS` ICEd the Why3 backend with `does not have a "mir_for_ctfe"`, which is
+#     where #262's trusted-shell measurement stopped. Fixed by creusot-rs/creusot#2076 (const
+#     translation respecting visibility), which v0.13.0 contains — we filed it as #2228 believing
+#     it live on master, and the maintainer corrected us: our INSTALL was 0.12, the fix released.
+#   - a tuple-variant constructor used as a function value (`o.map(E::A)`) ICEd; we hit it as
+#     `parser.map(Expr::Atom)` and filed creusot-rs/creusot#2223. v0.12.0 is the only affected
+#     release.
+# The tag does not move alone: v0.13.0's `cargo-creusot` refuses outright with `creusot-std is out
+# of date` unless `Cargo.toml`'s `creusot-std` moves with it. That lockstep is now pinned by
+# `creusot_std_moves_in_lockstep_with_the_installed_tag` in `src/creusot.rs`, so a half-move fails
+# in `cargo test` rather than an hour into a CI image build. Both patches above were re-checked
+# against v0.13.0 (`git apply --check`, clean) before the bump.
+ARG CREUSOT_TAG=v0.13.0
 ENV CREUSOT_DATA=/root/.local/share/creusot
 ENV PATH="${CREUSOT_DATA}/bin:${CREUSOT_DATA}/_opam/bin:${PATH}"
 COPY .devcontainer/patches/creusot-linux-aarch64-provers.patch /tmp/creusot.patch
