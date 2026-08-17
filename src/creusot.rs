@@ -387,6 +387,57 @@ pub fn run(subject_root: &Path, harness: &Harness) -> Outcome {
     }
 }
 
+/// Why the installed Creusot cannot be run against this subject, if it cannot — `None` when it can.
+///
+/// `cargo-creusot` refuses **before running any subcommand** when the subject's `creusot-std` and
+/// the installed tool disagree, in either direction (`creusot-std is out of date` /
+/// `creusot-std is newer than Creusot`). The engine never translates anything, so a run started in
+/// that state cannot produce evidence about the claim — and reporting it as `inconclusive` says the
+/// prover tried and could not decide, which is false (#279).
+///
+/// Compared on major.minor, because that is the pair `cargo-creusot` accepts: our own manifest says
+/// `creusot-std = "0.13"` against a 0.13.0 tool and is fine. Read from the manifest rather than
+/// matched against the refusal text: the two phrasings are a REQ070 trap, and a version comparison
+/// does not have to know either of them.
+pub fn unusable_for_subject(cargo_toml: &str, tool_version: &str) -> Option<String> {
+    let declared = declared_creusot_std(cargo_toml)?;
+    let (want, got) = (minor_series(&declared)?, minor_series(tool_version)?);
+    if want == got {
+        return None;
+    }
+    Some(format!(
+        "this subject declares creusot-std {declared} but the installed Creusot is {tool_version}; \
+         cargo-creusot refuses that pair before it translates anything, so it cannot answer here \
+         — align the dependency with the toolchain"
+    ))
+}
+
+/// The version requirement the subject declares for `creusot-std`, e.g. `0.13` or `0.12.0`.
+///
+/// Crude on purpose, matching `contract_draft::marker_for_subject`: a dependency key at a line
+/// start followed by a bare string. ponytail: no TOML parse — a `creusot-std = { version = "…" }`
+/// table reads as absent, which fails OPEN (the engine stays ready and behaves as it does today),
+/// so the worst case is the status quo rather than a wrong refusal.
+fn declared_creusot_std(cargo_toml: &str) -> Option<String> {
+    cargo_toml.lines().find_map(|l| {
+        let rest = l.trim_start().strip_prefix("creusot-std")?;
+        let rest = rest.trim_start().strip_prefix('=')?.trim();
+        rest.strip_prefix('"')?
+            .split('"')
+            .next()
+            .map(str::to_string)
+    })
+}
+
+/// `major.minor` of a version or version requirement, ignoring any leading `^`/`=`/`~`.
+fn minor_series(version: &str) -> Option<(u64, u64)> {
+    let v = version.trim_start_matches(['^', '=', '~', 'v']);
+    let mut parts = v.split('.');
+    let major = parts.next()?.trim().parse().ok()?;
+    let minor = parts.next()?.trim().parse().ok()?;
+    Some((major, minor))
+}
+
 /// The prover-crash reports (`rustc-ice-*.txt`) sitting in the subject root right now. Compared
 /// before and after a run so cleanup removes the ones this run caused and none of the operator's.
 fn ice_reports(root: &Path) -> BTreeSet<PathBuf> {
@@ -1186,6 +1237,52 @@ mod tests {
         assert!(crate::verdict::render(&v).contains("could not discharge"));
     }
 
+    // Verifies: REQ051 (#279) — a subject whose creusot-std cannot work with the installed tool must be
+    // caught BEFORE the engine runs. cargo-creusot refuses at start-up, so a run in this state
+    // produces no evidence about the claim; calling it `inconclusive` would say the prover tried.
+    #[test]
+    fn a_subject_whose_creusot_std_cannot_work_with_the_tool_is_unusable() {
+        let older = "[dependencies]\ncreusot-std = \"0.12.0\"\n";
+        let reason = unusable_for_subject(older, "0.13.0").expect("0.12 subject, 0.13 tool");
+        assert!(
+            reason.contains("0.12.0") && reason.contains("0.13.0"),
+            "{reason}"
+        );
+        assert!(
+            !reason.to_lowercase().contains("inconclusive"),
+            "the engine never ran, so nothing about it is inconclusive: {reason}"
+        );
+
+        // The other direction is the one this container hit live: dep ahead of tool.
+        let newer = "[dependencies]\ncreusot-std = \"0.13.0\"\n";
+        assert!(
+            unusable_for_subject(newer, "0.12.0").is_some(),
+            "a dep newer than the tool is refused just as hard"
+        );
+    }
+
+    // Verifies: REQ051 (#279) — the check must not cry wolf. A minor-level requirement covering the
+    // installed patch release is exactly what this repo ships, and a subject that does not use
+    // Creusot at all is not our business.
+    #[test]
+    fn a_usable_pair_and_an_uninvolved_subject_are_left_alone() {
+        assert_eq!(
+            unusable_for_subject("creusot-std = \"0.13\"\n", "0.13.0"),
+            None,
+            "a minor-level requirement covers the installed patch release"
+        );
+        assert_eq!(
+            unusable_for_subject("[dependencies]\nserde = \"1\"\n", "0.13.0"),
+            None,
+            "a subject with no creusot-std has no coupling to violate"
+        );
+        assert_eq!(
+            unusable_for_subject("creusot-std = { version = \"0.12\" }\n", "0.13.0"),
+            None,
+            "a table dependency is not parsed, and must fail OPEN rather than refuse wrongly"
+        );
+    }
+
     /// The `creusot-std` every fixture below depends on. Not free to differ from the installed
     /// tool: `cargo-creusot` refuses before running any subcommand when they disagree
     /// (`creusot-std is out of date. creusot-std 0.12.0 / creusot 0.13.0`).
@@ -1193,7 +1290,33 @@ mod tests {
 
     /// The manifest every real-engine fixture writes. One place, because the version in it is
     /// locked to the Dockerfile's tag.
+    ///
+    /// Also the choke point where a real-engine test is stopped from passing without the engine
+    /// (#279): if Creusot is installed but would refuse this manifest at start-up, every test
+    /// downstream of here is measuring a refusal, and one of them asserts `inconclusive` — which
+    /// the refusal satisfies, in 0.62s, having verified nothing. A missing Creusot is NOT this
+    /// case and must not panic: those tests are `#[ignore]`d and simply do not run.
     fn fixture_manifest(name: &str) -> String {
+        let creusot = crate::engine::registry()
+            .into_iter()
+            .find(|e| e.name == "Creusot")
+            .expect("Creusot is in the registry");
+        if let crate::engine::EngineStatus::Available { version } =
+            crate::engine::detect(&creusot, None)
+        {
+            let manifest = raw_fixture_manifest(name);
+            assert!(
+                unusable_for_subject(&manifest, &version).is_none(),
+                "the installed Creusot ({version}) would refuse this fixture's creusot-std \
+                 {CREUSOT_STD_VERSION} before translating anything — every real-engine test below \
+                 would be measuring that refusal, not the engine. Reopen the dev container so the \
+                 toolchain matches the tree."
+            );
+        }
+        raw_fixture_manifest(name)
+    }
+
+    fn raw_fixture_manifest(name: &str) -> String {
         format!(
             "[package]\nname = \"{name}\"\nversion = \"0.1.0\"\nedition = \"2024\"\n\n\
              [dependencies]\ncreusot-std = \"{CREUSOT_STD_VERSION}\"\n\n\

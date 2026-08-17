@@ -168,7 +168,7 @@ pub fn run_ensemble(
     // honest no-engine that names who must act (wiring is ours, installing is the operator's).
     let ready: Vec<&crate::engine::Engine> = engines
         .iter()
-        .filter(|e| crate::engine::detect(e, Some(companion)).is_ready())
+        .filter(|e| crate::engine::detect_for_subject(e, subject, Some(companion)).is_ready())
         .collect();
     if ready.is_empty() {
         let detail = engines
@@ -178,7 +178,7 @@ pub fn run_ensemble(
                     "category {} routes to {} — {}",
                     category.as_label(),
                     e.name,
-                    crate::engine::detect(e, Some(companion)).describe()
+                    crate::engine::detect_for_subject(e, subject, Some(companion)).describe()
                 )
             })
             .collect();

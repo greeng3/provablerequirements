@@ -341,6 +341,37 @@ pub fn detect(engine: &Engine, companion: Option<&std::path::Path>) -> EngineSta
     }
 }
 
+/// [`detect`], plus the checks that need the SUBJECT rather than just the install.
+///
+/// An engine can be installed, healthy, and still unable to answer for a particular subject.
+/// Creusot is the case that exists: `cargo-creusot` refuses at start-up when the subject's
+/// `creusot-std` disagrees with the tool. That belongs here, in the readiness gate, and not in the
+/// run: an engine that is not ready is never invoked, so no verdict is built out of a run that
+/// never happened (#279). Verification uses this; the install-wide `provreq engines` view keeps
+/// using [`detect`], because "is the tool installed" is a different question from "can it answer
+/// about this crate".
+pub fn detect_for_subject(
+    engine: &Engine,
+    subject: &std::path::Path,
+    companion: Option<&std::path::Path>,
+) -> EngineStatus {
+    let status = detect(engine, companion);
+    let EngineStatus::Available { version } = &status else {
+        return status;
+    };
+    if engine.name != "Creusot" {
+        return status;
+    }
+    match std::fs::read_to_string(subject.join("Cargo.toml")) {
+        Ok(manifest) => match crate::creusot::unusable_for_subject(&manifest, version) {
+            Some(reason) => EngineStatus::Unusable { reason },
+            None => status,
+        },
+        // No readable manifest is not a mismatch — the existing no-crate-root path reports it.
+        Err(_) => status,
+    }
+}
+
 fn detect_probe(probe: &EngineProbe) -> EngineStatus {
     // `Command::new(bare_name)` searches `PATH`; a not-found binary errors here, which is
     // exactly the honest "engine missing" signal.
@@ -678,6 +709,56 @@ mod tests {
         };
         assert!(reason.contains("shared libraries"), "{reason}");
         assert!(status.describe().contains("UNUSABLE"), "{status:?}");
+    }
+
+    // Verifies: REQ051 (#279) — an installed, healthy Creusot that CANNOT WORK WITH THIS SUBJECT is not
+    // ready. This is the guard that stops the false green: `run_ensemble` only runs engines whose
+    // status `is_ready`, so a subject the tool refuses at start-up never reaches a verdict at all.
+    // Before this, the refusal came back as `inconclusive` and a real-engine test asserting
+    // `inconclusive` passed in 0.62s with nothing verified.
+    #[test]
+    fn an_installed_creusot_is_not_ready_for_a_subject_it_would_refuse_to_start_on() {
+        let subject = tempfile::tempdir().expect("tempdir");
+        let creusot = |version: &str| Engine {
+            category: BindCategory::Code,
+            name: "Creusot",
+            probe: Some(Probe::Command(EngineProbe {
+                bin: "sh".to_string(),
+                args: vec!["-c".to_string(), format!("echo 'cargo-creusot {version}'")],
+                version_marker: Some("cargo-creusot".to_string()),
+                min_version: None,
+            })),
+        };
+
+        std::fs::write(
+            subject.path().join("Cargo.toml"),
+            "[dependencies]\ncreusot-std = \"0.12.0\"\n",
+        )
+        .expect("manifest");
+        let status = detect_for_subject(&creusot("0.13.0"), subject.path(), None);
+        assert!(
+            !status.is_ready(),
+            "a subject Creusot refuses at start-up must not put it in the ensemble: {status:?}"
+        );
+        let EngineStatus::Unusable { reason } = &status else {
+            panic!("expected Unusable, got {status:?}");
+        };
+        assert!(
+            reason.contains("0.12.0") && reason.contains("0.13.0"),
+            "{reason}"
+        );
+
+        // Same install, same probe, a subject it CAN answer for: still ready. The guard is about
+        // the pair, not about Creusot.
+        std::fs::write(
+            subject.path().join("Cargo.toml"),
+            "[dependencies]\ncreusot-std = \"0.13\"\n",
+        )
+        .expect("manifest");
+        assert!(
+            detect_for_subject(&creusot("0.13.0"), subject.path(), None).is_ready(),
+            "a matching pair stays ready"
+        );
     }
 
     // Verifies: REQ051 — "cannot start" stays distinct from "not installed", because the two ask
