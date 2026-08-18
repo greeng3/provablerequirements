@@ -1,7 +1,3 @@
-# Local-only symlink to the qrusty repo, used purely as a reference for
-# dev-environment work. It lives in its own git repo and must never be
-# committed from here (it would only store a broken, machine-local link).
-/qrusty
 
 # Rust build artifacts. Cargo.lock IS committed (this is a binary crate).
 /target

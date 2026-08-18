@@ -26,8 +26,6 @@
             ]
         }
     },
-    "workspaceMount": "source=${localWorkspaceFolder},target=/workspace,type=bind",
-    "workspaceFolder": "/workspace",
     // doorstop-server (requirements web view), started on demand — see .devcontainer/README.md.
     // Port 17868 chosen to avoid clashing with the qrusty devcontainer (which uses 17867).
     //
@@ -49,10 +47,18 @@
             "label": "doorstop-server"
         }
     },
+    // Mount your workspace
+    "workspaceMount": "source=${localWorkspaceFolder},target=/workspace,type=bind",
+    "workspaceFolder": "/workspace",
     // Mount Docker socket for Docker-in-Docker
     "mounts": [
+        // *** Unix
         "source=/var/run/docker.sock,target=/var/run/docker.sock,type=bind",
         "source=/etc/secrets,target=/etc/secrets,type=bind",
+        // *** Windows
+        // "source=/c/etc/secrets,target=/etc/secrets,type=bind",
+        // *** Common
+        "source=${localWorkspaceFolder}/../qrusty,target=/qrusty,type=bind",
         // Share local .claude-home with container
         "source=${localWorkspaceFolder}/.claude-home,target=/root/.claude,type=bind"
     ],
