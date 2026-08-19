@@ -2094,6 +2094,43 @@ mod tests {
         Some(ty.to_string())
     }
 
+    // Verifies: REQ060 / #292 — an operating system's resource files are not the subject's source,
+    // and the walk excludes them by rule rather than by luck. The sidecar here holds *valid Rust*
+    // on purpose: a `._`-prefixed AppleDouble copy carries the extension of the file it shadows, so
+    // this module's `extension() != "rs"` filter would admit it, and nothing downstream would reject
+    // it on content either. Only [`crate::subject_tree::is_pruned_dir`] — which `filter_entry`
+    // applies to file entries as well as directories — keeps it out. Were it to get in, it would be
+    // a second declaration of a name the operator wrote once, parking a correct binding as
+    // `Ambiguous` against a file nobody wrote: the `.claude-home/` failure, one file at a time.
+    #[test]
+    fn mac_resource_files_never_become_binding_candidates() {
+        let tmp = subject("pub fn is_ready() -> bool { true }\n");
+        let src = tmp.path().join("src");
+        std::fs::write(
+            src.join("._auth.rs"),
+            "pub fn is_ready() -> bool { false }\n",
+        )
+        .unwrap();
+        std::fs::write(
+            src.join(".DS_Store"),
+            "pub fn is_ready() -> bool { false }\n",
+        )
+        .unwrap();
+
+        let parsed = parsed(&tmp);
+        let walked: Vec<&str> = parsed.files.iter().map(|f| f.rel.as_str()).collect();
+        assert_eq!(
+            walked,
+            ["src/auth.rs"],
+            "only the authored file is the subject's"
+        );
+
+        let Resolution::Resolved { at, .. } = resolve(&parsed, "is_ready", &[]) else {
+            panic!("the sidecar must not make the real function ambiguous")
+        };
+        assert_eq!(at.file, "src/auth.rs");
+    }
+
     // Verifies: REQ072 / #259 — the inventory names what an adapter could bind: bool-returning
     // functions (free, methods, and inside inline modules) as predicates, declared types as
     // sorts — and nothing else. Sorted and deduplicated, so the prompt is deterministic.

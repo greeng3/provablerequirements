@@ -1,4 +1,4 @@
-//! Which directories of a subject repository provreq walks — the one rule, shared by every walk.
+//! Which parts of a subject repository provreq walks — the one rule, shared by every walk.
 //!
 //! Found by the second dogfood pass (#143): `adopt` and `doorstop` pruned build directories, but
 //! the two **adapters** that resolve bindings ([`crate::rust_adapter`], [`crate::tla_adapter`]) did
@@ -41,6 +41,13 @@ const CACHEDIR_SIGNATURE: &[u8] = b"Signature: 8a477f597d28d172789f06886806bc55"
 /// pruned**: `walkdir` applies a `filter_entry` predicate to depth 0 as well, so a subject checked
 /// out at a dotted path (`~/.local/src/thing`) would otherwise prune its own root and resolve every
 /// binding against nothing at all.
+///
+/// The name says directory because that is what the rule is *about*, but `filter_entry` hands the
+/// predicate every entry, and the adapters pass files through it unguarded. The hidden rule
+/// therefore excludes hidden **files** too, which is the whole of provreq's answer to an operating
+/// system's resource files: `.DS_Store`, and the `._`-prefixed AppleDouble sidecars that are the
+/// case worth naming, since one carries the extension of the file it shadows and an extension
+/// filter alone lets it through (#292). Neither is source anyone wrote.
 pub fn is_pruned_dir(path: &Path, depth: usize) -> bool {
     if depth == 0 {
         return false;
