@@ -530,6 +530,30 @@ mod tests {
         )
     }
 
+    // Verifies: REQ060 / #292 — the peer of the Rust adapter's case, because this walk has the same
+    // shape and the same hole: a `._Spec.tla` sidecar carries the extension of the file it shadows,
+    // so `extension() != "tla"` admits it, and only the shared rule keeps it out. Written second,
+    // after covering one adapter and calling the mechanism pinned — two walks sharing one rule need
+    // the rule proven at both, which is the whole reason `subject_tree` exists.
+    #[test]
+    fn mac_resource_files_never_become_model_specs() {
+        let tmp = subject(SPEC);
+        std::fs::write(tmp.path().join("._spec.tla"), SPEC).unwrap();
+        std::fs::write(tmp.path().join(".DS_Store"), SPEC).unwrap();
+
+        let specs = SubjectSpecs::load(
+            tmp.path(),
+            &tmp.path().join("ProvableRequirements"),
+            &crate::spec_paths::SpecPaths::default(),
+        );
+        let read: Vec<&str> = specs.specs.iter().map(|s| s.label.as_str()).collect();
+        assert_eq!(read, ["spec.tla"], "only the authored spec is the model");
+
+        // The sidecar declares the same operator, so admitting it would be an ambiguity against a
+        // file nobody wrote rather than a harmless extra read.
+        assert!(resolve_in(&tmp, "Succeeded", 1).is_resolved());
+    }
+
     const SPEC: &str = "\
 ---- MODULE Msg ----
 EXTENDS Naturals
