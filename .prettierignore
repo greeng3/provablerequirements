@@ -8,6 +8,11 @@ docs/traceability_report.md
 node_modules
 .git
 .DS_Store
+# AppleDouble sidecars. Separate from .DS_Store above because they are the harder case: one is
+# named after the file it shadows and carries that file's extension, so `._notes.md` looks like
+# Markdown to every glob. Mac resource files never hold content anyone wrote — nothing should
+# format them and nothing should read them.
+._*
 
 # ReqForge artifact fixtures are byte-for-byte copies of what ReqForge actually writes
 # (#296). Their value as evidence is that they are not our idea of the format, so a

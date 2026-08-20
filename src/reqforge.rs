@@ -65,7 +65,15 @@ impl RequirementsSource for ReqforgeSource {
                 std::fs::read_dir(&dir).with_context(|| format!("reading {}", dir.display()))?;
             for entry in entries {
                 let path = entry?.path();
-                if path.extension().is_none_or(|x| x != "md") {
+                // The shared rule first, because the extension test cannot stand in for it: an
+                // AppleDouble sidecar carries the extension of the file it shadows, so
+                // `._REQ001.md` passes as Markdown and parses perfectly. Reading one produced a
+                // second requirement with its own id, draft, and verdict — a duplicate of one the
+                // author wrote once (#307). This walk uses `read_dir` rather than `walkdir`, so it
+                // has to ask; the other adapters get the same answer via `filter_entry`.
+                if crate::subject_tree::is_pruned_file(&path)
+                    || path.extension().is_none_or(|x| x != "md")
+                {
                     continue;
                 }
                 // Read through ReqForge's own loader (#305). The spike hand-rolled a frontmatter
@@ -215,6 +223,33 @@ mod tests {
             before,
             "edited prose is drift, and the baseline must say so"
         );
+    }
+
+    // Verifies: REQ060 / #307 — an operating system's resource file never becomes a requirement.
+    // The sidecar holds a byte-for-byte copy of a real artifact on purpose: it parses perfectly, so
+    // only the shared rule can keep it out. Before this it arrived as a second requirement with its
+    // own id, draft, and verdict — a duplicate of one the author wrote once, sourced from a file
+    // nobody wrote. That is the #294 failure, reintroduced by a walk that consulted `read_dir`
+    // instead of `subject_tree`.
+    #[test]
+    fn a_mac_sidecar_never_becomes_a_requirement() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path().join("artifacts/req");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::copy(
+            fixture().join("artifacts/req/.collection.json"),
+            dir.join(COLLECTION_FILE),
+        )
+        .unwrap();
+        let real =
+            std::fs::read_to_string(fixture().join("artifacts/req/REQ-queueIsDrained.md")).unwrap();
+        std::fs::write(dir.join("REQ-queueIsDrained.md"), &real).unwrap();
+        std::fs::write(dir.join("._REQ-queueIsDrained.md"), &real).unwrap();
+        std::fs::write(dir.join(".DS_Store"), &real).unwrap();
+
+        let items = ReqforgeSource::new(tmp.path()).items().unwrap();
+        let ids: Vec<&str> = items.iter().map(|i| i.id.as_str()).collect();
+        assert_eq!(ids, ["REQ-queueIsDrained"], "only the authored artifact");
     }
 
     // Verifies: REQ009 / #296 — a retired artifact is not offered as a live requirement.
