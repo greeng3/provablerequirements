@@ -1,0 +1,34 @@
+[package]
+name = "reqforge-model"
+version = "0.1.0"
+# Edition 2024, matching ReqForge's own workspace. provreq is on 2021, and a workspace is free to
+# mix editions per crate — pinning this to what the code was written and tested against is the
+# whole point of taking it as a crate rather than pasting it into `src/`.
+edition = "2024"
+description = "ReqForge's artifact model, storage, and schema migration (absorbed — see docs/absorbing-reqforge.md)"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/greeng3/provablerequirements"
+publish = false
+
+# Versions taken from ReqForge's own workspace manifest rather than chosen here, so this crate is
+# built against what its 766 tests were proven against. `preserve_order` is load-bearing and not a
+# preference: an artifact read and written back must keep its JSON key order, or every round-trip
+# through provreq would reorder a file the operator has to review.
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+uuid = { version = "1", features = ["v7", "serde"] }
+chrono = { version = "0.4", default-features = false, features = [
+    "std",
+    "clock",
+    "serde",
+] }
+thiserror = "2"
+# `write::ownership` logs through it. Keeping their instrumentation rather than deleting it in
+# transit: this crate is their code moved, and a change made in transit is a change to code whose
+# tests were written elsewhere.
+tracing = "0.1"
+sha2 = "0.11"
+# Not a dev-dependency: `write::atomic` writes through a named temporary so a torn write can never
+# leave a half-parsed artifact on disk.
+tempfile = "3"

@@ -27,33 +27,6 @@ use crate::source::{Annotation, Classification, Item, RequirementsSource};
 /// subject stores requirements this way rather than as Doorstop documents.
 pub const COLLECTION_FILE: &str = ".collection.json";
 
-/// The frontmatter fields this adapter reads. ReqForge's own `Artifact` struct carries far more
-/// (shape, links, review log, blob and URL variants); an [`Item`] has four fields, and a spike that
-/// deserialized the rest would be claiming to understand a model it has not yet brought in.
-#[derive(serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct Frontmatter {
-    title: String,
-    /// ReqForge's own triage prior. [`Item::verification_hint`] was written for this field by name.
-    #[serde(default)]
-    expects_code_trace: Option<bool>,
-    /// `false` retires an artifact without deleting it; absent means active.
-    #[serde(default)]
-    active: Option<bool>,
-}
-
-/// Split a ReqForge artifact into its JSON frontmatter and Markdown body.
-///
-/// The convention is a line of exactly `---`, JSON, a closing `---` line, then the body — any
-/// valid JSON also being valid YAML flow style, so ordinary Markdown renderers show it as
-/// frontmatter. Strict on purpose, exactly as ReqForge's own parser is: a file that does not open
-/// with the delimiter is a diagnostic, not something to guess at.
-fn split_frontmatter(text: &str) -> Option<(&str, &str)> {
-    let rest = text.strip_prefix("---\n")?;
-    let end = rest.find("\n---\n")?;
-    Some((&rest[..end], &rest[end + 5..]))
-}
-
 /// Every collection directory under `root` — a directory holding a [`COLLECTION_FILE`].
 ///
 /// Walks by [`crate::subject_tree`]'s rules like every other traversal of a subject, so a
@@ -95,12 +68,13 @@ impl RequirementsSource for ReqforgeSource {
                 if path.extension().is_none_or(|x| x != "md") {
                     continue;
                 }
-                let raw = std::fs::read_to_string(&path)
-                    .with_context(|| format!("reading {}", path.display()))?;
-                let (json, body) = split_frontmatter(&raw)
-                    .with_context(|| format!("{} has no JSON frontmatter", path.display()))?;
-                let meta: Frontmatter = serde_json::from_str(json)
-                    .with_context(|| format!("parsing frontmatter of {}", path.display()))?;
+                // Read through ReqForge's own loader (#305). The spike hand-rolled a frontmatter
+                // splitter and a cut-down struct because there was nothing to call; both were
+                // guesses at a format we can now read with the code that writes it — including the
+                // schema migration a file older than the current `schemaVersion` needs.
+                let loaded = reqforge_model::load::artifact::load_content_artifact(&path)
+                    .with_context(|| format!("loading {}", path.display()))?;
+                let meta = loaded.metadata;
 
                 // An inactive artifact is retired, not deleted. Reporting it as a live requirement
                 // would resurrect it as something the operator is asked to formalize.
@@ -112,12 +86,9 @@ impl RequirementsSource for ReqforgeSource {
                 // and is what its links point at through their hint. `legacy.doorstopUid` records
                 // where an imported item came from and is deliberately not read as the id: once
                 // imported, provreq does not care where a requirement came from.
-                let id = path
-                    .file_stem()
-                    .and_then(|s| s.to_str())
-                    .with_context(|| format!("unreadable artifact name {}", path.display()))?
-                    .to_string();
-                let text = body.trim().to_string();
+                let id = loaded.name;
+                // `body` is `None` for the blob and URL shapes, which carry no prose to formalize.
+                let text = loaded.body.unwrap_or_default().trim().to_string();
                 items.push(Item {
                     // `modifiedAt` is ReqForge's native token, and is *not* used: it moves when
                     // metadata alone changes, and stands still if prose is edited without it. The

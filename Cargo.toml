@@ -1,3 +1,10 @@
+# provreq is both the root package and the workspace root. The second member arrived with phase 2
+# of the ReqForge absorb (#305): its artifact model is taken as a crate rather than pasted into
+# `src/`, so its own tests come along unchanged and the boundary between their code and ours stays
+# visible after the second edit.
+[workspace]
+members = ["crates/reqforge-model"]
+
 [package]
 name = "provreq"
 version = "0.0.4"
@@ -45,6 +52,7 @@ tempfile = "3"
 # pair outright. `creusot_std_moves_in_lockstep_with_the_installed_tag` fails if they drift.
 creusot-std = "0.13"
 sha2 = "0.11"
+reqforge-model = { version = "0.1.0", path = "crates/reqforge-model" }
 
 # `cfg(kani)` is set only by `cargo kani`, so an ordinary build has to be told it is a real cfg —
 # otherwise the `kani::Arbitrary` impl in src/engine.rs trips `unexpected_cfgs` under
