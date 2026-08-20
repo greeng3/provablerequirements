@@ -189,13 +189,93 @@ pub fn resolve(subject: &Path) -> Result<(PathBuf, Vec<Item>)> {
             subject.display()
         )
     })?;
-    let items = DoorstopSource::new(subject).items()?;
+    let items = source_for(subject).items()?;
     Ok((companion, items))
+}
+
+/// Which [`RequirementsSource`] a subject keeps its requirements in — the one place provreq decides
+/// that, so every caller reaches requirements the same way (R-src-1).
+///
+/// Detected from the tree rather than configured. A ReqForge collection announces itself with a
+/// [`crate::reqforge::COLLECTION_FILE`], and a subject holding one is read that way; everything
+/// else is Doorstop, which stays the default because it is what foreign subjects like qrusty have
+/// and will keep having — the importer is a permanent boundary, not scaffolding.
+///
+/// This function is the whole of what phase 1 of the ReqForge absorb had to change outside the new
+/// adapter (#296). That is the claim the spike was built to test: the substrate is reachable
+/// through one decision, and the engines, refusal classifications, mirror channel, and verdict
+/// model never learn which side of it a requirement came from.
+pub fn source_for(subject: &Path) -> Box<dyn RequirementsSource> {
+    if crate::reqforge::discover(subject).is_empty() {
+        Box::new(DoorstopSource::new(subject))
+    } else {
+        Box::new(crate::reqforge::ReqforgeSource::new(subject))
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A subject holding ReqForge artifacts and an adopted companion — the shape `resolve` meets
+    /// once a subject has moved off Doorstop.
+    fn reqforge_subject() -> tempfile::TempDir {
+        let tmp = tempfile::tempdir().unwrap();
+        let fixture = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/reqforge-subject/artifacts/req");
+        let dir = tmp.path().join("artifacts/req");
+        std::fs::create_dir_all(&dir).unwrap();
+        for name in [crate::reqforge::COLLECTION_FILE, "REQ-queueIsDrained.md"] {
+            std::fs::copy(fixture.join(name), dir.join(name)).unwrap();
+        }
+        let companion = tmp.path().join("ProvableRequirements");
+        std::fs::create_dir_all(&companion).unwrap();
+        std::fs::write(companion.join(MANIFEST_FILE), "subject: .\n").unwrap();
+        tmp
+    }
+
+    // Verifies: REQ009 / #296 — THE SPIKE. A requirement stored as a ReqForge artifact reaches the
+    // rest of provreq through `resolve`, the one call both the CLI and the `serve` backend use, and
+    // arrives as the same `Item` a Doorstop subject yields. What this had to change outside the new
+    // adapter is `source_for` and nothing else: no engine adapter, no refusal classification, no
+    // mirror-channel code, no verdict type. That is the claim the absorb rests on, and the spike
+    // existed to falsify it rather than to confirm it.
+    #[test]
+    fn a_reqforge_subject_resolves_through_the_same_seam_as_a_doorstop_one() {
+        let tmp = reqforge_subject();
+        let (companion, items) = resolve(tmp.path()).unwrap();
+
+        assert_eq!(companion, tmp.path().join("ProvableRequirements"));
+        assert_eq!(items.len(), 1, "got {items:?}");
+        assert_eq!(items[0].id, "REQ-queueIsDrained");
+        assert_eq!(
+            items[0].text,
+            "Every message accepted onto the queue is eventually removed from it."
+        );
+    }
+
+    // Verifies: REQ009 / #296 — Doorstop stays the default, because a foreign subject that never
+    // heard of ReqForge must keep working. Detection is by what the tree holds, not configuration.
+    #[test]
+    fn a_subject_without_a_collection_is_still_read_as_doorstop() {
+        let tmp = tempfile::tempdir().unwrap();
+        let docs = tmp.path().join("reqs");
+        std::fs::create_dir_all(&docs).unwrap();
+        std::fs::write(
+            docs.join(".doorstop.yml"),
+            "settings:\n  prefix: REQ\n  digits: 3\n",
+        )
+        .unwrap();
+        std::fs::write(docs.join("REQ001.yml"), "text: the only item\n").unwrap();
+        let companion = tmp.path().join("ProvableRequirements");
+        std::fs::create_dir_all(&companion).unwrap();
+        std::fs::write(companion.join(MANIFEST_FILE), "subject: .\n").unwrap();
+
+        let (_, items) = resolve(tmp.path()).unwrap();
+        assert_eq!(items.len(), 1, "got {items:?}");
+        assert_eq!(items[0].id, "REQ001");
+        assert_eq!(items[0].text, "the only item");
+    }
 
     #[test]
     fn companion_name_follows_a3_rule() {

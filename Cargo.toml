@@ -1,6 +1,6 @@
 [package]
 name = "provreq"
-version = "0.0.3"
+version = "0.0.4"
 edition = "2021"
 description = "PRL native provisioner and backend server (Design C)"
 license = "MIT OR Apache-2.0"
@@ -44,6 +44,7 @@ tempfile = "3"
 # Locked to `ARG CREUSOT_TAG` in `.devcontainer/Dockerfile` — cargo-creusot refuses a mismatched
 # pair outright. `creusot_std_moves_in_lockstep_with_the_installed_tag` fails if they drift.
 creusot-std = "0.13"
+sha2 = "0.11"
 
 # `cfg(kani)` is set only by `cargo kani`, so an ordinary build has to be told it is a real cfg —
 # otherwise the `kani::Arbitrary` impl in src/engine.rs trips `unexpected_cfgs` under

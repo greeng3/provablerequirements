@@ -24,6 +24,7 @@ pub mod prl;
 pub mod proving_env;
 pub mod provision;
 pub mod prusti;
+pub mod reqforge;
 pub mod rust_adapter;
 pub mod semantic_draft;
 pub mod server;
