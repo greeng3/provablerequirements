@@ -16,13 +16,20 @@ check() {
     cmd="$1"
     label="$2"
     shift 2
-    if command -v "$cmd" >/dev/null 2>&1; then
-        ver="$("$cmd" "$@" 2>&1 | head -n1)"
-        printf '  ok       %-16s %s\n' "$label" "$ver"
-    else
+    if ! command -v "$cmd" >/dev/null 2>&1; then
         printf '  MISSING  %-16s (not on PATH)\n' "$label"
         status=1
+        return
     fi
+    # On PATH is not the same as runnable. Capture the exit status of the tool itself, not of the
+    # `head` it used to be piped into: a cargo subcommand invoked with the wrong arguments prints
+    # an error and exits non-zero, and this printed `ok` beside that error text until #299.
+    if ! out="$("$cmd" "$@" 2>&1)"; then
+        printf '  BROKEN   %-16s %s\n' "$label" "$(printf '%s' "$out" | head -n1)"
+        status=1
+        return
+    fi
+    printf '  ok       %-16s %s\n' "$label" "$(printf '%s' "$out" | head -n1)"
 }
 
 echo "=== dev toolchain ==="
@@ -38,6 +45,11 @@ check prettier          prettier      --version   # make fmt / fmt-check
 check yamllint          yamllint      --version   # make lint-yaml
 check cargo             cargo         --version   # Rust build / test / clippy
 check cargo-audit       cargo-audit   --version   # make audit (dependency CVEs)
+# cargo-llvm-cov is a cargo SUBCOMMAND: invoked directly it demands its own name back
+# before any flag, so a bare `--version` is an argument error rather than a version.
+check cargo-llvm-cov    cargo-llvm-cov llvm-cov --version  # ReqForge's coverage gate (#299)
+check cargo-outdated    cargo-outdated outdated --version  # ReqForge's audit-deps gate (#299)
+check taplo             taplo         --version   # ReqForge's TOML fmt/lint gates (#299)
 echo
 
 if [ "$status" -eq 0 ]; then

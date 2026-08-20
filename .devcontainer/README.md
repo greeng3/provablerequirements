@@ -22,6 +22,13 @@ on this repo.
   arm64 provers table and the coroutine-ICE fix, both documented in the Dockerfile).
   MonPoly (category 2b) and a Selenium grid (category 3) are external — MonPoly builds
   from source on demand; Selenium runs as a service on port 4444, not a PATH binary.
+- **ReqForge's gate tools** — `cargo-llvm-cov` (with the `llvm-tools-preview` component),
+  `cargo-outdated`, and `taplo`. Phase 2 of the ReqForge absorb moves its code into this
+  repo rather than extracting a model crate in its own tree, so this image has to be able
+  to run its `make pre-merge`. `ruff` and `mypy` are deliberately absent: its Makefile
+  invokes them through `uv tool run`, and `uv` is already here. See issue #299 for what
+  was measured, including the packages in ReqForge's Dockerfile that nothing in its
+  dependency graph actually needs.
 - Curated VS Code extensions (Markdown, YAML, TOML, TODO tree, GitHub PRs, GitHub
   Actions, Claude Code).
 
