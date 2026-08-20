@@ -42,12 +42,11 @@ const CACHEDIR_SIGNATURE: &[u8] = b"Signature: 8a477f597d28d172789f06886806bc55"
 /// out at a dotted path (`~/.local/src/thing`) would otherwise prune its own root and resolve every
 /// binding against nothing at all.
 ///
-/// The name says directory because that is what the rule is *about*, but `filter_entry` hands the
-/// predicate every entry, and the adapters pass files through it unguarded. The hidden rule
-/// therefore excludes hidden **files** too, which is the whole of provreq's answer to an operating
-/// system's resource files: `.DS_Store`, and the `._`-prefixed AppleDouble sidecars that are the
-/// case worth naming, since one carries the extension of the file it shadows and an extension
-/// filter alone lets it through (#292). Neither is source anyone wrote.
+/// `filter_entry` hands its predicate every entry, files included, so a caller must ask this only
+/// of a directory and [`is_pruned_file`] only of a file. Both adapters once asked this of
+/// everything (#294), which had the hidden rule excluding hidden *files* — the right answer for an
+/// AppleDouble sidecar, by an argument that was never about files, and `.rustfmt.toml` excluded
+/// alongside it. Each rule now answers for the kind of entry it is an argument about.
 pub fn is_pruned_dir(path: &Path, depth: usize) -> bool {
     if depth == 0 {
         return false;
@@ -56,6 +55,25 @@ pub fn is_pruned_dir(path: &Path, depth: usize) -> bool {
     let hidden = name.is_some_and(|n| n.starts_with('.'));
     let named = name.is_some_and(|n| PRUNE_DIRS.contains(&n));
     hidden || named || is_cache_dir(path)
+}
+
+/// Whether a file is excluded from a walk of the subject.
+///
+/// The operating system's own records rather than the author's: `.DS_Store` holds how a folder was
+/// last displayed, and a `._`-prefixed AppleDouble sidecar holds the metadata of the file beside
+/// it. The sidecar is why this is a rule and not something each walk improvises — it is named after
+/// the file it shadows and carries that file's extension, so `._auth.rs` passes an adapter's `.rs`
+/// test and would otherwise stand as a second declaration of a name the author wrote once.
+///
+/// Those two names and nothing else, and deliberately **not** hidden files at large.
+/// [`is_pruned_dir`]'s hidden rule is a claim about directories — a crate keeps no source in one —
+/// and it does not hold of files, which an author hides routinely: `.rustfmt.toml` is the subject's
+/// own. Excluding wrongly narrows what every binding can resolve against, which is the more
+/// damaging of the two errors here as it is for [`is_cache_dir`].
+pub fn is_pruned_file(path: &Path) -> bool {
+    path.file_name()
+        .and_then(|n| n.to_str())
+        .is_some_and(|n| n == ".DS_Store" || n.starts_with("._"))
 }
 
 /// Whether a directory is tagged as regenerable cache. A missing or unreadable tag simply means
@@ -148,5 +166,37 @@ mod tests {
             "the subject's own root is never pruned"
         );
         assert!(is_pruned_dir(&root, 1), "the same name below the root is");
+    }
+
+    // Verifies: REQ060 / #294 — the operating system's own records are excluded by a rule about
+    // files, no longer as a side effect of a rule about directories. The AppleDouble sidecar is why
+    // the rule is needed: it is named after the file it shadows and carries that file's extension.
+    #[test]
+    fn prunes_the_operating_systems_own_files() {
+        for name in [".DS_Store", "._auth.rs", "._spec.tla", "._.DS_Store"] {
+            assert!(
+                is_pruned_file(Path::new(name)),
+                "{name} is the operating system's record, not the author's source"
+            );
+        }
+    }
+
+    // Verifies: REQ060 / #294 — and nothing more than those. The hidden rule is a claim about
+    // directories that is false of files, which an author hides routinely, so it does not cross
+    // over: excluding a file wrongly narrows what every binding can resolve against.
+    #[test]
+    fn reads_files_the_author_wrote_however_they_are_named() {
+        for name in [
+            "auth.rs",
+            "Spec.tla",
+            ".rustfmt.toml",
+            "_auth.rs",
+            "DS_Store.rs",
+        ] {
+            assert!(
+                !is_pruned_file(Path::new(name)),
+                "{name} may be the subject's own"
+            );
+        }
     }
 }

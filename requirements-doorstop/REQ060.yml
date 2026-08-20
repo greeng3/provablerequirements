@@ -5,7 +5,7 @@ level: '1.60'
 links: []
 normative: true
 ref: ''
-reviewed: oPmNAt57QyHX55P6w2pfHiCIVhDDOkg5BtaZrc9-nU8=
+reviewed: 99aZUnAHhusDkLNsULCIFZI5aphiX0PqeRLxVsdlc-U=
 text: |
   A subject repository contains more than the source its author wrote. Build outputs, fetched
   dependencies, and version-control metadata live in the same tree, are frequently far larger than
@@ -27,3 +27,16 @@ text: |
   configuration where no name-based rule could anticipate them. Where the evidence is absent or
   unreadable, the directory is walked — wrongly excluding a directory silently narrows what every
   binding can resolve against, which is the more damaging of the two errors.
+
+  Not everything in the tree the author did not write is regenerable. An operating system leaves
+  records of its own among the source: how a folder was last displayed, or a sidecar carrying the
+  metadata of the file beside it. The sidecar is the harder case, because it is named after the file
+  it shadows and carries that file's extension, so any rule recognising source by extension admits
+  it. Such records are excluded on the same footing, and by the same shared rule, so that a
+  traversal reading files and a traversal reading directories cannot hold different views of where
+  the subject's source ends.
+
+  A file the author did write is read whatever it is named. Being inconspicuously named is not
+  evidence of being unauthored — a subject's own configuration is routinely named that way — and
+  excluding a file wrongly narrows what every binding can resolve against exactly as excluding a
+  directory wrongly does.

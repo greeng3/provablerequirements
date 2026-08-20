@@ -39,7 +39,7 @@
 //! the requirement uses it with).
 
 use std::path::Path;
-use walkdir::WalkDir;
+use walkdir::{DirEntry, WalkDir};
 
 /// Where a definition lives in the subject's model: file (relative to the subject root),
 /// 1-based line, and that line's own text — so the operator confirms against the real spec
@@ -238,12 +238,20 @@ fn count_params(params: &str) -> Option<usize> {
     (depth == 0).then_some(count)
 }
 
-/// Whether a directory is pruned from the walk: the companion tree (whose own files could hold a
-/// spurious self-hit), or anything [`crate::subject_tree::is_pruned_dir`] excludes. Shares that one
-/// rule with the Rust adapter, so the two observable worlds cannot disagree about which of the
-/// subject's files count.
-fn is_skipped_dir(path: &Path, depth: usize, companion_root: &Path) -> bool {
-    path == companion_root || crate::subject_tree::is_pruned_dir(path, depth)
+/// Whether an entry is skipped by the walk: the companion tree (whose own files could hold a
+/// spurious self-hit), or anything [`crate::subject_tree`] excludes. Shares those rules with the
+/// Rust adapter, so the two observable worlds cannot disagree about which of the subject's files
+/// count — including *how* they are asked, which is what #294 was: both adapters put files through
+/// the directory rule, and neither of the other two walks did.
+fn is_skipped(entry: &DirEntry, companion_root: &Path) -> bool {
+    if entry.path() == companion_root {
+        return true;
+    }
+    if entry.file_type().is_dir() {
+        crate::subject_tree::is_pruned_dir(entry.path(), entry.depth())
+    } else {
+        crate::subject_tree::is_pruned_file(entry.path())
+    }
 }
 
 /// One spec file, read once: how it is named back to the operator, its text, and whether it lives
@@ -282,7 +290,7 @@ impl SubjectSpecs {
         let mut walk = |root: &Path, external: bool| {
             for entry in WalkDir::new(root)
                 .into_iter()
-                .filter_entry(|e| !is_skipped_dir(e.path(), e.depth(), companion_root))
+                .filter_entry(|e| !is_skipped(e, companion_root))
             {
                 let Ok(entry) = entry else { continue };
                 if !entry.file_type().is_file()
