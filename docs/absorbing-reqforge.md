@@ -92,7 +92,7 @@ read when ingesting a foreign doorstop tree. Everything provreq writes becomes J
   prose as untrusted input, and D11/D12 put a mechanical gate and a risk-tiered human gate in front
   of it. ReqForge's review log is a better home for that distinction than the boolean it was
   written against. Note the LLM path is half-built from both sides: provreq already drafts
-  formalizations with read-back, and ReqForge explicitly deferred extracting requirement *text*
+  formalizations with read-back, and ReqForge explicitly deferred extracting requirement _text_
   from documents and code.
 
 ## What ReqForge brings
@@ -143,7 +143,7 @@ Each gets its own issue.
   across the workspace binaries, largest 453; 214 frontend over 55 Vitest files), with
   `cargo fmt --check`, `clippy -D warnings`, `tsc`, `taplo`, `ruff`, and `npm audit` all clean. The
   "786 tests" figure quoted elsewhere in this document was a static count of `#[test]` attributes
-  and understates it. Two *allowlisted* `cargo audit` warnings ride along with the code we would
+  and understates it. Two _allowlisted_ `cargo audit` warnings ride along with the code we would
   absorb: `lru 0.12.5` RUSTSEC-2026-0002 and RUSTSEC-2026-0253, both unsoundness.
 - It is a **GitLab** repository — `glab` and MRs, not `gh` and PRs.
 

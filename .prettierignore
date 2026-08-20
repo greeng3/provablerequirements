@@ -9,6 +9,13 @@ node_modules
 .git
 .DS_Store
 
+# ReqForge artifact fixtures are byte-for-byte copies of what ReqForge actually writes
+# (#296). Their value as evidence is that they are not our idea of the format, so a
+# formatter reflowing their JSON frontmatter or Markdown body would quietly turn the
+# fixture into a restatement of our own assumptions — which is the one thing it must
+# not be.
+tests/fixtures/reqforge-subject
+
 # Claude Code local state, bind-mounted into the workspace (see .gitignore).
 .claude
 .claude-home
