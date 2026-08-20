@@ -5,11 +5,19 @@
     // .github/workflows/build-devcontainer-image.yml, which publishes this tag. To change the
     // toolchain, edit .devcontainer/Dockerfile and re-run that workflow to republish the image.
     "image": "ghcr.io/greeng3/provreq-devcontainer:latest",
-    // Node is only needed for the Markdown linting toolchain (markdownlint-cli2),
-    // which matches the DavidAnson.vscode-markdownlint editor extension's rules.
+    // Node runs the Markdown linting toolchain (markdownlint-cli2, matching the
+    // DavidAnson.vscode-markdownlint editor extension's rules), the `web/` frontend, and — once
+    // phase 2 of the ReqForge absorb lands — that project's frontend too.
+    //
+    // Pinned to 24 rather than "lts" (#302). Floating meant the major was whatever happened to be
+    // LTS on the day a container was built, so it would have moved to 26 on its own schedule and
+    // changed the toolchain under a frontend nobody had tested there. 24 is the version ReqForge's
+    // frontend was actually measured on here: `npm ci`, `npm run build`, `tsc -b --noEmit`, and
+    // 214 Vitest tests across 55 files, all green — against the Node 22 its own container pins.
+    // Patch and minor updates still arrive; only the major is held.
     "features": {
         "ghcr.io/devcontainers/features/node:1": {
-            "version": "lts"
+            "version": "24"
         }
     },
     "customizations": {

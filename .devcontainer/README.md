@@ -9,7 +9,8 @@ on this repo.
   devcontainer, so the two projects share a toolchain foundation.
 - **`gh`** (GitHub CLI) — used throughout for issues, pull requests, and releases.
   (`glab` is also installed, a leftover from the repo's GitLab era.)
-- **Node LTS** (via a devcontainer feature) + **`markdownlint-cli2`**, **`prettier`**,
+- **Node 24** (via a devcontainer feature, pinned rather than floating on `lts` — #302) +
+  **`markdownlint-cli2`**, **`prettier`**,
   and **`yamllint`** — Markdown/YAML linting and formatting matching the editor rules,
   so docs lint the same way in the editor and on the command line.
 - **Doorstop** — requirements management (items stored as YAML under git). We manage
@@ -46,6 +47,33 @@ Lint the docs from inside the container with:
 ```sh
 markdownlint-cli2 "**/*.md"
 ```
+
+## Gotchas
+
+- **npm withholds package install scripts.** Node 24 brings npm 11, which no longer runs a
+  dependency's `postinstall` by default. `npm ci` reports it rather than failing, e.g.:
+
+    ```text
+    npm warn allow-scripts esbuild@0.28.2 (postinstall: node install.js)
+    npm warn allow-scripts Run `npm approve-scripts --allow-scripts-pending` to review.
+    ```
+
+    Nothing here needs those scripts today — Vite 8 builds through rolldown rather than esbuild, and
+    both this repo's `web/` and ReqForge's frontend build and test cleanly without them (#302). The
+    reason to write it down is that the failure it _would_ cause is misleading: a package whose
+    native binary or generated file arrives via `postinstall` is installed, present in
+    `node_modules`, and broken at run time, with nothing in the install output saying so except a
+    warning that scrolled past. ReqForge's own container pins Node 22 and so npm 10, which still runs
+    these scripts — so a dependency can work there and fail here for a reason that has nothing to do
+    with the code.
+
+    If that day comes: `npm approve-scripts <pkg>` allows one package, and the decision is recorded
+    in the project rather than in someone's shell history. Approve the specific package, never the
+    blanket allow — an install script runs arbitrary code from a dependency, which is the reason npm
+    changed the default.
+
+- **Rebuilding the container wipes `gh` authentication.** Run `gh auth status` after a rebuild and
+  re-authenticate before expecting any issue or PR command to work.
 
 ## Doorstop requirements
 

@@ -146,6 +146,20 @@ Each gets its own issue.
   and understates it. Two _allowlisted_ `cargo audit` warnings ride along with the code we would
   absorb: `lru 0.12.5` RUSTSEC-2026-0002 and RUSTSEC-2026-0253, both unsoundness.
 - It is a **GitLab** repository — `glab` and MRs, not `gh` and PRs.
+- **Both halves have now been run in _this_ container** (#299, #302), on source-only copies taken
+  outside ReqForge's tree so nothing is built in it. The backend builds in about two minutes and
+  its `cargo test --workspace` gives 766 passed / 0 failed; the frontend installs, builds,
+  typechecks, and passes 214 tests across 55 files. Those are the operator's own numbers, so this
+  repository is a working build environment for the code phase 2 moves here — the point of
+  measuring rather than assuming it.
+    - The **`crt-static` flag this image sets globally does not obstruct ReqForge.** It obstructs
+      `cargo-outdated`, which is a tool rather than part of the product; see the Dockerfile.
+    - **Node differs and does not matter.** ReqForge's container pins Node 22, this one has 24, and
+      every frontend step passes on 24. One difference is worth knowing rather than fixing: Node 24
+      brings npm 11, which withholds install scripts by default, so `npm ci` reports that
+      `esbuild`'s postinstall did not run. Vite 8 builds through rolldown rather than esbuild, so the
+      build and the Vitest run are unaffected — but a future dependency that genuinely needs its
+      postinstall would fail here and not in ReqForge's container.
 
 ## Related
 
