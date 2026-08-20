@@ -509,6 +509,15 @@ pub fn subject_source_fingerprint(subject: &Path) -> Option<String> {
             }
         }
     }
+    // Requirement prose belongs to the per-item revision axis whatever format it is stored in, so
+    // the exclusion follows the requirements rather than one storage layout. Asked of both sources
+    // rather than of the resolved one: a subject part-way through a migration holds both, and a
+    // requirement left out of this list stales every verdict the moment it is edited (#296).
+    for dir in crate::reqforge::discover(subject) {
+        if let Ok(rel) = dir.strip_prefix(subject) {
+            excluded.push(rel.to_path_buf());
+        }
+    }
 
     let text = String::from_utf8_lossy(&listing.stdout);
     let filtered: Vec<&str> = text
@@ -661,6 +670,51 @@ mod tests {
             subject_source_fingerprint(root).as_ref(),
             Some(&base),
             "source movement must be visible"
+        );
+    }
+
+    // Verifies: REQ071 / #296 — the same exemption, for a subject storing requirements as ReqForge
+    // artifacts. Found by the phase-1 spike: the exclusion list knew only about Doorstop documents,
+    // so editing a requirement in a ReqForge subject moved the *code*-drift fingerprint and staled
+    // every stored verdict — which is exactly the failure #271 fixed for Doorstop. The requirement
+    // axis owns requirement prose whatever format it is written in.
+    #[test]
+    fn source_fingerprint_ignores_reqforge_requirements_too() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        let coll = root.join("artifacts/req");
+        std::fs::create_dir_all(&coll).unwrap();
+        let fixture = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/reqforge-subject/artifacts/req");
+        for name in [crate::reqforge::COLLECTION_FILE, "REQ-queueIsDrained.md"] {
+            std::fs::copy(fixture.join(name), coll.join(name)).unwrap();
+        }
+        std::fs::write(root.join("lib.rs"), "fn a() {}\n").unwrap();
+        git(root, &["init", "-q"]);
+        git(root, &["add", "-A"]);
+        commit(root, "base");
+        let base = subject_source_fingerprint(root).expect("a repo has a fingerprint");
+
+        let artifact = coll.join("REQ-queueIsDrained.md");
+        let edited = std::fs::read_to_string(&artifact)
+            .unwrap()
+            .replace("eventually removed", "removed within one second");
+        std::fs::write(&artifact, edited).unwrap();
+        git(root, &["add", "-A"]);
+        commit(root, "edit requirement prose");
+        assert_eq!(
+            subject_source_fingerprint(root).as_ref(),
+            Some(&base),
+            "a requirement edit is prose drift, not code drift, in either format"
+        );
+
+        std::fs::write(root.join("lib.rs"), "fn a() { let _ = 1; }\n").unwrap();
+        git(root, &["add", "-A"]);
+        commit(root, "edit source");
+        assert_ne!(
+            subject_source_fingerprint(root).as_ref(),
+            Some(&base),
+            "source movement must still be visible"
         );
     }
 

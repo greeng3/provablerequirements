@@ -7,7 +7,6 @@
 
 use crate::source::{Annotation, Item, RequirementsSource};
 use anyhow::{bail, Context, Result};
-use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
 use walkdir::{DirEntry, WalkDir};
 
@@ -139,7 +138,7 @@ impl RequirementsSource for DoorstopSource {
                     .with_context(|| format!("parsing {}", path.display()))?;
                 let text = item.text.trim().to_string();
                 items.push(Item {
-                    revision: content_hash(&text),
+                    revision: crate::source::content_hash(&text),
                     id: id.clone(),
                     text,
                     title: None,
@@ -172,18 +171,6 @@ impl RequirementsSource for DoorstopSource {
         let out = serde_yaml::to_string(&doc).context("serializing item")?;
         std::fs::write(&path, out).with_context(|| format!("writing {}", path.display()))
     }
-}
-
-/// A stable-per-build fingerprint of an item's prose, used as the revision token
-/// when the source has no native one (R-src-3).
-///
-// ponytail: std SipHash — deterministic within a binary, NOT guaranteed stable
-// across Rust releases; swap to a sha2 digest if cross-binary token stability
-// (e.g. surviving a provreq upgrade) ever matters. Advisory use tolerates churn.
-fn content_hash(text: &str) -> String {
-    let mut hasher = std::collections::hash_map::DefaultHasher::new();
-    text.hash(&mut hasher);
-    format!("{:016x}", hasher.finish())
 }
 
 #[cfg(test)]
@@ -236,7 +223,10 @@ mod tests {
         // Distinct prose → distinct revision tokens.
         assert_ne!(items[0].revision, items[1].revision);
         // Same prose → same token (deterministic).
-        assert_eq!(items[0].revision, content_hash("the first item"));
+        assert_eq!(
+            items[0].revision,
+            crate::source::content_hash("the first item")
+        );
     }
 
     // Verifies: REQ020 — annotate stamps a `provreq:` block onto the item file while

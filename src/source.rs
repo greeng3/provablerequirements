@@ -1,8 +1,9 @@
 //! The `RequirementsSource` seam: provreq reaches requirement items only through
 //! this abstraction, never off a specific tool's files (R-src-1). Doorstop is
-//! adapter #1 (see [`crate::doorstop`]); reqforge is the real second consumer
-//! that will supply adapter #2, so the seam is drawn now and kept single-impl
-//! until then (R-src-4).
+//! adapter #1 (see [`crate::doorstop`]) and ReqForge is adapter #2 (see
+//! [`crate::reqforge`]), which arrived with phase 1 of the absorb (#296) and
+//! made this the two-implementation seam R-src-4 was waiting for. Which one a
+//! subject uses is decided in exactly one place, [`crate::adopt::source_for`].
 //!
 //! Implements: REQ009 (read requirements through a source-agnostic seam)
 
@@ -55,8 +56,9 @@ pub struct Item {
     pub text: String,
     pub revision: String,
     pub title: Option<String>,
-    /// Optional per-source prior for triage (reqforge `expects_code_trace`);
-    /// `None` for Doorstop. Advisory seed only (R-src-5).
+    /// Optional per-source prior for triage (ReqForge's `expectsCodeTrace`, and only where an
+    /// artifact states it explicitly — see [`crate::reqforge`]); `None` for Doorstop, which has no
+    /// equivalent. Advisory seed only (R-src-5).
     pub verification_hint: Option<Classification>,
 }
 
@@ -78,6 +80,30 @@ pub struct Annotation {
     pub source_revision: String,
 }
 
+/// A fingerprint of an item's prose, used as the revision token when the source has no native one,
+/// or when its native one answers a different question (R-src-3).
+///
+/// Shared by the adapters rather than owned by one: both Doorstop and ReqForge reach for it, and an
+/// adapter borrowing it from a sibling adapter would couple two implementations of this seam that
+/// are supposed to know nothing about each other.
+///
+/// SHA-256, because the token has to outlive the binary that wrote it. It is persisted in
+/// `drafts.yml` and in every verdict's `requirement_revision`, and compared on later runs — so a
+/// hash that changed with the toolchain would stale every draft and report requirement drift on
+/// every stored verdict, with no requirement having moved. That is the failure REQ071 fixed on the
+/// code-drift axis, and it sat unfixed on the prose axis until #296. This used `DefaultHasher`,
+/// whose own documentation declines to promise stability across Rust releases.
+pub fn content_hash(text: &str) -> String {
+    use sha2::Digest;
+    // Hex by hand rather than through a formatting impl: what this returns is written to disk and
+    // compared for the life of the record, so it should not move if the digest crate changes which
+    // formatting traits it offers.
+    sha2::Sha256::digest(text.as_bytes())
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect()
+}
+
 /// The requirements-source seam (R-src-1). One implementation for now
 /// ([`crate::doorstop::DoorstopSource`]); the reqforge adapter is a real,
 /// not-speculative second consumer that lands when its format stabilises.
@@ -94,6 +120,24 @@ pub trait RequirementsSource {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // Verifies: REQ009 / #296 — the revision token is a SHA-256 of the prose, pinned to a digest
+    // computed outside this program. It has to survive a provreq upgrade: the token is written into
+    // `drafts.yml` and into every verdict's `requirement_revision`, then compared on later runs, so
+    // an algorithm that quietly changed would stale every draft and report requirement drift on
+    // every stored verdict with no requirement having moved. `DefaultHasher`, which this used
+    // before, is explicitly not guaranteed stable across Rust releases.
+    #[test]
+    fn the_revision_token_is_a_pinned_digest_not_a_build_local_hash() {
+        assert_eq!(
+            content_hash("the first item"),
+            "c7646657f30409387673f0e1c4d90bb0139f91c8dd1f017fc3cd932294d585fc"
+        );
+        assert_ne!(
+            content_hash("the first item"),
+            content_hash("the second item")
+        );
+    }
 
     #[test]
     fn classification_parse_round_trips() {

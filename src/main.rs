@@ -1,14 +1,13 @@
 use anyhow::{bail, Context, Result};
 use clap::{Parser, Subcommand};
 use provreq::adopt::resolve;
-use provreq::doorstop::DoorstopSource;
 use provreq::draft::{self, Draft, GateStatus};
 use provreq::engine;
 use provreq::formalize::Translator;
 use provreq::grounding::{self, Binding, Grounding};
 use provreq::llm::{HttpBackend, LlmClassifier};
 use provreq::rust_adapter::Resolution;
-use provreq::source::{Classification, Item, RequirementsSource};
+use provreq::source::{Classification, Item};
 use provreq::triage::{self, ProseFloorClassifier, TriageState};
 use provreq::verify::VerifyOutcome;
 use std::collections::BTreeMap;
@@ -785,7 +784,10 @@ fn writeback_candidate(subject: &Path, state: &draft::DraftState, item: &Item) -
         reviewed_at_unix: *at_unix,
         source_revision: draft.revision.clone(),
     };
-    DoorstopSource::new(subject).annotate(&item.id, &annotation)?;
+    // Through the seam, not the Doorstop adapter directly: a ReqForge-sourced subject must get
+    // that adapter's honest refusal rather than a Doorstop lookup failing for a file that was never
+    // going to be there (#296).
+    provreq::adopt::source_for(subject).annotate(&item.id, &annotation)?;
     println!(
         "Wrote formalization provenance onto {} — review the working-tree change and commit it.",
         item.id

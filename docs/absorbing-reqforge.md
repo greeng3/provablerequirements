@@ -82,6 +82,18 @@ read when ingesting a foreign doorstop tree. Everything provreq writes becomes J
 - **What provreq is changes.** From a doorstop companion that proves things, to a requirements
   system whose distinguishing feature is that its requirements can be proved. That is the point of
   the exercise, not a side effect.
+- **Origin stops mattering, except for trust.** Once a requirement is imported, provreq does not
+  care where it came from — the creation paths are doorstop import, the UI, and an LLM session, and
+  mechanically this is already true, since the engines consume the parsed PRL `Requirement`. The
+  one thing origin must still decide is the **initial review state**. ReqForge's importer
+  auto-approves, recording `imported-from-doorstop` as the reviewer and preserving doorstop's
+  reviewed hash as the explanation. That is defensible for items that carried a human baseline and
+  **wrong for LLM-authored requirements, which must arrive unreviewed** — A1 treats requirement
+  prose as untrusted input, and D11/D12 put a mechanical gate and a risk-tiered human gate in front
+  of it. ReqForge's review log is a better home for that distinction than the boolean it was
+  written against. Note the LLM path is half-built from both sides: provreq already drafts
+  formalizations with read-back, and ReqForge explicitly deferred extracting requirement *text*
+  from documents and code.
 
 ## What ReqForge brings
 
@@ -126,7 +138,13 @@ Each gets its own issue.
 - **Read-only, and we do not build in its tree.** It has its own dev container; `make pre-merge`
   there is the operator's to run, and its result is the evidence.
 - **No CI configuration exists** in ReqForge (`.github/workflows` and `.gitlab-ci.yml` are both
-  absent), so its 786 tests are unproven until that gate runs.
+  absent), so its suite is only ever proven by the operator running `make pre-merge` by hand.
+  **That has now happened (2026-08-19): all eight phases passed — 980 tests, 0 failed** (766 Rust
+  across the workspace binaries, largest 453; 214 frontend over 55 Vitest files), with
+  `cargo fmt --check`, `clippy -D warnings`, `tsc`, `taplo`, `ruff`, and `npm audit` all clean. The
+  "786 tests" figure quoted elsewhere in this document was a static count of `#[test]` attributes
+  and understates it. Two *allowlisted* `cargo audit` warnings ride along with the code we would
+  absorb: `lru 0.12.5` RUSTSEC-2026-0002 and RUSTSEC-2026-0253, both unsoundness.
 - It is a **GitLab** repository — `glab` and MRs, not `gh` and PRs.
 
 ## Related
