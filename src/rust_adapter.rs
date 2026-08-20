@@ -21,7 +21,7 @@
 //! Implements: REQ025 (cat-1 binding resolves to a state predicate at a source location).
 
 use std::path::Path;
-use walkdir::WalkDir;
+use walkdir::{DirEntry, WalkDir};
 
 /// Where a predicate lives in the subject: file (relative to the subject root), 1-based
 /// line, and that source line's own text — so the operator confirms against the real code
@@ -42,11 +42,22 @@ pub struct CodeMatch {
     pub module: Option<Vec<String>>,
 }
 
-/// Whether a directory is pruned from the walk: the companion tree (whose `drafts.yml` holds the
+/// Whether an entry is skipped by the walk: the companion tree (whose `drafts.yml` holds the
 /// observables themselves — resolving there would be a spurious self-hit), or anything
-/// [`crate::subject_tree::is_pruned_dir`] excludes from every walk of a subject.
-fn is_skipped_dir(path: &Path, depth: usize, companion_root: &Path) -> bool {
-    path == companion_root || crate::subject_tree::is_pruned_dir(path, depth)
+/// [`crate::subject_tree`] excludes from every walk of a subject.
+///
+/// A directory is asked of the directory rule and a file of the file rule, because they are
+/// different arguments (#294). Asking the directory rule of everything, as this did, let its hidden
+/// clause decide files it was never about.
+fn is_skipped(entry: &DirEntry, companion_root: &Path) -> bool {
+    if entry.path() == companion_root {
+        return true;
+    }
+    if entry.file_type().is_dir() {
+        crate::subject_tree::is_pruned_dir(entry.path(), entry.depth())
+    } else {
+        crate::subject_tree::is_pruned_file(entry.path())
+    }
 }
 
 /// How one parameter of a resolved predicate takes its argument. The only thing an engine
@@ -1511,7 +1522,7 @@ impl ParsedSubject {
         let mut files = Vec::new();
         for entry in WalkDir::new(subject_root)
             .into_iter()
-            .filter_entry(|e| !is_skipped_dir(e.path(), e.depth(), companion_root))
+            .filter_entry(|e| !is_skipped(e, companion_root))
         {
             let Ok(entry) = entry else { continue };
             if !entry.file_type().is_file() || entry.path().extension().is_none_or(|x| x != "rs") {
@@ -2092,6 +2103,26 @@ mod tests {
 
     fn want(ty: &str) -> Option<String> {
         Some(ty.to_string())
+    }
+
+    // Verifies: REQ060 / #294 — a hidden file may be the author's own, so the walk reads it. Until
+    // the file rule existed this was excluded by `is_pruned_dir`'s hidden rule, applied to an entry
+    // it was never an argument about — the over-reach that made one shared rule mean two things.
+    #[test]
+    fn a_hidden_source_file_is_still_the_subjects_own() {
+        let tmp = subject("pub fn is_ready() -> bool { true }\n");
+        std::fs::write(
+            tmp.path().join("src/.generated.rs"),
+            "pub fn is_hidden_but_authored() -> bool { true }\n",
+        )
+        .unwrap();
+
+        let parsed = parsed(&tmp);
+        let walked: Vec<&str> = parsed.files.iter().map(|f| f.rel.as_str()).collect();
+        assert!(
+            walked.contains(&"src/.generated.rs"),
+            "a dotted name is not evidence of being unauthored, got {walked:?}"
+        );
     }
 
     // Verifies: REQ060 / #292 — an operating system's resource files are not the subject's source,
