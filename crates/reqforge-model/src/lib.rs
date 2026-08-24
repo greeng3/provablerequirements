@@ -31,7 +31,9 @@ pub mod index;
 pub mod links;
 pub mod load;
 pub mod mount;
-// `identity` only — see the module doc. The review log proper is a later slice.
+// The review log proper — state derivation, snapshot persistence, and write-side validators
+// (slice 3, #311). It is where a verification admission belongs; `ReqforgeSource::annotate` can now
+// be wired to it, though it still refuses until a slice does so deliberately.
 pub mod reviews;
 pub mod schema;
 pub mod schema_migration;
