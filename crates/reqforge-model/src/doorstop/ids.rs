@@ -1,20 +1,15 @@
-//! Doorstop-UID → ReqForge-name normalisation per
-//! INTEROP-doorstopIdNormalization.
+//! Doorstop-UID → ReqForge-name mapping (INTEROP-doorstopIdNormalization).
 //!
-//! Rules applied here:
-//!   - The NANU portion — everything after the prefix + sep —
-//!     keeps its numeric padding (so `REQ001` → `REQ-001`, not
-//!     `REQ-1`).
-//!   - If the NANU contains `-` characters (possible when the
-//!     doorstop doc's `sep` is `-` and the NANU is multi-word
-//!     like `DES-rocket-nozzle`), every `-` in the NANU is
-//!     replaced with `_` on import.
-//!   - The original doorstop UID is preserved verbatim by the
-//!     caller under `legacy.doorstopUid` — this module only
-//!     computes names.
+//! The artifact name is the doorstop UID **verbatim**. Nothing in the model parses a name
+//! structurally — links resolve by UUID and the link hint carries `collectionPrefix`/`artifactName`
+//! as separate fields — so a name never has to encode the prefix, and keeping the source's own
+//! identifier has three payoffs: a subject migrating onto ReqForge keeps every id (the filename
+//! stem is the id its verdicts, drafts, and code references are keyed on), imported artifacts trace
+//! back to their origin by name, and two distinct UIDs can never collide the way the old
+//! dash→underscore normalisation could (`DES-rocket-nozzle` and `DES-rocket_nozzle`).
 //!
-//! This module is intentionally pure; the callers decide what
-//! to do with the normalised name.
+//! This module only validates the UID's shape and hands the name back; the caller stores the same
+//! UID under `legacy.doorstopUid` and decides what to do with the name.
 
 /// Split a doorstop UID into its `prefix` + `NANU` (suffix
 /// after the sep). Returns the NANU exactly as it appears in
@@ -33,24 +28,15 @@ pub fn parse_doorstop_uid<'a>(uid: &'a str, prefix: &str, sep: &str) -> Option<&
     rest.strip_prefix(sep)
 }
 
-/// Normalise a doorstop NANU into the ReqForge artifact name
-/// component (the part after `<prefix>-`). The ReqForge UID
-/// itself is built by the caller as `format!("{prefix}-{name}")`
-/// using the standard `-` separator regardless of the doorstop
-/// document's `sep`.
-pub fn normalize_item_name(nanu: &str) -> String {
-    nanu.replace('-', "_")
-}
-
-/// Build the full ReqForge artifact name for an imported
-/// doorstop item. Returns `None` when the UID doesn't parse
-/// (caller emits a warning in the import report).
+/// The ReqForge artifact name for an imported doorstop item — the UID verbatim. Returns `None` when
+/// the UID doesn't parse against the document's `prefix`/`sep` (empty or missing NANU), which the
+/// caller surfaces as a warning in the import report.
 pub fn reqforge_name_from_uid(uid: &str, prefix: &str, sep: &str) -> Option<String> {
     let nanu = parse_doorstop_uid(uid, prefix, sep)?;
     if nanu.is_empty() {
         return None;
     }
-    Some(format!("{prefix}-{}", normalize_item_name(nanu)))
+    Some(uid.to_string())
 }
 
 #[cfg(test)]
@@ -58,10 +44,13 @@ mod tests {
     use super::*;
 
     #[test]
-    fn padded_numeric_nanu_survives() {
+    fn name_is_the_source_uid_verbatim() {
+        // The name is the doorstop uid unchanged — a no-sep tree keeps its padded numeric uid,
+        // and a `-`-sep tree keeps its dashed uid. This is what lets a subject migrate onto
+        // ReqForge without any id churn: the filename stem stays exactly what it was.
         assert_eq!(
             reqforge_name_from_uid("REQ001", "REQ", "").as_deref(),
-            Some("REQ-001")
+            Some("REQ001")
         );
         assert_eq!(
             reqforge_name_from_uid("REQ-001", "REQ", "-").as_deref(),
@@ -70,10 +59,13 @@ mod tests {
     }
 
     #[test]
-    fn dashes_in_multi_word_nanu_become_underscores() {
+    fn multi_word_nanu_is_preserved_not_underscored() {
+        // The old importer turned NANU dashes into underscores; nothing in the model parses a
+        // name structurally (links resolve by uuid), so the mangling only lost fidelity and could
+        // collide `DES-rocket-nozzle` with a hypothetical `DES-rocket_nozzle`.
         assert_eq!(
             reqforge_name_from_uid("DES-rocket-nozzle", "DES", "-").as_deref(),
-            Some("DES-rocket_nozzle")
+            Some("DES-rocket-nozzle")
         );
     }
 
@@ -93,14 +85,7 @@ mod tests {
     fn empty_sep_treats_rest_as_nanu() {
         assert_eq!(
             reqforge_name_from_uid("REQ001", "REQ", "").as_deref(),
-            Some("REQ-001")
+            Some("REQ001")
         );
-    }
-
-    #[test]
-    fn normalize_item_name_preserves_underscores_and_alphanums() {
-        assert_eq!(normalize_item_name("already_snake"), "already_snake");
-        assert_eq!(normalize_item_name("abc123"), "abc123");
-        assert_eq!(normalize_item_name("a-b-c"), "a_b_c");
     }
 }

@@ -32,7 +32,7 @@ pub mod refs;
 pub mod report;
 
 pub use execute::{ExecuteError, ExecuteTarget, execute};
-pub use ids::{normalize_item_name, parse_doorstop_uid};
+pub use ids::parse_doorstop_uid;
 pub use parse::{DoorstopDocument, DoorstopItem, DoorstopSettings, ParseError};
 pub use plan::{
     ImportPlan, PlanArtifact, PlanCollection, PlanError, PlanRefDisposition, PrefixCollision,
