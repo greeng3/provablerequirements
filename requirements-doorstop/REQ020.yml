@@ -5,7 +5,7 @@ level: 1.19
 links: []
 normative: true
 ref: ''
-reviewed: uZNEtKUwlusPfEKWgyY0nk6Bu5T3LVthQKo4-W3nEQk=
+reviewed: vM2oiSluFbR-gdMNB5ThtUvhyEVMUaPYa6re4hcC38U=
 text: |
   The tool writes an admitted formalization's provenance back onto the subject's
   requirement item, through the requirements-source seam (the A6/D14 back-write). The
@@ -15,6 +15,14 @@ text: |
   confirmed PRL, the review tier, the reviewer, the admission time, and the source
   revision the PRL was confirmed against — so a reader of the requirement can see it is
   formalized and detect later drift without consulting provreq's companion state.
+
+  Each adapter implements `annotate` in its source's native form (R-src-6). The ReqForge
+  adapter appends the same provenance to the artifact's review log — the home an admission
+  belongs in — rather than stamping a foreign key into the frontmatter: a review-log entry
+  tagged `provreq-formalized`, carrying the reviewer and admission time, with the lifecycle
+  status, confirmed PRL, review tier, and source revision under a namespaced `provreq` key.
+  The review log is an event stream, so a re-write appends a further entry and the latest by
+  timestamp is current, where the Doorstop adapter replaces its single `provreq:` block.
 
   The operator triggers the back-write with `provreq draft <ID> --writeback`. It is a
   deliberate, explicit action because it mutates the subject's working tree, which the
