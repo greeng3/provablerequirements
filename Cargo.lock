@@ -851,10 +851,11 @@ dependencies = [
 
 [[package]]
 name = "provreq"
-version = "0.0.4"
+version = "0.0.5"
 dependencies = [
  "anyhow",
  "axum",
+ "chrono",
  "clap",
  "creusot-std",
  "mime_guess",

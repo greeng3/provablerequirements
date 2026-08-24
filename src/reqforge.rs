@@ -1,20 +1,19 @@
-//! The ReqForge [`RequirementsSource`] adapter (adapter #2) — the spike for #296.
+//! The ReqForge [`RequirementsSource`] adapter (adapter #2) — began as the spike for #296.
 //!
 //! [`crate::source`] drew this seam single-implementation and said why: "the reqforge adapter is a
 //! real, not-speculative second consumer that lands when its format stabilises." This is that
-//! adapter, and its job in phase 1 of the absorb is not to be complete. It is to **falsify** the
-//! claim the whole plan rests on — that provreq's verification does not know what the requirement
-//! model is — by sourcing a requirement from ReqForge's on-disk shape and seeing what that drags
-//! in. If an engine adapter, a refusal classification, the mirror channel, or the verdict model
-//! has to move, the reading is wrong and phase 2 is mis-scoped.
+//! adapter. It began as the phase-1 spike whose job was to **falsify** the claim the whole plan
+//! rests on — that provreq's verification does not know what the requirement model is — by sourcing
+//! a requirement from ReqForge's on-disk shape and seeing what that dragged in. The thesis held:
+//! reading a requirement moved no engine adapter, refusal classification, mirror channel, or verdict
+//! model.
 //!
-//! **No dependency on ReqForge's code**, deliberately. There is no `reqforge-model` crate: its
-//! backend is a two-member workspace and the model lives inside `reqforge-server` beside axum and
-//! tokio, so a path dependency would drag a web server in to read a file. Extracting that crate is
-//! a phase-2 decision this spike should inform rather than block. The format read here was taken
-//! from a real artifact in ReqForge's own tree, not from its documentation.
+//! It now reads and writes through the extracted `reqforge-model` crate (#305): `items()` loads with
+//! ReqForge's own loader, and `annotate()` appends provenance to an artifact's review log with its
+//! own writer (#313). The spike's hand-rolled frontmatter reader is gone.
 //!
-//! Implements: REQ009 (a second adapter behind the source-agnostic seam)
+//! Implements: REQ009 (a second adapter behind the source-agnostic seam),
+//! REQ020 (the formalization back-write, in this source's native review-log form)
 
 use std::path::{Path, PathBuf};
 
@@ -133,18 +132,82 @@ impl RequirementsSource for ReqforgeSource {
         Ok(items)
     }
 
-    /// Not implemented by the spike, and loudly so.
+    /// Stamp the annotation onto the artifact as a review-log entry (R-src-6, REQ020).
     ///
-    /// Writing provenance back needs a decision this phase has not earned: ReqForge's review log is
-    /// where an admission belongs (that is most of why its model is worth having), and stamping a
-    /// `provreq:` key beside the schema's own fields would be inventing a convention phase 4 is
-    /// meant to settle. A spike that guessed here would leave a wrong shape on disk for later
-    /// phases to migrate, so it refuses instead — see #296.
-    fn annotate(&self, _id: &str, _annotation: &Annotation) -> Result<()> {
+    /// ReqForge's review log is where an admission belongs — the phase-1 reason this refused until
+    /// now (#296) — so the back-write appends there rather than inventing a foreign frontmatter key
+    /// that phase 4 would have to migrate. The entry is tagged `provreq-formalized` (the schema
+    /// keeps `outcome` an open string for exactly this), carries the reviewer and admission time,
+    /// and holds the structured provenance under a single namespaced `provreq` key. The review log
+    /// is an event stream, so a re-write appends a further entry rather than replacing — where the
+    /// Doorstop adapter replaces its single `provreq:` block. Mutates the working tree; the operator
+    /// commits it.
+    fn annotate(&self, id: &str, annotation: &Annotation) -> Result<()> {
+        let path = self.artifact_path(id)?;
+        let loaded = reqforge_model::load::artifact::load_content_artifact(&path)
+            .with_context(|| format!("loading {}", path.display()))?;
+        let mut metadata = loaded.metadata;
+        let body = loaded.body.unwrap_or_default();
+
+        let timestamp = chrono::DateTime::from_timestamp(annotation.reviewed_at_unix, 0)
+            .with_context(|| {
+                format!(
+                    "annotation timestamp {} is out of range",
+                    annotation.reviewed_at_unix
+                )
+            })?;
+
+        // One namespaced key, not the annotation's fields loose in overflow: it stays unambiguous
+        // to a later migration which provenance came from provreq, and cannot collide with a
+        // ReqForge outcome tag's own fields.
+        let provreq = serde_json::json!({
+            "status": annotation.status,
+            "prl": annotation.prl,
+            "review": annotation.review,
+            "sourceRevision": annotation.source_revision,
+        });
+        let mut overflow = reqforge_model::schema::Overflow::new();
+        overflow.insert("provreq".into(), provreq);
+
+        metadata
+            .review_log
+            .push(reqforge_model::schema::ReviewLogEntry {
+                timestamp,
+                reviewer: annotation.reviewer.clone(),
+                outcome: "provreq-formalized".into(),
+                explanation: Some(format!(
+                    "provreq admitted a formalization ({}) against source revision {}",
+                    annotation.status, annotation.source_revision
+                )),
+                added_todos: Vec::new(),
+                resolved_todos: Vec::new(),
+                overflow,
+            });
+        metadata.modified_at = timestamp;
+
+        let bytes = reqforge_model::write::render_artifact_file(&metadata, &body)
+            .with_context(|| format!("rendering {}", path.display()))?;
+        reqforge_model::write::atomic_write(&path, &bytes)
+            .with_context(|| format!("writing {}", path.display()))
+    }
+}
+
+impl ReqforgeSource {
+    /// The on-disk path of the artifact whose id is `id`, or an error naming the id when no live
+    /// artifact carries it. The filename stem is the identity (`items()` reads `LoadedArtifact::name`
+    /// from it), so an artifact `id` lives at `{id}.md` in one of the subject's collections. Asks
+    /// [`crate::subject_tree`] before trusting a match, the same rule `items()` applies, so a
+    /// resource-file sidecar can never be the target of a write.
+    fn artifact_path(&self, id: &str) -> Result<PathBuf> {
+        for dir in discover(&self.root) {
+            let candidate = dir.join(format!("{id}.md"));
+            if candidate.is_file() && !crate::subject_tree::is_pruned_file(&candidate) {
+                return Ok(candidate);
+            }
+        }
         bail!(
-            "provreq cannot yet write a formalization back to a ReqForge artifact — the review log \
-             is where an admission belongs, and that convergence is phase 4 of the absorb (#296). \
-             Formalize against a Doorstop source until then"
+            "no ReqForge artifact with id {id} in {}",
+            self.root.display()
         )
     }
 }
@@ -272,22 +335,103 @@ mod tests {
         assert!(ReqforgeSource::new(tmp.path()).items().unwrap().is_empty());
     }
 
-    // Verifies: REQ009 / #296 — writing provenance back refuses in a way the operator can act on,
-    // rather than inventing a convention phase 4 is meant to settle.
-    #[test]
-    fn writing_back_refuses_with_a_reason() {
-        let annotation = Annotation {
+    fn sample_annotation() -> Annotation {
+        Annotation {
             status: "admitted-but-ungrounded".into(),
             prl: "requirement r { }".into(),
             review: "mandatory".into(),
             reviewer: "someone".into(),
-            reviewed_at_unix: 0,
+            reviewed_at_unix: 1_700_000_000,
             source_revision: "abc".into(),
-        };
-        let err = ReqforgeSource::new(fixture())
-            .annotate("REQ-queueIsDrained", &annotation)
+        }
+    }
+
+    /// A collection dir holding the fixture artifact, under a temp root.
+    fn subject_with_fixture_artifact() -> (tempfile::TempDir, PathBuf) {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path().join("artifacts/req");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::copy(
+            fixture().join("artifacts/req/.collection.json"),
+            dir.join(COLLECTION_FILE),
+        )
+        .unwrap();
+        let src =
+            std::fs::read_to_string(fixture().join("artifacts/req/REQ-queueIsDrained.md")).unwrap();
+        let artifact = dir.join("REQ-queueIsDrained.md");
+        std::fs::write(&artifact, src).unwrap();
+        let root = tmp.path().to_path_buf();
+        (tmp, root)
+    }
+
+    // Verifies: REQ020 / #313 — the ReqForge adapter writes provenance back as a review-log
+    // entry (its native form), not a foreign frontmatter key. The structured fields ride under a
+    // namespaced `provreq` overflow key so they round-trip and are unambiguous to migrate.
+    #[test]
+    fn annotate_appends_a_provreq_review_log_entry() {
+        let (_tmp, root) = subject_with_fixture_artifact();
+        let ann = sample_annotation();
+        ReqforgeSource::new(&root)
+            .annotate("REQ-queueIsDrained", &ann)
+            .unwrap();
+
+        let loaded = reqforge_model::load::artifact::load_content_artifact(
+            &root.join("artifacts/req/REQ-queueIsDrained.md"),
+        )
+        .unwrap();
+        let entry = loaded
+            .metadata
+            .review_log
+            .last()
+            .expect("a review-log entry was appended");
+        assert_eq!(entry.outcome, "provreq-formalized");
+        assert_eq!(entry.reviewer, "someone");
+        assert_eq!(entry.timestamp.timestamp(), 1_700_000_000);
+        let provreq = entry.overflow.get("provreq").expect("namespaced block");
+        assert_eq!(provreq["status"], "admitted-but-ungrounded");
+        assert_eq!(provreq["prl"], "requirement r { }");
+        assert_eq!(provreq["review"], "mandatory");
+        assert_eq!(provreq["sourceRevision"], "abc");
+    }
+
+    // Verifies: REQ020 / #313 — the review log is an event stream, so re-writing appends rather
+    // than replacing; the reader takes the latest by timestamp.
+    #[test]
+    fn annotate_appends_and_does_not_replace() {
+        let (_tmp, root) = subject_with_fixture_artifact();
+        let src = ReqforgeSource::new(&root);
+        let before = reqforge_model::load::artifact::load_content_artifact(
+            &root.join("artifacts/req/REQ-queueIsDrained.md"),
+        )
+        .unwrap()
+        .metadata
+        .review_log
+        .len();
+
+        src.annotate("REQ-queueIsDrained", &sample_annotation())
+            .unwrap();
+        src.annotate("REQ-queueIsDrained", &sample_annotation())
+            .unwrap();
+
+        let after = reqforge_model::load::artifact::load_content_artifact(
+            &root.join("artifacts/req/REQ-queueIsDrained.md"),
+        )
+        .unwrap()
+        .metadata
+        .review_log
+        .len();
+        assert_eq!(after, before + 2, "each write-back appends one entry");
+    }
+
+    // Verifies: REQ020 / #313 — writing back to an id no source artifact carries is an error the
+    // operator can act on, not a silent no-op.
+    #[test]
+    fn annotate_rejects_unknown_item() {
+        let (_tmp, root) = subject_with_fixture_artifact();
+        let err = ReqforgeSource::new(&root)
+            .annotate("REQ-doesNotExist", &sample_annotation())
             .unwrap_err()
             .to_string();
-        assert!(err.contains("phase 4"), "must say why, got: {err}");
+        assert!(err.contains("REQ-doesNotExist"), "names the id, got: {err}");
     }
 }
