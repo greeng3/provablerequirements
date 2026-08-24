@@ -18,6 +18,7 @@ pub mod grounding;
 pub mod kani;
 pub mod llm;
 pub mod lowering;
+pub mod migrate;
 pub mod mirror_draft;
 pub mod monitor;
 pub mod prl;
