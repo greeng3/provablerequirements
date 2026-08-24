@@ -173,6 +173,24 @@ enum Command {
         #[arg(long, requires = "draft_semantic")]
         repair: bool,
     },
+    /// Convert a Doorstop requirements tree into a ReqForge project (#317). Reads `source` only and
+    /// writes a `reqforge.json` + an `artifacts/` collection under `target`, which
+    /// `provreq` then reads through the ReqForge adapter. Ids are preserved verbatim, so a subject's
+    /// verdicts, drafts, and code references keep pointing at the same items.
+    MigrateDoorstop {
+        /// The Doorstop tree to read (the directory holding the `.doorstop.yml` documents).
+        source: PathBuf,
+        /// Where to write the ReqForge project (created if absent). Must not already hold the
+        /// collection prefixes being imported.
+        #[arg(long)]
+        target: PathBuf,
+        /// Project slug for `reqforge.json`.
+        #[arg(long)]
+        slug: String,
+        /// Human-readable project name for `reqforge.json`.
+        #[arg(long)]
+        name: String,
+    },
 }
 
 /// Whether an argument reads as a subject path rather than a mistyped flag or a bad id (REQ056).
@@ -282,7 +300,24 @@ async fn main() -> Result<()> {
             draft_semantic,
             repair,
         } => run_verify(&path, &id, draft_contracts, draft_semantic, repair).await,
+        Command::MigrateDoorstop {
+            source,
+            target,
+            slug,
+            name,
+        } => run_migrate_doorstop(&source, &target, &slug, &name),
     }
+}
+
+fn run_migrate_doorstop(source: &Path, target: &Path, slug: &str, name: &str) -> Result<()> {
+    let report = provreq::migrate::migrate_doorstop(source, target, slug, name)?;
+    println!(
+        "Imported {} collection(s), {} artifact(s) into {}",
+        report.totals.collections_created,
+        report.totals.artifacts_imported,
+        target.display()
+    );
+    Ok(())
 }
 
 async fn run_triage(
