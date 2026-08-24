@@ -24,6 +24,10 @@ chrono = { version = "0.4", default-features = false, features = [
     "serde",
 ] }
 thiserror = "2"
+# Doorstop's on-disk item format is YAML; the importer (`doorstop`) reads it. Pinned to ReqForge's
+# own `=0.9` — deprecated and unmaintained, but it is the format of an external tool we import from,
+# not a format we choose, so a permanent import boundary is exactly where a frozen parser belongs.
+serde_yaml = "=0.9"
 # `write::ownership` logs through it. Keeping their instrumentation rather than deleting it in
 # transit: this crate is their code moved, and a change made in transit is a change to code whose
 # tests were written elsewhere.

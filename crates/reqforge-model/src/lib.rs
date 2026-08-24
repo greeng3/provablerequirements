@@ -18,10 +18,14 @@
 //! writes, and lazy write-back is exactly why this model is worth having for `verdicts.yml`, which
 //! is evidence rather than configuration.
 //!
-//! What is deliberately absent: `http`, `llm`, `reports`, `exports`, and the importer. Later
-//! slices. Keeping reqwest out also means ReqForge's 0.13 and provreq's 0.12 do not have to be
-//! reconciled yet.
+//! What is deliberately absent: `http`, `llm`, `reports`, and `exports`. Later slices. Keeping
+//! reqwest out also means ReqForge's 0.13 and provreq's 0.12 do not have to be reconciled yet.
+//!
+//! [`doorstop`] is the one-way importer (slice 2, #309): the permanent boundary that lets provreq
+//! read Doorstop items — its own ~70 included — into this model. It is in the closure early because
+//! it is what makes Doorstop an import format rather than a storage format.
 
+pub mod doorstop;
 pub mod frontmatter;
 pub mod index;
 pub mod links;
