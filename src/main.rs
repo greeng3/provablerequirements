@@ -822,7 +822,8 @@ fn writeback_candidate(subject: &Path, state: &draft::DraftState, item: &Item) -
     // Through the seam, not the Doorstop adapter directly: a ReqForge-sourced subject must get
     // that adapter's honest refusal rather than a Doorstop lookup failing for a file that was never
     // going to be there (#296).
-    provreq::adopt::source_for(subject).annotate(&item.id, &annotation)?;
+    provreq::adopt::source_for(&provreq::adopt::requirements_root(subject))
+        .annotate(&item.id, &annotation)?;
     println!(
         "Wrote formalization provenance onto {} — review the working-tree change and commit it.",
         item.id
