@@ -1,14 +1,20 @@
 #!/usr/bin/env python3
 # /// script
 # requires-python = ">=3.10"
-# dependencies = ["doorstop"]
+# dependencies = []
 # ///
 """Requirements traceability report generator.
 
 Scans source files for requirement tags in comments and cross-references them
-against the Doorstop requirements tree so we can see which requirements are
+against the ReqForge requirements project so we can see which requirements are
 implemented / verified, which are uncovered, and which tags reference a
 requirement that does not exist (orphans).
+
+The valid requirement ids are the artifact filename stems under
+`requirements/artifacts/<collection>/<id>.md` — the same id provreq reads. No
+Doorstop dependency: provreq's requirements moved to ReqForge (#321), and this
+only needs the id set, which the filenames already carry. (Longer term provreq
+itself will own traceability; this is the interim reader.)
 
 Tagging conventions (in code comments, any supported language):
 
@@ -18,15 +24,12 @@ Tagging conventions (in code comments, any supported language):
 Doc comments (`///` in Rust) work too. IDs are matched case-insensitively and a
 `-`/`_` separator is optional, so `REQ001`, `REQ-001`, and `req_001` are equal.
 
-Run with uv (installs doorstop automatically):
+Run with uv:
 
     uv run scripts/traceability.py                       # markdown to stdout
     uv run scripts/traceability.py --output docs/traceability_report.md
     uv run scripts/traceability.py --format json
     uv run scripts/traceability.py --check               # exit 1 on orphan tags
-
-Note: there is no product code or requirement items yet. Until they exist this
-reports an empty tree, which is expected — the tool is scaffolding for later.
 """
 
 from __future__ import annotations
@@ -39,19 +42,14 @@ import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
-try:
-    import doorstop  # type: ignore
-except ImportError:  # pragma: no cover - handled at runtime
-    doorstop = None
-
 DEFAULT_SRC_DIRS = ["src", "tests", "crates", "web_ui", "web-ui"]
-DEFAULT_DOORSTOP_ROOT = "."
+DEFAULT_REQUIREMENTS_ROOT = "requirements"
 DEFAULT_PREFIXES = {"REQ"}
 
 SOURCE_EXTS = {".rs", ".ts", ".tsx", ".js", ".py"}
 IGNORE_DIRS = {
     ".git", ".venv", "venv", "node_modules", "target", "dist", "build",
-    "__pycache__", "qrusty", "requirements-doorstop", "docs", "scripts",
+    "__pycache__", "qrusty", "requirements", "docs", "scripts",
     ".devcontainer", ".githooks",
 }
 
@@ -86,28 +84,50 @@ class Trace:
     verifications: list[Location] = field(default_factory=list)
 
 
-def load_doorstop(root: Path) -> dict[str, Trace]:
-    """Load requirement items from the Doorstop tree, keyed by canonical id."""
+def load_requirements(root: Path) -> dict[str, Trace]:
+    """Load requirement ids from the ReqForge project's artifact filenames, keyed by canonical id.
+
+    Each `requirements/artifacts/<collection>/<id>.md` names one requirement; the filename stem is
+    the id provreq reads. Operating-system resource files (`.DS_Store`, `._*` AppleDouble sidecars)
+    are never requirements, so they are skipped — a `._REQ001.md` sidecar carries the `.md` suffix
+    but is not a second declaration of `REQ001`.
+    """
     reqs: dict[str, Trace] = {}
-    if doorstop is None:
-        print("Warning: doorstop not available; reporting code tags only.", file=sys.stderr)
+    artifacts = root / "artifacts"
+    if not artifacts.is_dir():
+        print(
+            f"Warning: no ReqForge artifacts under {artifacts}; reporting code tags only.",
+            file=sys.stderr,
+        )
         return reqs
-    try:
-        tree = doorstop.build(str(root))
-    except Exception as exc:  # noqa: BLE001 - report and continue
-        print(f"Warning: could not build Doorstop tree: {exc}", file=sys.stderr)
-        return reqs
-    for document in tree:
-        for item in document:
-            uid = str(getattr(item, "uid", ""))
-            if not uid:
-                continue
-            text = getattr(item, "text", None)
-            text = str(text).strip() if text else None
-            if text and len(text) > 100:
-                text = text[:100] + "…"
-            reqs[canonical(uid)] = Trace(uid=canonical(uid), display=uid, text=text, known=True)
+    for md in sorted(artifacts.glob("*/*.md")):
+        name = md.name
+        if name == ".DS_Store" or name.startswith("._"):
+            continue
+        uid = md.stem
+        reqs[canonical(uid)] = Trace(
+            uid=canonical(uid), display=uid, text=_artifact_prose(md), known=True
+        )
     return reqs
+
+
+def _artifact_prose(md: Path) -> str | None:
+    """The artifact body (the Markdown after the JSON frontmatter), truncated for the report."""
+    try:
+        raw = md.read_text()
+    except OSError as exc:
+        print(f"Warning: could not read {md}: {exc}", file=sys.stderr)
+        return None
+    body = raw
+    if raw.startswith("---\n"):
+        rest = raw[4:]
+        end = rest.find("\n---\n")
+        if end != -1:
+            body = rest[end + len("\n---\n") :]
+    body = body.strip()
+    if not body:
+        return None
+    return body[:100] + "…" if len(body) > 100 else body
 
 
 def valid_prefixes(reqs: dict[str, Trace]) -> set[str]:
@@ -202,7 +222,7 @@ def render_markdown(data: dict) -> str:
         "",
         "## Summary",
         "",
-        f"- Requirements (Doorstop): {s['requirements']}",
+        f"- Requirements: {s['requirements']}",
         f"- Implemented: {s['implemented']}",
         f"- Verified: {s['verified']}",
         f"- Uncovered (no implementation): {s['uncovered']}",
@@ -231,11 +251,11 @@ def main() -> int:
     parser.add_argument("--format", choices=["markdown", "json"], default="markdown")
     parser.add_argument("--output", type=Path, help="write to FILE instead of stdout")
     parser.add_argument("--src", action="append", help="source dir to scan (repeatable)")
-    parser.add_argument("--doorstop-root", default=DEFAULT_DOORSTOP_ROOT)
+    parser.add_argument("--requirements-root", default=DEFAULT_REQUIREMENTS_ROOT)
     parser.add_argument("--check", action="store_true", help="exit 1 if orphan tags exist")
     args = parser.parse_args()
 
-    reqs = load_doorstop(Path(args.doorstop_root))
+    reqs = load_requirements(Path(args.requirements_root))
     prefixes = valid_prefixes(reqs)
     found = scan_sources(args.src or DEFAULT_SRC_DIRS, prefixes)
     reqs = merge(reqs, found)

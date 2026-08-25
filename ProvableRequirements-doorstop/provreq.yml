@@ -1,8 +1,5 @@
 schema: 1
 subject_requirements: requirements
-documents:
-  - prefix: REQ
-    path: .
 # The environment a verdict was proved in (REQ049) — the operator's own stable label, so a
 # container rebuild does not read as a changed environment the way a hostname would.
 environment: provreq-devcontainer
