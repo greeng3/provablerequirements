@@ -191,6 +191,14 @@ enum Command {
         #[arg(long)]
         name: String,
     },
+    /// Validate the subject's ReqForge requirements project (#323) — the analogue of `doorstop -e`.
+    /// Every artifact must load, collection configs must be present and valid, and no two artifacts
+    /// may share a uuid. Exits non-zero, reporting each problem, if the project does not validate.
+    Check {
+        /// Path to the subject repository (defaults to the current directory).
+        #[arg(default_value = ".")]
+        path: PathBuf,
+    },
 }
 
 /// Whether an argument reads as a subject path rather than a mistyped flag or a bad id (REQ056).
@@ -306,7 +314,14 @@ async fn main() -> Result<()> {
             slug,
             name,
         } => run_migrate_doorstop(&source, &target, &slug, &name),
+        Command::Check { path } => run_check(&path),
     }
+}
+
+fn run_check(subject: &Path) -> Result<()> {
+    let count = provreq::check::check(subject)?;
+    println!("Requirements project OK — {count} artifact(s) validated.");
+    Ok(())
 }
 
 fn run_migrate_doorstop(source: &Path, target: &Path, slug: &str, name: &str) -> Result<()> {

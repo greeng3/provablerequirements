@@ -7,6 +7,7 @@
 
 pub mod adopt;
 pub mod buildenv;
+pub mod check;
 pub mod contract_draft;
 pub mod creusot;
 pub mod detail;
