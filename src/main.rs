@@ -199,6 +199,21 @@ enum Command {
         #[arg(default_value = ".")]
         path: PathBuf,
     },
+    /// Author a new requirement into the subject's ReqForge collection (#325). The artifact arrives
+    /// unreviewed — authored prose passes through the review workflow like any other.
+    New {
+        /// Requirement id — the artifact's filename stem and the id provreq reads (e.g. REQ074).
+        id: String,
+        /// One-line title.
+        #[arg(long)]
+        title: String,
+        /// The requirement prose (the artifact body).
+        #[arg(long)]
+        text: String,
+        /// Path to the subject repository (defaults to the current directory).
+        #[arg(long, default_value = ".")]
+        path: PathBuf,
+    },
 }
 
 /// Whether an argument reads as a subject path rather than a mistyped flag or a bad id (REQ056).
@@ -315,12 +330,27 @@ async fn main() -> Result<()> {
             name,
         } => run_migrate_doorstop(&source, &target, &slug, &name),
         Command::Check { path } => run_check(&path),
+        Command::New {
+            id,
+            title,
+            text,
+            path,
+        } => run_new(&path, &id, &title, &text),
     }
 }
 
 fn run_check(subject: &Path) -> Result<()> {
     let count = provreq::check::check(subject)?;
     println!("Requirements project OK — {count} artifact(s) validated.");
+    Ok(())
+}
+
+fn run_new(subject: &Path, id: &str, title: &str, text: &str) -> Result<()> {
+    let path = provreq::create::create(subject, id, title, text)?;
+    println!(
+        "Authored {id} at {} — unreviewed. Review the working-tree change and commit it.",
+        path.display()
+    );
     Ok(())
 }
 

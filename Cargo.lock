@@ -871,6 +871,7 @@ dependencies = [
  "tempfile",
  "tokio",
  "tower",
+ "uuid",
  "walkdir",
 ]
 
