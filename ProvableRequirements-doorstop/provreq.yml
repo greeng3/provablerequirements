@@ -1,5 +1,5 @@
 schema: 1
-subject_requirements: requirements-doorstop
+subject_requirements: requirements
 documents:
   - prefix: REQ
     path: .
