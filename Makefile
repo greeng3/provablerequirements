@@ -83,11 +83,13 @@ lint-md:
 	@$(MARKDOWNLINT) "**/*.md" "!qrusty/**" "!requirements/**" "!docs/traceability_report.md" "!**/node_modules/**" "!.venv/**" "!.claude/**" "!.claude-home/**"
 
 # --- YAML ---
+# --no-error-on-unmatched-pattern: the repo has only `.yml` today, and prettier >=3 errors on a
+# glob that matches nothing — so the `**/*.yaml` arm must not fail when no such file exists yet.
 fmt-yaml:
-	@$(PRETTIER) --write --ignore-unknown --ignore-path .prettierignore "**/*.yml" "**/*.yaml"
+	@$(PRETTIER) --write --ignore-unknown --no-error-on-unmatched-pattern --ignore-path .prettierignore "**/*.yml" "**/*.yaml"
 
 fmt-check-yaml:
-	@$(PRETTIER) --check --ignore-unknown --ignore-path .prettierignore "**/*.yml" "**/*.yaml"
+	@$(PRETTIER) --check --ignore-unknown --no-error-on-unmatched-pattern --ignore-path .prettierignore "**/*.yml" "**/*.yaml"
 
 lint-yaml:
 	@$(YAMLLINT) -c .yamllint.yml .
