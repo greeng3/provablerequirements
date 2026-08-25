@@ -1,5 +1,11 @@
 # Dogfooding: provreq adopted as its own subject
 
+> **📌 Historical record — superseded on storage (2026-08, phase-3 absorb).** This captures the first
+> self-adoption, when provreq's requirements were a Doorstop tree at `requirements-doorstop/` (then 51
+> items). They have since migrated to a ReqForge project at `requirements/` (#321), validated by
+> `provreq check` (#326); `requirements-doorstop/` is gone. The run below still shows how adoption and
+> the triage funnel behave — only the on-disk store changed.
+
 Record of the first run of provreq against a real repository rather than a hand-built scratch
 subject. Subject: this repo, at `0b5a2be`. Issue [#125](https://github.com/greeng3/provablerequirements/issues/125).
 
