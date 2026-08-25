@@ -35,7 +35,6 @@ check() {
 echo "=== dev toolchain ==="
 check git               git           --version
 check glab              glab          --version   # GitLab CLI (issues / MRs)
-check doorstop          doorstop      --version   # requirements management
 check uv                uv            --version   # runs project Python scripts
 check python3           python3       --version
 check node              node          --version   # powers the Node linters/formatters

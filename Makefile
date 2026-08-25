@@ -11,10 +11,11 @@
 MARKDOWNLINT := markdownlint-cli2
 PRETTIER     := prettier
 YAMLLINT     := yamllint
-# `-e` promotes doorstop's warnings to errors. Without it `doorstop` exits 0 while reporting
-# duplicate levels and unreviewed changes, so the gate passed for a long time with six of them
-# accumulated and invisible. A requirement tree that validates with warnings is not validated.
-DOORSTOP     := doorstop -e
+# provreq validates its own requirements now that they live in a ReqForge project (#321): every
+# artifact loads, collection configs are valid, and no two artifacts share a uuid. Promotes soft
+# diagnostics to errors, the way `doorstop -e` did — a project that loads with warnings is not
+# validated.
+PROVREQ       = $(CARGO) run --quiet --bin provreq --
 TRACEABILITY := uv run scripts/traceability.py
 TRACE_REPORT := docs/traceability_report.md
 CARGO        := cargo
@@ -37,7 +38,7 @@ help:
 	@echo "  fmt                 Format Markdown + YAML (prettier --write)"
 	@echo "  fmt-check           Check formatting without writing"
 	@echo "  lint                Lint Markdown (markdownlint) + YAML (yamllint)"
-	@echo "  check-requirements  Validate the Doorstop requirements tree"
+	@echo "  check-requirements  Validate the ReqForge requirements project (provreq check)"
 	@echo "  traceability        Print a requirements traceability report"
 	@echo "  traceability-report Write the report to $(TRACE_REPORT)"
 	@echo "  traceability-check  Fail if any code tag references an unknown requirement"
@@ -79,7 +80,7 @@ fmt-check-md:
 # <br> to stack multiple trace locations in a table cell, so it is exempt from
 # the prose linter (MD033) just like the other generated/managed trees.
 lint-md:
-	@$(MARKDOWNLINT) "**/*.md" "!qrusty/**" "!requirements-doorstop/**" "!requirements/**" "!docs/traceability_report.md" "!**/node_modules/**" "!.venv/**" "!.claude/**" "!.claude-home/**"
+	@$(MARKDOWNLINT) "**/*.md" "!qrusty/**" "!requirements/**" "!docs/traceability_report.md" "!**/node_modules/**" "!.venv/**" "!.claude/**" "!.claude-home/**"
 
 # --- YAML ---
 fmt-yaml:
@@ -93,7 +94,7 @@ lint-yaml:
 
 # --- Requirements ---
 check-requirements:
-	@$(DOORSTOP)
+	@$(PROVREQ) check .
 
 traceability:
 	@$(TRACEABILITY)
