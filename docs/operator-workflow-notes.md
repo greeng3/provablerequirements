@@ -21,6 +21,16 @@
 >
 > The operator-journey spine (below) is shared by all three and independent of which won. Design C
 > is the first framing that made the tool **operationally possible** rather than a non-starter.
+>
+> **📌 SINCE SUPERSEDED on the requirements-model question (2026-08, phase-3 absorb, #313–#326).**
+> The seam design below settled on "Doorstop is adapter #1; keep it the only implementation." That
+> discipline has since been discharged: the ReqForge adapter landed (#296), and provreq **migrated
+> its own requirements off Doorstop** onto a ReqForge project at `requirements/` (#321), validated by
+> `provreq check` (#323) in place of the old `doorstop -e` gate (#326), and authored with
+> `provreq new` (#325). **Doorstop is now only an _import_ format** (`provreq migrate-doorstop`) for
+> foreign subjects like qrusty — a permanent boundary, not provreq's own store. Read the
+> Doorstop-as-provreq's-store passages below as the record of how the seam was designed, not current
+> state.
 
 ## Operator-journey spine
 
