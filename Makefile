@@ -79,7 +79,7 @@ fmt-check-md:
 # <br> to stack multiple trace locations in a table cell, so it is exempt from
 # the prose linter (MD033) just like the other generated/managed trees.
 lint-md:
-	@$(MARKDOWNLINT) "**/*.md" "!qrusty/**" "!requirements-doorstop/**" "!docs/traceability_report.md" "!**/node_modules/**" "!.venv/**" "!.claude/**" "!.claude-home/**"
+	@$(MARKDOWNLINT) "**/*.md" "!qrusty/**" "!requirements-doorstop/**" "!requirements/**" "!docs/traceability_report.md" "!**/node_modules/**" "!.venv/**" "!.claude/**" "!.claude-home/**"
 
 # --- YAML ---
 fmt-yaml:

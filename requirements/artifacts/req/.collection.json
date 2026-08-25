@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 1,
+  "prefix": "REQ",
+  "name": "REQ (imported from doorstop)",
+  "importNotes": {
+    "doorstopDigits": 3,
+    "doorstopItemFormat": "yaml",
+    "doorstopSep": ""
+  }
+}
