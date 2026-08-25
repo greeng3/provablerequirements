@@ -51,11 +51,13 @@ pipeline.
 
 ## Workflows
 
-- **`.github/workflows/ci.yml`** — on push to `main` and every PR, six host-only
+- **`.github/workflows/ci.yml`** — on push to `main` and every PR, seven host-only
   jobs: `test` (frontend `npm ci` + `vitest` + `vite build`, then `cargo fmt
---check`, `cargo clippy -D warnings`, `cargo test`) plus one live-engine job per
-  verification engine — `kani`, `creusot`, `prusti`, `tlc`, `monpoly` — so an
-  engine-facing regression fails CI, not the first operator to run it.
+--check`, `cargo clippy -D warnings`, `cargo test`); `gate`, which runs the repo's
+  own Makefile targets (`make fmt-check lint check-requirements`) so the local gate
+  and CI cannot drift (#300); plus one live-engine job per verification engine —
+  `kani`, `creusot`, `prusti`, `tlc`, `monpoly` — so an engine-facing regression
+  fails CI, not the first operator to run it.
 - **`.github/workflows/release.yml`** — on a version tag (`v*`): builds the
   frontend, then all six targets, packages each (`.tar.gz` on unix, `.zip` on
   Windows) with a `.sha256` sidecar, then a `release` job assembles the manifest

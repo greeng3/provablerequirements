@@ -44,6 +44,34 @@ jobs:
       - name: Audit dependencies
         run: cargo audit
 
+  # The repo's OWN formatting/lint/requirements gate (#300). CI enforced only the Rust half
+  # (cargo fmt/clippy/test); `make fmt-check`, `make lint`, and `make check-requirements` were
+  # left to a developer remembering to run them — so #298 merged with main red under its own
+  # prettier gate while CI stayed green. This job runs the Makefile targets themselves, so the
+  # local gate and CI cannot drift.
+  gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      # `make check-requirements` runs `provreq check .`, and the provreq binary embeds web/dist
+      # via rust-embed — so the frontend must exist on disk before that binary will build.
+      - name: Set up Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Build frontend
+        run: npm --prefix web ci && npm --prefix web run build
+      # prettier + markdownlint-cli2 are the same npm globals the devcontainer installs (unpinned
+      # there too, so this introduces no new drift); yamllint via pipx.
+      - name: Install gate tools
+        run: |
+          npm install -g markdownlint-cli2 prettier
+          pipx install yamllint
+      - name: Run the repo gate (fmt-check, lint, requirements)
+        run: make fmt-check lint check-requirements
+
   # The real-engine path, on its own job (REQ027). The main `test` job stays Kani-FREE by
   # design: the common user state is engine-absent (R-eng-2), and that path — provreq staying
   # honest when no verifier is installed — is the one most worth proving on every push. The
