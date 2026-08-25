@@ -189,8 +189,43 @@ pub fn resolve(subject: &Path) -> Result<(PathBuf, Vec<Item>)> {
             subject.display()
         )
     })?;
-    let items = source_for(subject).items()?;
+    let req_root = requirements_root_from_companion(subject, &companion);
+    let items = source_for(&req_root).items()?;
     Ok((companion, items))
+}
+
+/// The subject's requirements root — where its requirement markers live — as declared by the
+/// companion manifest's `subject_requirements`. Scoping discovery here rather than at the subject
+/// root keeps it deterministic and immune to stray markers elsewhere in the tree (a committed test
+/// fixture, a vendored dependency's own requirements). Falls back to the subject root when there is
+/// no companion or the field is absent, so a subject that never declared one still resolves.
+pub fn requirements_root(subject: &Path) -> PathBuf {
+    match find_companion(subject).ok().flatten() {
+        Some(companion) => requirements_root_from_companion(subject, &companion),
+        None => subject.to_path_buf(),
+    }
+}
+
+/// The requirements root for a subject whose companion has already been located — the shared core of
+/// [`requirements_root`] and [`resolve`], so neither walks for the companion twice.
+fn requirements_root_from_companion(subject: &Path, companion: &Path) -> PathBuf {
+    read_subject_requirements(companion)
+        .map(|rel| subject.join(rel))
+        .unwrap_or_else(|| subject.to_path_buf())
+}
+
+/// Read `subject_requirements` from a companion's manifest, or `None` when the manifest is missing,
+/// unparseable, or does not declare it (a legacy companion, or one written with only `subject:`).
+fn read_subject_requirements(companion_root: &Path) -> Option<String> {
+    #[derive(serde::Deserialize)]
+    struct ManifestRead {
+        subject_requirements: Option<String>,
+    }
+    let raw = std::fs::read_to_string(companion_root.join(MANIFEST_FILE)).ok()?;
+    serde_yaml::from_str::<ManifestRead>(&raw)
+        .ok()?
+        .subject_requirements
+        .filter(|s| !s.is_empty())
 }
 
 /// Which [`RequirementsSource`] a subject keeps its requirements in — the one place provreq decides
@@ -232,6 +267,48 @@ mod tests {
         std::fs::create_dir_all(&companion).unwrap();
         std::fs::write(companion.join(MANIFEST_FILE), "subject: .\n").unwrap();
         tmp
+    }
+
+    // Verifies: #319 — discovery is scoped to the requirements root the companion manifest declares
+    // (`subject_requirements`), so a stray collection marker elsewhere in the subject cannot hijack
+    // it. This is the fixture-in-tree bug: before the fix, `source_for` walked the whole subject and
+    // read the committed ReqForge test fixture as provreq's sole requirement.
+    #[test]
+    fn discovery_is_scoped_to_the_declared_requirements_root() {
+        let tmp = tempfile::tempdir().unwrap();
+        let subject = tmp.path();
+
+        // The real requirements: a Doorstop tree under `reqs/`.
+        let reqs = subject.join("reqs");
+        std::fs::create_dir_all(&reqs).unwrap();
+        std::fs::write(reqs.join(".doorstop.yml"), "settings:\n  prefix: REQ\n").unwrap();
+        std::fs::write(reqs.join("REQ001.yml"), "text: the real one\n").unwrap();
+
+        // A stray ReqForge collection elsewhere in the tree — the shape of a committed fixture.
+        let stray = subject.join("tests/fixtures/x/artifacts/req");
+        std::fs::create_dir_all(&stray).unwrap();
+        let fixture = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/reqforge-subject/artifacts/req");
+        for name in [crate::reqforge::COLLECTION_FILE, "REQ-queueIsDrained.md"] {
+            std::fs::copy(fixture.join(name), stray.join(name)).unwrap();
+        }
+
+        // A companion declaring `reqs/` as the requirements root.
+        let companion = subject.join("Companion");
+        std::fs::create_dir_all(&companion).unwrap();
+        std::fs::write(
+            companion.join(MANIFEST_FILE),
+            "subject_requirements: reqs\n",
+        )
+        .unwrap();
+
+        let (_companion, items) = resolve(subject).unwrap();
+        let ids: Vec<&str> = items.iter().map(|i| i.id.as_str()).collect();
+        assert_eq!(
+            ids,
+            ["REQ001"],
+            "scoped to reqs/, the stray collection is out of scope"
+        );
     }
 
     // Verifies: REQ009 / #296 — THE SPIKE. A requirement stored as a ReqForge artifact reaches the
