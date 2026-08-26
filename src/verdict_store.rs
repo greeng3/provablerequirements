@@ -157,6 +157,10 @@ pub struct VerdictView {
     /// The per-engine breakdown (D2b) — which engine reached what, on what basis. An aggregate
     /// verdict from an ensemble says less than the ensemble did.
     pub evidence: Vec<crate::verdict::EvidenceReport>,
+    /// The verdict-level correspondence (Phase 4c) — `"asserted"` when the verdict rests only on a
+    /// human-tagged test, so no surface can read it as a mechanical result.
+    #[serde(default)]
+    pub correspondence: String,
     /// The verdict is still anchored to the current world (nothing it depended on moved).
     pub fresh: bool,
     /// When not fresh, the concrete drifts — prose moved, code moved, tool changed — so the
@@ -331,6 +335,7 @@ pub fn view(
         detail: stored.detail.clone(),
         witness: stored.witness.clone(),
         evidence: stored.evidence.clone(),
+        correspondence: stored.correspondence.clone(),
         fresh: stale_reasons.is_empty(),
         stale_reasons,
         environment: stored.provenance.environment.as_ref().map(|e| e.describe()),
