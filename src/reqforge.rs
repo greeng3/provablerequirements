@@ -26,6 +26,18 @@ use crate::source::{Annotation, Classification, Item, RequirementsSource};
 /// subject stores requirements this way rather than as Doorstop documents.
 pub const COLLECTION_FILE: &str = ".collection.json";
 
+/// What a `provreq-verdict` breadcrumb records (Phase 4e): the verdict's aggregate status, its
+/// basis when it has one, whether the correspondence is mechanical or asserted, and the time the
+/// verdict was recorded. Grouped rather than passed positionally so the two `String` fields cannot
+/// be silently swapped at the call site.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VerdictBreadcrumb {
+    pub status: String,
+    pub basis: Option<String>,
+    pub correspondence: String,
+    pub at_unix: i64,
+}
+
 /// Every collection directory under `root` — a directory holding a [`COLLECTION_FILE`].
 ///
 /// Walks by [`crate::subject_tree`]'s rules like every other traversal of a subject, so a
@@ -143,12 +155,6 @@ impl RequirementsSource for ReqforgeSource {
     /// Doorstop adapter replaces its single `provreq:` block. Mutates the working tree; the operator
     /// commits it.
     fn annotate(&self, id: &str, annotation: &Annotation) -> Result<()> {
-        let path = self.artifact_path(id)?;
-        let loaded = reqforge_model::load::artifact::load_content_artifact(&path)
-            .with_context(|| format!("loading {}", path.display()))?;
-        let mut metadata = loaded.metadata;
-        let body = loaded.body.unwrap_or_default();
-
         let timestamp = chrono::DateTime::from_timestamp(annotation.reviewed_at_unix, 0)
             .with_context(|| {
                 format!(
@@ -169,9 +175,9 @@ impl RequirementsSource for ReqforgeSource {
         let mut overflow = reqforge_model::schema::Overflow::new();
         overflow.insert("provreq".into(), provreq);
 
-        metadata
-            .review_log
-            .push(reqforge_model::schema::ReviewLogEntry {
+        self.append_review_entry(
+            id,
+            reqforge_model::schema::ReviewLogEntry {
                 timestamp,
                 reviewer: annotation.reviewer.clone(),
                 outcome: "provreq-formalized".into(),
@@ -182,17 +188,81 @@ impl RequirementsSource for ReqforgeSource {
                 added_todos: Vec::new(),
                 resolved_todos: Vec::new(),
                 overflow,
-            });
-        metadata.modified_at = timestamp;
+            },
+        )
+    }
+}
+
+impl ReqforgeSource {
+    /// Record a verdict as a `provreq-verdict` review-log breadcrumb on the artifact (Phase 4e,
+    /// REQ078). A verdict lives in provreq's companion `verdicts.yml` and is otherwise invisible in
+    /// the requirement itself: a reader sees the formalization admission (`provreq-formalized`) but
+    /// never whether it *holds*. This makes a verdict a durable, human-visible event on the
+    /// requirement, alongside that admission.
+    ///
+    /// The caller appends only on the first verdict and on a status change — the review log is an
+    /// event stream, not a per-run trace — so this does not itself dedupe. The status, basis, and
+    /// correspondence ride under the same namespaced `provreq` overflow key `annotate` uses, so the
+    /// two provreq breadcrumbs read as one provenance family and neither can collide with a ReqForge
+    /// outcome tag's own fields. Asserted correspondence is carried verbatim so a human-tagged pass
+    /// can never read as a mechanical proof. Mutates the working tree; the operator commits it.
+    pub fn record_verdict(&self, id: &str, breadcrumb: &VerdictBreadcrumb) -> Result<()> {
+        let timestamp = chrono::DateTime::from_timestamp(breadcrumb.at_unix, 0)
+            .with_context(|| format!("verdict timestamp {} is out of range", breadcrumb.at_unix))?;
+
+        let provreq = serde_json::json!({
+            "status": breadcrumb.status,
+            "basis": breadcrumb.basis,
+            "correspondence": breadcrumb.correspondence,
+        });
+        let mut overflow = reqforge_model::schema::Overflow::new();
+        overflow.insert("provreq".into(), provreq);
+
+        let basis = breadcrumb
+            .basis
+            .as_deref()
+            .map(|b| format!(" ({b})"))
+            .unwrap_or_default();
+        self.append_review_entry(
+            id,
+            reqforge_model::schema::ReviewLogEntry {
+                timestamp,
+                reviewer: "provreq".into(),
+                outcome: "provreq-verdict".into(),
+                explanation: Some(format!(
+                    "provreq recorded a verdict: {}{basis} [{}]",
+                    breadcrumb.status, breadcrumb.correspondence
+                )),
+                added_todos: Vec::new(),
+                resolved_todos: Vec::new(),
+                overflow,
+            },
+        )
+    }
+
+    /// Append one entry to an artifact's review log and re-render it (R-src-6). The review log is an
+    /// event stream — always append, never replace — so `annotate` and `record_verdict` share this:
+    /// load, push, bump `modified_at` to the entry's time, write atomically.
+    fn append_review_entry(
+        &self,
+        id: &str,
+        entry: reqforge_model::schema::ReviewLogEntry,
+    ) -> Result<()> {
+        let path = self.artifact_path(id)?;
+        let loaded = reqforge_model::load::artifact::load_content_artifact(&path)
+            .with_context(|| format!("loading {}", path.display()))?;
+        let mut metadata = loaded.metadata;
+        let body = loaded.body.unwrap_or_default();
+
+        metadata.modified_at = entry.timestamp;
+        metadata.review_log.push(entry);
 
         let bytes = reqforge_model::write::render_artifact_file(&metadata, &body)
             .with_context(|| format!("rendering {}", path.display()))?;
         reqforge_model::write::atomic_write(&path, &bytes)
             .with_context(|| format!("writing {}", path.display()))
     }
-}
 
-impl ReqforgeSource {
     /// The on-disk path of the artifact whose id is `id`, or an error naming the id when no live
     /// artifact carries it. The filename stem is the identity (`items()` reads `LoadedArtifact::name`
     /// from it), so an artifact `id` lives at `{id}.md` in one of the subject's collections. Asks
@@ -421,6 +491,84 @@ mod tests {
         .review_log
         .len();
         assert_eq!(after, before + 2, "each write-back appends one entry");
+    }
+
+    fn sample_breadcrumb() -> VerdictBreadcrumb {
+        VerdictBreadcrumb {
+            status: "holds".into(),
+            basis: Some("not-falsified".into()),
+            correspondence: "asserted".into(),
+            at_unix: 1_700_000_000,
+        }
+    }
+
+    // Verifies: REQ078 / #342 — a verdict is recorded as a `provreq-verdict` review-log entry, its
+    // status/basis/correspondence carried under the namespaced `provreq` overflow key so an asserted
+    // pass round-trips as asserted and can never read as a mechanical proof.
+    #[test]
+    fn record_verdict_appends_a_provreq_verdict_entry() {
+        let (_tmp, root) = subject_with_fixture_artifact();
+        ReqforgeSource::new(&root)
+            .record_verdict("REQ-queueIsDrained", &sample_breadcrumb())
+            .unwrap();
+
+        let loaded = reqforge_model::load::artifact::load_content_artifact(
+            &root.join("artifacts/req/REQ-queueIsDrained.md"),
+        )
+        .unwrap();
+        let entry = loaded
+            .metadata
+            .review_log
+            .last()
+            .expect("a review-log entry was appended");
+        assert_eq!(entry.outcome, "provreq-verdict");
+        assert_eq!(entry.reviewer, "provreq");
+        assert_eq!(entry.timestamp.timestamp(), 1_700_000_000);
+        let provreq = entry.overflow.get("provreq").expect("namespaced block");
+        assert_eq!(provreq["status"], "holds");
+        assert_eq!(provreq["basis"], "not-falsified");
+        assert_eq!(provreq["correspondence"], "asserted");
+    }
+
+    // Verifies: REQ078 / #342 — the review log is an event stream, so a second recorded verdict
+    // appends rather than replacing (the caller decides *when* to record; the writer always appends).
+    #[test]
+    fn record_verdict_appends_and_does_not_replace() {
+        let (_tmp, root) = subject_with_fixture_artifact();
+        let src = ReqforgeSource::new(&root);
+        let before = reqforge_model::load::artifact::load_content_artifact(
+            &root.join("artifacts/req/REQ-queueIsDrained.md"),
+        )
+        .unwrap()
+        .metadata
+        .review_log
+        .len();
+
+        src.record_verdict("REQ-queueIsDrained", &sample_breadcrumb())
+            .unwrap();
+        src.record_verdict("REQ-queueIsDrained", &sample_breadcrumb())
+            .unwrap();
+
+        let after = reqforge_model::load::artifact::load_content_artifact(
+            &root.join("artifacts/req/REQ-queueIsDrained.md"),
+        )
+        .unwrap()
+        .metadata
+        .review_log
+        .len();
+        assert_eq!(after, before + 2, "each recorded verdict appends one entry");
+    }
+
+    // Verifies: REQ078 / #342 — recording a verdict against an id no source artifact carries is an
+    // error the operator can act on, not a silent no-op.
+    #[test]
+    fn record_verdict_rejects_unknown_item() {
+        let (_tmp, root) = subject_with_fixture_artifact();
+        let err = ReqforgeSource::new(&root)
+            .record_verdict("REQ-doesNotExist", &sample_breadcrumb())
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("REQ-doesNotExist"), "names the id, got: {err}");
     }
 
     // Verifies: REQ020 / #313 — writing back to an id no source artifact carries is an error the
