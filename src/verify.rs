@@ -195,14 +195,52 @@ fn finish(
     // this verdict when a tagged file changes, but this pins exactly which tagged source backed it.
     report.provenance.tagged_source_fingerprint = tagged_source_fingerprint(subject, &verdict);
     let store = crate::verdict_store::load(companion)?;
+    // The prior stored status, read before the record overwrites it, is what makes the artifact
+    // breadcrumb (below) an event and not a per-run trace.
+    let prior_status = store.verdicts.get(&report.id).map(|v| v.status.clone());
+    let breadcrumb = crate::reqforge::VerdictBreadcrumb {
+        status: report.status.clone(),
+        basis: report.basis.clone(),
+        correspondence: report.correspondence.clone(),
+        at_unix: chrono::Utc::now().timestamp(),
+    };
+    let id = report.id.clone();
     let recorded = crate::verdict_store::record(&store, report);
     crate::verdict_store::save(companion, &recorded)?;
+    record_verdict_breadcrumb(subject, &id, prior_status.as_deref(), &breadcrumb)?;
     Ok(VerifyOutcome::Verdict {
         verdict,
         stale,
         grounded,
         resolutions,
     })
+}
+
+/// Whether a verdict transition is worth a review-log breadcrumb: the first verdict a requirement
+/// ever earns, or any later one whose status differs from the one on record. A re-verify that
+/// reaches the same status is not an event — the review log is an event stream, not a per-run trace.
+fn is_verdict_transition(prior_status: Option<&str>, new_status: &str) -> bool {
+    prior_status != Some(new_status)
+}
+
+/// Append a `provreq-verdict` breadcrumb to the requirement's ReqForge artifact on a status
+/// transition (Phase 4e, REQ078). ReqForge-only: a Doorstop subject has no review log to write to,
+/// so this is a no-op there and the verdict stays recorded in `verdicts.yml` regardless. The verdict
+/// is already persisted when this runs, so a write failure surfaces without losing the verdict.
+fn record_verdict_breadcrumb(
+    subject: &Path,
+    id: &str,
+    prior_status: Option<&str>,
+    breadcrumb: &crate::reqforge::VerdictBreadcrumb,
+) -> Result<()> {
+    if !is_verdict_transition(prior_status, &breadcrumb.status) {
+        return Ok(());
+    }
+    let req_root = crate::adopt::requirements_root(subject);
+    if crate::reqforge::discover(&req_root).is_empty() {
+        return Ok(());
+    }
+    crate::reqforge::ReqforgeSource::new(req_root).record_verdict(id, breadcrumb)
 }
 
 /// The asserted evidence a resolved `Verifies:` tag yields for requirement `id`: scan the subject
@@ -855,6 +893,25 @@ mod tests {
             subject_source_fingerprint(root).as_ref(),
             Some(&base),
             "source movement must still be visible"
+        );
+    }
+
+    // Verifies: REQ078 / #342 — the breadcrumb fires on the first verdict and on a status change,
+    // and stays silent on a re-verify that reaches the same status (the review log is an event
+    // stream, not a per-run trace).
+    #[test]
+    fn a_verdict_transition_is_first_or_changed_status() {
+        assert!(
+            is_verdict_transition(None, "holds"),
+            "first verdict is an event"
+        );
+        assert!(
+            is_verdict_transition(Some("holds"), "fails"),
+            "a status change is an event"
+        );
+        assert!(
+            !is_verdict_transition(Some("holds"), "holds"),
+            "an unchanged status is not an event"
         );
     }
 
