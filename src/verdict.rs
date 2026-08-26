@@ -16,6 +16,40 @@
 //! an ensemble of engines' [`Evidence`] into one verdict, soundness-aware, never a vote).
 
 use crate::grounding::Grounding;
+use std::path::PathBuf;
+
+/// Whether an [`Evidence`]'s claim is **mechanical** or **asserted** (Phase 4b, REQ076) — the
+/// honest core of the code-tag evidence source. `Mechanical` is sound by construction: provreq
+/// generated the harness from the formal claim ([`crate::lowering`]), so a passing harness means
+/// the requirement holds. `Asserted` is a human's claim: a `Verifies:` tag says a test checks the
+/// requirement, and provreq can confirm that test runs and passes but **never** that passing it
+/// *means* the requirement holds. An asserted `holds` must never read as strong as a mechanical
+/// one — every surface that shows a verdict carries this so the two can never be confused.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Correspondence {
+    Mechanical,
+    Asserted,
+}
+
+impl Correspondence {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Correspondence::Mechanical => "mechanical",
+            Correspondence::Asserted => "asserted",
+        }
+    }
+}
+
+/// Where an asserted [`Evidence`] came from — the tagged source the operator vouched for
+/// (Phase 4b). Absent on mechanical evidence, whose provenance is the generated harness, not a
+/// place in the subject's own tree.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SourceLocation {
+    pub file: PathBuf,
+    pub line: usize,
+    /// The declaration the tag annotated, when the scan could resolve one.
+    pub symbol: Option<String>,
+}
 
 /// The three-valued verdict polarity (D7).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -136,6 +170,11 @@ pub struct Evidence {
     pub witness: Option<String>,
     /// The engine's own message (the inconclusive reason, the violated check).
     pub detail: Vec<String>,
+    /// Mechanical (a provreq-generated harness) or asserted (a human-tagged artifact). Every
+    /// engine's evidence is mechanical; only a tagged artifact is asserted (Phase 4b, REQ076).
+    pub correspondence: Correspondence,
+    /// The tagged source this came from — present only for asserted evidence.
+    pub source_location: Option<SourceLocation>,
 }
 
 impl Evidence {
@@ -146,6 +185,8 @@ impl Evidence {
             basis: Some(basis),
             witness: None,
             detail: Vec::new(),
+            correspondence: Correspondence::Mechanical,
+            source_location: None,
         }
     }
 
@@ -156,6 +197,8 @@ impl Evidence {
             basis: None,
             witness,
             detail,
+            correspondence: Correspondence::Mechanical,
+            source_location: None,
         }
     }
 
@@ -180,7 +223,20 @@ impl Evidence {
             basis: None,
             witness: None,
             detail,
+            correspondence: Correspondence::Mechanical,
+            source_location: None,
         }
+    }
+
+    /// Mark this evidence **asserted** and stamp the tagged source it came from (Phase 4b). The
+    /// producer builds the polarity through the ordinary ladder constructor — a tagged passing
+    /// test earns `not_falsified`, no stronger rung — then calls this so the honest marker and the
+    /// location travel with it. There is no `asserted` polarity constructor on purpose: asserted
+    /// is a property of *where* the evidence came from, not a fourth kind of answer.
+    pub fn asserted_at(mut self, location: SourceLocation) -> Evidence {
+        self.correspondence = Correspondence::Asserted;
+        self.source_location = Some(location);
+        self
     }
 }
 
