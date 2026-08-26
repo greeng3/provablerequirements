@@ -69,11 +69,28 @@ pub struct Orphan {
     pub line: usize,
 }
 
-/// The whole report: a row per requirement, plus orphan tags.
+/// A recommendation to retire one redundant asserted test (Phase 4f, REQ079): a `Verifies:` tagged
+/// test whose holds verdict a mechanical result of no-weaker basis already covers. Advice, never an
+/// action — the operator decides and provreq retires nothing. The mechanical result establishes only
+/// the formal claim, often narrower than the requirement's prose, so this is not a claim that the two
+/// check the same behaviour.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct Recommendation {
+    pub req_id: String,
+    /// The tagged test to consider retiring.
+    pub test: Location,
+    /// The asserted basis the test earned — the weaker (or equal) side.
+    pub asserted_basis: String,
+    /// The mechanical, tool-confirmed basis that dominates it.
+    pub mechanical_basis: String,
+}
+
+/// The whole report: a row per requirement, orphan tags, and retirement recommendations.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub struct Report {
     pub rows: Vec<Row>,
     pub orphans: Vec<Orphan>,
+    pub recommendations: Vec<Recommendation>,
 }
 
 /// A requirement id compared `-`/`_`-insensitively and case-folded, so a `REQ-021` tag matches
@@ -141,7 +158,68 @@ pub fn assemble(states: &[ItemState], tags: &[Tag]) -> Report {
         })
         .collect();
 
-    Report { rows, orphans }
+    Report {
+        rows,
+        orphans,
+        recommendations: recommend_retirements(states),
+    }
+}
+
+/// The strongest basis among a verdict's holding evidence of one correspondence, or `None` when it
+/// has no such evidence (or a basis label a future rung wrote that this build cannot rank).
+fn strongest_holds_basis(
+    evidence: &[crate::verdict::EvidenceReport],
+    correspondence: &str,
+) -> Option<crate::verdict::Basis> {
+    evidence
+        .iter()
+        .filter(|e| e.status == "holds" && e.correspondence == correspondence)
+        .filter_map(|e| e.basis.as_deref().and_then(crate::verdict::Basis::parse))
+        .max_by_key(crate::verdict::basis_rank)
+}
+
+/// Recommend retiring each redundant asserted test (Phase 4f, decision 6). A requirement's stored
+/// verdict is scanned for a holding asserted evidence (a tagged test) that a holding mechanical
+/// evidence of no-weaker basis already covers; each such test is recommended for retirement, named
+/// by its source location. Recommend-only — nothing is retired. An asserted test that is *stronger*
+/// than every mechanical result, or the sole evidence, is never recommended: it is not redundant.
+/// Pure over the states the report already carries.
+fn recommend_retirements(states: &[ItemState]) -> Vec<Recommendation> {
+    let mut out = Vec::new();
+    for state in states {
+        let Some(view) = &state.verdict else { continue };
+        let Some(mechanical) = strongest_holds_basis(&view.evidence, "mechanical") else {
+            continue;
+        };
+        let mechanical_rank = crate::verdict::basis_rank(&mechanical);
+        for e in &view.evidence {
+            if e.status != "holds" || e.correspondence != "asserted" {
+                continue;
+            }
+            let Some(asserted) = e.basis.as_deref().and_then(crate::verdict::Basis::parse) else {
+                continue;
+            };
+            // The mechanical side must dominate (>=), so a stronger asserted test is kept.
+            if crate::verdict::basis_rank(&asserted) > mechanical_rank {
+                continue;
+            }
+            // No location means nothing concrete to recommend retiring — skip rather than guess.
+            let Some(loc) = &e.source_location else {
+                continue;
+            };
+            out.push(Recommendation {
+                req_id: state.id.clone(),
+                test: Location {
+                    file: loc.file.display().to_string(),
+                    line: loc.line,
+                    symbol: loc.symbol.clone(),
+                },
+                asserted_basis: asserted.as_str().to_string(),
+                mechanical_basis: mechanical.as_str().to_string(),
+            });
+        }
+    }
+    out
 }
 
 /// The requirement-id prefixes a subject declares — what [`crate::trace::scan`] filters tags by, so
@@ -203,6 +281,26 @@ pub fn render_text(report: &Report) -> String {
             ));
         }
     }
+    if !report.recommendations.is_empty() {
+        out.push_str(
+            "\nRecommendations (retire redundant asserted tests):\n  \
+             a mechanical verdict establishes only the formal claim, often narrower than the \
+             requirement's prose — this is not a claim the two check the same behaviour.\n",
+        );
+        for r in &report.recommendations {
+            let sym = r
+                .test
+                .symbol
+                .as_deref()
+                .map(|s| format!(" → {s}"))
+                .unwrap_or_default();
+            out.push_str(&format!(
+                "  {}: consider retiring the tagged test {}:{}{sym}\n    \
+                 its asserted {} is covered by a mechanical {} verdict\n",
+                r.req_id, r.test.file, r.test.line, r.asserted_basis, r.mechanical_basis
+            ));
+        }
+    }
     out
 }
 
@@ -260,6 +358,33 @@ mod tests {
                 vec!["prose moved".into()]
             },
             environment: None,
+        }
+    }
+
+    fn ev(correspondence: &str, basis: &str, loc: Option<&str>) -> crate::verdict::EvidenceReport {
+        crate::verdict::EvidenceReport {
+            engine: "e".into(),
+            status: "holds".into(),
+            basis: Some(basis.into()),
+            witness: None,
+            detail: vec![],
+            correspondence: correspondence.into(),
+            source_location: loc.map(|f| crate::verdict::SourceLocation {
+                file: std::path::PathBuf::from(f),
+                line: 88,
+                symbol: Some("the_test".into()),
+            }),
+        }
+    }
+
+    /// A holds verdict carrying an explicit evidence list.
+    fn view_with_evidence(
+        correspondence: &str,
+        evidence: Vec<crate::verdict::EvidenceReport>,
+    ) -> crate::verdict_store::VerdictView {
+        crate::verdict_store::VerdictView {
+            evidence,
+            ..view("holds", correspondence, true)
         }
     }
 
@@ -334,6 +459,64 @@ mod tests {
         assert!(report.rows[0].formalized);
     }
 
+    // Verifies: REQ079 / #344 — a tagged test whose holds a mechanical result of no-weaker basis
+    // already covers is recommended for retirement, named by its source location. The recommendation
+    // carries both bases so the read shows what dominates what.
+    #[test]
+    fn recommends_retiring_an_asserted_test_a_mechanical_verdict_covers() {
+        let states = vec![state(
+            "REQ021",
+            Formalization::Admitted,
+            Some(view_with_evidence(
+                "mechanical",
+                vec![
+                    ev("mechanical", "proven", None),
+                    ev("asserted", "not-falsified", Some("src/x.rs")),
+                ],
+            )),
+        )];
+        let report = assemble(&states, &[]);
+        assert_eq!(report.recommendations.len(), 1);
+        let r = &report.recommendations[0];
+        assert_eq!(r.req_id, "REQ021");
+        assert_eq!(r.test.file, "src/x.rs");
+        assert_eq!(r.test.line, 88);
+        assert_eq!(r.asserted_basis, "not-falsified");
+        assert_eq!(r.mechanical_basis, "proven");
+    }
+
+    // Verifies: REQ079 / #344 — an asserted test is NOT recommended when it is the sole evidence (no
+    // mechanical result to make it redundant) or when it is stronger than every mechanical one. Both
+    // are the honest core: a tagged test that stands alone, or out-proves the harness, must be kept.
+    #[test]
+    fn keeps_a_sole_or_stronger_asserted_test() {
+        let sole = state(
+            "REQ075",
+            Formalization::None,
+            Some(view_with_evidence(
+                "asserted",
+                vec![ev("asserted", "not-falsified", Some("src/a.rs"))],
+            )),
+        );
+        let stronger = state(
+            "REQ022",
+            Formalization::Admitted,
+            Some(view_with_evidence(
+                "mechanical",
+                vec![
+                    ev("mechanical", "not-falsified", None),
+                    ev("asserted", "proven", Some("src/b.rs")),
+                ],
+            )),
+        );
+        let report = assemble(&[sole, stronger], &[]);
+        assert!(
+            report.recommendations.is_empty(),
+            "neither a sole nor a stronger asserted test is redundant, got {:?}",
+            report.recommendations
+        );
+    }
+
     // Verifies: REQ077 — a tag naming an id no requirement declares is an orphan, not a row.
     #[test]
     fn a_tag_for_an_unknown_id_is_an_orphan() {
@@ -358,5 +541,29 @@ mod tests {
         assert!(text.contains("proven"), "{text}");
         assert!(text.contains("[asserted]"), "{text}");
         assert!(text.contains("stale"), "{text}");
+    }
+
+    // Verifies: REQ079 / #344 — the recommendations section names the redundant test and prints the
+    // narrower-claim caveat, so the read never mistakes it for a claim of behavioural redundancy.
+    #[test]
+    fn text_render_shows_recommendations_with_the_caveat() {
+        let states = vec![state(
+            "REQ021",
+            Formalization::Admitted,
+            Some(view_with_evidence(
+                "mechanical",
+                vec![
+                    ev("mechanical", "proven", None),
+                    ev("asserted", "not-falsified", Some("src/x.rs")),
+                ],
+            )),
+        )];
+        let text = render_text(&assemble(&states, &[]));
+        assert!(text.contains("Recommendations"), "{text}");
+        assert!(text.contains("src/x.rs:88"), "{text}");
+        assert!(
+            text.contains("narrower than the requirement's prose"),
+            "{text}"
+        );
     }
 }

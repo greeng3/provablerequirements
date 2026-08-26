@@ -99,6 +99,18 @@ impl Basis {
             Basis::NotFalsified => "not-falsified",
         }
     }
+
+    /// Parse a basis back from its [`as_str`](Basis::as_str) label — the inverse used where a basis
+    /// survives only as a string (a stored [`EvidenceReport`], Phase 4f's dedup pass). `None` for an
+    /// unrecognised label, so a record written by a future rung is skipped rather than mis-ranked.
+    pub fn parse(s: &str) -> Option<Basis> {
+        match s {
+            "proven" => Some(Basis::Proven),
+            "model-checked (bounded)" => Some(Basis::ModelCheckedBounded),
+            "not-falsified" => Some(Basis::NotFalsified),
+            _ => None,
+        }
+    }
 }
 
 impl Status {
@@ -388,7 +400,7 @@ pub fn aggregate(id: &str, evidence: Vec<Evidence>, provenance: Provenance) -> V
 /// `not-falsified` sits at the bottom for the same reason, running the other way: a monitor
 /// corroborating a bounded `holds` must never *demote* it to the empirical rung — an
 /// observation of what ran adds confidence, it does not subtract the model check.
-fn basis_rank(basis: &Basis) -> u8 {
+pub(crate) fn basis_rank(basis: &Basis) -> u8 {
     match basis {
         Basis::Proven => 2,
         Basis::ModelCheckedBounded => 1,
