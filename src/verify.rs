@@ -18,7 +18,7 @@ use crate::prl::Requirement;
 use crate::rust_adapter::Resolution;
 use crate::verdict::{self, Provenance, Verdict};
 use anyhow::Result;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
 /// The result of asking to verify one requirement. Every non-verdict variant is an honest
@@ -60,9 +60,45 @@ pub fn verify(subject: &Path, id: &str) -> Result<Option<VerifyOutcome>> {
     let Some(item) = items.iter().find(|i| i.id == id) else {
         return Ok(None);
     };
+
+    // Tagged-test evidence is independent of formalization (Phase 4c, decision 4): a `Verifies:`
+    // tag is a human's claim that a test checks this requirement, and provreq can run it whether or
+    // not the requirement was ever formalized. Collected once, then merged into whatever the formal
+    // path produces — or standing alone when there is no formalization at all.
+    let prefixes: BTreeSet<String> = items
+        .iter()
+        .map(|i| crate::trace::tags::id_prefix(&i.id))
+        .collect();
+    let tagged = tagged_evidence(subject, &companion, id, &prefixes);
+
     let Some(draft) = state.drafts.get(id) else {
-        return Ok(Some(VerifyOutcome::NoDraft));
+        // Un-formalized. A tagged passing test still earns an (asserted) verdict — the payoff that
+        // makes provreq useful for the requirements that will never be formalized. With no tag,
+        // there is genuinely nothing to run.
+        if tagged.is_empty() {
+            return Ok(Some(VerifyOutcome::NoDraft));
+        }
+        let provenance = Provenance {
+            requirement_revision: item.revision.clone(),
+            subject_commit: subject_head_commit(subject),
+            tool_version: env!("CARGO_PKG_VERSION").to_string(),
+        };
+        let verdict = verdict::aggregate(id, tagged, provenance);
+        return finish(
+            subject,
+            &companion,
+            verdict,
+            false,
+            false,
+            BTreeMap::new(),
+            None,
+            None,
+        )
+        .map(Some);
     };
+    // A draft that exists but is not admitted / has no candidate / no longer gates is a
+    // formalization that is in progress or broken — a different situation from "un-formalized". A
+    // tagged test must not paper over that, so these keep their workflow signal regardless of tags.
     if !draft.is_admitted() {
         return Ok(Some(VerifyOutcome::NotAdmitted));
     }
@@ -86,61 +122,141 @@ pub fn verify(subject: &Path, id: &str) -> Result<Option<VerifyOutcome>> {
         subject_commit: subject_head_commit(subject),
         tool_version: env!("CARGO_PKG_VERSION").to_string(),
     };
-    // Only a GROUNDED requirement reaches an engine: an unresolved binding means there is
-    // nothing to check the claim through, and running an engine against it would answer a
-    // question nobody asked (R-ground-1).
+    // Only a GROUNDED requirement reaches an engine: an unresolved binding means there is nothing
+    // to check the claim through (R-ground-1). Tagged evidence needs no grounding — it is a test a
+    // human vouched for — so it is merged whether or not the formal claim grounded, and can rescue
+    // a requirement from the unknown a missing binding or an absent engine would otherwise leave.
     let grounded = matches!(grounding_result, Grounding::Grounded);
     let verdict = if grounded {
-        run_ensemble(
+        match ensemble_evidence(
             subject,
             &companion,
             id,
             &requirement,
             &draft.bindings,
             &resolved,
-            provenance,
-        )
-    } else {
+        ) {
+            Ensemble::Ran(mut evidence) => {
+                evidence.extend(tagged);
+                verdict::aggregate(id, evidence, provenance)
+            }
+            Ensemble::NoEngine(detail) => {
+                if tagged.is_empty() {
+                    verdict::no_engine(id, detail, provenance)
+                } else {
+                    verdict::aggregate(id, tagged, provenance)
+                }
+            }
+        }
+    } else if tagged.is_empty() {
         verdict::from_grounding(id, &grounding_result, provenance)
+    } else {
+        verdict::aggregate(id, tagged, provenance)
     };
-    // Living loop (REQ039): the verdict becomes durable state. Persist it keyed by id — the latest
-    // answer replaces any earlier one — so the backlog/detail can show it and later detect when it
-    // has drifted, without re-running an engine. Stamp the formalization fingerprint on the stored
-    // copy (REQ045) so drift can later catch the candidate or its bindings moving — a persistence
-    // concern the in-memory verdict never carries.
-    let mut report = verdict::report(&verdict);
-    report.provenance.formalization = draft::formal_fingerprint(draft);
-    // Stamp the environment that actually produced this verdict (REQ049) — where it was proved,
-    // not what the subject declares it offers. Without it, a verdict proved under one engine build
-    // and one proved under another are indistinguishable in the store.
-    report.provenance.environment = Some(crate::proving_env::ProvingEnv::current(&companion));
-    // Stamp the fingerprint of any spec that lives outside the subject (#120). The subject's commit
-    // does not cover such a file, so without this a verdict proved against a sibling repo's model
-    // would stay `fresh` while that model moved. `None` when every spec is in-tree, where the
-    // subject commit already covers them and a second axis would only flag the same drift twice.
-    report.provenance.spec_fingerprint = resolved.spec_fingerprint.clone();
-    // Stamp the fingerprint of the monitor's trace (#230), for the same reason and a faster clock:
-    // the subject's commit does not cover a log the subject produced, and that log keeps growing.
-    // `None` when no monitor is configured, which is every subject with no category-2b requirement.
-    report.provenance.trace_fingerprint = crate::monitor::current_fingerprint(subject, &companion);
-    // Stamp the fingerprint of the declared UI check (#239). No file to hash on the far end, so
-    // this is the declaration: it catches the steps or the deployment URL being edited out from
-    // under a verdict that was only ever about the check as it stood.
-    report.provenance.ui_fingerprint = crate::ui::current_fingerprint(&companion);
-    // Stamp the source fingerprint (REQ071, #271) — the code-drift axis at source granularity, so
-    // the commit that lands this very record does not stale it. The commit above stays for
-    // reproducibility; this is what freshness is decided on.
-    report.provenance.source_fingerprint = subject_source_fingerprint(subject);
-    let store = crate::verdict_store::load(&companion)?;
-    let recorded = crate::verdict_store::record(&store, report);
-    crate::verdict_store::save(&companion, &recorded)?;
 
-    Ok(Some(VerifyOutcome::Verdict {
+    let stale = draft::is_stale(draft, item);
+    finish(
+        subject,
+        &companion,
         verdict,
-        stale: draft::is_stale(draft, item),
         grounded,
-        resolutions: resolved.code,
-    }))
+        stale,
+        resolved.code.clone(),
+        Some(draft),
+        Some(&resolved),
+    )
+    .map(Some)
+}
+
+/// Stamp the drift fingerprints on the verdict's stored copy, persist it (REQ039 — the verdict
+/// becomes durable state, latest per id), and return the outcome. Shared by the formal path and the
+/// un-formalized tagged-only path (Phase 4c) so both record a verdict identically. `draft`/`resolved`
+/// are `None` on the tagged-only path, where there is no formalization or grounding resolution to
+/// fingerprint — those axes are simply absent, never faked.
+#[allow(clippy::too_many_arguments)]
+fn finish(
+    subject: &Path,
+    companion: &Path,
+    verdict: Verdict,
+    grounded: bool,
+    stale: bool,
+    resolutions: BTreeMap<String, Resolution>,
+    draft: Option<&draft::Draft>,
+    resolved: Option<&grounding::Resolutions>,
+) -> Result<VerifyOutcome> {
+    let mut report = verdict::report(&verdict);
+    report.provenance.formalization = draft.and_then(draft::formal_fingerprint);
+    report.provenance.environment = Some(crate::proving_env::ProvingEnv::current(companion));
+    report.provenance.spec_fingerprint = resolved.and_then(|r| r.spec_fingerprint.clone());
+    report.provenance.trace_fingerprint = crate::monitor::current_fingerprint(subject, companion);
+    report.provenance.ui_fingerprint = crate::ui::current_fingerprint(companion);
+    report.provenance.source_fingerprint = subject_source_fingerprint(subject);
+    // The precise tagged-source axis (Phase 4c): the whole-tree source fingerprint already stales
+    // this verdict when a tagged file changes, but this pins exactly which tagged source backed it.
+    report.provenance.tagged_source_fingerprint = tagged_source_fingerprint(subject, &verdict);
+    let store = crate::verdict_store::load(companion)?;
+    let recorded = crate::verdict_store::record(&store, report);
+    crate::verdict_store::save(companion, &recorded)?;
+    Ok(VerifyOutcome::Verdict {
+        verdict,
+        stale,
+        grounded,
+        resolutions,
+    })
+}
+
+/// The asserted evidence a resolved `Verifies:` tag yields for requirement `id`: scan the subject
+/// for tags, keep the `Verifies:` ones whose id matches `id` (up to the same `-`/`_`-insensitive
+/// canonical form the ids are compared by), and run each. `Implements:` tags are not evidence —
+/// they say code *realises* the requirement, not that it *checks* it. Empty when nothing tags `id`.
+fn tagged_evidence(
+    subject: &Path,
+    companion: &Path,
+    id: &str,
+    prefixes: &BTreeSet<String>,
+) -> Vec<verdict::Evidence> {
+    let want = canonical_id(id);
+    crate::trace::scan(subject, companion, prefixes)
+        .iter()
+        .filter(|t| t.kind == crate::trace::TraceKind::Verifies && canonical_id(&t.req_id) == want)
+        .map(|t| crate::trace::run::evidence_for(subject, t))
+        .collect()
+}
+
+/// A requirement id compared `-`/`_`-insensitively and case-folded, so a `Verifies: REQ-021` tag
+/// matches requirement `REQ021` (the same normalisation the traceability reader used).
+fn canonical_id(id: &str) -> String {
+    id.chars()
+        .filter(|c| *c != '-' && *c != '_')
+        .collect::<String>()
+        .to_ascii_uppercase()
+}
+
+/// A fingerprint of just the tagged source files this verdict's asserted evidence rests on
+/// (Phase 4c). `None` when the verdict has no asserted evidence. Reads the files by their
+/// subject-relative locations; a file that cannot be read contributes its path but no content, so
+/// the axis still moves if the file later appears or disappears.
+fn tagged_source_fingerprint(subject: &Path, verdict: &Verdict) -> Option<String> {
+    let mut files: Vec<&std::path::PathBuf> = verdict
+        .evidence
+        .iter()
+        .filter_map(|e| e.source_location.as_ref().map(|l| &l.file))
+        .collect();
+    files.sort();
+    files.dedup();
+    if files.is_empty() {
+        return None;
+    }
+    let mut blob = String::new();
+    for file in files {
+        blob.push_str(&file.to_string_lossy());
+        blob.push('\0');
+        if let Ok(text) = std::fs::read_to_string(subject.join(file)) {
+            blob.push_str(&text);
+        }
+        blob.push('\0');
+    }
+    Some(crate::source::content_hash(&blob))
 }
 
 /// Run the engine ensemble for a grounded requirement and aggregate the evidence (D2b).
@@ -160,6 +276,30 @@ pub fn run_ensemble(
     resolved: &grounding::Resolutions,
     provenance: Provenance,
 ) -> Verdict {
+    match ensemble_evidence(subject, companion, id, requirement, bindings, resolved) {
+        Ensemble::Ran(evidence) => verdict::aggregate(id, evidence, provenance),
+        Ensemble::NoEngine(detail) => verdict::no_engine(id, detail, provenance),
+    }
+}
+
+/// The engine ensemble's own evidence, or the reason none ran (Phase 4c split it out of
+/// [`run_ensemble`] so the verify flow can merge tagged-test evidence in before aggregating).
+enum Ensemble {
+    Ran(Vec<verdict::Evidence>),
+    NoEngine(Vec<String>),
+}
+
+/// Run every ready engine for a grounded requirement and collect its [`verdict::Evidence`], or
+/// report that none is ready. The aggregation into a verdict is the caller's (so tagged evidence
+/// can join first).
+fn ensemble_evidence(
+    subject: &Path,
+    companion: &Path,
+    id: &str,
+    requirement: &Requirement,
+    bindings: &[Binding],
+    resolved: &grounding::Resolutions,
+) -> Ensemble {
     let category = grounding::default_category(requirement);
     let engines = crate::engine::engines_for(category);
 
@@ -182,7 +322,7 @@ pub fn run_ensemble(
                 )
             })
             .collect();
-        return verdict::no_engine(id, detail, provenance);
+        return Ensemble::NoEngine(detail);
     }
 
     let evidence = ready
@@ -204,7 +344,7 @@ pub fn run_ensemble(
             ),
         })
         .collect();
-    verdict::aggregate(id, evidence, provenance)
+    Ensemble::Ran(evidence)
 }
 
 /// Category 1 → Kani (REQ027): lower to an additive proof harness, run it, map to evidence.

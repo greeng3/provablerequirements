@@ -7,7 +7,7 @@ members = ["crates/reqforge-model"]
 
 [package]
 name = "provreq"
-version = "0.0.5"
+version = "0.0.6"
 edition = "2021"
 description = "PRL native provisioner and backend server (Design C)"
 license = "MIT OR Apache-2.0"

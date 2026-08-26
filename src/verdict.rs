@@ -43,7 +43,7 @@ impl Correspondence {
 /// Where an asserted [`Evidence`] came from — the tagged source the operator vouched for
 /// (Phase 4b). Absent on mechanical evidence, whose provenance is the generated harness, not a
 /// place in the subject's own tree.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct SourceLocation {
     pub file: PathBuf,
     pub line: usize,
@@ -265,7 +265,42 @@ pub struct Verdict {
     /// Per-engine results that were aggregated into this verdict (D2b). Empty when no
     /// engine ran (missing-grounding / no-engine): there is nothing to break down.
     pub evidence: Vec<Evidence>,
+    /// Whether the verdict's decisive polarity rests on anything **mechanical** (Phase 4c).
+    /// `Asserted` only when nothing mechanical backs it — a `holds` resting solely on a human's
+    /// tagged test — so the top line can never read as a mechanical proof. `Mechanical` whenever
+    /// an engine's own evidence decides it, and for the no-evidence unknowns (nothing was asserted).
+    pub correspondence: Correspondence,
     pub provenance: Provenance,
+}
+
+/// The correspondence of the evidence that **decides** a verdict's polarity: `Asserted` only when
+/// every piece of decisive evidence is asserted, else `Mechanical`. Looking at the decisive subset
+/// (the holders for a `holds`, the refuters for a `fails`, the conflict for a divergence) rather
+/// than all evidence is the point — a mechanical *inconclusive* alongside an asserted *holds* must
+/// not let the holds read as mechanical, because the mechanical engine established nothing.
+fn decisive_correspondence(
+    status: Status,
+    reason: Option<UnknownReason>,
+    evidence: &[Evidence],
+) -> Correspondence {
+    let decisive = |e: &Evidence| match status {
+        Status::Holds => e.status == Status::Holds,
+        Status::Fails => e.status == Status::Fails,
+        Status::Unknown if reason == Some(UnknownReason::Divergence) => {
+            e.status == Status::Holds || e.status == Status::Fails
+        }
+        Status::Unknown => e.status == Status::Unknown,
+    };
+    let mut relevant = evidence.iter().filter(|e| decisive(e)).peekable();
+    // No decisive evidence (a missing-grounding / no-engine unknown) asserted nothing → mechanical.
+    if relevant.peek().is_none() {
+        return Correspondence::Mechanical;
+    }
+    if relevant.any(|e| e.correspondence == Correspondence::Mechanical) {
+        Correspondence::Mechanical
+    } else {
+        Correspondence::Asserted
+    }
 }
 
 /// The verdict for a requirement **no engine ran for** — either because it is not grounded
@@ -332,6 +367,7 @@ pub fn aggregate(id: &str, evidence: Vec<Evidence>, provenance: Provenance) -> V
         )
     };
 
+    let correspondence = decisive_correspondence(status, reason, &evidence);
     Verdict {
         id: id.to_string(),
         status,
@@ -340,6 +376,7 @@ pub fn aggregate(id: &str, evidence: Vec<Evidence>, provenance: Provenance) -> V
         witness,
         detail,
         evidence,
+        correspondence,
         provenance,
     }
 }
@@ -392,6 +429,8 @@ fn unknown(
         witness: None,
         detail,
         evidence: Vec::new(),
+        // No engine ran and nothing was asserted, so there is no asserted claim to flag.
+        correspondence: Correspondence::Mechanical,
         provenance,
     }
 }
@@ -425,6 +464,14 @@ pub fn render(v: &Verdict) -> String {
             }
         };
         out.push_str(&format!(" — {}: {gloss}", basis.as_str()));
+    }
+    // The masquerade guard (Phase 4c): a verdict resting only on a human-tagged test is marked so
+    // it can never be *read* as a mechanical result, exactly as a bounded basis is marked above.
+    if v.correspondence == Correspondence::Asserted {
+        out.push_str(
+            " [asserted — established by a human-tagged test provreq ran and passed, not by a \
+             harness provreq generated from the claim]",
+        );
     }
     if let Some(reason) = v.reason {
         out.push_str(&format!(" ({})", reason.as_str()));
@@ -475,6 +522,20 @@ pub struct EvidenceReport {
     pub basis: Option<String>,
     pub witness: Option<String>,
     pub detail: Vec<String>,
+    /// `"mechanical"` or `"asserted"` (Phase 4c). `#[serde(default)]` so a verdict stored before
+    /// this field existed loads as mechanical — an old engine record was never asserted, so this
+    /// never invents an asserted flag on legacy data. `default_correspondence` supplies the string.
+    #[serde(default = "default_correspondence")]
+    pub correspondence: String,
+    /// The tagged source an asserted evidence came from; absent on mechanical evidence.
+    #[serde(default)]
+    pub source_location: Option<SourceLocation>,
+}
+
+/// The `correspondence` a record carries when it predates the field — mechanical, because every
+/// verdict stored before Phase 4c came from an engine's own (mechanical) evidence.
+fn default_correspondence() -> String {
+    Correspondence::Mechanical.as_str().to_string()
 }
 
 /// A JSON-serializable view of a verdict's [`Provenance`] (D9).
@@ -523,6 +584,13 @@ pub struct ProvenanceReport {
     /// subject with no UI check configured.
     #[serde(default)]
     pub ui_fingerprint: Option<String>,
+    /// A fingerprint of just the tagged source files an asserted verdict rests on (Phase 4c) — so
+    /// a change to the specific test that backs *this* requirement can be pointed at precisely,
+    /// rather than the whole-tree `source_fingerprint` reporting every verdict stale at once. `None`
+    /// — and skipped as a drift axis — for a verdict with no asserted evidence, or one from before
+    /// this field existed. It does not replace `source_fingerprint`; it refines it for the report.
+    #[serde(default)]
+    pub tagged_source_fingerprint: Option<String>,
 }
 
 /// A JSON-serializable view of a [`Verdict`] for the web surface (REQ038). The domain types are
@@ -537,6 +605,10 @@ pub struct VerdictReport {
     pub witness: Option<String>,
     pub detail: Vec<String>,
     pub evidence: Vec<EvidenceReport>,
+    /// The verdict-level correspondence (Phase 4c) — `"asserted"` when the verdict rests only on a
+    /// human-tagged test. `#[serde(default)]` → mechanical for records predating the field.
+    #[serde(default = "default_correspondence")]
+    pub correspondence: String,
     pub provenance: ProvenanceReport,
 }
 
@@ -559,8 +631,11 @@ pub fn report(v: &Verdict) -> VerdictReport {
                 basis: e.basis.map(|b| b.as_str().to_string()),
                 witness: e.witness.clone(),
                 detail: e.detail.clone(),
+                correspondence: e.correspondence.as_str().to_string(),
+                source_location: e.source_location.clone(),
             })
             .collect(),
+        correspondence: v.correspondence.as_str().to_string(),
         provenance: ProvenanceReport {
             requirement_revision: v.provenance.requirement_revision.clone(),
             subject_commit: v.provenance.subject_commit.clone(),
@@ -576,6 +651,7 @@ pub fn report(v: &Verdict) -> VerdictReport {
             trace_fingerprint: None,
             ui_fingerprint: None,
             source_fingerprint: None,
+            tagged_source_fingerprint: None,
         },
     }
 }
@@ -948,5 +1024,101 @@ mod tests {
         );
         assert_eq!(v.status, Status::Unknown);
         assert_eq!(v.reason, Some(UnknownReason::Inconclusive));
+    }
+
+    fn asserted_test(status_holds: bool) -> Evidence {
+        let loc = SourceLocation {
+            file: std::path::PathBuf::from("src/a.rs"),
+            line: 5,
+            symbol: Some("the_test".into()),
+        };
+        if status_holds {
+            Evidence::not_falsified("cargo test", "the tagged test passed").asserted_at(loc)
+        } else {
+            Evidence::fails("cargo test", None, vec!["failed".into()]).asserted_at(loc)
+        }
+    }
+
+    // Verifies: REQ076 — a verdict resting only on a tagged passing test is ASSERTED at the top
+    // level, so it can never be read as a mechanical proof (the masquerade guard).
+    #[test]
+    fn a_verdict_from_a_tagged_test_alone_is_asserted() {
+        let v = aggregate("A", vec![asserted_test(true)], prov());
+        assert_eq!(v.status, Status::Holds);
+        assert_eq!(v.basis, Some(Basis::NotFalsified));
+        assert_eq!(v.correspondence, Correspondence::Asserted);
+    }
+
+    // Verifies: REQ076 — a mechanical proof present makes the verdict mechanical even when an
+    // asserted test corroborates it; the basis stays the strongest rung.
+    #[test]
+    fn a_mechanical_proof_dominates_the_verdict_correspondence() {
+        let v = aggregate(
+            "A",
+            vec![
+                Evidence::holds("Creusot", Basis::Proven),
+                asserted_test(true),
+            ],
+            prov(),
+        );
+        assert_eq!(v.status, Status::Holds);
+        assert_eq!(v.basis, Some(Basis::Proven));
+        assert_eq!(v.correspondence, Correspondence::Mechanical);
+    }
+
+    // Verifies: REQ076 — the subtlety: a mechanical INCONCLUSIVE alongside an asserted holds must
+    // not let the holds read as mechanical, because the mechanical engine established nothing. Only
+    // the decisive (holding) evidence counts, and it is asserted.
+    #[test]
+    fn a_mechanical_inconclusive_does_not_make_an_asserted_holds_mechanical() {
+        let v = aggregate(
+            "A",
+            vec![
+                Evidence::inconclusive("Kani", vec!["would not compile".into()]),
+                asserted_test(true),
+            ],
+            prov(),
+        );
+        assert_eq!(v.status, Status::Holds);
+        assert_eq!(v.correspondence, Correspondence::Asserted);
+    }
+
+    // Verifies: REQ076 — a tagged test that fails a mechanically proven claim is divergence, not a
+    // silent refutation: a real discrepancy for a human to adjudicate.
+    #[test]
+    fn a_tagged_fail_against_a_proof_is_divergence() {
+        let v = aggregate(
+            "A",
+            vec![
+                Evidence::holds("Creusot", Basis::Proven),
+                asserted_test(false),
+            ],
+            prov(),
+        );
+        assert_eq!(v.status, Status::Unknown);
+        assert_eq!(v.reason, Some(UnknownReason::Divergence));
+    }
+
+    // Verifies: REQ076 — the asserted marker travels into the store shape and the read-back.
+    #[test]
+    fn correspondence_is_surfaced_in_report_and_render() {
+        let v = aggregate("A", vec![asserted_test(true)], prov());
+        let r = report(&v);
+        assert_eq!(r.correspondence, "asserted");
+        assert_eq!(r.evidence[0].correspondence, "asserted");
+        assert_eq!(r.evidence[0].source_location.as_ref().unwrap().line, 5);
+        assert!(render(&v).contains("asserted"), "{}", render(&v));
+    }
+
+    // Verifies: REQ076 — an engine-only verdict stays mechanical everywhere, and its store shape
+    // carries no source location.
+    #[test]
+    fn an_engine_verdict_stays_mechanical() {
+        let v = aggregate("A", vec![Evidence::holds("Creusot", Basis::Proven)], prov());
+        assert_eq!(v.correspondence, Correspondence::Mechanical);
+        let r = report(&v);
+        assert_eq!(r.correspondence, "mechanical");
+        assert!(r.evidence[0].source_location.is_none());
+        assert!(!render(&v).contains("[asserted"));
     }
 }

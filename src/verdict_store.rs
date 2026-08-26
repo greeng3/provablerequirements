@@ -351,10 +351,12 @@ mod tests {
             witness: None,
             detail: vec![],
             evidence: vec![],
+            correspondence: "mechanical".into(),
             provenance: ProvenanceReport {
                 spec_fingerprint: None,
                 trace_fingerprint: None,
                 ui_fingerprint: None,
+                tagged_source_fingerprint: None,
                 environment: None,
                 requirement_revision: revision.into(),
                 subject_commit: commit.map(str::to_string),
@@ -379,6 +381,8 @@ mod tests {
             status: "holds".into(),
             basis: Some("model-checked (bounded)".into()),
             witness: None,
+            correspondence: "mechanical".into(),
+            source_location: None,
             detail: vec!["checked under the model — Drones = {d1, d2}, MaxAlt = 2".into()],
         }];
         let anchor = DriftAnchor {
