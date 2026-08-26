@@ -37,6 +37,7 @@ pub mod status;
 pub mod subject_tree;
 pub mod tla_adapter;
 pub mod tlc;
+pub mod trace;
 pub mod triage;
 pub mod ui;
 pub mod verdict;
