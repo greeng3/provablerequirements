@@ -126,6 +126,17 @@ enum Command {
         #[arg(default_value = ".")]
         path: PathBuf,
     },
+    /// Traceability report: per requirement, whether it is formalized, what code implements and
+    /// verifies it, and the last stored verdict (proven / not-determined / disproven) with its
+    /// mechanical-or-asserted correspondence.
+    Report {
+        /// Path to the subject repository (defaults to the current directory).
+        #[arg(default_value = ".")]
+        path: PathBuf,
+        /// Output format.
+        #[arg(long, default_value = "text")]
+        format: String,
+    },
     /// Report which verification engines are installed and which formalized
     /// requirements are therefore checkable (R-eng-2/3). Never installs anything.
     Engines {
@@ -314,6 +325,7 @@ async fn main() -> Result<()> {
             .await
         }
         Command::Status { path } => run_status(&path),
+        Command::Report { path, format } => run_report(&path, &format),
         Command::Engines { path } => run_engines(&path),
         Command::Install { engine, yes, path } => run_install(&engine, yes, &path).await,
         Command::Verify {
@@ -1171,6 +1183,16 @@ fn list_drafts(state: &draft::DraftState, items: &[Item]) -> Result<()> {
             ""
         };
         println!("  {id:<12} {has}{flag}{gate}{admitted}");
+    }
+    Ok(())
+}
+
+fn run_report(subject: &Path, format: &str) -> Result<()> {
+    let report = provreq::report::build(subject)?;
+    match format {
+        "json" => println!("{}", serde_json::to_string_pretty(&report)?),
+        "text" => print!("{}", provreq::report::render_text(&report)),
+        other => bail!("unknown --format `{other}` (expected `text` or `json`)"),
     }
     Ok(())
 }
