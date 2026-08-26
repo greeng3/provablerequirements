@@ -220,10 +220,12 @@ mod tests {
             witness: None,
             detail: vec![],
             evidence: vec![],
+            correspondence: "mechanical".into(),
             provenance: ProvenanceReport {
                 spec_fingerprint: None,
                 trace_fingerprint: None,
                 ui_fingerprint: None,
+                tagged_source_fingerprint: None,
                 environment: None,
                 requirement_revision: revision.into(),
                 subject_commit: Some("head".into()),
