@@ -32,7 +32,9 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 serde_yaml = "0.9"
 walkdir = "2"
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+# reqwest 0.13 split the old `rustls-tls` bundle into `rustls` + `webpki-roots` (arc-2 slice 0, #356);
+# matches ReqForge's own proven 0.13 feature set so the absorbed llm/http layers resolve cleanly.
+reqwest = { version = "0.13", default-features = false, features = ["rustls", "webpki-roots", "json"] }
 # The category-1 adapter resolves a PRL predicate to a real item in the subject's Rust
 # (REQ025). Both crates were already in Cargo.lock transitively (serde derive), so this
 # promotes them to direct deps rather than adding weight. `span-locations` is what makes
