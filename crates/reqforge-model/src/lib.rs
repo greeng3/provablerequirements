@@ -30,6 +30,9 @@ pub mod doorstop;
 // the last slice of the reports/data cluster.
 pub mod exports;
 pub mod frontmatter;
+// Git-log reader for an artifact file — shells out to `git` (arc-2 slice 1, #358). A leaf util, not
+// yet wired into provreq's verify flow.
+pub mod git_history;
 // Traceability graph over a `World` — nodes/edges for the requirement link structure (slice 4).
 pub mod graph;
 pub mod index;
@@ -47,6 +50,9 @@ pub mod reviews;
 // filesystem-orphans / code-traceability reports over a `World`. `search::query` lands with it
 // (production pair: reports use `search`, `search::query` uses `reports`).
 pub mod reports;
+// Seed content for a fresh collection — sample artifacts with links (arc-2 slice 1, #358). Reaches
+// only `schema::{Link, LinkHint}`; a leaf util, not yet wired.
+pub mod sample_content;
 // Source-tag scanner — resolves `Implements:`/`Verifies:`-style code tags against a `World` (slice
 // 2 of the reports cluster, #331/#350). ReqForge's own scanner, the reports cluster's input;
 // distinct from provreq's native `src/trace/` (#334) and not wired into the verify flow.
@@ -58,5 +64,10 @@ pub mod schema_migration;
 // depends on `reports`) lands with the reports slice.
 pub mod search;
 pub mod system;
+// Thumbnail registry — async generation via libreoffice/libvips binaries with in-flight coalescing
+// (arc-2 slice 1, #358). A leaf util, not yet wired.
+pub mod thumbnails;
+// URL-status check with in-flight coalescing (arc-2 slice 1, #358). A leaf util, not yet wired.
+pub mod urls;
 pub mod world;
 pub mod write;
