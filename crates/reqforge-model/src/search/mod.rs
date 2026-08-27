@@ -8,9 +8,10 @@
 //! World.
 //!
 //! Absorbed from ReqForge (#348). The query layer (`query.rs`)
-//! depends on `reports`, so it lands with the reports slice; this
-//! module carries only the index construction `World` needs.
+//! landed with the reports slice (#352), since it depends on `reports`.
 
 pub mod index;
+pub mod query;
 
 pub use index::{SearchIndex, SearchIndexError, empty_index};
+pub use query::{SearchError, SearchHit, SearchQuery, SearchResponse, run};
