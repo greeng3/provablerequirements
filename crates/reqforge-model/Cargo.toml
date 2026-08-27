@@ -63,3 +63,6 @@ gix = { version = "0.86", default-features = false, features = [
     "max-performance-safe",
     "sha1",
 ] }
+# `diff` renders a text diff between two revisions of an artifact (arc-2 slice 2, #360). Matches
+# ReqForge's own `similar = "3"` spec.
+similar = "3"
