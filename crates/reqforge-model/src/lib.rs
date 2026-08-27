@@ -26,6 +26,9 @@
 //! it is what makes Doorstop an import format rather than a storage format.
 
 pub mod doorstop;
+// Text diff between two revisions of an artifact, over `git_history` (arc-2 slice 2, #360). A leaf
+// util, not yet wired into provreq's verify flow.
+pub mod diff;
 // Report renderers — CSV/HTML/Doorstop export views over the report engine (slice 4, #331/#354);
 // the last slice of the reports/data cluster.
 pub mod exports;
