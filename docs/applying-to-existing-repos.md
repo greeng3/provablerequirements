@@ -96,7 +96,7 @@ Split what is committed from what is regenerated (file backend):
 
 ## A4 — The verdict closes the traceability loop
 
-`scripts/traceability.py` already reports which requirements carry an `Implements:` /
+`provreq report` already reports which requirements carry an `Implements:` /
 `Verifies:` code tag — the _primitive_ form of "is this requirement met?" PRL upgrades that
 from a **claim** to **evidence**: not "a human tagged this function" but "a checker proved
 or falsified it against commit `a1b2c3`." The Doorstop item is the anchor; the verdict
@@ -180,7 +180,7 @@ everything:
 | What                                                                                                | Lands in                                                | How                                 | Read by                              |
 | --------------------------------------------------------------------------------------------------- | ------------------------------------------------------- | ----------------------------------- | ------------------------------------ |
 | Proof carriers — contracts, invariants, ghost/spec fns                                              | subject source (`.rs`)                                  | tool proposes patch → human applies | the verifier directly (Verus/Prusti) |
-| Traceability marker (`// prl: QRUS042`) beside the carrier                                          | subject source                                          | same patch                          | humans + `scripts/traceability.py`   |
+| Traceability marker (`// prl: QRUS042`) beside the carrier                                          | subject source                                          | same patch                          | humans + `provreq report`            |
 | Back-link: PRL id + latest verdict                                                                  | the Doorstop item's YAML (native `links` / custom attr) | tool proposes → human applies       | Doorstop, published docs             |
 | Runtime/monitor bindings, telemetry field maps, dry-run bindings pre-commitment, transient verdicts | companion tree                                          | tool writes freely                  | monitors, UI                         |
 

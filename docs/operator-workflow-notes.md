@@ -185,7 +185,9 @@ advisory (triage) → draft (in-progress formalization)
 formalized → verified`. The honest states are kept distinct — _un-triaged_ ≠ _stays-prose_ ≠
   _formalizable-but-not-yet-formalized_ ≠ _engine-unavailable_ (the last is R-eng-3's coverage
   gating). CLI-first (a `provreq status`-style command, mirroring `traceability_report.md`);
-  it **extends** the existing A4 / `scripts/traceability.py` model. The UI wraps it later.
+  it **extends** the existing A4 model — now `provreq report` / `provreq check`, which succeeded
+  the interim `scripts/traceability.py` (retired once provreq owned traceability, #346). The UI
+  wraps it later.
 
 ### Step 3 — Formalize (draft persistence; admitted-and-parked grounding)
 
