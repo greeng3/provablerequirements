@@ -35,6 +35,10 @@ pub mod mount;
 // (slice 3, #311). It is where a verification admission belongs; `ReqforgeSource::annotate` can now
 // be wired to it, though it still refuses until a slice does so deliberately.
 pub mod reviews;
+// Source-tag scanner — resolves `Implements:`/`Verifies:`-style code tags against a `World` (slice
+// 2 of the reports cluster, #331/#350). ReqForge's own scanner, the reports cluster's input;
+// distinct from provreq's native `src/trace/` (#334) and not wired into the verify flow.
+pub mod scan;
 pub mod schema;
 pub mod schema_migration;
 // Full-text search index + the discovery snapshot it rides on — the first slice of the
