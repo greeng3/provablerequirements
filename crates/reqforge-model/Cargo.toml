@@ -41,3 +41,6 @@ tempfile = "3"
 # and tested against it (#331/#348). Pulled in with `World` (its `search_index` field) rather than
 # feature-gated: provreq ships one binary that embeds the UI, so a search-free build buys nothing.
 tantivy = "=0.24"
+# CSV export view (`exports::csv`). Matches ReqForge's own `csv = "1"` spec — the one external dep the
+# reports/data cluster adds beyond search (slice 4, #331/#354).
+csv = "1"
