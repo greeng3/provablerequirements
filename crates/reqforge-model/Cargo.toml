@@ -44,3 +44,22 @@ tantivy = "=0.24"
 # CSV export view (`exports::csv`). Matches ReqForge's own `csv = "1"` spec — the one external dep the
 # reports/data cluster adds beyond search (slice 4, #331/#354).
 csv = "1"
+# The leaf utils (arc-2 slice 1, #358): `thumbnails` spawns blocking generation on tokio and
+# coalesces in-flight requests with a DashMap; `urls` checks URL status over reqwest. Pinned to
+# ReqForge's own specs. tokio `full` matches its workspace pin (the http/ absorb needs it anyway);
+# reqwest features match provreq's own 0.13 pin (slice 0, #356).
+tokio = { version = "1", features = ["full"] }
+dashmap = "6"
+reqwest = { version = "0.13", default-features = false, features = [
+    "rustls",
+    "webpki-roots",
+    "json",
+] }
+# `git_history` reads an artifact file's commit log through gix. Pinned to ReqForge's own `=0.86`
+# spec and feature set (blob-diff for path-touch detection, revision walking, sha1).
+gix = { version = "0.86", default-features = false, features = [
+    "blob-diff",
+    "revision",
+    "max-performance-safe",
+    "sha1",
+] }
