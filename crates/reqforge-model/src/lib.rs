@@ -26,10 +26,17 @@
 //! it is what makes Doorstop an import format rather than a storage format.
 
 pub mod doorstop;
+// Report renderers — CSV/HTML/Doorstop export views over the report engine (slice 4, #331/#354);
+// the last slice of the reports/data cluster.
+pub mod exports;
 pub mod frontmatter;
+// Traceability graph over a `World` — nodes/edges for the requirement link structure (slice 4).
+pub mod graph;
 pub mod index;
 pub mod links;
 pub mod load;
+// Coverage matrix over a `World` — parent/child/code coverage rollup (slice 4).
+pub mod matrix;
 pub mod mount;
 // The review log proper — state derivation, snapshot persistence, and write-side validators
 // (slice 3, #311). It is where a verification admission belongs; `ReqforgeSource::annotate` can now
