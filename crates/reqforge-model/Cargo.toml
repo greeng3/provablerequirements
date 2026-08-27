@@ -36,3 +36,8 @@ sha2 = "0.11"
 # Not a dev-dependency: `write::atomic` writes through a named temporary so a torn write can never
 # leave a half-parsed artifact on disk.
 tempfile = "3"
+# Full-text search index (`search`), rebuilt in memory alongside the UUID index inside
+# `world::run_discovery`. Pinned to ReqForge's own `=0.24` — the reports/search cluster was written
+# and tested against it (#331/#348). Pulled in with `World` (its `search_index` field) rather than
+# feature-gated: provreq ships one binary that embeds the UI, so a search-free build buys nothing.
+tantivy = "=0.24"

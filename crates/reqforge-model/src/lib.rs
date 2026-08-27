@@ -37,5 +37,10 @@ pub mod mount;
 pub mod reviews;
 pub mod schema;
 pub mod schema_migration;
+// Full-text search index + the discovery snapshot it rides on — the first slice of the
+// reports/data cluster (#331/#348), the data layer Phase 5's UI renders. `search::query` (which
+// depends on `reports`) lands with the reports slice.
+pub mod search;
 pub mod system;
+pub mod world;
 pub mod write;
