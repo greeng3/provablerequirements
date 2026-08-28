@@ -18,7 +18,7 @@
 //! Implements: REQ040 (draft semantic pre-/post-conditions onto resolved predicate functions).
 
 use crate::contract_draft::Marker;
-use crate::llm::LlmBackend;
+use crate::llm::{user_request, LlmBackend};
 use crate::rust_adapter::{fn_source_at, CodeMatch, Resolution};
 use anyhow::Result;
 use std::collections::{BTreeMap, BTreeSet};
@@ -152,7 +152,11 @@ impl<B: LlmBackend> Drafter<B> {
             let Some(fn_src) = sources.get(&at.file).and_then(|t| fn_source_at(t, at.line)) else {
                 continue;
             };
-            let reply = self.backend.complete(&make_prompt(&fn_src, at)).await?;
+            let reply = self
+                .backend
+                .run_prompt(&user_request(make_prompt(&fn_src, at)))
+                .await?
+                .text;
             let clauses = parse_clauses(&reply);
             if clauses.is_empty() {
                 continue;
@@ -341,6 +345,21 @@ pub fn apply_to_source(src: &str, drafts: &[ContractDraft]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::llm::{PromptRequest, PromptResponse};
+
+    fn prompt_text(req: &PromptRequest) -> String {
+        req.messages
+            .last()
+            .map(|m| m.content.clone())
+            .unwrap_or_default()
+    }
+
+    fn reply_response(text: &str) -> PromptResponse {
+        PromptResponse {
+            text: text.to_string(),
+            usage: None,
+        }
+    }
 
     /// A [`DraftContext`] for tests: the four inputs a prompt is built from, defaulted so each test
     /// states only the one it is about.
@@ -390,15 +409,16 @@ mod tests {
         }
     }
     impl LlmBackend for StubBackend {
-        async fn complete(&self, prompt: &str) -> Result<String> {
-            self.prompts.lock().unwrap().push(prompt.to_string());
+        async fn run_prompt(&self, req: &PromptRequest) -> Result<PromptResponse> {
+            let prompt = prompt_text(req);
+            self.prompts.lock().unwrap().push(prompt.clone());
             let reply = self
                 .by_marker
                 .iter()
                 .find(|(k, _)| prompt.contains(k.as_str()))
                 .map(|(_, v)| v.clone())
                 .unwrap_or_default();
-            Ok(reply)
+            Ok(reply_response(&reply))
         }
     }
 
@@ -576,12 +596,12 @@ mod tests {
         }
     }
     impl LlmBackend for SeqBackend {
-        async fn complete(&self, prompt: &str) -> Result<String> {
-            self.prompts.lock().unwrap().push(prompt.to_string());
+        async fn run_prompt(&self, req: &PromptRequest) -> Result<PromptResponse> {
+            self.prompts.lock().unwrap().push(prompt_text(req));
             let mut i = self.calls.lock().unwrap();
             let idx = (*i).min(self.replies.len() - 1);
             *i += 1;
-            Ok(self.replies[idx].clone())
+            Ok(reply_response(&self.replies[idx]))
         }
     }
 

@@ -11,9 +11,14 @@
 
 use crate::source::{Classification, Item};
 use crate::triage::Classifier;
-use anyhow::{bail, Context, Result};
+use anyhow::{anyhow, bail, Context, Result};
+use reqforge_model::llm::{LlmRuntime, ProviderConfig, ProviderFamily};
+// Re-exported so provreq's LLM features (and their test stubs) build a request and read a response
+// without depending on `reqforge_model` directly — the seam is `crate::llm`.
+pub use reqforge_model::llm::{PromptMessage, PromptRequest, PromptResponse, PromptRole};
 use std::collections::BTreeMap;
 use std::path::Path;
+use std::sync::Arc;
 
 /// Wire protocol of the configured endpoint.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -91,10 +96,6 @@ fn default_batch_size() -> usize {
     DEFAULT_BATCH_SIZE
 }
 
-/// Anthropic requires an explicit output cap; generous enough for a JSON array
-/// over a whole backlog.
-const ANTHROPIC_MAX_TOKENS: u32 = 4096;
-
 /// Read the optional `llm:` block from a companion tree's manifest. `None` means
 /// the operator has not configured an LLM — triage falls back to the prose floor.
 pub fn load_config(companion_root: &Path) -> Result<Option<LlmConfig>> {
@@ -162,21 +163,56 @@ impl LlmConfig {
     }
 }
 
-/// The single network call, factored out for offline testing.
+/// The single LLM call, factored out for offline testing. A feature builds a [`PromptRequest`]
+/// (via [`user_request`]) and reads the model's text from the [`PromptResponse`]; a stub returns a
+/// canned response so prompt-building and reply-parsing are unit-tested with no live endpoint.
+///
+/// This is ReqForge's `PromptRequest`/`PromptResponse` seam (absorbed in slice 3a), reached here
+/// through [`RuntimeBackend`] so provreq's features inherit its fallback chain, health tracking and
+/// privacy gate — see `crates/reqforge-model/src/llm`.
 pub trait LlmBackend {
-    fn complete(&self, prompt: &str) -> impl std::future::Future<Output = Result<String>> + Send;
+    fn run_prompt(
+        &self,
+        req: &PromptRequest,
+    ) -> impl std::future::Future<Output = Result<PromptResponse>> + Send;
 }
 
-/// The production backend: a provider-aware HTTP call.
-pub struct HttpBackend {
-    config: LlmConfig,
-    api_key: Option<String>,
-    http: reqwest::Client,
+/// Upper bound on output tokens for every provreq LLM call. ReqForge's `PromptRequest` requires an
+/// explicit cap; provreq's outputs are short structured text (a bucket array, a PRL block, a
+/// contract) so one generous cap covers every feature. Raise a per-feature cap only if one truncates.
+// ponytail: one shared cap; split per-feature if a feature ever truncates.
+const MAX_OUTPUT_TOKENS: u32 = 8192;
+
+/// Wrap a prompt string as a single user-turn [`PromptRequest`]: no system prime, temperature 0
+/// (every provreq feature wants a deterministic reply), and `timeout_ms` left unset so
+/// [`RuntimeBackend`] fills it from the operator's configured timeout — the adapter's own 30 s
+/// default is far too short for a local model finishing a large completion.
+pub fn user_request(prompt: String) -> PromptRequest {
+    PromptRequest {
+        system: None,
+        messages: vec![PromptMessage {
+            role: PromptRole::User,
+            content: prompt,
+        }],
+        max_tokens: MAX_OUTPUT_TOKENS,
+        temperature: 0.0,
+        timeout_ms: None,
+    }
 }
 
-impl HttpBackend {
-    /// Build from config, resolving the API key from its named env var. Errors if
-    /// the named variable is missing (fail fast, no silent keyless downgrade).
+/// The production backend: ReqForge's [`LlmRuntime`] over a single configured provider.
+pub struct RuntimeBackend {
+    runtime: Arc<LlmRuntime>,
+    /// The operator's configured per-request timeout, in milliseconds, injected into every prompt
+    /// whose caller left `timeout_ms` unset.
+    timeout_ms: u64,
+}
+
+impl RuntimeBackend {
+    /// Build from config, resolving the API key from its named env var. Errors if the named
+    /// variable is missing (fail fast, no silent keyless downgrade) — provreq keeps its committed
+    /// manifest free of secrets, so the key is never read from the config the way ReqForge's own
+    /// `apiKey` field allows.
     pub fn from_config(config: LlmConfig) -> Result<Self> {
         let api_key =
             match &config.api_key_env {
@@ -185,77 +221,50 @@ impl HttpBackend {
                 })?),
                 None => None,
             };
-        let http = reqwest::Client::builder()
-            .timeout(std::time::Duration::from_secs(config.timeout_seconds))
-            .build()
-            .context("building the LLM HTTP client")?;
+        let timeout_ms = config.timeout_seconds.saturating_mul(1000);
+        let runtime = LlmRuntime::build(vec![provider_config_for(&config, api_key)])
+            .context("building the LLM runtime")?;
+        // provreq's CLI drafting has no privacy-ack UI; the operator configuring an endpoint has
+        // already consented, so acknowledge the single provider up front (ReqForge's runtime would
+        // otherwise skip a non-local endpoint until acked). Local endpoints need no ack anyway.
+        runtime.privacy().acknowledge(0);
         Ok(Self {
-            config,
-            api_key,
-            http,
+            runtime,
+            timeout_ms,
         })
     }
-
-    async fn complete_openai(&self, prompt: &str) -> Result<String> {
-        let url = format!(
-            "{}/chat/completions",
-            self.config.base_url.trim_end_matches('/')
-        );
-        let body = serde_json::json!({
-            "model": self.config.model,
-            "messages": [{ "role": "user", "content": prompt }],
-            "temperature": 0,
-            "stream": false,
-        });
-        let mut req = self.http.post(&url).json(&body);
-        if let Some(key) = &self.api_key {
-            req = req.bearer_auth(key);
-        }
-        extract_openai(&send_json(req).await?)
-    }
-
-    async fn complete_anthropic(&self, prompt: &str) -> Result<String> {
-        let key = self
-            .api_key
-            .as_deref()
-            .context("anthropic provider requires api_key_env")?;
-        let url = format!("{}/v1/messages", self.config.base_url.trim_end_matches('/'));
-        let body = serde_json::json!({
-            "model": self.config.model,
-            "max_tokens": ANTHROPIC_MAX_TOKENS,
-            "temperature": 0,
-            "messages": [{ "role": "user", "content": prompt }],
-        });
-        let req = self
-            .http
-            .post(&url)
-            .header("x-api-key", key)
-            .header("anthropic-version", "2023-06-01")
-            .json(&body);
-        extract_anthropic(&send_json(req).await?)
-    }
 }
 
-/// Pull the assistant text out of an OpenAI-compatible chat response (pure).
+/// Map provreq's single-provider [`LlmConfig`] onto ReqForge's [`ProviderConfig`] (pure). The
+/// resolved API key is passed in so the env read stays out of this function.
 ///
-/// A present-but-**empty** `content` is a failed response, not an empty answer (REQ052): providers
-/// can return `""` — a reasoning model that spent its budget thinking is one way — and passing that
-/// on as `Ok("")` walks straight into reporting a fabricated classification downstream.
-fn extract_openai(json: &serde_json::Value) -> Result<String> {
-    let content = json["choices"][0]["message"]["content"]
-        .as_str()
-        .context("LLM response missing choices[0].message.content")?;
-    reject_empty(content)
+/// The endpoint is normalised: provreq manifests write the OpenAI-compatible `base_url` with its
+/// `/v1` segment (`http://localhost:11434/v1`), but ReqForge's adapter appends `/v1/chat/completions`
+/// to a host root, so the `/v1` is stripped here to avoid a doubled segment.
+fn provider_config_for(config: &LlmConfig, api_key: Option<String>) -> ProviderConfig {
+    ProviderConfig {
+        provider: match config.provider {
+            Provider::OpenaiCompatible => ProviderFamily::OpenaiCompatible,
+            Provider::Anthropic => ProviderFamily::Anthropic,
+        },
+        model: config.model.clone(),
+        endpoint: Some(normalize_endpoint(&config.base_url)),
+        api_key,
+        enabled: None,
+    }
 }
 
-/// Pull the assistant text out of an Anthropic messages response (pure).
-fn extract_anthropic(json: &serde_json::Value) -> Result<String> {
-    let text = json["content"][0]["text"]
-        .as_str()
-        .context("LLM response missing content[0].text")?;
-    reject_empty(text)
+/// Strip a trailing `/v1` (and any trailing slash) from an endpoint so ReqForge's adapter, which
+/// joins `/v1/chat/completions` onto a host root, does not produce `…/v1/v1/…` (pure). An endpoint
+/// without the segment is returned unchanged.
+fn normalize_endpoint(base_url: &str) -> String {
+    let trimmed = base_url.trim_end_matches('/');
+    trimmed.strip_suffix("/v1").unwrap_or(trimmed).to_string()
 }
 
+/// Reject an empty completion (REQ052): a reply with nothing in it — a reasoning model that spent
+/// its budget thinking is one way to get one — is a failed request, not an empty answer, and
+/// passing it on walks straight into a fabricated result downstream.
 fn reject_empty(text: &str) -> Result<String> {
     if text.trim().is_empty() {
         bail!("the LLM returned empty content — a reply with nothing in it is a failed request, not an answer");
@@ -263,28 +272,27 @@ fn reject_empty(text: &str) -> Result<String> {
     Ok(text.to_string())
 }
 
-impl LlmBackend for HttpBackend {
-    async fn complete(&self, prompt: &str) -> Result<String> {
-        match self.config.provider {
-            Provider::OpenaiCompatible => self.complete_openai(prompt).await,
-            Provider::Anthropic => self.complete_anthropic(prompt).await,
-        }
+impl LlmBackend for RuntimeBackend {
+    async fn run_prompt(&self, req: &PromptRequest) -> Result<PromptResponse> {
+        let req = if req.timeout_ms.is_none() {
+            PromptRequest {
+                timeout_ms: Some(self.timeout_ms),
+                ..req.clone()
+            }
+        } else {
+            req.clone()
+        };
+        let (_slot, resp) = self
+            .runtime
+            .run_prompt(&req)
+            .await
+            .map_err(|e| anyhow!("the LLM request failed: {e}"))?;
+        let text = reject_empty(&resp.text)?;
+        Ok(PromptResponse {
+            text,
+            usage: resp.usage,
+        })
     }
-}
-
-/// Send a request and parse a JSON body, surfacing the endpoint's own error body
-/// (the operator is the user here, so a detailed message helps rather than leaks).
-async fn send_json(req: reqwest::RequestBuilder) -> Result<serde_json::Value> {
-    let resp = req
-        .send()
-        .await
-        .context("sending request to the LLM endpoint")?;
-    let status = resp.status();
-    let text = resp.text().await.context("reading the LLM response body")?;
-    if !status.is_success() {
-        bail!("LLM endpoint returned {status}: {text}");
-    }
-    serde_json::from_str(&text).context("parsing the LLM response as JSON")
 }
 
 /// What the subject declares, for the classifier's prompt (REQ072, #259): the caller builds it
@@ -319,8 +327,9 @@ impl<B: LlmBackend + Send + Sync> Classifier for LlmClassifier<B> {
         }
         let raw = self
             .backend
-            .complete(&build_prompt(items, &self.context))
-            .await?;
+            .run_prompt(&user_request(build_prompt(items, &self.context)))
+            .await?
+            .text;
         parse_buckets(&raw, items)
     }
 }
@@ -583,8 +592,11 @@ mod tests {
         reply: String,
     }
     impl LlmBackend for StubBackend {
-        async fn complete(&self, _prompt: &str) -> Result<String> {
-            Ok(self.reply.clone())
+        async fn run_prompt(&self, _req: &PromptRequest) -> Result<PromptResponse> {
+            Ok(PromptResponse {
+                text: self.reply.clone(),
+                usage: None,
+            })
         }
     }
 
@@ -690,16 +702,52 @@ mod tests {
         );
     }
 
-    // Verifies: REQ052 — a present-but-empty `content` field is a failed response, not an empty
-    // answer. `extract_openai` reads a field that a provider can legitimately return as "", and
-    // returning `Ok("")` from it walks straight into the fabrication above.
+    // Verifies: REQ052 — a present-but-empty completion is a failed response, not an empty answer.
+    // `RuntimeBackend::run_prompt` applies this at the seam boundary regardless of what the adapter
+    // returns, so an empty `text` never reaches a feature as `Ok("")` and gets read as a real reply.
     #[test]
-    fn empty_assistant_content_is_a_failed_response() {
-        let err = extract_openai(&serde_json::json!({
-            "choices": [{ "message": { "role": "assistant", "content": "" } }]
-        }))
-        .expect_err("empty content is not an answer");
-        assert!(format!("{err:#}").contains("empty"), "{err:#}");
+    fn reject_empty_treats_blank_completion_as_failure() {
+        assert_eq!(reject_empty("ok").unwrap(), "ok");
+        assert!(reject_empty("").is_err());
+        assert!(reject_empty("   \n  ")
+            .expect_err("whitespace is empty")
+            .to_string()
+            .contains("empty"));
+    }
+
+    // Verifies: #364 — the OpenAI-compatible `base_url` provreq manifests carry (with its `/v1`
+    // segment) maps to a ReqForge endpoint at the host root, so the adapter's appended
+    // `/v1/chat/completions` does not double the segment. A key resolved from the env is carried
+    // through; the provider family is mapped.
+    #[test]
+    fn openai_base_url_v1_segment_is_stripped_for_the_adapter() {
+        let config = LlmConfig {
+            base_url: "http://localhost:11434/v1".into(),
+            ..declared()
+        };
+        let pc = provider_config_for(&config, Some("sk-test".into()));
+        assert_eq!(pc.provider, ProviderFamily::OpenaiCompatible);
+        assert_eq!(pc.endpoint.as_deref(), Some("http://localhost:11434"));
+        assert_eq!(pc.model, config.model);
+        assert_eq!(pc.api_key.as_deref(), Some("sk-test"));
+    }
+
+    // Verifies: #364 — an endpoint without a `/v1` segment (an Anthropic host root, or a gateway
+    // that omits it) is passed through unchanged; only a trailing `/v1` and slashes are trimmed.
+    #[test]
+    fn an_endpoint_without_v1_is_left_untouched() {
+        assert_eq!(
+            normalize_endpoint("https://api.anthropic.com"),
+            "https://api.anthropic.com"
+        );
+        assert_eq!(
+            normalize_endpoint("http://localhost:11434/v1/"),
+            "http://localhost:11434"
+        );
+        assert_eq!(
+            normalize_endpoint("http://gw.test/openai"),
+            "http://gw.test/openai"
+        );
     }
 
     // Verifies: REQ012 — a reply wrapped in a code fence still parses.
@@ -715,23 +763,6 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(buckets, vec![Some(Classification::FormalizableNow)]);
-    }
-
-    // Verifies: REQ012 — the provider response shapes are read from the right
-    // fields (OpenAI/Ollama chat vs Anthropic messages).
-    #[test]
-    fn extracts_provider_response_shapes() {
-        let openai = serde_json::json!({
-            "choices": [{ "message": { "content": "hello" } }]
-        });
-        assert_eq!(extract_openai(&openai).unwrap(), "hello");
-        assert!(extract_openai(&serde_json::json!({"choices": []})).is_err());
-
-        let anthropic = serde_json::json!({
-            "content": [{ "type": "text", "text": "hi" }]
-        });
-        assert_eq!(extract_anthropic(&anthropic).unwrap(), "hi");
-        assert!(extract_anthropic(&serde_json::json!({"content": []})).is_err());
     }
 
     #[test]
@@ -887,8 +918,8 @@ mod tests {
         assert!(round_tripped.overridden.is_empty());
     }
 
-    // Verifies: REQ042 — an explicit `timeout_seconds` overrides the default, and the client
-    // builds with it (a bad timeout would fail the build here).
+    // Verifies: REQ042 — an explicit `timeout_seconds` overrides the default, and the backend
+    // builds with it (a keyless local endpoint constructs the runtime without error).
     #[test]
     fn load_config_honors_explicit_timeout() {
         let tmp = tempfile::tempdir().unwrap();
@@ -899,7 +930,7 @@ mod tests {
         .unwrap();
         let cfg = load_config(tmp.path()).unwrap().unwrap();
         assert_eq!(cfg.timeout_seconds, 42);
-        assert!(HttpBackend::from_config(cfg).is_ok());
+        assert!(RuntimeBackend::from_config(cfg).is_ok());
     }
 
     #[test]
