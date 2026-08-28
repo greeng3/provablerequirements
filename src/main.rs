@@ -5,7 +5,7 @@ use provreq::draft::{self, Draft, GateStatus};
 use provreq::engine;
 use provreq::formalize::Translator;
 use provreq::grounding::{self, Binding, Grounding};
-use provreq::llm::{HttpBackend, LlmClassifier};
+use provreq::llm::{LlmClassifier, RuntimeBackend};
 use provreq::rust_adapter::Resolution;
 use provreq::source::{Classification, Item};
 use provreq::triage::{self, ProseFloorClassifier, TriageState};
@@ -534,7 +534,7 @@ async fn seed_backlog(
                 predicates: inv.predicates,
                 sorts: inv.sorts,
             };
-            let classifier = LlmClassifier::new(HttpBackend::from_config(config)?, context);
+            let classifier = LlmClassifier::new(RuntimeBackend::from_config(config)?, context);
             triage::seed_in_batches(state, &pending, &classifier, batch_size, persist).await?
         }
         None => {
@@ -711,7 +711,7 @@ async fn translate_gated_candidate(
         config.base_url,
         config.override_note()
     );
-    let translator = Translator::new(HttpBackend::from_config(config)?);
+    let translator = Translator::new(RuntimeBackend::from_config(config)?);
     translator.translate_gated(item).await
 }
 
@@ -1720,7 +1720,7 @@ async fn stage_semantic_drafts(
         config.base_url,
         config.override_note()
     );
-    let drafter = Drafter::new(provreq::llm::HttpBackend::from_config(config)?);
+    let drafter = Drafter::new(provreq::llm::RuntimeBackend::from_config(config)?);
 
     // A Creusot subject additionally needs LOGIC MIRRORS, and without them the contracts alone
     // cannot reach a proof: pearlite may only call `#[logic]` items, so a contract mentioning a
@@ -1729,7 +1729,7 @@ async fn stage_semantic_drafts(
     // change when the prover fails to discharge a claim, whereas a contract does. Prusti has no
     // such split (its `#[pure]` program functions are callable from specs), so this is Creusot-only.
     let drafted = if matches!(marker, provreq::contract_draft::Marker::Logic) {
-        Mirrorer::new(provreq::llm::HttpBackend::from_config(
+        Mirrorer::new(provreq::llm::RuntimeBackend::from_config(
             provreq::llm::load_config(&companion)?.expect("config loaded above"),
         )?)
         .draft(&intent, &claim, resolutions, &sources)

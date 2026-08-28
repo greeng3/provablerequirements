@@ -37,7 +37,7 @@
 //! Like every A6 channel the write surface stops at the subject working tree: the caller stages an
 //! uncommitted edit and runs no git.
 
-use crate::llm::LlmBackend;
+use crate::llm::{user_request, LlmBackend};
 use crate::rust_adapter::{fn_source_at, CodeMatch, Resolution};
 use crate::semantic_draft::ContractDraft;
 use anyhow::Result;
@@ -273,8 +273,11 @@ impl<B: LlmBackend> Mirrorer<B> {
             };
             let reply = self
                 .backend
-                .complete(&build_prompt(intent, claim, fn_src, &signature, &peers))
-                .await?;
+                .run_prompt(&user_request(build_prompt(
+                    intent, claim, fn_src, &signature, &peers,
+                )))
+                .await?
+                .text;
             let Some(body) = parse_body(&reply) else {
                 out.dropped.push(dropped(DropWall::NoMirrorInReply));
                 continue;
@@ -872,6 +875,7 @@ pub fn append_items(src: &str, drafts: &[MirrorDraft]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::llm::{PromptRequest, PromptResponse};
     use crate::rust_adapter::{ParamMode, PredicateForm};
 
     fn resolved(file: &str, line: usize, text: &str) -> Resolution {
@@ -892,9 +896,17 @@ mod tests {
         prompts: std::sync::Mutex<Vec<String>>,
     }
     impl LlmBackend for StubBackend {
-        async fn complete(&self, prompt: &str) -> Result<String> {
-            self.prompts.lock().unwrap().push(prompt.to_string());
-            Ok(self.reply.clone())
+        async fn run_prompt(&self, req: &PromptRequest) -> Result<PromptResponse> {
+            self.prompts.lock().unwrap().push(
+                req.messages
+                    .last()
+                    .map(|m| m.content.clone())
+                    .unwrap_or_default(),
+            );
+            Ok(PromptResponse {
+                text: self.reply.clone(),
+                usage: None,
+            })
         }
     }
 

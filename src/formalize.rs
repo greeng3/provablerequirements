@@ -15,7 +15,7 @@
 //!
 //! Implements: REQ015 (D11 forward-translate), REQ017 (generate-then-repair loop).
 
-use crate::llm::LlmBackend;
+use crate::llm::{user_request, LlmBackend};
 use crate::prl::{gate, GateError, GateOutcome};
 use crate::source::Item;
 use anyhow::{bail, Result};
@@ -87,7 +87,11 @@ impl<B: LlmBackend> Translator<B> {
     /// One backend call for a PRL block: complete, strip any code fence, and reject an
     /// empty proposal. Shared by the initial translate and each repair round.
     async fn complete_prl(&self, prompt: &str, id: &str) -> Result<String> {
-        let raw = self.backend.complete(prompt).await?;
+        let raw = self
+            .backend
+            .run_prompt(&user_request(prompt.to_string()))
+            .await?
+            .text;
         let candidate = strip_fences(&raw).trim();
         if candidate.is_empty() {
             bail!("the LLM returned an empty PRL candidate for {id}");
@@ -197,12 +201,28 @@ mod tests {
         }
     }
 
+    use crate::llm::{PromptRequest, PromptResponse};
+
+    fn prompt_text(req: &PromptRequest) -> String {
+        req.messages
+            .last()
+            .map(|m| m.content.clone())
+            .unwrap_or_default()
+    }
+
+    fn reply(text: &str) -> PromptResponse {
+        PromptResponse {
+            text: text.to_string(),
+            usage: None,
+        }
+    }
+
     struct StubBackend {
         reply: String,
     }
     impl LlmBackend for StubBackend {
-        async fn complete(&self, _prompt: &str) -> Result<String> {
-            Ok(self.reply.clone())
+        async fn run_prompt(&self, _req: &PromptRequest) -> Result<PromptResponse> {
+            Ok(reply(&self.reply))
         }
     }
 
@@ -275,12 +295,12 @@ mod tests {
         }
     }
     impl LlmBackend for SeqBackend {
-        async fn complete(&self, prompt: &str) -> Result<String> {
-            self.prompts.lock().unwrap().push(prompt.to_string());
+        async fn run_prompt(&self, req: &PromptRequest) -> Result<PromptResponse> {
+            self.prompts.lock().unwrap().push(prompt_text(req));
             let mut i = self.calls.lock().unwrap();
             let idx = (*i).min(self.replies.len() - 1);
             *i += 1;
-            Ok(self.replies[idx].clone())
+            Ok(reply(&self.replies[idx]))
         }
     }
 
