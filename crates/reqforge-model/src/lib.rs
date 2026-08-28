@@ -26,6 +26,10 @@
 //! it is what makes Doorstop an import format rather than a storage format.
 
 pub mod doorstop;
+// Browse-by-type view — groups every in-scope artifact by its Collection prefix over a `World`
+// (arc-2 slice 5, #368). Reaches the reports/matrix/search data layer; not yet wired into provreq's
+// verify flow.
+pub mod browse;
 // Text diff between two revisions of an artifact, over `git_history` (arc-2 slice 2, #360). A leaf
 // util, not yet wired into provreq's verify flow.
 pub mod diff;
