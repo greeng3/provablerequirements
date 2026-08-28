@@ -49,6 +49,9 @@ pub mod load;
 // Coverage matrix over a `World` — parent/child/code coverage rollup (slice 4).
 pub mod matrix;
 pub mod mount;
+// LLM-assisted rename suggestions over a `World` — proposes artifact-name changes via `crate::llm`
+// (arc-2 slice 4, #366). First reqforge-model module that calls the absorbed LLM seam.
+pub mod rename_suggest;
 // The review log proper — state derivation, snapshot persistence, and write-side validators
 // (slice 3, #311). It is where a verification admission belongs; `ReqforgeSource::annotate` can now
 // be wired to it, though it still refuses until a slice does so deliberately.
@@ -71,6 +74,9 @@ pub mod schema_migration;
 // reports/data cluster (#331/#348), the data layer Phase 5's UI renders. `search::query` (which
 // depends on `reports`) lands with the reports slice.
 pub mod search;
+// LLM-assisted link suggestions with pending/declined sidecars (arc-2 slice 4, #366). Reaches
+// `crate::{links, llm, load, schema, write}`.
+pub mod suggestions;
 pub mod system;
 // Thumbnail registry — async generation via libreoffice/libvips binaries with in-flight coalescing
 // (arc-2 slice 1, #358). A leaf util, not yet wired.
