@@ -66,3 +66,6 @@ gix = { version = "0.86", default-features = false, features = [
 # `diff` renders a text diff between two revisions of an artifact (arc-2 slice 2, #360). Matches
 # ReqForge's own `similar = "3"` spec.
 similar = "3"
+# The LLM adapter layer (`llm`, arc-2 slice 3a, #362) parses/validates provider endpoints. Matches
+# ReqForge's own `url = "2"` spec.
+url = "2"

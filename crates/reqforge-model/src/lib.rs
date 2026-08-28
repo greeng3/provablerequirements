@@ -40,6 +40,11 @@ pub mod git_history;
 pub mod graph;
 pub mod index;
 pub mod links;
+// LLM provider adapter layer — the `PromptRequest`/`Adapter` seam, fallback chain, three-state
+// health tracking, privacy-ack gate, and OpenAI-compatible/Anthropic/Gemini adapters (arc-2 slice
+// 3a, #362). Couples only to `schema::SystemConfig`; provreq's 4 LLM features are rewritten onto its
+// `LlmRuntime::run_prompt` seam in slice 3b.
+pub mod llm;
 pub mod load;
 // Coverage matrix over a `World` — parent/child/code coverage rollup (slice 4).
 pub mod matrix;
