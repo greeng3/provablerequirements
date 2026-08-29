@@ -27,13 +27,49 @@ use std::sync::Arc;
 #[folder = "web/dist"]
 struct WebAssets;
 
-/// The subject repository this server browses. `serve` runs co-resident in the operator's dev
-/// env, so the subject is a path it is pointed at — shared by every request as router state.
-type Subject = Arc<PathBuf>;
+use crate::app::AppState;
+use reqforge_model::world::{DiscoveryConfig, DiscoveryError};
+use reqforge_model::write::OwnershipOverrides;
 
-/// Build the application router for `subject`.
-pub fn router(subject: PathBuf) -> Router {
-    Router::new()
+/// Shared router state: the single-subject [`AppState`] absorbed from ReqForge (arc-2 slice 7).
+/// It carries both the management World (mounts/index/search) the ReqForge handlers read and the
+/// subject path provreq's proof handlers read — one state for both halves of the merged router.
+type Shared = Arc<AppState>;
+
+/// Default caps for the single-subject discovery config. provreq does not expose ReqForge's
+/// blob-upload / thumbnail knobs yet, so these mirror ReqForge's own defaults.
+const MAX_BLOB_BYTES: u64 = 50 * 1024 * 1024;
+const THUMBNAIL_CACHE_MAX_BYTES: u64 = 500 * 1024 * 1024;
+/// How often the polling watcher rescans the subject and republishes the World for SSE clients.
+const WATCH_INTERVAL: std::time::Duration = std::time::Duration::from_secs(2);
+
+/// Build a single-subject [`AppState`] and publish its initial one-mount World. Shared by
+/// [`serve`] and the router tests so both exercise the same construction path.
+pub async fn single_subject_state(subject: PathBuf) -> Result<Shared, DiscoveryError> {
+    let config = DiscoveryConfig {
+        // `discover_single` keys off the subject directly, so `mount_prefix` is unused in
+        // single-subject mode; set it to the subject so any incidental read is harmless.
+        mount_prefix: subject.clone(),
+        system_config_path: None,
+        workspace_dir: None,
+        max_blob_bytes: MAX_BLOB_BYTES,
+        thumbnail_cache_max_bytes: THUMBNAIL_CACHE_MAX_BYTES,
+        external_url: None,
+    };
+    let state = Arc::new(AppState::new_single_subject(
+        subject,
+        config,
+        OwnershipOverrides::default(),
+    ));
+    state.refresh().await?;
+    Ok(state)
+}
+
+/// Build the combined router: ReqForge's management API (`build_router`) merged with provreq's
+/// proof API, both over the one [`AppState`]. `build_router(state, None)` adds no fallback, so
+/// provreq's embedded-SPA fallback (`static_asset`) is the single fallback on the merged router.
+pub fn router(state: Shared) -> Router {
+    let proof = Router::new()
         .route("/health", get(health))
         .route("/api/engines", get(engines))
         .route("/api/requirements", get(requirements))
@@ -41,7 +77,8 @@ pub fn router(subject: PathBuf) -> Router {
         .route("/api/requirements/{id}/triage", post(set_triage))
         .route("/api/requirements/{id}/verify", post(verify_requirement))
         .fallback(static_asset)
-        .with_state(Arc::new(subject))
+        .with_state(state.clone());
+    crate::http::build_router(state, None).merge(proof)
 }
 
 /// Bind to the loopback interface on `port` and serve `subject` until the process stops.
@@ -67,7 +104,16 @@ pub async fn serve(port: u16, subject: PathBuf) -> std::io::Result<()> {
     // Said where the operator meets it, once, plainly: this is the shape of the tool, not the
     // state of its configuration.
     println!("  one subject, this machine only — no auth, no tenancy (provreq is single-operator)");
-    axum::serve(listener, router(subject)).await
+    let state = single_subject_state(subject)
+        .await
+        .map_err(|e| std::io::Error::other(e.to_string()))?;
+    // Poll the subject and republish the World so SSE (`/api/events`) clients see edits made
+    // outside the UI. Single-subject scope (#370): it watches the one subject, not a mount tree.
+    tokio::spawn({
+        let state = state.clone();
+        async move { crate::watcher::run_polling_watcher(state, WATCH_INTERVAL).await }
+    });
+    axum::serve(listener, router(state)).await
 }
 
 /// GET /health — the health payload as JSON.
@@ -103,7 +149,27 @@ struct EngineReport {
 /// subject simply narrows that lookup to `WEBDRIVER_URL`, exactly as the CLI's `engines` does.
 ///
 /// Implements: REQ051
-async fn engines(State(subject): State<Subject>) -> Response {
+/// Extract the served subject from the shared state, or a 409 for a server that is not in
+/// single-subject mode. Unreachable on provreq's own `serve` path (which always sets a subject),
+/// but the `AppState` type permits `None`, so the proof handlers guard it rather than unwrap.
+// Same deliberate pattern as the absorbed handlers: the Err carries a ready axum Response to
+// short-circuit; boxing an axum Response is unidiomatic. See http/handlers.rs's module allow.
+#[allow(clippy::result_large_err)]
+fn subject_or_conflict(state: &AppState) -> Result<PathBuf, Response> {
+    state.subject().map(|p| p.to_path_buf()).ok_or_else(|| {
+        (
+            StatusCode::CONFLICT,
+            Json(serde_json::json!({ "error": "this server is not serving a subject" })),
+        )
+            .into_response()
+    })
+}
+
+async fn engines(State(state): State<Shared>) -> Response {
+    let subject = match subject_or_conflict(&state) {
+        Ok(s) => s,
+        Err(r) => return r,
+    };
     let companion = crate::adopt::find_companion(&subject).ok().flatten();
     let reports: Vec<EngineReport> = crate::engine::registry()
         .iter()
@@ -140,7 +206,11 @@ struct Backlog {
 /// A subject that has not been adopted yet is an honest 409 naming `init`, not an empty list.
 ///
 /// Implements: REQ034
-async fn requirements(State(subject): State<Subject>) -> Response {
+async fn requirements(State(state): State<Shared>) -> Response {
+    let subject = match subject_or_conflict(&state) {
+        Ok(s) => s,
+        Err(r) => return r,
+    };
     match load_backlog(&subject) {
         Ok(backlog) => Json(backlog).into_response(),
         Err(e) => (
@@ -184,10 +254,14 @@ struct TriageRequest {
 ///
 /// Implements: REQ037
 async fn set_triage(
-    State(subject): State<Subject>,
+    State(state): State<Shared>,
     Path(id): Path<String>,
     Json(req): Json<TriageRequest>,
 ) -> Response {
+    let subject = match subject_or_conflict(&state) {
+        Ok(s) => s,
+        Err(r) => return r,
+    };
     let Some(classification) = crate::source::Classification::parse(&req.classification) else {
         return (
             StatusCode::BAD_REQUEST,
@@ -248,7 +322,11 @@ fn apply_triage(
 /// operator conditions and must not collapse.
 ///
 /// Implements: REQ035
-async fn requirement_detail(State(subject): State<Subject>, Path(id): Path<String>) -> Response {
+async fn requirement_detail(State(state): State<Shared>, Path(id): Path<String>) -> Response {
+    let subject = match subject_or_conflict(&state) {
+        Ok(s) => s,
+        Err(r) => return r,
+    };
     match load_detail(&subject, &id) {
         Ok(Some(detail)) => Json(detail).into_response(),
         Ok(None) => (
@@ -330,7 +408,11 @@ fn grounding_report(
 /// candidate no longer gates) is an honest 200 payload the operator can act on, never an error.
 ///
 /// Implements: REQ038
-async fn verify_requirement(State(subject): State<Subject>, Path(id): Path<String>) -> Response {
+async fn verify_requirement(State(state): State<Shared>, Path(id): Path<String>) -> Response {
+    let subject = match subject_or_conflict(&state) {
+        Ok(s) => s,
+        Err(r) => return r,
+    };
     match crate::verify::verify(&subject, &id) {
         Ok(Some(outcome)) => Json(verify_payload(&outcome)).into_response(),
         Ok(None) => (
@@ -403,7 +485,7 @@ mod tests {
     }
 
     async fn get_path_on(path: &str, subject: PathBuf) -> Response {
-        router(subject)
+        router(single_subject_state(subject).await.unwrap())
             .oneshot(Request::builder().uri(path).body(Body::empty()).unwrap())
             .await
             .unwrap()
@@ -524,7 +606,7 @@ mod tests {
     }
 
     async fn post_json(path: &str, subject: PathBuf, body: serde_json::Value) -> Response {
-        router(subject)
+        router(single_subject_state(subject).await.unwrap())
             .oneshot(
                 Request::builder()
                     .method("POST")
@@ -576,7 +658,7 @@ mod tests {
     }
 
     async fn post_empty(path: &str, subject: PathBuf) -> Response {
-        router(subject)
+        router(single_subject_state(subject).await.unwrap())
             .oneshot(
                 Request::builder()
                     .method("POST")

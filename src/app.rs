@@ -21,7 +21,9 @@ use reqforge_model::git_history::RepoCache;
 use reqforge_model::llm::LlmRuntime;
 use reqforge_model::thumbnails::{ThumbnailCache, ThumbnailCacheConfig, ThumbnailRegistry};
 use reqforge_model::urls::UrlCheckClient;
-use reqforge_model::world::{DiscoveryConfig, DiscoveryError, run_discovery};
+use std::path::PathBuf;
+
+use reqforge_model::world::{DiscoveryConfig, DiscoveryError, discover_single, run_discovery};
 use reqforge_model::write::OwnershipOverrides;
 
 // `World` is the model's view, absorbed into reqforge-model in arc-1 (#348). The application layer
@@ -81,10 +83,32 @@ pub struct AppState {
     /// config-change would lose health/backoff state, so we
     /// require restart for LLM reconfig.
     llm_runtime: RwLock<Option<Arc<LlmRuntime>>>,
+    /// provreq single-subject mode (#370): the one repository this process serves. When set,
+    /// discovery yields a one-mount World (`discover_single`) instead of scanning
+    /// `config.mount_prefix` for sibling projects, and proof handlers read the subject from here.
+    /// `None` restores ReqForge's multi-project scan.
+    subject_root: Option<PathBuf>,
 }
 
 impl AppState {
     pub fn new(config: DiscoveryConfig, overrides: OwnershipOverrides) -> Self {
+        Self::build(config, overrides, None)
+    }
+
+    /// provreq single-subject constructor: discovery and proof both key off `subject_root`.
+    pub fn new_single_subject(
+        subject_root: PathBuf,
+        config: DiscoveryConfig,
+        overrides: OwnershipOverrides,
+    ) -> Self {
+        Self::build(config, overrides, Some(subject_root))
+    }
+
+    fn build(
+        config: DiscoveryConfig,
+        overrides: OwnershipOverrides,
+        subject_root: Option<PathBuf>,
+    ) -> Self {
         let (tx, _rx) = broadcast::channel(32);
         let thumbnail_registry = config.workspace_dir.as_ref().map(|workspace| {
             let cache = ThumbnailCache::new(ThumbnailCacheConfig {
@@ -110,7 +134,14 @@ impl AppState {
             thumbnail_registry,
             doorstop_reports: RwLock::new(std::collections::HashMap::new()),
             llm_runtime: RwLock::new(None),
+            subject_root,
         }
+    }
+
+    /// The single subject this process serves, if in provreq single-subject mode. Proof handlers
+    /// (verify/engines/triage) read the subject filesystem directly through this.
+    pub fn subject(&self) -> Option<&std::path::Path> {
+        self.subject_root.as_deref()
     }
 
     /// Shared gitoxide repo-handle cache. Cloned on every access
@@ -282,14 +313,18 @@ impl AppState {
     /// every tick.
     pub async fn refresh(&self) -> Result<(), DiscoveryError> {
         let config = self.config.clone();
-        let world = tokio::task::spawn_blocking(move || run_discovery(&config))
-            .await
-            .map_err(|join_err| {
-                DiscoveryError::Mount(reqforge_model::mount::MountDiscoveryError::Io {
-                    path: std::path::PathBuf::new(),
-                    source: std::io::Error::other(join_err.to_string()),
-                })
-            })??;
+        let subject = self.subject_root.clone();
+        let world = tokio::task::spawn_blocking(move || match subject {
+            Some(root) => discover_single(root, &config),
+            None => run_discovery(&config),
+        })
+        .await
+        .map_err(|join_err| {
+            DiscoveryError::Mount(reqforge_model::mount::MountDiscoveryError::Io {
+                path: std::path::PathBuf::new(),
+                source: std::io::Error::other(join_err.to_string()),
+            })
+        })??;
         self.publish(world).await;
         Ok(())
     }

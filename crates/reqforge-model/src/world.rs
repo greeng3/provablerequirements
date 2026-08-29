@@ -73,11 +73,28 @@ pub struct DiscoveryConfig {
     pub external_url: Option<String>,
 }
 
-/// Run the full discovery pipeline against `config`. Synchronous /
-/// blocking — callers wrap it in `spawn_blocking` when they need
-/// to run it from an async context.
+/// Build a World from a single subject repository, bypassing the parent-directory scan
+/// `run_discovery` performs. provreq is single-subject (#370): one instance serves exactly one
+/// repository, so its World holds exactly one mount — the subject itself — rather than every
+/// sibling directory under a `mount_prefix`. Everything downstream (uuid index, system config,
+/// link catalog, search index) is identical to `run_discovery`; only the mount set differs.
+pub fn discover_single(
+    subject_root: PathBuf,
+    config: &DiscoveryConfig,
+) -> Result<World, DiscoveryError> {
+    let mounts = vec![crate::mount::classify_mount(subject_root)];
+    build_world(mounts, config)
+}
+
+/// Run the full discovery pipeline against `config`. Synchronous / blocking — callers wrap it in
+/// `spawn_blocking` when they need to run it from an async context. Scans `config.mount_prefix`
+/// for every sibling project (ReqForge's multi-project model); provreq uses [`discover_single`].
 pub fn run_discovery(config: &DiscoveryConfig) -> Result<World, DiscoveryError> {
     let mounts = discover_mounts(&config.mount_prefix)?;
+    build_world(mounts, config)
+}
+
+fn build_world(mounts: Vec<MountInfo>, config: &DiscoveryConfig) -> Result<World, DiscoveryError> {
     let loaded_projects: Vec<&crate::load::LoadedProject> = mounts
         .iter()
         .filter_map(|m| match &m.state {
