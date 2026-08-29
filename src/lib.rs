@@ -6,6 +6,11 @@
 //! Doorstop layout and scaffolds its companion tree.
 
 pub mod adopt;
+// The reqforge application layer, absorbed in arc-2 slice 7 (#371): `app` holds the single-mount
+// `AppState`; `http` holds the ~60 axum handlers + DTOs; `watcher` polls the subject and broadcasts
+// change events for SSE. Configured single-subject (discovery finds one mount) per #370. Compiled
+// in-tree but not yet wired into `serve` (that is 7b: router merge + proof graft).
+pub mod app;
 pub mod buildenv;
 pub mod check;
 pub mod contract_draft;
@@ -17,6 +22,7 @@ pub mod draft;
 pub mod engine;
 pub mod formalize;
 pub mod grounding;
+pub mod http;
 pub mod kani;
 pub mod llm;
 pub mod lowering;
@@ -44,6 +50,7 @@ pub mod ui;
 pub mod verdict;
 pub mod verdict_store;
 pub mod verify;
+pub mod watcher;
 
 /// The health payload the backend reports (and will later serve at `/health`).
 /// Kept as a pure function so it is unit-testable without standing up a server.

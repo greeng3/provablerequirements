@@ -22,7 +22,7 @@ name = "provreq"
 path = "src/lib.rs"
 
 [dependencies]
-axum = "0.8"
+axum = { version = "0.8", features = ["macros", "multipart"] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "signal", "time"] }
 rust-embed = "8"
 mime_guess = "2"
@@ -63,6 +63,20 @@ chrono = { version = "0.4", default-features = false, features = ["std", "clock"
 # Minting a fresh artifact uuid when authoring a requirement (`provreq new`, #325). v7 is
 # time-ordered, the id scheme ReqForge artifacts use. Already in the tree via reqforge-model.
 uuid = { version = "1", features = ["v7"] }
+# The reqforge application layer (AppState + http/ handlers + watcher) absorbed in arc-2 slice 7
+# (#371) pulls these directly in provreq's binary. All were already transitive (axum → tower/
+# tower-http/bytes/http-body; reqwest → url; reqforge-model → similar/csv/tracing), so this promotes
+# locked versions rather than adding weight. Feature set + pins match reqforge's own workspace.
+tower = "0.5"
+tower-http = { version = "0.7", features = ["cors", "fs", "trace"] }
+async-stream = "0.3"
+futures-core = "0.3"
+bytes = "1"
+url = "2"
+infer = "0.22"
+similar = "3"
+csv = "1"
+tracing = "0.1"
 
 # `cfg(kani)` is set only by `cargo kani`, so an ordinary build has to be told it is a real cfg —
 # otherwise the `kani::Arbitrary` impl in src/engine.rs trips `unexpected_cfgs` under
