@@ -147,7 +147,7 @@ pub fn run(monitor: &Monitor, claim: &MonitorClaim) -> Outcome {
         Err(e) => {
             return Outcome::Inconclusive {
                 reason: format!("could not create a scratch directory to run MonPoly in: {e}"),
-            }
+            };
         }
     };
     let sig = dir.path().join("subject.sig");

@@ -259,7 +259,7 @@ mod tests {
         assert!(!is_id_shaped("Something"));
         assert!(!is_id_shaped("001"));
         assert!(!is_id_shaped("REQ")); // no trailing digits
-                                       // A doorstop name-NANU is an artifact-id form, not a code-tag form.
+        // A doorstop name-NANU is an artifact-id form, not a code-tag form.
         assert!(!is_id_shaped("DES-rocket_nozzle"));
     }
 

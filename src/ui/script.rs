@@ -109,17 +109,23 @@ pub fn lower(
         // every scope (#232) — a driver is *already* performing actions, so a setup action is the
         // same kind of thing it does anyway.
         Scope::After(atom) => vec![action_for(atom, ui, bindings)?],
-        Scope::Before(_) | Scope::Between(_, _) => return Err(NotLowerable::new(
-            "the claim is limited to a `before`/`between` scope — a driver's run starts when it \
+        Scope::Before(_) | Scope::Between(_, _) => {
+            return Err(NotLowerable::new(
+                "the claim is limited to a `before`/`between` scope — a driver's run starts when it \
                  opens the page, so there is no \"before\" for it to check in, and no way to stop \
                  at a boundary it has already passed. `after <step>` is the scope a script can \
                  honour",
-        )),
+            ));
+        }
     };
 
     match &prop.pattern {
         Pattern::LeadsTo { from, to, .. } => {
-            let action = action_for(single_atom(from, "the antecedent of `leads_to`")?, ui, bindings)?;
+            let action = action_for(
+                single_atom(from, "the antecedent of `leads_to`")?,
+                ui,
+                bindings,
+            )?;
             let (atom, absent) = observation_operand(to, "the consequent of `leads_to`")?;
             let expect = observation_for(atom, ui, bindings)?;
             Ok(UiClaim {
@@ -292,7 +298,9 @@ mod tests {
     #[test]
     fn an_action_then_an_observation_lowers_to_a_script() {
         let claim = lower_src(
-            &format!("requirement u {{ category: 3 {VOCAB} require {{ checkout leads_to sees_total }} }}"),
+            &format!(
+                "requirement u {{ category: 3 {VOCAB} require {{ checkout leads_to sees_total }} }}"
+            ),
             &["checkout", "sees_total"],
         )
         .expect("lowers");
@@ -456,7 +464,9 @@ mod tests {
     #[test]
     fn a_symbol_with_no_step_behind_it_is_refused_naming_it() {
         let unbound = lower_src(
-            &format!("requirement u {{ category: 3 {VOCAB} require {{ checkout leads_to sees_total }} }}"),
+            &format!(
+                "requirement u {{ category: 3 {VOCAB} require {{ checkout leads_to sees_total }} }}"
+            ),
             &["checkout"],
         )
         .expect_err("sees_total has no binding");

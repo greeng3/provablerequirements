@@ -460,12 +460,11 @@ fn predicate_sources(
 ) -> BTreeMap<String, String> {
     let mut sources = BTreeMap::new();
     for res in resolutions.values() {
-        if let Resolution::Resolved { at, .. } = res {
-            if !sources.contains_key(&at.file) {
-                if let Ok(text) = std::fs::read_to_string(subject.join(&at.file)) {
-                    sources.insert(at.file.clone(), text);
-                }
-            }
+        if let Resolution::Resolved { at, .. } = res
+            && !sources.contains_key(&at.file)
+            && let Ok(text) = std::fs::read_to_string(subject.join(&at.file))
+        {
+            sources.insert(at.file.clone(), text);
         }
     }
     sources
@@ -521,7 +520,7 @@ fn monpoly_evidence(
                      one the subject already produces and never runs the subject itself"
                         .to_string(),
                 ],
-            )
+            );
         }
         Err(reason) => return verdict::Evidence::inconclusive(engine, vec![reason]),
     };
@@ -575,7 +574,7 @@ fn ui_evidence(
                      starts one"
                         .to_string(),
                 ],
-            )
+            );
         }
         Err(reason) => return verdict::Evidence::inconclusive(engine, vec![reason]),
     };
@@ -675,10 +674,10 @@ pub fn subject_source_fingerprint(subject: &Path) -> Option<String> {
     // The records whose drift other axes own, relative to the subject root. Best-effort like the
     // listing itself: an unadopted subject simply has no companion to exclude.
     let mut excluded: Vec<std::path::PathBuf> = Vec::new();
-    if let Ok(Some(companion)) = crate::adopt::find_companion(subject) {
-        if let Ok(rel) = companion.strip_prefix(subject) {
-            excluded.push(rel.to_path_buf());
-        }
+    if let Ok(Some(companion)) = crate::adopt::find_companion(subject)
+        && let Ok(rel) = companion.strip_prefix(subject)
+    {
+        excluded.push(rel.to_path_buf());
     }
     if let Ok(docs) = crate::doorstop::discover(subject) {
         for doc in docs {

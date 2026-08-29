@@ -418,16 +418,18 @@ impl Resolution {
             ),
             Resolution::UncallableParam { param, written, at } => {
                 format!(
-                "{symbol}: parameter {param} of the function at {}:{} is written `{written}`, and \
+                    "{symbol}: parameter {param} of the function at {}:{} is written `{written}`, and \
                  the proof would pass it a single `&` — provreq writes one reference for a \
                  reference parameter and will not guess at a deeper one or at a mutable borrow. \
                  Nothing here is wrong with your binding: it is the shape of the signature, and \
                  saying so now is better than a proof that does not compile. A predicate that only \
                  reads its argument can take `&{}`",
-                at.file,
-                at.line,
-                written.trim_start_matches(['&', ' ']).trim_start_matches("mut ")
-            )
+                    at.file,
+                    at.line,
+                    written
+                        .trim_start_matches(['&', ' '])
+                        .trim_start_matches("mut ")
+                )
             }
         }
     }
@@ -766,7 +768,7 @@ fn apply(
                     "applies type arguments to `{name}`, one of the language's own primitive \
                      types, which takes none"
                 ),
-            }
+            };
         }
         // Not found, ambiguous, or wrongly qualified: the head's own answer is the one the operator
         // needs, and it already reads correctly. Wrapping it in an argument complaint would bury
@@ -1048,13 +1050,13 @@ fn collect_types(
             }
             _ => None,
         };
-        if let Some((ident, type_params)) = found {
-            if ident == name {
-                out.push(TypeDecl {
-                    at: at_ident(ident, rel, text, module),
-                    type_params,
-                });
-            }
+        if let Some((ident, type_params)) = found
+            && ident == name
+        {
+            out.push(TypeDecl {
+                at: at_ident(ident, rel, text, module),
+                type_params,
+            });
         }
     }
 }
@@ -1582,10 +1584,10 @@ fn collect_fns(
             syn::Item::Impl(i) => {
                 let self_ty = type_ident(&i.self_ty);
                 for sub in &i.items {
-                    if let syn::ImplItem::Fn(f) = sub {
-                        if f.sig.ident == name {
-                            out.push(found(&f.sig, rel, text, self_ty.as_deref(), module));
-                        }
+                    if let syn::ImplItem::Fn(f) = sub
+                        && f.sig.ident == name
+                    {
+                        out.push(found(&f.sig, rel, text, self_ty.as_deref(), module));
                     }
                 }
             }
@@ -1679,12 +1681,12 @@ fn collect_methods(
                     None => None,
                 };
                 for sub in &i.items {
-                    if let syn::ImplItem::Fn(f) = sub {
-                        if name.is_none_or(|n| f.sig.ident == n) {
-                            let mut f = found(&f.sig, rel, text, Some(ty), module);
-                            f.via_trait = via_trait.clone();
-                            out.push(f);
-                        }
+                    if let syn::ImplItem::Fn(f) = sub
+                        && name.is_none_or(|n| f.sig.ident == n)
+                    {
+                        let mut f = found(&f.sig, rel, text, Some(ty), module);
+                        f.via_trait = via_trait.clone();
+                        out.push(f);
                     }
                 }
             }
@@ -1929,10 +1931,10 @@ fn collect_inventory(
             }
             syn::Item::Impl(imp) => {
                 for impl_item in &imp.items {
-                    if let syn::ImplItem::Fn(f) = impl_item {
-                        if return_type(&f.sig) == "bool" {
-                            predicates.insert(f.sig.ident.to_string());
-                        }
+                    if let syn::ImplItem::Fn(f) = impl_item
+                        && return_type(&f.sig) == "bool"
+                    {
+                        predicates.insert(f.sig.ident.to_string());
                     }
                 }
             }
@@ -2013,10 +2015,10 @@ pub fn impl_type_at(text: &str, line: usize) -> Option<String> {
         for item in items {
             match item {
                 syn::Item::Mod(m) => {
-                    if let Some((_, inner)) = &m.content {
-                        if let Some(found) = walk(inner, line) {
-                            return Some(found);
-                        }
+                    if let Some((_, inner)) = &m.content
+                        && let Some(found) = walk(inner, line)
+                    {
+                        return Some(found);
                     }
                 }
                 syn::Item::Impl(i) => {
@@ -2049,18 +2051,18 @@ fn find_fn_span(items: &[syn::Item], line: usize) -> Option<(usize, usize)> {
                 }
             }
             syn::Item::Mod(m) => {
-                if let Some((_, inner)) = &m.content {
-                    if let Some(span) = find_fn_span(inner, line) {
-                        return Some(span);
-                    }
+                if let Some((_, inner)) = &m.content
+                    && let Some(span) = find_fn_span(inner, line)
+                {
+                    return Some(span);
                 }
             }
             syn::Item::Impl(i) => {
                 for sub in &i.items {
-                    if let syn::ImplItem::Fn(f) = sub {
-                        if let Some(span) = end_line(&f.sig, &f.block) {
-                            return Some(span);
-                        }
+                    if let syn::ImplItem::Fn(f) = sub
+                        && let Some(span) = end_line(&f.sig, &f.block)
+                    {
+                        return Some(span);
                     }
                 }
             }
@@ -2891,9 +2893,10 @@ pub fn decide(u: u32) -> Decision { Decision::Proceed }\n",
         let r = resolve_type(&parsed(&tmp), "Session");
         assert_eq!(r, TypeResolution::NotFound);
         assert!(!r.is_resolved());
-        assert!(r
-            .describe("Session", "Session")
-            .contains("cannot range over"));
+        assert!(
+            r.describe("Session", "Session")
+                .contains("cannot range over")
+        );
     }
 
     // Verifies: REQ026 — two types sharing a name are never silently disambiguated, for the
@@ -2997,9 +3000,10 @@ pub fn decide(u: u32) -> Decision { Decision::Proceed }\n",
             panic!("should be ambiguous, got {r:?}")
         };
         assert_eq!(*kind, AmbiguityKind::Functions);
-        assert!(r
-            .describe("l", "login")
-            .contains("functions share the name"));
+        assert!(
+            r.describe("l", "login")
+                .contains("functions share the name")
+        );
     }
 
     // Verifies: #138 — a module-qualified sort picks one of two types sharing a name. This is the

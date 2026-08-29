@@ -8,12 +8,12 @@
 //! Implements: REQ034 (GET /api/requirements — the read-only backlog + coverage surface)
 
 use axum::{
+    Json, Router,
     body::Body,
     extract::{Path, State},
-    http::{header, StatusCode, Uri},
+    http::{StatusCode, Uri, header},
     response::{IntoResponse, Response},
     routing::{get, post},
-    Json, Router,
 };
 use rust_embed::RustEmbed;
 use std::net::SocketAddr;

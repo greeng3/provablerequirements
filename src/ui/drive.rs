@@ -283,7 +283,7 @@ impl Session {
                     return Err(format!(
                         "the script was asked to perform `text_present: \"{t}\"`, which is an \
                          observation — a driver reads it rather than does it"
-                    ))
+                    ));
                 }
             }
         }
@@ -557,10 +557,10 @@ fn grid_version(status: &serde_json::Value) -> String {
 fn offered_browsers(status: &serde_json::Value) -> Vec<String> {
     let mut names: Vec<String> = Vec::new();
     for stereotype in stereotypes(status) {
-        if let Some(name) = stereotype.get("browserName").and_then(|n| n.as_str()) {
-            if !names.iter().any(|seen| seen == name) {
-                names.push(name.to_string());
-            }
+        if let Some(name) = stereotype.get("browserName").and_then(|n| n.as_str())
+            && !names.iter().any(|seen| seen == name)
+        {
+            names.push(name.to_string());
         }
     }
     names
@@ -730,15 +730,22 @@ mod tests {
     struct EnvGuard(Option<String>);
     impl Drop for EnvGuard {
         fn drop(&mut self) {
-            match self.0.take() {
-                Some(v) => std::env::set_var(super::super::declaration::ENDPOINT_VAR, v),
-                None => std::env::remove_var(super::super::declaration::ENDPOINT_VAR),
+            // SAFETY: edition 2024 marks env mutation unsafe (other threads may read concurrently).
+            // These tests run single-threaded over one shared var, guarded by set/restore.
+            unsafe {
+                match self.0.take() {
+                    Some(v) => std::env::set_var(super::super::declaration::ENDPOINT_VAR, v),
+                    None => std::env::remove_var(super::super::declaration::ENDPOINT_VAR),
+                }
             }
         }
     }
     fn temp_env_unset() -> EnvGuard {
         let prior = std::env::var(super::super::declaration::ENDPOINT_VAR).ok();
-        std::env::remove_var(super::super::declaration::ENDPOINT_VAR);
+        // SAFETY: see EnvGuard::drop — single-threaded test mutation of one process-wide var.
+        unsafe {
+            std::env::remove_var(super::super::declaration::ENDPOINT_VAR);
+        }
         EnvGuard(prior)
     }
 

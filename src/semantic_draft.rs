@@ -18,8 +18,8 @@
 //! Implements: REQ040 (draft semantic pre-/post-conditions onto resolved predicate functions).
 
 use crate::contract_draft::Marker;
-use crate::llm::{user_request, LlmBackend};
-use crate::rust_adapter::{fn_source_at, CodeMatch, Resolution};
+use crate::llm::{LlmBackend, user_request};
+use crate::rust_adapter::{CodeMatch, Resolution, fn_source_at};
 use anyhow::Result;
 use std::collections::{BTreeMap, BTreeSet};
 

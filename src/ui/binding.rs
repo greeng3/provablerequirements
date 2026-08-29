@@ -204,9 +204,11 @@ mod tests {
         );
 
         let empty = Ui::new("http://x.test", None, BTreeMap::new());
-        assert!(resolve(Some(&empty), "checkout", 0, false)
-            .describe("c", "checkout")
-            .contains("`ui.steps` is empty"));
+        assert!(
+            resolve(Some(&empty), "checkout", 0, false)
+                .describe("c", "checkout")
+                .contains("`ui.steps` is empty")
+        );
     }
 
     // Verifies: #241 — a step is a fixed action on a fixed selector, so there is no parameter to

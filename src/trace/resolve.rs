@@ -53,19 +53,18 @@ fn is_skippable(trimmed: &str) -> bool {
 fn decl_name(line: &str, language: &Language) -> Option<String> {
     let tokens = identifier_tokens(line);
     for kw in language.keyword_decls {
-        if let Some(pos) = tokens.iter().position(|t| t == kw) {
-            if let Some(name) = tokens.get(pos + 1) {
-                return Some((*name).to_owned());
-            }
+        if let Some(pos) = tokens.iter().position(|t| t == kw)
+            && let Some(name) = tokens.get(pos + 1)
+        {
+            return Some((*name).to_owned());
         }
     }
     for call in language.test_call_decls {
-        if let Some(rest) = line.trim_start().strip_prefix(call) {
-            if rest.trim_start().starts_with('(') {
-                if let Some(title) = first_quoted(rest) {
-                    return Some(title);
-                }
-            }
+        if let Some(rest) = line.trim_start().strip_prefix(call)
+            && rest.trim_start().starts_with('(')
+            && let Some(title) = first_quoted(rest)
+        {
+            return Some(title);
         }
     }
     None

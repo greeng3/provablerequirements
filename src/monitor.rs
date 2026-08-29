@@ -35,8 +35,8 @@ mod mfotl;
 mod run;
 mod trace;
 
-pub use binding::{resolve, RuntimeResolution};
+pub use binding::{RuntimeResolution, resolve};
 pub use declaration::{Event, Monitor, TraceFormat};
-pub use mfotl::{lower, MonitorClaim};
-pub use run::{monpoly_bin, run, Outcome, ENGINE};
-pub use trace::{current_fingerprint, occurrences, Extent};
+pub use mfotl::{MonitorClaim, lower};
+pub use run::{ENGINE, Outcome, monpoly_bin, run};
+pub use trace::{Extent, current_fingerprint, occurrences};

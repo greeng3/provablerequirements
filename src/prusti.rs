@@ -37,7 +37,7 @@
 
 use crate::grounding::Binding;
 use crate::lowering::{self, LoweredClaim};
-pub use crate::lowering::{harness_name, NotLowerable};
+pub use crate::lowering::{NotLowerable, harness_name};
 use crate::prl::ast::Requirement;
 use crate::rust_adapter::{Resolution, TypeResolution};
 use crate::verdict::{Basis, Evidence};
@@ -189,7 +189,7 @@ pub fn run(subject_root: &Path, harness: &Harness) -> Outcome {
         Err(e) => {
             return Outcome::Inconclusive {
                 reason: format!("could not read {}: {e}", root_file.display()),
-            }
+            };
         }
     };
 

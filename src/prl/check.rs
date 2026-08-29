@@ -102,9 +102,11 @@ mod tests {
         // `accepted` is arity-1 declared but used with 0 args → arity mismatch;
         // `gone` is undeclared.
         let errs = errors_of(src);
-        assert!(errs
-            .iter()
-            .any(|e| matches!(e, GateError::UndeclaredPredicate { name, .. } if name == "gone")));
+        assert!(
+            errs.iter().any(
+                |e| matches!(e, GateError::UndeclaredPredicate { name, .. } if name == "gone")
+            )
+        );
     }
 
     // Verifies: REQ066 — a bare name that is a variable the claim ranges over is that variable
@@ -127,9 +129,11 @@ mod tests {
             vocabulary { state install_proceeds(d: EngineState, p: Flag) }
             require { always (not install_proceeds(d, p) or q) }
         }";
-        assert!(errors_of(src)
-            .iter()
-            .any(|e| matches!(e, GateError::UndeclaredPredicate { name, .. } if name == "q")));
+        assert!(
+            errors_of(src)
+                .iter()
+                .any(|e| matches!(e, GateError::UndeclaredPredicate { name, .. } if name == "q"))
+        );
     }
 
     // Verifies: REQ066 — a declared predicate wins. A nullary state of that name is still a
@@ -164,9 +168,10 @@ mod tests {
             require { done leads_to done }
         }";
         let errs = errors_of(src);
-        assert!(errs
-            .iter()
-            .any(|e| matches!(e, GateError::DuplicateDecl { name, .. } if name == "done")));
+        assert!(
+            errs.iter()
+                .any(|e| matches!(e, GateError::DuplicateDecl { name, .. } if name == "done"))
+        );
     }
 
     #[test]

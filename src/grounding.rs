@@ -772,9 +772,11 @@ mod tests {
         ) else {
             panic!("an unresolved binding must park, never ground");
         };
-        assert!(reasons
-            .iter()
-            .any(|reason| reason.contains("has_session") && reason.contains("nonexistent")));
+        assert!(
+            reasons
+                .iter()
+                .any(|reason| reason.contains("has_session") && reason.contains("nonexistent"))
+        );
     }
 
     // Verifies: REQ025 — a symbol the caller never resolved is NOT treated as grounded.
@@ -1440,9 +1442,11 @@ mod tests {
         ) else {
             panic!("an unresolved model binding must park");
         };
-        assert!(reasons
-            .iter()
-            .any(|reason| reason.contains("succeeded") && reason.contains("NoSuchOp")));
+        assert!(
+            reasons
+                .iter()
+                .any(|reason| reason.contains("succeeded") && reason.contains("NoSuchOp"))
+        );
     }
 
     // Verifies: REQ028 (#119) — a 2a binding to a definition of the wrong arity parks, and the
@@ -1525,9 +1529,11 @@ mod tests {
         ) else {
             panic!("an unresolved-by-omission model binding must park");
         };
-        assert!(reasons
-            .iter()
-            .any(|reason| reason.contains("succeeded") && reason.contains("TLA+")));
+        assert!(
+            reasons
+                .iter()
+                .any(|reason| reason.contains("succeeded") && reason.contains("TLA+"))
+        );
     }
 
     fn spec_at() -> crate::tla_adapter::SpecMatch {

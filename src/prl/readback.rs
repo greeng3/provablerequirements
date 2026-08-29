@@ -257,8 +257,10 @@ mod tests {
     fn renders_never_always_eventually() {
         assert!(readback("requirement r { require { never boom } }").contains("boom never holds"));
         assert!(readback("requirement r { require { always ok } }").contains("ok always holds"));
-        assert!(readback("requirement r { require { eventually done } }")
-            .contains("eventually done holds"));
+        assert!(
+            readback("requirement r { require { eventually done } }")
+                .contains("eventually done holds")
+        );
     }
 
     #[test]
@@ -291,8 +293,10 @@ mod tests {
 
     #[test]
     fn renders_can_reach() {
-        assert!(readback("requirement r { require { can_reach shutdown } }")
-            .contains("a state where shutdown holds is reachable"));
+        assert!(
+            readback("requirement r { require { can_reach shutdown } }")
+                .contains("a state where shutdown holds is reachable")
+        );
     }
 
     #[test]

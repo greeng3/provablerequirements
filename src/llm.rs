@@ -11,7 +11,7 @@
 
 use crate::source::{Classification, Item};
 use crate::triage::Classifier;
-use anyhow::{anyhow, bail, Context, Result};
+use anyhow::{Context, Result, anyhow, bail};
 use reqforge_model::llm::{LlmRuntime, ProviderConfig, ProviderFamily};
 // Re-exported so provreq's LLM features (and their test stubs) build a request and read a response
 // without depending on `reqforge_model` directly — the seam is `crate::llm`.
@@ -267,7 +267,9 @@ fn normalize_endpoint(base_url: &str) -> String {
 /// passing it on walks straight into a fabricated result downstream.
 fn reject_empty(text: &str) -> Result<String> {
     if text.trim().is_empty() {
-        bail!("the LLM returned empty content — a reply with nothing in it is a failed request, not an answer");
+        bail!(
+            "the LLM returned empty content — a reply with nothing in it is a failed request, not an answer"
+        );
     }
     Ok(text.to_string())
 }
@@ -709,10 +711,12 @@ mod tests {
     fn reject_empty_treats_blank_completion_as_failure() {
         assert_eq!(reject_empty("ok").unwrap(), "ok");
         assert!(reject_empty("").is_err());
-        assert!(reject_empty("   \n  ")
-            .expect_err("whitespace is empty")
-            .to_string()
-            .contains("empty"));
+        assert!(
+            reject_empty("   \n  ")
+                .expect_err("whitespace is empty")
+                .to_string()
+                .contains("empty")
+        );
     }
 
     // Verifies: #364 — the OpenAI-compatible `base_url` provreq manifests carry (with its `/v1`

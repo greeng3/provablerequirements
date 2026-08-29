@@ -6,7 +6,7 @@
 
 use crate::doorstop::{DoorstopDoc, DoorstopSource};
 use crate::source::{Item, RequirementsSource};
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use std::path::{Path, PathBuf};
 use walkdir::WalkDir;
 

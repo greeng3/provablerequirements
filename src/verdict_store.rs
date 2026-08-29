@@ -274,10 +274,10 @@ pub fn view(
     // verdict from before this axis existed (`environment: None`) carries no environment to
     // compare, so it is left alone — the same rule as formalization above: never flag on a basis
     // we cannot establish.
-    if let Some(was) = &stored.provenance.environment {
-        if let Some(reason) = was.drift_from(&anchor.environment) {
-            stale_reasons.push(reason);
-        }
+    if let Some(was) = &stored.provenance.environment
+        && let Some(reason) = was.drift_from(&anchor.environment)
+    {
+        stale_reasons.push(reason);
     }
 
     // Spec drift (#120): a model that lives outside the subject moves without the subject's commit
@@ -780,10 +780,11 @@ mod tests {
         assert_eq!(view.stale_reasons.len(), 3, "prose + code + tool all moved");
         assert!(view.stale_reasons.iter().any(|r| r.contains("prose moved")));
         assert!(view.stale_reasons.iter().any(|r| r.contains("abc → def")));
-        assert!(view
-            .stale_reasons
-            .iter()
-            .any(|r| r.contains("0.0.1 → 0.0.2")));
+        assert!(
+            view.stale_reasons
+                .iter()
+                .any(|r| r.contains("0.0.1 → 0.0.2"))
+        );
     }
 
     /// A verdict pinned to a formalization fingerprint (REQ045), everything else current.

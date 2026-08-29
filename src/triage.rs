@@ -265,7 +265,7 @@ pub async fn seed_in_batches<C: Classifier>(
                     classified,
                     unclassified: total - classified,
                     stopped: Some(stopped),
-                })
+                });
             }
         };
         // A classifier returns exactly one bucket per input item, by contract.

@@ -42,7 +42,7 @@
 
 use crate::grounding::Binding;
 use crate::lowering::{self, LoweredClaim};
-pub use crate::lowering::{harness_name, NotLowerable, HARNESS_PREFIX};
+pub use crate::lowering::{HARNESS_PREFIX, NotLowerable, harness_name};
 use crate::prl::ast::Requirement;
 use crate::rust_adapter::{PredicateForm, Resolution, TypeResolution};
 use crate::verdict::{Basis, Evidence};
@@ -295,7 +295,7 @@ pub fn run(subject_root: &Path, harness: &Harness) -> Outcome {
         Err(e) => {
             return Outcome::Inconclusive {
                 reason: format!("could not read {}: {e}", root_file.display()),
-            }
+            };
         }
     };
 
@@ -314,7 +314,7 @@ pub fn run(subject_root: &Path, harness: &Harness) -> Outcome {
                              configuration could not be found (set CREUSOT_DATA, or install \
                              Creusot) — provreq will not guess a prover set"
                         .to_string(),
-                }
+                };
             }
         }
     } else {
@@ -572,8 +572,7 @@ fn unsupported_construct(output: &str) -> Option<(String, &'static str)> {
 /// almost always comes from and is worth saying, while *this* line having one is not something
 /// provreq established. A byte-array constant is not exclusively a formatting artifact, and a flat
 /// claim that it is would send an operator hunting a `format!` that may not be there.
-const CONSTANT_LEAD: &str =
-    " A constant of that shape usually comes from a formatting macro interpolating an argument — \
+const CONSTANT_LEAD: &str = " A constant of that shape usually comes from a formatting macro interpolating an argument — \
      `format!(\"{x}\")`, `println!(\"{x}\")`, `write!` — which is worth checking first, though the \
      same macro with nothing to interpolate translates fine.";
 

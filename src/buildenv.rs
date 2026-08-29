@@ -154,7 +154,7 @@ pub fn detect(subject_root: &Path) -> BuildEnv {
             return BuildEnv::Unreadable {
                 config,
                 reason: format!("could not read it: {e}"),
-            }
+            };
         }
     };
     classify(config, &text)
@@ -190,7 +190,7 @@ fn classify(config: PathBuf, text: &str) -> BuildEnv {
             return BuildEnv::Unreadable {
                 config,
                 reason: format!("not valid devcontainer JSON: {e}"),
-            }
+            };
         }
     };
 

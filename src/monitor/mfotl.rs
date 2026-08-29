@@ -102,14 +102,14 @@ pub fn lower(
                 "`leads_to` with no `within` is a qualitative claim — it says the response \
                  eventually comes, with no deadline, and a monitor over a finite trace can never \
                  refute that. It belongs to a model checker (category 2a), not here",
-            ))
+            ));
         }
         other => {
             return Err(NotLowerable::new(format!(
                 "`{}` carries no metric deadline, so there is nothing here MonPoly can decide \
                  that a model checker cannot decide better; lowering it would be an approximation",
                 pattern_verb(other)
-            )))
+            )));
         }
     };
     let within_seconds = deadline_seconds(within)?;
@@ -174,13 +174,13 @@ fn deadline_seconds(raw: &str) -> Result<u64, NotLowerable> {
                 "the deadline `{raw}` is sub-second, and MonPoly's interval syntax takes whole \
                  units — `EVENTUALLY[0,0.5]` does not parse. Rounding it would widen the bound the \
                  requirement is about, so it is refused instead"
-            )))
+            )));
         }
         other => {
             return Err(NotLowerable::new(format!(
                 "the deadline `{raw}` is in `{other}`, which provreq does not know how to convert \
                  to the seconds a monitored trace is timed in — write `s`, `m`, or `h`"
-            )))
+            )));
         }
     };
     Ok(seconds)

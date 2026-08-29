@@ -8,7 +8,7 @@ members = ["crates/reqforge-model"]
 [package]
 name = "provreq"
 version = "0.0.7"
-edition = "2021"
+edition = "2024"
 description = "PRL native provisioner and backend server (Design C)"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/greeng3/provablerequirements"

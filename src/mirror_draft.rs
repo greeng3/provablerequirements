@@ -37,8 +37,8 @@
 //! Like every A6 channel the write surface stops at the subject working tree: the caller stages an
 //! uncommitted edit and runs no git.
 
-use crate::llm::{user_request, LlmBackend};
-use crate::rust_adapter::{fn_source_at, CodeMatch, Resolution};
+use crate::llm::{LlmBackend, user_request};
+use crate::rust_adapter::{CodeMatch, Resolution, fn_source_at};
 use crate::semantic_draft::ContractDraft;
 use anyhow::Result;
 use std::collections::{BTreeMap, BTreeSet};
@@ -1217,13 +1217,15 @@ mod tests {
 
         // Without the impl type there is nothing honest to write, so it is refused rather than
         // guessed — the guess is exactly what produced `&Self` and `&Ent`.
-        assert!(mirror_signature(
-            "pub fn is_clear(&self) -> bool { true }",
-            "is_clear_logic",
-            None,
-            "pub"
-        )
-        .is_none());
+        assert!(
+            mirror_signature(
+                "pub fn is_clear(&self) -> bool { true }",
+                "is_clear_logic",
+                None,
+                "pub"
+            )
+            .is_none()
+        );
     }
 
     // Verifies: predicates resolving to the SAME function are mirrored once, matching the dedup the
@@ -1336,10 +1338,12 @@ mod tests {
         );
         assert_eq!(drafts.dropped.len(), 1);
         assert_eq!(drafts.dropped[0].wall, DropWall::Unwritable);
-        assert!(drafts.dropped[0]
-            .wall
-            .explain()
-            .contains("pattern rather than a plain name"));
+        assert!(
+            drafts.dropped[0]
+                .wall
+                .explain()
+                .contains("pattern rather than a plain name")
+        );
     }
 
     // Verifies: #202 — a mirror whose body calls a mirror that was never staged is DROPPED, not

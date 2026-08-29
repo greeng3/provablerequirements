@@ -6,7 +6,7 @@
 //! Implements: REQ007 (discover the subject's Doorstop layout from its own config)
 
 use crate::source::{Annotation, Item, RequirementsSource};
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use std::path::{Path, PathBuf};
 use walkdir::{DirEntry, WalkDir};
 
@@ -65,10 +65,10 @@ fn read_doc(config_path: &Path, dir: PathBuf) -> Result<DoorstopDoc> {
     let mut item_ids = Vec::new();
     for entry in std::fs::read_dir(&dir).with_context(|| format!("reading {}", dir.display()))? {
         let entry = entry?;
-        if let Some(name) = entry.file_name().to_str() {
-            if let Some(id) = item_id(name, &cfg.settings.prefix) {
-                item_ids.push(id);
-            }
+        if let Some(name) = entry.file_name().to_str()
+            && let Some(id) = item_id(name, &cfg.settings.prefix)
+        {
+            item_ids.push(id);
         }
     }
     item_ids.sort();

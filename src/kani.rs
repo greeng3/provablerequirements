@@ -31,7 +31,7 @@
 
 use crate::grounding::Binding;
 use crate::lowering::{self, LoweredClaim};
-pub use crate::lowering::{harness_name, NotLowerable};
+pub use crate::lowering::{NotLowerable, harness_name};
 use crate::prl::ast::Requirement;
 use crate::rust_adapter::{Resolution, TypeResolution};
 use crate::verdict::{Basis, Evidence};
@@ -710,9 +710,11 @@ mod tests {
         else {
             panic!("must refute");
         };
-        assert!(failed_check
-            .expect("names the check")
-            .contains("assertion failed"));
+        assert!(
+            failed_check
+                .expect("names the check")
+                .contains("assertion failed")
+        );
         let w = witness.expect("must carry the counterexample");
         assert!(w.contains("concrete_vals"), "{w}");
         assert!(w.contains("vec![7, 0, 0, 0]"), "{w}");

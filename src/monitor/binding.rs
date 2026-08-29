@@ -247,9 +247,10 @@ mod tests {
     fn a_subject_with_no_monitor_says_that_rather_than_not_declared() {
         let r = resolve(None, "accepted", 1, None);
         assert!(!r.is_resolved());
-        assert!(r
-            .describe("accepted", "accepted")
-            .contains("no `monitor:` block"));
+        assert!(
+            r.describe("accepted", "accepted")
+                .contains("no `monitor:` block")
+        );
     }
 
     // Verifies: #231 — the decision this slice had to make. A declared event with zero occurrences

@@ -15,10 +15,10 @@
 //!
 //! Implements: REQ015 (D11 forward-translate), REQ017 (generate-then-repair loop).
 
-use crate::llm::{user_request, LlmBackend};
-use crate::prl::{gate, GateError, GateOutcome};
+use crate::llm::{LlmBackend, user_request};
+use crate::prl::{GateError, GateOutcome, gate};
 use crate::source::Item;
-use anyhow::{bail, Result};
+use anyhow::{Result, bail};
 
 /// Total translate attempts before giving up: one initial proposal plus up to two
 /// gate-driven repairs. Bounded so a model that cannot satisfy the gate does not loop.
@@ -65,7 +65,7 @@ impl<B: LlmBackend> Translator<B> {
                         candidate,
                         attempts,
                         gate: Ok(outcome),
-                    })
+                    });
                 }
                 Err(errors) => {
                     if attempts >= MAX_ATTEMPTS {
