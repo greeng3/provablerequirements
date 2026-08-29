@@ -98,7 +98,7 @@ pub fn discover_mounts(mount_prefix: &Path) -> Result<Vec<MountInfo>, MountDisco
     Ok(out)
 }
 
-fn classify_mount(path: PathBuf) -> MountInfo {
+pub(crate) fn classify_mount(path: PathBuf) -> MountInfo {
     let has_git = path.join(".git").exists();
     let has_config = path.join("reqforge.json").exists();
 
