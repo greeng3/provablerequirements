@@ -1,5 +1,11 @@
 //! Read-only HTTP handlers for Phase 1a.
 
+// Several handlers return `Result<_, axum::response::Response>` — the deliberate reqforge pattern of
+// carrying an early-return Response as the Err so a helper can short-circuit a request. clippy 1.98's
+// `result_large_err` flags the axum Response as a large Err variant, but boxing an axum Response is
+// unidiomatic and would ripple through every `?` site; the pattern is intentional, so allow it here.
+#![allow(clippy::result_large_err)]
+
 use std::convert::Infallible;
 use std::sync::Arc;
 use std::time::Duration;
