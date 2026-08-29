@@ -132,7 +132,7 @@ pub fn lower_property(
                 "`{}` is not an invariant, and the code fragment is temporal-free — the \
                  gate should have rejected it at category 1",
                 pattern_verb(other)
-            )))
+            )));
         }
     };
 
@@ -392,10 +392,10 @@ fn lower_atom(
     // already in scope as a `bool`, so the condition is the variable itself (REQ066). Checked
     // before the binding lookup because a variable has no binding of its own — its SORT is what
     // is bound, and binding the variable would be binding a name the requirement invented.
-    if a.args.is_empty() {
-        if let Some(binder) = binders.iter().find(|b| b.var == a.name) {
-            return Ok(binder.var.clone());
-        }
+    if a.args.is_empty()
+        && let Some(binder) = binders.iter().find(|b| b.var == a.name)
+    {
+        return Ok(binder.var.clone());
     }
     let binding = bindings
         .iter()

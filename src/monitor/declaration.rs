@@ -321,8 +321,7 @@ mod tests {
         Monitor::load(tmp.path(), &tmp.path().join("ProvableRequirements"))
     }
 
-    const JSONL: &str =
-        "monitor:\n  trace: logs/events.jsonl\n  format: jsonl\n  time_field: ts\n  event_field: event\n";
+    const JSONL: &str = "monitor:\n  trace: logs/events.jsonl\n  format: jsonl\n  time_field: ts\n  event_field: event\n";
 
     // Verifies: #230 — the declaration loads, and the trace resolves against the SUBJECT, so the
     // operator describes where their log lives relative to the thing being verified.

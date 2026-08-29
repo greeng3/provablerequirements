@@ -412,10 +412,10 @@ pub fn declared_constants(subject: &SubjectSpecs) -> std::collections::BTreeSet<
 /// constant half, since a `VARIABLE` is not something a `.cfg` may assign.
 fn constant_declaration_names(line: &str) -> Option<&str> {
     for kw in ["CONSTANTS", "CONSTANT"] {
-        if let Some(rest) = line.strip_prefix(kw) {
-            if rest.starts_with(|c: char| c.is_whitespace()) {
-                return Some(rest);
-            }
+        if let Some(rest) = line.strip_prefix(kw)
+            && rest.starts_with(|c: char| c.is_whitespace())
+        {
+            return Some(rest);
         }
     }
     None
@@ -757,9 +757,11 @@ Init == queue = <<>>
     fn an_undefined_name_does_not_resolve() {
         let tmp = subject(SPEC);
         assert_eq!(resolve_in(&tmp, "Rejected", 1), ModelResolution::NotFound);
-        assert!(resolve_in(&tmp, "Rejected", 1)
-            .describe("rejected", "Rejected")
-            .contains("does not name it"));
+        assert!(
+            resolve_in(&tmp, "Rejected", 1)
+                .describe("rejected", "Rejected")
+                .contains("does not name it")
+        );
     }
 
     // Verifies: REQ028 — a name only mentioned inside a `\*` comment is not a definition.

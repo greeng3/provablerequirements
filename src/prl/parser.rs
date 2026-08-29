@@ -12,7 +12,7 @@
 
 use super::ast::*;
 use super::error::GateError;
-use super::lexer::{lex, Tok, Token};
+use super::lexer::{Tok, Token, lex};
 
 /// Parse a candidate PRL block. Returns the AST, or every parse error found.
 pub fn parse(src: &str) -> Result<Requirement, Vec<GateError>> {
@@ -751,9 +751,10 @@ mod tests {
     #[test]
     fn missing_require_section_is_flagged() {
         let errs = parse("requirement r { category: 1 }").unwrap_err();
-        assert!(errs
-            .iter()
-            .any(|e| matches!(e, GateError::MissingSection { section: "require" })));
+        assert!(
+            errs.iter()
+                .any(|e| matches!(e, GateError::MissingSection { section: "require" }))
+        );
     }
 
     #[test]
@@ -778,9 +779,10 @@ mod tests {
     #[test]
     fn bad_category_is_reported() {
         let errs = parse("requirement r { category: 9z\n require { always ok } }").unwrap_err();
-        assert!(errs
-            .iter()
-            .any(|e| matches!(e, GateError::BadCategory { value, .. } if value == "9z")));
+        assert!(
+            errs.iter()
+                .any(|e| matches!(e, GateError::BadCategory { value, .. } if value == "9z"))
+        );
     }
 
     #[test]

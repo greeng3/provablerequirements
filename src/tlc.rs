@@ -538,7 +538,7 @@ fn lower_atom(
                     "`{}` is applied to `{arg}`, which is not the quantified variable — there \
                      is no value to give it",
                     a.name
-                )))
+                )));
             }
         }
     }
@@ -619,14 +619,14 @@ pub fn locate_spec(
                  behaviour formula `{SPEC_OPERATOR} == Init /\\ [][Next]_vars`, and a \
                  `SPECIFICATION` TLC can use takes none",
                 at.file, at.line
-            ))
+            ));
         }
         ModelResolution::NotFound => {
             return Err(format!(
                 "no `{SPEC_OPERATOR}` behaviour definition in the subject's TLA+ — provreq \
                  checks a named `{SPEC_OPERATOR} == Init /\\ [][Next]_vars`; define one so the \
                  model has a behaviour to check the property against"
-            ))
+            ));
         }
         ModelResolution::Ambiguous(ats) => {
             let places = ats
@@ -762,7 +762,7 @@ pub fn run(site: &SpecSite, check: &Check) -> Outcome {
         Err(e) => {
             return Outcome::Inconclusive {
                 reason: format!("could not create a scratch metadir for TLC: {e}"),
-            }
+            };
         }
     };
     let tla_path = metadir.path().join(format!("{}.tla", check.name));
@@ -1183,10 +1183,12 @@ mod tests {
         );
         // Nothing configured means nothing to say — not a line about defaults nobody chose,
         // because a spec that declares a constant and is given none never runs at all.
-        assert!(Outcome::Holds
-            .into_evidence(&Constants::default())
-            .detail
-            .is_empty());
+        assert!(
+            Outcome::Holds
+                .into_evidence(&Constants::default())
+                .detail
+                .is_empty()
+        );
     }
 
     // Verifies: REQ029 (#211) — an assignment for a name the model does not declare is REFUSED by
@@ -1203,18 +1205,22 @@ mod tests {
         // And it says what the model does declare, so the fix is one edit away.
         assert!(reason.contains("Drones"), "{reason}");
         // The declared ones alone are fine.
-        assert!(constants_from(&[("MaxAlt", "2")])
-            .check_declared(&declared)
-            .is_ok());
+        assert!(
+            constants_from(&[("MaxAlt", "2")])
+                .check_declared(&declared)
+                .is_ok()
+        );
         // A model that declares nothing cannot be assigned anything, and says so plainly.
         let reason = constants_from(&[("MaxAlt", "2")])
             .check_declared(&std::collections::BTreeSet::new())
             .expect_err("nothing is assignable");
         assert!(reason.contains("no constants at all"), "{reason}");
         // Nothing configured is never a refusal — the constant-free subject.
-        assert!(Constants::default()
-            .check_declared(&std::collections::BTreeSet::new())
-            .is_ok());
+        assert!(
+            Constants::default()
+                .check_declared(&std::collections::BTreeSet::new())
+                .is_ok()
+        );
     }
 
     // Verifies: REQ029 (#211) — A MODEL VALUE IS EXEMPT. `d1 = d1` is how a `.cfg` introduces an
@@ -1231,9 +1237,11 @@ mod tests {
             "a set of model values is the ordinary parameterised model, not an edge case"
         );
         // Exempt because it names ITSELF — not because the name is unknown.
-        assert!(constants_from(&[("Ceiling", "99")])
-            .check_declared(&declared)
-            .is_err());
+        assert!(
+            constants_from(&[("Ceiling", "99")])
+                .check_declared(&declared)
+                .is_err()
+        );
     }
 
     // Verifies: REQ029 (#211) — the model rides along with EVERY outcome, not just the pass. A
@@ -1263,15 +1271,19 @@ mod tests {
         // Each outcome states its own relation to the model. An `inconclusive` checked nothing,
         // and must not say it did.
         assert!(fails.detail.iter().any(|d| d.starts_with("refuted under")));
-        assert!(inconclusive
-            .detail
-            .iter()
-            .any(|d| d.starts_with("the model provreq supplied")));
-        assert!(Outcome::Holds
-            .into_evidence(&constants)
-            .detail
-            .iter()
-            .any(|d| d.starts_with("checked under")));
+        assert!(
+            inconclusive
+                .detail
+                .iter()
+                .any(|d| d.starts_with("the model provreq supplied"))
+        );
+        assert!(
+            Outcome::Holds
+                .into_evidence(&constants)
+                .detail
+                .iter()
+                .any(|d| d.starts_with("checked under"))
+        );
         // Still nothing to say when nothing is configured, on every outcome.
         assert_eq!(
             Outcome::Fails {
@@ -1316,9 +1328,11 @@ mod tests {
             );
         }
         let empty = tempfile::tempdir().expect("tempdir");
-        assert!(Constants::load(empty.path())
-            .expect("no manifest")
-            .is_empty());
+        assert!(
+            Constants::load(empty.path())
+                .expect("no manifest")
+                .is_empty()
+        );
     }
 
     // Verifies: REQ029 (#121) — a value provreq cannot write as a TLA+ expression is REFUSED, not
@@ -1451,7 +1465,9 @@ mod tests {
     #[test]
     fn successful_check_is_holds() {
         assert_eq!(
-            classify("Checking temporal properties...\nModel checking completed. No error has been found.\n"),
+            classify(
+                "Checking temporal properties...\nModel checking completed. No error has been found.\n"
+            ),
             Outcome::Holds
         );
     }
@@ -1475,9 +1491,11 @@ Finished in 00s
         let Outcome::Fails { violated, witness } = classify(output) else {
             panic!("a violated property must refute");
         };
-        assert!(violated
-            .expect("names the property")
-            .contains("Temporal properties were violated"));
+        assert!(
+            violated
+                .expect("names the property")
+                .contains("Temporal properties were violated")
+        );
         let w = witness.expect("must carry the counter-example");
         assert!(w.contains("State 1"), "{w}");
         assert!(w.contains("pc = 1"), "{w}");
@@ -1502,9 +1520,11 @@ pc = 0
         let Outcome::Fails { violated, .. } = classify(output) else {
             panic!("a violated invariant must refute");
         };
-        assert!(violated
-            .expect("names the invariant")
-            .contains("Invariant Accepted"));
+        assert!(
+            violated
+                .expect("names the invariant")
+                .contains("Invariant Accepted")
+        );
     }
 
     // Verifies: REQ029 — an unassigned CONSTANT is INCONCLUSIVE, never an optimistic pass, and
@@ -1996,11 +2016,13 @@ Residual stack trace follows:
             Outcome::Holds,
             "a parameterised spec must be checkable under the operator's model: {outcome:?}"
         );
-        assert!(Outcome::Holds
-            .into_evidence(&small)
-            .detail
-            .iter()
-            .any(|d| d.contains("MaxLen = 1")));
+        assert!(
+            Outcome::Holds
+                .into_evidence(&small)
+                .detail
+                .iter()
+                .any(|d| d.contains("MaxLen = 1"))
+        );
 
         // Under `MaxLen = 5` the same claim about the same spec is false — which is exactly why
         // the model has to be reported with the verdict.
@@ -2113,9 +2135,11 @@ Residual stack trace follows:
         let Outcome::Fails { witness, .. } = outcome else {
             panic!("an unfair leads-to must be refuted, got {outcome:?}");
         };
-        assert!(witness
-            .expect("TLC must print a behaviour")
-            .contains("pc = 0"));
+        assert!(
+            witness
+                .expect("TLC must print a behaviour")
+                .contains("pc = 0")
+        );
     }
 
     // Verifies: REQ029 — THE REAL ENGINE leaves no litter: the generated module, cfg, and any

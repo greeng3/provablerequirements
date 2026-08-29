@@ -184,7 +184,7 @@ pub fn stale_worklist(
 mod tests {
     use super::*;
     use crate::draft::{self, DraftState};
-    use crate::triage::{set, TriageState};
+    use crate::triage::{TriageState, set};
     use crate::verdict::{ProvenanceReport, VerdictReport};
 
     fn item(id: &str) -> Item {
@@ -399,10 +399,11 @@ mod tests {
         let rows = backlog(&[it], &TriageState::new(), &edited, &verdicts, &anchor());
         let row = rows[0].verdict.as_ref().unwrap();
         assert!(!row.fresh);
-        assert!(row
-            .stale_reasons
-            .iter()
-            .any(|r| r.contains("no longer admitted")));
+        assert!(
+            row.stale_reasons
+                .iter()
+                .any(|r| r.contains("no longer admitted"))
+        );
     }
 
     // Verifies: REQ043 — a drifted verdict is stale regardless of polarity: a fresh `fails` is a

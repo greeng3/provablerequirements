@@ -941,9 +941,10 @@ mod tests {
     fn uncategorized_requirement_is_blocked() {
         let r = readiness("SR003", &[], &BTreeMap::new());
         assert!(!r.ready);
-        assert!(r
-            .blockers
-            .iter()
-            .any(|b| b.contains("no declared category")));
+        assert!(
+            r.blockers
+                .iter()
+                .any(|b| b.contains("no declared category"))
+        );
     }
 }

@@ -15,7 +15,7 @@ use std::path::Path;
 
 use anyhow::{Context, Result};
 
-use reqforge_model::doorstop::{build_plan, execute, parse, ExecuteTarget, ImportReport};
+use reqforge_model::doorstop::{ExecuteTarget, ImportReport, build_plan, execute, parse};
 use reqforge_model::load::project::LoadedProject;
 use reqforge_model::schema::ProjectConfig;
 use reqforge_model::write::OwnershipOverrides;

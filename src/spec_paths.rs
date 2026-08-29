@@ -183,9 +183,11 @@ mod tests {
     // resolve to the subject itself and silently re-walk the whole tree.
     #[test]
     fn a_blank_entry_is_not_a_root() {
-        assert!(load(&subject_with_manifest(
-            "tla:\n  spec_paths:\n    - ''\n    - '  '\n"
-        ))
-        .is_empty());
+        assert!(
+            load(&subject_with_manifest(
+                "tla:\n  spec_paths:\n    - ''\n    - '  '\n"
+            ))
+            .is_empty()
+        );
     }
 }

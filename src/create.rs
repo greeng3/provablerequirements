@@ -12,7 +12,7 @@
 
 use std::path::{Path, PathBuf};
 
-use anyhow::{bail, Result};
+use anyhow::{Result, bail};
 use chrono::Utc;
 use uuid::Uuid;
 
@@ -31,7 +31,10 @@ pub fn create(subject: &Path, id: &str, title: &str, prose: &str) -> Result<Path
             "no ReqForge collection under {} to author into",
             req_root.display()
         ),
-        n => bail!("{n} collections under {}; which one is ambiguous — author by editing the artifact directly for now", req_root.display()),
+        n => bail!(
+            "{n} collections under {}; which one is ambiguous — author by editing the artifact directly for now",
+            req_root.display()
+        ),
     };
 
     let path = dir.join(format!("{id}.md"));

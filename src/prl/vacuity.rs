@@ -147,9 +147,11 @@ mod tests {
             vocabulary { state p(x) }
             require { each m: X . p(m) leads_to p(m) }
         }";
-        assert!(warns(src)
-            .iter()
-            .any(|w| matches!(w, GateWarning::SelfLeadsTo { .. })));
+        assert!(
+            warns(src)
+                .iter()
+                .any(|w| matches!(w, GateWarning::SelfLeadsTo { .. }))
+        );
     }
 
     #[test]
@@ -158,9 +160,11 @@ mod tests {
             vocabulary { state p(x) }
             require { p(a) precedes p(a) }
         }";
-        assert!(warns(src)
-            .iter()
-            .any(|w| matches!(w, GateWarning::SelfPrecedes { .. })));
+        assert!(
+            warns(src)
+                .iter()
+                .any(|w| matches!(w, GateWarning::SelfPrecedes { .. }))
+        );
     }
 
     #[test]
@@ -169,9 +173,11 @@ mod tests {
             vocabulary { state p(x) }
             require { always (p(m) or not p(m)) }
         }";
-        assert!(warns(src)
-            .iter()
-            .any(|w| matches!(w, GateWarning::ImmediateTautology { .. })));
+        assert!(
+            warns(src)
+                .iter()
+                .any(|w| matches!(w, GateWarning::ImmediateTautology { .. }))
+        );
     }
 
     #[test]
@@ -180,9 +186,11 @@ mod tests {
             vocabulary { state p(x) }
             require { eventually (p(m) and not p(m)) }
         }";
-        assert!(warns(src)
-            .iter()
-            .any(|w| matches!(w, GateWarning::ImmediateContradiction { .. })));
+        assert!(
+            warns(src)
+                .iter()
+                .any(|w| matches!(w, GateWarning::ImmediateContradiction { .. }))
+        );
     }
 
     #[test]
@@ -191,9 +199,11 @@ mod tests {
             vocabulary { event retry(x) }
             require { retry(m) occurs at most 0 times }
         }";
-        assert!(warns(src)
-            .iter()
-            .any(|w| matches!(w, GateWarning::OccursAtMostZero { .. })));
+        assert!(
+            warns(src)
+                .iter()
+                .any(|w| matches!(w, GateWarning::OccursAtMostZero { .. }))
+        );
     }
 
     #[test]
@@ -203,13 +213,16 @@ mod tests {
             require { always used(m) }
         }";
         let ws = warns(src);
-        assert!(ws
-            .iter()
-            .any(|w| matches!(w, GateWarning::UnusedVocabulary { name, .. } if name == "orphan")));
+        assert!(
+            ws.iter().any(
+                |w| matches!(w, GateWarning::UnusedVocabulary { name, .. } if name == "orphan")
+            )
+        );
         // The used predicate is not flagged.
-        assert!(!ws
-            .iter()
-            .any(|w| matches!(w, GateWarning::UnusedVocabulary { name, .. } if name == "used")));
+        assert!(
+            !ws.iter()
+                .any(|w| matches!(w, GateWarning::UnusedVocabulary { name, .. } if name == "used"))
+        );
     }
 
     #[test]

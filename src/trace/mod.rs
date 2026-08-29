@@ -204,9 +204,10 @@ mod tests {
             "// Requirements: REQ001\nfn a() {}\n// Satisfies: REQ002\nfn b() {}\n",
         );
         let tags = scan(tmp.path(), &companion(&tmp), &req_prefixes());
-        assert!(tags
-            .iter()
-            .all(|t| t.kind == TraceKind::Implements && t.req_id.starts_with("REQ")));
+        assert!(
+            tags.iter()
+                .all(|t| t.kind == TraceKind::Implements && t.req_id.starts_with("REQ"))
+        );
         assert_eq!(tags.len(), 2, "both alias forms count: {tags:?}");
     }
 

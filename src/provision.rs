@@ -35,10 +35,10 @@ pub fn data_dir() -> PathBuf {
     if let Ok(explicit) = std::env::var("PROVREQ_DATA_HOME") {
         return PathBuf::from(explicit);
     }
-    if let Ok(xdg) = std::env::var("XDG_DATA_HOME") {
-        if !xdg.is_empty() {
-            return PathBuf::from(xdg).join("provreq");
-        }
+    if let Ok(xdg) = std::env::var("XDG_DATA_HOME")
+        && !xdg.is_empty()
+    {
+        return PathBuf::from(xdg).join("provreq");
     }
     let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
     PathBuf::from(home).join(".local/share/provreq")

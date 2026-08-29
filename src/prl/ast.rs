@@ -387,12 +387,14 @@ mod tests {
     // a claim ranges over, and binding one would put `true` in a harness's binder list.
     #[test]
     fn literals_and_expressions_are_not_bound() {
-        assert!(binders_of(
-            "requirement r { category: 1
+        assert!(
+            binders_of(
+                "requirement r { category: 1
              vocabulary { state p(u: Flag) }
              require { always p(true) } }"
-        )
-        .is_empty());
+            )
+            .is_empty()
+        );
     }
 
     // Verifies: REQ059 — closure is the code fragment's invariant reading, and applies nowhere

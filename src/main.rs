@@ -1,4 +1,4 @@
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use clap::{Parser, Subcommand};
 use provreq::adopt::resolve;
 use provreq::draft::{self, Draft, GateStatus};
@@ -723,7 +723,9 @@ fn check_candidate(companion: &Path, state: &draft::DraftState, id: &str) -> Res
         .get(id)
         .with_context(|| format!("no draft for {id} — open one first with `provreq draft {id}`"))?;
     let Some(candidate) = &draft.candidate else {
-        println!("Draft {id} has no candidate PRL to check yet — write one with `--set` or `--translate`.");
+        println!(
+            "Draft {id} has no candidate PRL to check yet — write one with `--set` or `--translate`."
+        );
         return Ok(());
     };
     let status = gate_to_status(&provreq::prl::gate(candidate));
@@ -742,7 +744,9 @@ fn readback_candidate(state: &draft::DraftState, id: &str) -> Result<()> {
         .get(id)
         .with_context(|| format!("no draft for {id} — open one first with `provreq draft {id}`"))?;
     let Some(candidate) = &draft.candidate else {
-        println!("Draft {id} has no candidate PRL to read back yet — write one with `--set` or `--translate`.");
+        println!(
+            "Draft {id} has no candidate PRL to read back yet — write one with `--set` or `--translate`."
+        );
         return Ok(());
     };
     match provreq::prl::gate(candidate) {
@@ -789,7 +793,9 @@ fn admit_candidate(
         .get(id)
         .with_context(|| format!("no draft for {id} — open one first with `provreq draft {id}`"))?;
     let Some(candidate) = &draft.candidate else {
-        println!("Draft {id} has no candidate PRL to admit yet — write one with `--set` or `--translate`.");
+        println!(
+            "Draft {id} has no candidate PRL to admit yet — write one with `--set` or `--translate`."
+        );
         return Ok(());
     };
 
@@ -904,7 +910,9 @@ fn ground_candidate(
         .get(id)
         .with_context(|| format!("no draft for {id} — open one first with `provreq draft {id}`"))?;
     let Some(candidate) = &draft.candidate else {
-        println!("Draft {id} has no candidate PRL to ground yet — write one with `--set` or `--translate`.");
+        println!(
+            "Draft {id} has no candidate PRL to ground yet — write one with `--set` or `--translate`."
+        );
         return Ok(());
     };
     let (symbol, observable) = spec
@@ -1003,7 +1011,9 @@ fn dry_run_candidate(
         .get(id)
         .with_context(|| format!("no draft for {id} — open one first with `provreq draft {id}`"))?;
     let Some(candidate) = &draft.candidate else {
-        println!("Draft {id} has no candidate PRL to dry-run yet — write one with `--set` or `--translate`.");
+        println!(
+            "Draft {id} has no candidate PRL to dry-run yet — write one with `--set` or `--translate`."
+        );
         return Ok(());
     };
     let requirement = match provreq::prl::gate(candidate) {
@@ -1649,12 +1659,12 @@ fn load_predicate_sources(
 ) -> Result<BTreeMap<String, String>> {
     let mut sources: BTreeMap<String, String> = BTreeMap::new();
     for res in resolutions.values() {
-        if let Resolution::Resolved { at, .. } = res {
-            if !sources.contains_key(&at.file) {
-                let text = std::fs::read_to_string(subject.join(&at.file))
-                    .with_context(|| format!("reading {}", subject.join(&at.file).display()))?;
-                sources.insert(at.file.clone(), text);
-            }
+        if let Resolution::Resolved { at, .. } = res
+            && !sources.contains_key(&at.file)
+        {
+            let text = std::fs::read_to_string(subject.join(&at.file))
+                .with_context(|| format!("reading {}", subject.join(&at.file).display()))?;
+            sources.insert(at.file.clone(), text);
         }
     }
     Ok(sources)
@@ -1672,8 +1682,8 @@ async fn stage_semantic_drafts(
     repair: bool,
 ) -> Result<()> {
     use provreq::contract_draft::{ensure_logic_types, ensure_prelude, marker_for_subject};
-    use provreq::mirror_draft::{append_items, link_clauses, MirrorDraft, Mirrorer};
-    use provreq::semantic_draft::{apply_to_source, ContractDraft, Drafter, ProofStep};
+    use provreq::mirror_draft::{MirrorDraft, Mirrorer, append_items, link_clauses};
+    use provreq::semantic_draft::{ContractDraft, Drafter, ProofStep, apply_to_source};
 
     let manifest = std::fs::read_to_string(subject.join("Cargo.toml"))
         .with_context(|| format!("reading {}", subject.join("Cargo.toml").display()))?;
@@ -2156,7 +2166,7 @@ fn print_ui_script(
 mod tests {
     use super::*;
     use provreq::semantic_draft::ProofStep;
-    use provreq::verdict::{aggregate, Basis, Evidence, Provenance};
+    use provreq::verdict::{Basis, Evidence, Provenance, aggregate};
 
     // Verifies: REQ056 — a subject path handed to an id-taking command is recognised as such, so
     // the error can name the fix. This is the real wiring, not just the predicate: it asserts that

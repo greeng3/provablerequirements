@@ -10,7 +10,7 @@
 
 use std::path::Path;
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 
 use reqforge_model::index::build_uuid_index;
 use reqforge_model::load::load_project;

@@ -124,10 +124,9 @@ impl fmt::Display for GateWarning {
                 f,
                 "line {line}: `P leads_to P` leads to itself — vacuously true"
             ),
-            GateWarning::SelfPrecedes { line } => write!(
-                f,
-                "line {line}: `P precedes P` precedes itself — vacuous"
-            ),
+            GateWarning::SelfPrecedes { line } => {
+                write!(f, "line {line}: `P precedes P` precedes itself — vacuous")
+            }
             GateWarning::ImmediateTautology { line } => write!(
                 f,
                 "line {line}: an operand `P or not P` is always true — the pattern is vacuously satisfied"

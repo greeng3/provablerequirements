@@ -16,7 +16,7 @@ pub mod ast;
 mod check;
 pub mod error;
 mod fragment;
-pub use fragment::{triage_boundaries, CategoryBoundary};
+pub use fragment::{CategoryBoundary, triage_boundaries};
 mod lexer;
 pub(crate) mod parser;
 mod readback;
@@ -122,10 +122,12 @@ mod tests {
             require { each m: X . p(m) leads_to p(m) }
         }";
         let outcome = gate(src).expect("a vacuous-but-valid candidate still clears the gate");
-        assert!(outcome
-            .warnings
-            .iter()
-            .any(|w| matches!(w, GateWarning::SelfLeadsTo { .. })));
+        assert!(
+            outcome
+                .warnings
+                .iter()
+                .any(|w| matches!(w, GateWarning::SelfLeadsTo { .. }))
+        );
     }
 
     // Verifies: REQ016 — a candidate using an undeclared predicate is rejected, and
