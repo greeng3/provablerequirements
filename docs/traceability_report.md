@@ -3,8 +3,8 @@ Traceability report
 REQ001 — REQ001
   formalized: —   implemented: yes   verified: yes
   verdict: never verified
-    src/lib.rs:51 → health_json
-    src/lib.rs:61 → health_json_reports_ok_and_current_version
+    src/lib.rs:58 → health_json
+    src/lib.rs:68 → health_json_reports_ok_and_current_version
 
 REQ002 — REQ002
   formalized: —   implemented: —   verified: —
@@ -22,17 +22,17 @@ REQ005 — REQ005
   formalized: —   implemented: yes   verified: yes
   verdict: never verified
     src/server.rs:6
-    src/server.rs:62 → serve
-    src/server.rs:75 → health
-    src/server.rs:420 → health_route_returns_ok_json
+    src/server.rs:99 → serve
+    src/server.rs:121 → health
+    src/server.rs:502 → health_route_returns_ok_json
 
 REQ006 — REQ006
   formalized: —   implemented: yes   verified: yes
   verdict: never verified
     src/server.rs:7
-    src/server.rs:373 → static_asset
-    src/server.rs:431 → root_serves_embedded_index_html
-    src/server.rs:439 → unknown_path_falls_back_to_index
+    src/server.rs:455 → static_asset
+    src/server.rs:513 → root_serves_embedded_index_html
+    src/server.rs:521 → unknown_path_falls_back_to_index
 
 REQ007 — REQ007
   formalized: —   implemented: yes   verified: yes
@@ -83,9 +83,8 @@ REQ012 — REQ012
   formalized: —   implemented: yes   verified: yes
   verdict: never verified
     src/llm.rs:10
-    src/llm.rs:591 → classify_maps_buckets_by_id
-    src/llm.rs:705 → classify_tolerates_code_fenced_json
-    src/llm.rs:720 → extracts_provider_response_shapes
+    src/llm.rs:605 → classify_maps_buckets_by_id
+    src/llm.rs:757 → classify_tolerates_code_fenced_json
 
 REQ013 — REQ013
   formalized: —   implemented: yes   verified: yes
@@ -103,9 +102,9 @@ REQ015 — REQ015
   formalized: —   implemented: yes   verified: yes
   verdict: never verified
     src/formalize.rs:16
-    src/formalize.rs:209 → translate_returns_candidate
-    src/formalize.rs:222 → translate_strips_code_fence
-    src/formalize.rs:235 → translate_rejects_empty_candidate
+    src/formalize.rs:229 → translate_returns_candidate
+    src/formalize.rs:242 → translate_strips_code_fence
+    src/formalize.rs:255 → translate_rejects_empty_candidate
 
 REQ016 — REQ016
   formalized: —   implemented: yes   verified: yes
@@ -116,8 +115,8 @@ REQ016 — REQ016
     src/prl/lexer.rs:6 → Token
     src/prl/parser.rs:11
     src/prl.rs:13 → ast
-    src/prl.rs:131 → gate_rejects_undeclared_predicate_with_a_line
-    src/prl.rs:148 → gate_rejects_malformed_input_at_parse
+    src/prl.rs:133 → gate_rejects_undeclared_predicate_with_a_line
+    src/prl.rs:150 → gate_rejects_malformed_input_at_parse
 
 REQ017 — REQ017
   formalized: —   implemented: yes   verified: yes
@@ -127,9 +126,9 @@ REQ017 — REQ017
     src/prl/vacuity.rs:13
     src/prl.rs:13 → ast
     src/draft.rs:447 → set_gate_updates_outcome_only
-    src/formalize.rs:290 → repair_loop_recovers_on_second_attempt
-    src/formalize.rs:307 → repair_loop_gives_up_after_max_attempts
-    src/formalize.rs:324 → vacuity_warnings_do_not_drive_repair
+    src/formalize.rs:310 → repair_loop_recovers_on_second_attempt
+    src/formalize.rs:327 → repair_loop_gives_up_after_max_attempts
+    src/formalize.rs:344 → vacuity_warnings_do_not_drive_repair
     src/prl.rs:116 → gate_accepts_but_warns_on_vacuity
 
 REQ018 — REQ018
@@ -156,13 +155,13 @@ REQ021 — REQ021
   formalized: —   implemented: yes   verified: yes
   verdict: never verified
     src/grounding.rs:17
-    src/trace/mod.rs:253
+    src/trace/mod.rs:254
     src/draft.rs:541 → set_binding_attaches_and_overwrites_by_symbol
     src/draft.rs:567 → editing_candidate_clears_bindings
     src/grounding.rs:638 → bindable_symbols_are_declared_predicates
     src/grounding.rs:646 → category_and_fidelity_default_from_the_requirement
     src/grounding.rs:655 → is_bindable_rejects_undeclared_symbols
-    src/grounding.rs:800 → a_binding_the_caller_did_not_resolve_parks_in_every_category
+    src/grounding.rs:802 → a_binding_the_caller_did_not_resolve_parks_in_every_category
     src/trace/mod.rs:163 → bindable_symbols_are_declared_predicates
     src/trace/tags.rs:186 → split_ids
 
@@ -207,33 +206,33 @@ REQ025 — REQ025
   verdict: never verified
     src/grounding.rs:17
     src/rust_adapter.rs:21
-    src/trace/mod.rs:253
+    src/trace/mod.rs:254
     src/grounding.rs:755 → verdict_parks_when_a_binding_does_not_resolve
-    src/grounding.rs:780 → verdict_parks_when_a_binding_was_never_resolved
-    src/grounding.rs:1090 → predicate_arity_comes_from_the_vocabulary
-    src/rust_adapter.rs:2186 → resolves_a_bool_function_to_its_source_location
-    src/rust_adapter.rs:2593 → missing_function_does_not_resolve
-    src/rust_adapter.rs:2602 → arity_mismatch_does_not_resolve
-    src/rust_adapter.rs:2619 → non_boolean_function_does_not_resolve
-    src/rust_adapter.rs:2631 → result_bool_is_not_mistaken_for_bool
-    src/rust_adapter.rs:2643 → duplicate_names_are_ambiguous_never_guessed
-    src/rust_adapter.rs:2659 → finds_functions_in_modules_and_impls
-    src/rust_adapter.rs:2672 → unparseable_file_does_not_blind_resolution
-    src/rust_adapter.rs:2685 → skips_the_companion_tree_and_git
-    src/rust_adapter.rs:2716 → empty_observable_resolves_to_nothing
-    src/rust_adapter.rs:2724 → non_rust_files_are_not_searched
-    src/rust_adapter.rs:3165 → resolved_readback_states_the_syntactic_limit
+    src/grounding.rs:782 → verdict_parks_when_a_binding_was_never_resolved
+    src/grounding.rs:1092 → predicate_arity_comes_from_the_vocabulary
+    src/rust_adapter.rs:2188 → resolves_a_bool_function_to_its_source_location
+    src/rust_adapter.rs:2595 → missing_function_does_not_resolve
+    src/rust_adapter.rs:2604 → arity_mismatch_does_not_resolve
+    src/rust_adapter.rs:2621 → non_boolean_function_does_not_resolve
+    src/rust_adapter.rs:2633 → result_bool_is_not_mistaken_for_bool
+    src/rust_adapter.rs:2645 → duplicate_names_are_ambiguous_never_guessed
+    src/rust_adapter.rs:2661 → finds_functions_in_modules_and_impls
+    src/rust_adapter.rs:2674 → unparseable_file_does_not_blind_resolution
+    src/rust_adapter.rs:2687 → skips_the_companion_tree_and_git
+    src/rust_adapter.rs:2718 → empty_observable_resolves_to_nothing
+    src/rust_adapter.rs:2726 → non_rust_files_are_not_searched
+    src/rust_adapter.rs:3169 → resolved_readback_states_the_syntactic_limit
 
 REQ026 — REQ026
   formalized: —   implemented: —   verified: yes
   verdict: never verified
-    src/grounding.rs:863 → bindable_sorts_are_quantifier_sorts_and_declared_sorts
-    src/grounding.rs:924 → unbound_sort_parks_even_when_every_predicate_resolves
-    src/grounding.rs:950 → unresolved_sort_parks
-    src/rust_adapter.rs:2818 → resolves_a_sort_to_a_struct_enum_or_alias
-    src/rust_adapter.rs:2886 → unknown_sort_does_not_resolve
-    src/rust_adapter.rs:2899 → duplicate_sorts_are_ambiguous_never_guessed
-    src/rust_adapter.rs:3134 → predicates_and_sorts_do_not_cross_resolve
+    src/grounding.rs:865 → bindable_sorts_are_quantifier_sorts_and_declared_sorts
+    src/grounding.rs:926 → unbound_sort_parks_even_when_every_predicate_resolves
+    src/grounding.rs:952 → unresolved_sort_parks
+    src/rust_adapter.rs:2820 → resolves_a_sort_to_a_struct_enum_or_alias
+    src/rust_adapter.rs:2888 → unknown_sort_does_not_resolve
+    src/rust_adapter.rs:2902 → duplicate_sorts_are_ambiguous_never_guessed
+    src/rust_adapter.rs:3138 → predicates_and_sorts_do_not_cross_resolve
 
 REQ027 — REQ027
   formalized: —   implemented: yes   verified: yes
@@ -250,30 +249,30 @@ REQ027 — REQ027
     src/kani.rs:670 → temporal_patterns_do_not_lower
     src/kani.rs:685 → successful_verification_is_holds
     src/kani.rs:694 → failed_verification_is_fails_with_a_witness
-    src/kani.rs:721 → failed_verification_without_playback_still_fails
-    src/kani.rs:734 → unrecognised_output_is_inconclusive_and_names_the_actionable_cause
-    src/kani.rs:770 → empty_output_is_inconclusive_with_a_readable_reason
-    src/kani.rs:820 → harness_name_is_a_valid_prefixed_identifier
-    src/kani.rs:874 → real_kani_verifies_a_true_invariant
-    src/kani.rs:913 → real_kani_refutes_a_false_invariant_with_a_concrete_witness
-    src/kani.rs:932 → real_kani_cannot_decide_when_the_sort_is_not_instantiable
-    src/kani.rs:975 → real_kani_run_leaves_no_trace_in_the_subject
-    src/kani.rs:989 → an_existing_file_is_never_overwritten
-    src/kani.rs:1013 → a_kani_pass_is_bounded_model_checked_never_proven
-    src/kani.rs:1150 → a_kani_refutation_becomes_a_fails_carrying_its_witness
-    src/kani.rs:1172 → an_undecided_run_is_unknown_inconclusive_never_a_verdict
-    src/rust_adapter.rs:2438 → resolved_predicate_reports_how_its_parameters_take_arguments
+    src/kani.rs:723 → failed_verification_without_playback_still_fails
+    src/kani.rs:736 → unrecognised_output_is_inconclusive_and_names_the_actionable_cause
+    src/kani.rs:772 → empty_output_is_inconclusive_with_a_readable_reason
+    src/kani.rs:822 → harness_name_is_a_valid_prefixed_identifier
+    src/kani.rs:876 → real_kani_verifies_a_true_invariant
+    src/kani.rs:915 → real_kani_refutes_a_false_invariant_with_a_concrete_witness
+    src/kani.rs:934 → real_kani_cannot_decide_when_the_sort_is_not_instantiable
+    src/kani.rs:977 → real_kani_run_leaves_no_trace_in_the_subject
+    src/kani.rs:991 → an_existing_file_is_never_overwritten
+    src/kani.rs:1015 → a_kani_pass_is_bounded_model_checked_never_proven
+    src/kani.rs:1152 → a_kani_refutation_becomes_a_fails_carrying_its_witness
+    src/kani.rs:1174 → an_undecided_run_is_unknown_inconclusive_never_a_verdict
+    src/rust_adapter.rs:2440 → resolved_predicate_reports_how_its_parameters_take_arguments
 
 REQ028 — REQ028
   formalized: —   implemented: yes   verified: yes
   verdict: never verified
     src/spec_paths.rs:32
     src/tla_adapter.rs:38
-    src/grounding.rs:1116 → model_requirement_grounds_when_every_binding_resolves
-    src/grounding.rs:1421 → model_requirement_parks_when_a_binding_does_not_resolve
-    src/grounding.rs:1448 → model_requirement_parks_when_a_binding_has_the_wrong_arity
-    src/grounding.rs:1493 → the_arity_a_model_binding_must_match_comes_from_the_vocabulary
-    src/grounding.rs:1507 → model_requirement_parks_when_a_binding_was_never_resolved
+    src/grounding.rs:1118 → model_requirement_grounds_when_every_binding_resolves
+    src/grounding.rs:1423 → model_requirement_parks_when_a_binding_does_not_resolve
+    src/grounding.rs:1452 → model_requirement_parks_when_a_binding_has_the_wrong_arity
+    src/grounding.rs:1497 → the_arity_a_model_binding_must_match_comes_from_the_vocabulary
+    src/grounding.rs:1511 → model_requirement_parks_when_a_binding_was_never_resolved
     src/spec_paths.rs:119 → a_configured_root_resolves_against_the_subject
     src/spec_paths.rs:134 → a_sibling_root_resolves_to_a_clean_absolute_path
     src/spec_paths.rs:155 → an_unconfigured_subject_has_no_extra_roots
@@ -288,21 +287,21 @@ REQ028 — REQ028
     src/tla_adapter.rs:677 → resolves_an_operator_definition_to_its_location
     src/tla_adapter.rs:690 → a_variable_a_constant_and_a_set_all_resolve
     src/tla_adapter.rs:754 → an_undefined_name_does_not_resolve
-    src/tla_adapter.rs:765 → a_name_only_in_a_comment_does_not_resolve
-    src/tla_adapter.rs:772 → a_keyword_prefix_is_not_a_declaration
-    src/tla_adapter.rs:784 → an_equality_expression_is_not_a_definition
-    src/tla_adapter.rs:794 → a_function_definition_takes_no_operator_arguments
-    src/tla_adapter.rs:812 → a_predicate_bound_to_a_variable_that_takes_no_arguments_is_refused
-    src/tla_adapter.rs:837 → an_operator_applied_to_too_few_arguments_is_refused
-    src/tla_adapter.rs:853 → a_multi_argument_operator_resolves_only_at_its_own_arity
-    src/tla_adapter.rs:865 → a_higher_order_parameter_counts_as_one_argument
-    src/tla_adapter.rs:874 → ambiguity_is_reported_before_arity
-    src/tla_adapter.rs:887 → the_read_back_claims_only_what_was_checked
-    src/tla_adapter.rs:901 → an_unreadable_parameter_list_claims_no_arity
-    src/tla_adapter.rs:913 → duplicate_definitions_are_ambiguous_never_guessed
-    src/tla_adapter.rs:925 → the_walk_skips_the_companion_and_git
-    src/tla_adapter.rs:950 → non_tla_files_are_not_searched
-    src/tla_adapter.rs:959 → empty_observable_resolves_to_nothing
+    src/tla_adapter.rs:767 → a_name_only_in_a_comment_does_not_resolve
+    src/tla_adapter.rs:774 → a_keyword_prefix_is_not_a_declaration
+    src/tla_adapter.rs:786 → an_equality_expression_is_not_a_definition
+    src/tla_adapter.rs:796 → a_function_definition_takes_no_operator_arguments
+    src/tla_adapter.rs:814 → a_predicate_bound_to_a_variable_that_takes_no_arguments_is_refused
+    src/tla_adapter.rs:839 → an_operator_applied_to_too_few_arguments_is_refused
+    src/tla_adapter.rs:855 → a_multi_argument_operator_resolves_only_at_its_own_arity
+    src/tla_adapter.rs:867 → a_higher_order_parameter_counts_as_one_argument
+    src/tla_adapter.rs:876 → ambiguity_is_reported_before_arity
+    src/tla_adapter.rs:889 → the_read_back_claims_only_what_was_checked
+    src/tla_adapter.rs:903 → an_unreadable_parameter_list_claims_no_arity
+    src/tla_adapter.rs:915 → duplicate_definitions_are_ambiguous_never_guessed
+    src/tla_adapter.rs:927 → the_walk_skips_the_companion_and_git
+    src/tla_adapter.rs:952 → non_tla_files_are_not_searched
+    src/tla_adapter.rs:961 → empty_observable_resolves_to_nothing
     src/verdict_store.rs:450 → an_external_spec_moving_makes_a_verdict_stale
     src/verdict_store.rs:477 → a_verdict_without_a_spec_fingerprint_is_not_flagged
     src/verdict_store.rs:496 → losing_the_configured_specs_makes_a_verdict_stale
@@ -318,43 +317,43 @@ REQ029 — REQ029
     src/tlc.rs:1146 → a_configured_constant_is_assigned_in_the_cfg
     src/tlc.rs:1165 → an_unconfigured_subject_gets_the_cfg_it_always_had
     src/tlc.rs:1173 → a_bounded_holds_reports_the_model_it_was_checked_under
-    src/tlc.rs:1192 → an_assignment_the_model_does_not_declare_is_refused_by_name
-    src/tlc.rs:1220 → a_model_value_needs_no_declaration_in_the_spec
-    src/tlc.rs:1239 → every_outcome_reports_the_model_it_was_produced_under
-    src/tlc.rs:1287 → constants_are_read_from_the_manifest
-    src/tlc.rs:1301 → a_subject_that_configured_nothing_has_no_constants
-    src/tlc.rs:1324 → a_constant_provreq_cannot_write_is_refused_by_name
-    src/tlc.rs:1335 → safety_and_eventually_patterns_lower_to_tla_operators
-    src/tlc.rs:1375 → unbound_sort_does_not_lower
-    src/tlc.rs:1394 → unbound_predicate_does_not_lower
-    src/tlc.rs:1412 → metric_leads_to_does_not_lower
-    src/tlc.rs:1431 → out_of_core_pattern_does_not_lower
-    src/tlc.rs:1450 → successful_check_is_holds
-    src/tlc.rs:1459 → temporal_violation_is_fails_with_a_witness
-    src/tlc.rs:1490 → invariant_violation_is_fails
-    src/tlc.rs:1510 → unassigned_constant_is_inconclusive_and_names_the_cause
-    src/tlc.rs:1525 → an_error_line_that_announces_its_cause_carries_it
-    src/tlc.rs:1561 → a_location_in_the_generated_module_becomes_what_provreq_generated
-    src/tlc.rs:1596 → an_unquotable_generated_location_is_dropped_rather_than_kept
-    src/tlc.rs:1619 → a_sany_semantic_banner_reports_the_cause_not_the_count
-    src/tlc.rs:1651 → a_sany_parse_banner_reports_the_cause_not_the_count
-    src/tlc.rs:1674 → a_banner_with_no_cause_after_it_is_still_the_reason
-    src/tlc.rs:1684 → empty_output_is_inconclusive
-    src/tlc.rs:1694 → module_name_is_a_valid_prefixed_identifier
-    src/tlc.rs:1702 → module_header_is_read_from_the_spec
-    src/tlc.rs:1717 → the_module_search_path_is_resolved_whatever_the_operator_typed
-    src/tlc.rs:1754 → a_tlc_pass_is_bounded_model_checked_never_proven
-    src/tlc.rs:1770 → a_tlc_violation_becomes_a_fails_carrying_its_witness
-    src/tlc.rs:1791 → an_undecided_run_is_unknown_inconclusive_never_a_verdict
-    src/tlc.rs:1851 → real_tlc_verifies_a_true_leads_to
-    src/tlc.rs:1873 → real_tlc_reports_the_cause_of_a_wrong_arity_binding
-    src/tlc.rs:1948 → real_tlc_checks_a_parameterised_spec_under_the_operators_model
-    src/tlc.rs:2017 → real_tlc_ignores_an_assignment_the_spec_does_not_declare
-    src/tlc.rs:2046 → real_tlc_faults_in_the_generated_module_read_as_what_provreq_generated
-    src/tlc.rs:2098 → real_tlc_refutes_an_unfair_leads_to_with_a_witness
-    src/tlc.rs:2121 → real_tlc_run_leaves_no_trace_in_the_subject
-    src/tlc.rs:2148 → a_subject_without_spec_is_an_honest_error
-    src/tlc.rs:2167 → a_run_writes_nothing_into_the_spec_directory
+    src/tlc.rs:1194 → an_assignment_the_model_does_not_declare_is_refused_by_name
+    src/tlc.rs:1226 → a_model_value_needs_no_declaration_in_the_spec
+    src/tlc.rs:1247 → every_outcome_reports_the_model_it_was_produced_under
+    src/tlc.rs:1299 → constants_are_read_from_the_manifest
+    src/tlc.rs:1313 → a_subject_that_configured_nothing_has_no_constants
+    src/tlc.rs:1338 → a_constant_provreq_cannot_write_is_refused_by_name
+    src/tlc.rs:1349 → safety_and_eventually_patterns_lower_to_tla_operators
+    src/tlc.rs:1389 → unbound_sort_does_not_lower
+    src/tlc.rs:1408 → unbound_predicate_does_not_lower
+    src/tlc.rs:1426 → metric_leads_to_does_not_lower
+    src/tlc.rs:1445 → out_of_core_pattern_does_not_lower
+    src/tlc.rs:1464 → successful_check_is_holds
+    src/tlc.rs:1475 → temporal_violation_is_fails_with_a_witness
+    src/tlc.rs:1508 → invariant_violation_is_fails
+    src/tlc.rs:1530 → unassigned_constant_is_inconclusive_and_names_the_cause
+    src/tlc.rs:1545 → an_error_line_that_announces_its_cause_carries_it
+    src/tlc.rs:1581 → a_location_in_the_generated_module_becomes_what_provreq_generated
+    src/tlc.rs:1616 → an_unquotable_generated_location_is_dropped_rather_than_kept
+    src/tlc.rs:1639 → a_sany_semantic_banner_reports_the_cause_not_the_count
+    src/tlc.rs:1671 → a_sany_parse_banner_reports_the_cause_not_the_count
+    src/tlc.rs:1694 → a_banner_with_no_cause_after_it_is_still_the_reason
+    src/tlc.rs:1704 → empty_output_is_inconclusive
+    src/tlc.rs:1714 → module_name_is_a_valid_prefixed_identifier
+    src/tlc.rs:1722 → module_header_is_read_from_the_spec
+    src/tlc.rs:1737 → the_module_search_path_is_resolved_whatever_the_operator_typed
+    src/tlc.rs:1774 → a_tlc_pass_is_bounded_model_checked_never_proven
+    src/tlc.rs:1790 → a_tlc_violation_becomes_a_fails_carrying_its_witness
+    src/tlc.rs:1811 → an_undecided_run_is_unknown_inconclusive_never_a_verdict
+    src/tlc.rs:1871 → real_tlc_verifies_a_true_leads_to
+    src/tlc.rs:1893 → real_tlc_reports_the_cause_of_a_wrong_arity_binding
+    src/tlc.rs:1968 → real_tlc_checks_a_parameterised_spec_under_the_operators_model
+    src/tlc.rs:2039 → real_tlc_ignores_an_assignment_the_spec_does_not_declare
+    src/tlc.rs:2068 → real_tlc_faults_in_the_generated_module_read_as_what_provreq_generated
+    src/tlc.rs:2120 → real_tlc_refutes_an_unfair_leads_to_with_a_witness
+    src/tlc.rs:2145 → real_tlc_run_leaves_no_trace_in_the_subject
+    src/tlc.rs:2172 → a_subject_without_spec_is_an_honest_error
+    src/tlc.rs:2191 → a_run_writes_nothing_into_the_spec_directory
 
 REQ030 — REQ030
   formalized: —   implemented: yes   verified: yes
@@ -373,27 +372,27 @@ REQ031 — REQ031
   formalized: —   implemented: yes   verified: yes
   verdict: never verified
     src/creusot.rs:34
-    src/creusot.rs:770 → quantified_invariant_lowers_to_a_forall_proof_assert
-    src/creusot.rs:792 → calls_go_through_crate_not_a_crate_name
-    src/creusot.rs:801 → calls_follow_the_subjects_parameter_modes
-    src/creusot.rs:814 → never_lowers_to_a_negated_unquantified_assertion
-    src/creusot.rs:844 → unbound_sort_does_not_lower
-    src/creusot.rs:863 → unresolved_predicate_does_not_lower
-    src/creusot.rs:878 → temporal_patterns_do_not_lower
-    src/creusot.rs:893 → proved_output_is_holds
-    src/creusot.rs:902 → unproved_goal_is_inconclusive_never_fails
-    src/creusot.rs:917 → a_partial_proof_is_not_holds
-    src/creusot.rs:925 → a_compile_failure_is_inconclusive_and_names_the_error_and_its_site
-    src/creusot.rs:1190 → unrecognised_output_is_inconclusive
-    src/creusot.rs:1200 → harness_name_is_a_valid_prefixed_identifier
-    src/creusot.rs:1215 → a_creusot_pass_is_proven_and_not_bounded
-    src/creusot.rs:1227 → an_inconclusive_run_is_unknown_never_a_verdict
-    src/creusot.rs:1394 → real_creusot_proves_a_true_invariant
-    src/creusot.rs:1409 → real_creusot_cannot_prove_a_false_invariant
-    src/creusot.rs:1425 → real_creusot_is_inconclusive_on_opaque_predicates
-    src/creusot.rs:1703 → real_creusot_run_leaves_no_trace_in_the_subject
-    src/creusot.rs:1735 → an_existing_harness_file_is_never_overwritten
-    src/creusot.rs:1760 → a_subject_with_no_crate_root_is_inconclusive
+    src/creusot.rs:769 → quantified_invariant_lowers_to_a_forall_proof_assert
+    src/creusot.rs:791 → calls_go_through_crate_not_a_crate_name
+    src/creusot.rs:800 → calls_follow_the_subjects_parameter_modes
+    src/creusot.rs:813 → never_lowers_to_a_negated_unquantified_assertion
+    src/creusot.rs:843 → unbound_sort_does_not_lower
+    src/creusot.rs:862 → unresolved_predicate_does_not_lower
+    src/creusot.rs:877 → temporal_patterns_do_not_lower
+    src/creusot.rs:892 → proved_output_is_holds
+    src/creusot.rs:901 → unproved_goal_is_inconclusive_never_fails
+    src/creusot.rs:916 → a_partial_proof_is_not_holds
+    src/creusot.rs:924 → a_compile_failure_is_inconclusive_and_names_the_error_and_its_site
+    src/creusot.rs:1189 → unrecognised_output_is_inconclusive
+    src/creusot.rs:1199 → harness_name_is_a_valid_prefixed_identifier
+    src/creusot.rs:1214 → a_creusot_pass_is_proven_and_not_bounded
+    src/creusot.rs:1226 → an_inconclusive_run_is_unknown_never_a_verdict
+    src/creusot.rs:1393 → real_creusot_proves_a_true_invariant
+    src/creusot.rs:1408 → real_creusot_cannot_prove_a_false_invariant
+    src/creusot.rs:1424 → real_creusot_is_inconclusive_on_opaque_predicates
+    src/creusot.rs:1702 → real_creusot_run_leaves_no_trace_in_the_subject
+    src/creusot.rs:1734 → an_existing_harness_file_is_never_overwritten
+    src/creusot.rs:1759 → a_subject_with_no_crate_root_is_inconclusive
     src/verdict.rs:880 → a_proven_holds_does_not_wear_the_bounded_caveat
     src/verdict.rs:900 → proven_outranks_bounded_model_checked_in_the_ensemble
 
@@ -432,20 +431,20 @@ REQ034 — REQ034
   formalized: —   implemented: yes   verified: yes
   verdict: never verified
     src/server.rs:8
-    src/server.rs:142 → requirements
-    src/server.rs:447 → requirements_on_unadopted_subject_is_conflict
-    src/server.rs:459 → requirements_lists_items_with_coverage
-    src/status.rs:492 → backlog_pairs_each_item_with_its_triage_and_formalization
+    src/server.rs:208 → requirements
+    src/server.rs:529 → requirements_on_unadopted_subject_is_conflict
+    src/server.rs:541 → requirements_lists_items_with_coverage
+    src/status.rs:493 → backlog_pairs_each_item_with_its_triage_and_formalization
 
 REQ035 — REQ035
   formalized: —   implemented: yes   verified: yes
   verdict: never verified
     src/detail.rs:12
-    src/server.rs:250 → requirement_detail
+    src/server.rs:324 → requirement_detail
     src/detail.rs:191 → item_without_a_draft_has_no_formalization
     src/detail.rs:204 → admitted_draft_surfaces_candidate_readback_and_review
-    src/server.rs:502 → detail_for_unknown_id_is_not_found
-    src/server.rs:511 → detail_for_known_id_returns_the_item
+    src/server.rs:584 → detail_for_unknown_id_is_not_found
+    src/server.rs:593 → detail_for_known_id_returns_the_item
 
 REQ036 — REQ036
   formalized: —   implemented: yes   verified: yes
@@ -456,63 +455,63 @@ REQ036 — REQ036
 REQ037 — REQ037
   formalized: —   implemented: yes   verified: yes
   verdict: never verified
-    src/server.rs:185 → set_triage
-    src/server.rs:540 → triage_write_sets_the_bucket_and_returns_updated_coverage
-    src/server.rs:565 → triage_write_rejects_an_unknown_bucket
+    src/server.rs:255 → set_triage
+    src/server.rs:622 → triage_write_sets_the_bucket_and_returns_updated_coverage
+    src/server.rs:647 → triage_write_rejects_an_unknown_bucket
 
 REQ038 — REQ038
   formalized: —   implemented: yes   verified: yes
   verdict: never verified
-    src/server.rs:332 → verify_requirement
+    src/server.rs:410 → verify_requirement
     src/verify.rs:11
-    src/server.rs:591 → verify_unknown_id_is_not_found
-    src/server.rs:604 → verify_unadopted_subject_is_conflict
-    src/server.rs:642 → verify_undrafted_item_is_honest_no_draft_state
+    src/server.rs:673 → verify_unknown_id_is_not_found
+    src/server.rs:686 → verify_unadopted_subject_is_conflict
+    src/server.rs:724 → verify_undrafted_item_is_honest_no_draft_state
     src/verdict.rs:779 → report_carries_labels_provenance_and_per_engine_breakdown
-    src/verify.rs:760 → unknown_id_is_none
-    src/verify.rs:769 → undrafted_item_is_no_draft
-    src/verify.rs:778 → unadopted_subject_is_error
+    src/verify.rs:759 → unknown_id_is_none
+    src/verify.rs:768 → undrafted_item_is_no_draft
+    src/verify.rs:777 → unadopted_subject_is_error
 
 REQ039 — REQ039
   formalized: —   implemented: yes   verified: yes
   verdict: never verified
     src/verdict_store.rs:15
-    src/server.rs:616 → stored_verdict_surfaces_on_the_row_and_drift_drops_it_from_verified
+    src/server.rs:698 → stored_verdict_surfaces_on_the_row_and_drift_drops_it_from_verified
     src/status.rs:309 → verified_counts_only_fresh_holds_and_row_surfaces_drift
     src/verdict_store.rs:746 → unmoved_verdict_is_fresh
     src/verdict_store.rs:764 → each_moved_axis_is_a_named_reason
-    src/verdict_store.rs:851 → record_and_load_round_trip_replacing_prior
-    src/verdict_store.rs:877 → missing_file_is_empty_store
+    src/verdict_store.rs:852 → record_and_load_round_trip_replacing_prior
+    src/verdict_store.rs:878 → missing_file_is_empty_store
 
 REQ040 — REQ040
   formalized: —   implemented: yes   verified: yes
   verdict: never verified
     src/semantic_draft.rs:18
-    src/rust_adapter.rs:2567 → fn_source_at_extracts_the_whole_function
-    src/semantic_draft.rs:405 → parse_clauses_keeps_only_attribute_lines
-    src/semantic_draft.rs:422 → prompt_carries_dialect_intent_claim_and_source
-    src/semantic_draft.rs:498 → drafts_per_function_dedups_and_skips_declined
-    src/semantic_draft.rs:532 → applies_ordered_block_with_indentation
+    src/rust_adapter.rs:2569 → fn_source_at_extracts_the_whole_function
+    src/semantic_draft.rs:425 → parse_clauses_keeps_only_attribute_lines
+    src/semantic_draft.rs:442 → prompt_carries_dialect_intent_claim_and_source
+    src/semantic_draft.rs:518 → drafts_per_function_dedups_and_skips_declined
+    src/semantic_draft.rs:552 → applies_ordered_block_with_indentation
 
 REQ041 — REQ041
   formalized: —   implemented: —   verified: yes
   verdict: never verified
-    src/main.rs:2282 → proof_step_is_proved_when_the_drafting_engine_holds
-    src/main.rs:2318 → proof_step_carries_reasons_when_inconclusive
-    src/semantic_draft.rs:597 → repair_stops_when_first_draft_proves
-    src/semantic_draft.rs:615 → repair_feeds_reason_back_and_recovers
-    src/semantic_draft.rs:650 → repair_is_bounded
-    src/semantic_draft.rs:672 → repair_gives_up_when_nothing_drafted
+    src/main.rs:2292 → proof_step_is_proved_when_the_drafting_engine_holds
+    src/main.rs:2328 → proof_step_carries_reasons_when_inconclusive
+    src/semantic_draft.rs:617 → repair_stops_when_first_draft_proves
+    src/semantic_draft.rs:635 → repair_feeds_reason_back_and_recovers
+    src/semantic_draft.rs:670 → repair_is_bounded
+    src/semantic_draft.rs:692 → repair_gives_up_when_nothing_drafted
 
 REQ042 — REQ042
   formalized: —   implemented: —   verified: yes
   verdict: never verified
-    src/llm.rs:890 → load_config_honors_explicit_timeout
+    src/llm.rs:925 → load_config_honors_explicit_timeout
 
 REQ043 — REQ043
   formalized: —   implemented: —   verified: yes
   verdict: never verified
-    src/status.rs:408 → stale_counts_drifted_verdicts_of_any_polarity
+    src/status.rs:409 → stale_counts_drifted_verdicts_of_any_polarity
 
 REQ044 — REQ044
   formalized: —   implemented: —   verified: —
@@ -522,9 +521,9 @@ REQ045 — REQ045
   formalized: —   implemented: —   verified: yes
   verdict: never verified
     src/status.rs:347 → editing_the_admitted_candidate_drifts_its_verdict
-    src/verdict_store.rs:808 → formalization_change_drifts_the_verdict
-    src/verdict_store.rs:828 → no_admitted_formalization_drifts_the_verdict
-    src/verdict_store.rs:839 → pre_axis_verdict_is_not_flagged_on_formalization
+    src/verdict_store.rs:809 → formalization_change_drifts_the_verdict
+    src/verdict_store.rs:829 → no_admitted_formalization_drifts_the_verdict
+    src/verdict_store.rs:840 → pre_axis_verdict_is_not_flagged_on_formalization
 
 REQ046 — REQ046
   formalized: —   implemented: yes   verified: yes
@@ -554,8 +553,8 @@ REQ048 — REQ048
     src/buildenv.rs:481 → advice_does_not_tell_you_to_extend_the_image_you_are_running
     src/buildenv.rs:504 → nothing_missing_yields_no_advice
     src/buildenv.rs:511 → this_repos_own_dev_container_resolves_to_its_image
-    src/main.rs:2210 → install_says_which_kind_of_no_it_is
-    src/main.rs:2261 → engine_names_resolve_from_their_cli_spelling
+    src/main.rs:2220 → install_says_which_kind_of_no_it_is
+    src/main.rs:2271 → engine_names_resolve_from_their_cli_spelling
 
 REQ049 — REQ049
   formalized: —   implemented: —   verified: yes
@@ -579,24 +578,24 @@ REQ050 — REQ050
 REQ051 — REQ051
   formalized: —   implemented: yes   verified: yes
   verdict: never verified
-    src/server.rs:105 → engines
-    src/creusot.rs:1240 → a_subject_whose_creusot_std_cannot_work_with_the_tool_is_unusable
-    src/creusot.rs:1264 → a_usable_pair_and_an_uninvolved_subject_are_left_alone
+    src/server.rs:151 → subject_or_conflict
+    src/creusot.rs:1239 → a_subject_whose_creusot_std_cannot_work_with_the_tool_is_unusable
+    src/creusot.rs:1263 → a_usable_pair_and_an_uninvolved_subject_are_left_alone
     src/engine.rs:690 → a_binary_that_cannot_start_is_not_available
     src/engine.rs:714 → an_installed_creusot_is_not_ready_for_a_subject_it_would_refuse_to_start_on
     src/engine.rs:764 → unusable_is_distinct_from_missing
     src/engine.rs:776 → an_engine_that_ran_and_objected_to_its_input_is_still_present
     src/proving_env.rs:223 → an_engine_that_cannot_start_is_not_part_of_the_proving_environment
-    src/server.rs:475 → engines_route_reports_every_engine_with_a_toneable_state
+    src/server.rs:557 → engines_route_reports_every_engine_with_a_toneable_state
 
 REQ052 — REQ052
   formalized: —   implemented: —   verified: yes
   verdict: never verified
-    src/llm.rs:616 → classify_leaves_missing_and_unknown_untriaged
-    src/llm.rs:639 → a_reply_with_no_usable_assignment_is_an_error
-    src/llm.rs:674 → one_usable_assignment_is_still_an_answer
-    src/llm.rs:693 → empty_assistant_content_is_a_failed_response
-    src/llm.rs:748 → the_prompt_asks_about_lowering_not_about_wording
+    src/llm.rs:630 → classify_leaves_missing_and_unknown_untriaged
+    src/llm.rs:653 → a_reply_with_no_usable_assignment_is_an_error
+    src/llm.rs:688 → one_usable_assignment_is_still_an_answer
+    src/llm.rs:707 → reject_empty_treats_blank_completion_as_failure
+    src/llm.rs:783 → the_prompt_asks_about_lowering_not_about_wording
     src/triage.rs:509 → a_declined_item_is_left_exactly_as_it_was
     src/triage.rs:783 → a_failed_classifier_leaves_the_existing_state_untouched
 
@@ -620,48 +619,48 @@ REQ055 — REQ055
     src/lowering.rs:650 → a_method_lowers_to_a_method_call_not_a_free_call
     src/lowering.rs:724 → a_variant_test_lowers_to_a_match_expression
     src/lowering.rs:1201 → a_nullary_method_is_not_lowerable
-    src/rust_adapter.rs:2234 → a_function_returning_an_enum_binds_through_one_of_its_variants
-    src/rust_adapter.rs:2265 → a_variant_that_does_not_exist_names_the_ones_that_do
-    src/rust_adapter.rs:2279 → a_variant_on_a_non_enum_return_says_so
-    src/rust_adapter.rs:2290 → qualifying_by_type_disambiguates_a_shared_method_name
-    src/rust_adapter.rs:2315 → a_method_found_by_its_bare_name_is_still_a_method
-    src/rust_adapter.rs:2335 → a_method_the_type_does_not_have_names_the_ones_it_does
-    src/rust_adapter.rs:2426 → a_path_deeper_than_two_segments_does_not_resolve
+    src/rust_adapter.rs:2236 → a_function_returning_an_enum_binds_through_one_of_its_variants
+    src/rust_adapter.rs:2267 → a_variant_that_does_not_exist_names_the_ones_that_do
+    src/rust_adapter.rs:2281 → a_variant_on_a_non_enum_return_says_so
+    src/rust_adapter.rs:2292 → qualifying_by_type_disambiguates_a_shared_method_name
+    src/rust_adapter.rs:2317 → a_method_found_by_its_bare_name_is_still_a_method
+    src/rust_adapter.rs:2337 → a_method_the_type_does_not_have_names_the_ones_it_does
+    src/rust_adapter.rs:2428 → a_path_deeper_than_two_segments_does_not_resolve
 
 REQ056 — REQ056
   formalized: —   implemented: —   verified: yes
   verdict: never verified
-    src/main.rs:2161 → a_path_passed_where_an_id_belongs_is_recognised
-    src/main.rs:2182 → the_path_hint_does_not_fire_on_other_mistakes
+    src/main.rs:2171 → a_path_passed_where_an_id_belongs_is_recognised
+    src/main.rs:2192 → the_path_hint_does_not_fire_on_other_mistakes
 
 REQ057 — REQ057
   formalized: —   implemented: —   verified: yes
   verdict: never verified
-    src/grounding.rs:896 → declared_parameter_sorts_type_check_every_position
-    src/grounding.rs:973 → expected_param_types_follow_the_quantified_arguments_sort
-    src/grounding.rs:1001 → a_sort_that_did_not_resolve_says_nothing_about_the_parameter
-    src/grounding.rs:1048 → a_position_the_requirement_cannot_speak_for_stays_unknown
-    src/rust_adapter.rs:2463 → a_parameter_typed_against_a_different_sort_does_not_resolve
-    src/rust_adapter.rs:2490 → positions_a_name_comparison_cannot_speak_for_are_skipped
-    src/rust_adapter.rs:2513 → a_receivers_type_is_the_type_it_is_implemented_on
-    src/rust_adapter.rs:2532 → arity_and_return_type_are_reported_before_a_parameter_type
-    src/rust_adapter.rs:2551 → a_variant_test_checks_its_parameter_types_too
-    src/rust_adapter.rs:3407 → the_parameter_check_discriminates_on_type_arguments
-    src/rust_adapter.rs:3435 → a_side_that_writes_no_type_arguments_is_compared_on_the_name_alone
+    src/grounding.rs:898 → declared_parameter_sorts_type_check_every_position
+    src/grounding.rs:975 → expected_param_types_follow_the_quantified_arguments_sort
+    src/grounding.rs:1003 → a_sort_that_did_not_resolve_says_nothing_about_the_parameter
+    src/grounding.rs:1050 → a_position_the_requirement_cannot_speak_for_stays_unknown
+    src/rust_adapter.rs:2465 → a_parameter_typed_against_a_different_sort_does_not_resolve
+    src/rust_adapter.rs:2492 → positions_a_name_comparison_cannot_speak_for_are_skipped
+    src/rust_adapter.rs:2515 → a_receivers_type_is_the_type_it_is_implemented_on
+    src/rust_adapter.rs:2534 → arity_and_return_type_are_reported_before_a_parameter_type
+    src/rust_adapter.rs:2553 → a_variant_test_checks_its_parameter_types_too
+    src/rust_adapter.rs:3411 → the_parameter_check_discriminates_on_type_arguments
+    src/rust_adapter.rs:3439 → a_side_that_writes_no_type_arguments_is_compared_on_the_name_alone
 
 REQ058 — REQ058
   formalized: —   implemented: —   verified: yes
   verdict: never verified
     src/lowering.rs:744 → a_primitive_sort_lowers_unprefixed
-    src/rust_adapter.rs:2837 → a_primitive_type_resolves_as_a_sort
-    src/rust_adapter.rs:2856 → str_and_string_are_not_primitive_sorts
-    src/rust_adapter.rs:2872 → a_declared_type_wins_over_the_primitive_of_the_same_name
+    src/rust_adapter.rs:2839 → a_primitive_type_resolves_as_a_sort
+    src/rust_adapter.rs:2858 → str_and_string_are_not_primitive_sorts
+    src/rust_adapter.rs:2874 → a_declared_type_wins_over_the_primitive_of_the_same_name
 
 REQ059 — REQ059
   formalized: —   implemented: —   verified: yes
   verdict: never verified
-    src/grounding.rs:879 → a_declared_parameter_type_is_a_bindable_sort
-    src/grounding.rs:896 → declared_parameter_sorts_type_check_every_position
+    src/grounding.rs:881 → a_declared_parameter_type_is_a_bindable_sort
+    src/grounding.rs:898 → declared_parameter_sorts_type_check_every_position
     src/lowering.rs:873 → free_variables_are_closed_over_their_declared_sorts
     src/lowering.rs:980 → a_variable_without_a_declared_sort_does_not_lower
     src/lowering.rs:1005 → an_explicit_binder_wins_over_the_declared_parameter_sort
@@ -670,7 +669,7 @@ REQ059 — REQ059
     src/prl/ast.rs:346 → an_explicit_binder_leads_and_keeps_its_own_sort
     src/prl/ast.rs:363 → a_variable_the_requirement_does_not_type_has_no_sort
     src/prl/ast.rs:386 → literals_and_expressions_are_not_bound
-    src/prl/ast.rs:398 → closure_applies_only_to_an_invariant_in_the_code_fragment
+    src/prl/ast.rs:400 → closure_applies_only_to_an_invariant_in_the_code_fragment
     src/prl/readback.rs:224 → readback_states_an_implicit_closure
     src/prl/readback.rs:244 → readback_names_a_variable_with_no_declared_sort
 
@@ -678,8 +677,8 @@ REQ060 — REQ060
   formalized: —   implemented: —   verified: yes
   verdict: never verified
     src/reqforge.rs:361 → a_mac_sidecar_never_becomes_a_requirement
-    src/rust_adapter.rs:2108 → a_hidden_source_file_is_still_the_subjects_own
-    src/rust_adapter.rs:2128 → mac_resource_files_never_become_binding_candidates
+    src/rust_adapter.rs:2110 → a_hidden_source_file_is_still_the_subjects_own
+    src/rust_adapter.rs:2130 → mac_resource_files_never_become_binding_candidates
     src/subject_tree.rs:90 → prunes_build_and_vcs_directories_by_name
     src/subject_tree.rs:108 → prunes_a_tagged_cache_directory_under_any_name
     src/subject_tree.rs:128 → an_unsigned_tag_does_not_prune
@@ -695,10 +694,10 @@ REQ061 — REQ061
     src/lowering.rs:1051 → a_call_is_named_through_the_module_it_was_found_in
     src/lowering.rs:1086 → a_variant_test_names_the_enum_through_its_own_module
     src/lowering.rs:1120 → an_item_with_no_module_path_does_not_lower
-    src/rust_adapter.rs:2737 → module_path_follows_the_cargo_layout
-    src/rust_adapter.rs:2763 → resolution_records_the_module_it_found_the_item_in
-    src/rust_adapter.rs:2785 → an_item_outside_the_crate_resolves_but_has_no_module
-    src/rust_adapter.rs:2804 → duplicate_enums_are_ambiguous_never_pooled
+    src/rust_adapter.rs:2739 → module_path_follows_the_cargo_layout
+    src/rust_adapter.rs:2765 → resolution_records_the_module_it_found_the_item_in
+    src/rust_adapter.rs:2787 → an_item_outside_the_crate_resolves_but_has_no_module
+    src/rust_adapter.rs:2806 → duplicate_enums_are_ambiguous_never_pooled
 
 REQ062 — REQ062
   formalized: —   implemented: yes   verified: —
@@ -713,15 +712,15 @@ REQ063 — REQ063
 REQ064 — REQ064
   formalized: —   implemented: —   verified: yes
   verdict: never verified
-    src/creusot.rs:1027 → a_prover_crash_is_not_reported_as_the_subjects_fault
-    src/creusot.rs:1053 → crash_reports_are_told_apart_from_the_operators_own
-    src/creusot.rs:1141 → the_constants_likely_source_is_offered_not_asserted
+    src/creusot.rs:1026 → a_prover_crash_is_not_reported_as_the_subjects_fault
+    src/creusot.rs:1052 → crash_reports_are_told_apart_from_the_operators_own
+    src/creusot.rs:1140 → the_constants_likely_source_is_offered_not_asserted
 
 REQ065 — REQ065
   formalized: —   implemented: —   verified: yes
   verdict: never verified
-    src/kani.rs:780 → an_uninstantiable_sort_is_explained_as_a_precondition_not_a_compiler_error
-    src/kani.rs:806 → an_unrelated_unsatisfied_bound_is_not_read_as_an_instantiability_problem
+    src/kani.rs:782 → an_uninstantiable_sort_is_explained_as_a_precondition_not_a_compiler_error
+    src/kani.rs:808 → an_unrelated_unsatisfied_bound_is_not_read_as_an_instantiability_problem
 
 REQ066 — REQ066
   formalized: —   implemented: yes   verified: yes
@@ -730,66 +729,66 @@ REQ066 — REQ066
     src/prl/readback.rs:13
     src/lowering.rs:926 → a_boolean_variable_lowers_to_itself_as_a_condition
     src/lowering.rs:957 → a_non_boolean_variable_used_as_a_condition_does_not_lower
-    src/prl/check.rs:110 → a_variable_used_as_a_condition_is_not_an_undeclared_predicate
-    src/prl/check.rs:122 → a_bare_name_the_claim_does_not_bind_is_still_undeclared
-    src/prl/check.rs:135 → a_declared_nullary_predicate_is_still_a_predicate
-    src/prl/readback.rs:305 → a_variable_used_as_a_condition_reads_as_a_condition
-    src/prl/readback.rs:320 → a_nullary_predicate_still_reads_as_a_predicate
+    src/prl/check.rs:112 → a_variable_used_as_a_condition_is_not_an_undeclared_predicate
+    src/prl/check.rs:124 → a_bare_name_the_claim_does_not_bind_is_still_undeclared
+    src/prl/check.rs:139 → a_declared_nullary_predicate_is_still_a_predicate
+    src/prl/readback.rs:309 → a_variable_used_as_a_condition_reads_as_a_condition
+    src/prl/readback.rs:324 → a_nullary_predicate_still_reads_as_a_predicate
 
 REQ067 — REQ067
   formalized: —   implemented: —   verified: yes
   verdict: never verified
-    src/creusot.rs:1073 → an_untranslatable_construct_is_the_provers_limit_not_the_subjects_fault
-    src/creusot.rs:1103 → an_untranslatable_constant_is_the_provers_limit_too
+    src/creusot.rs:1072 → an_untranslatable_construct_is_the_provers_limit_not_the_subjects_fault
+    src/creusot.rs:1102 → an_untranslatable_constant_is_the_provers_limit_too
 
 REQ068 — REQ068
   formalized: —   implemented: —   verified: yes
   verdict: never verified
-    src/creusot.rs:1614 → real_creusot_proves_a_claim_over_ordinary_functions_through_their_mirrors
-    src/creusot.rs:1639 → real_creusot_will_not_prove_a_claim_through_a_mirror_that_lies
+    src/creusot.rs:1613 → real_creusot_proves_a_claim_over_ordinary_functions_through_their_mirrors
+    src/creusot.rs:1638 → real_creusot_will_not_prove_a_claim_through_a_mirror_that_lies
 
 REQ069 — REQ069
   formalized: —   implemented: —   verified: yes
   verdict: never verified
     src/lowering.rs:771 → an_applied_sort_lowers_with_a_path_for_every_part
-    src/mirror_draft.rs:1476 → a_mirror_signature_writes_type_arguments_out
-    src/rust_adapter.rs:3275 → a_sort_observable_may_apply_a_type_argument
-    src/rust_adapter.rs:3292 → a_type_argument_resolves_against_the_subject_like_any_sort
-    src/rust_adapter.rs:3317 → type_arguments_are_checked_against_the_declarations_arity
-    src/rust_adapter.rs:3347 → a_nested_type_argument_is_refused_by_name
-    src/rust_adapter.rs:3361 → an_argument_that_names_no_type_refuses_the_application
-    src/rust_adapter.rs:3386 → a_missing_head_type_reads_as_missing_not_as_bad_arguments
-    src/rust_adapter.rs:3397 → the_readback_of_an_application_names_every_part
-    src/rust_adapter.rs:3407 → the_parameter_check_discriminates_on_type_arguments
+    src/mirror_draft.rs:1492 → a_mirror_signature_writes_type_arguments_out
+    src/rust_adapter.rs:3279 → a_sort_observable_may_apply_a_type_argument
+    src/rust_adapter.rs:3296 → a_type_argument_resolves_against_the_subject_like_any_sort
+    src/rust_adapter.rs:3321 → type_arguments_are_checked_against_the_declarations_arity
+    src/rust_adapter.rs:3351 → a_nested_type_argument_is_refused_by_name
+    src/rust_adapter.rs:3365 → an_argument_that_names_no_type_refuses_the_application
+    src/rust_adapter.rs:3390 → a_missing_head_type_reads_as_missing_not_as_bad_arguments
+    src/rust_adapter.rs:3401 → the_readback_of_an_application_names_every_part
+    src/rust_adapter.rs:3411 → the_parameter_check_discriminates_on_type_arguments
 
 REQ070 — REQ070
   formalized: —   implemented: —   verified: yes
   verdict: never verified
-    src/creusot.rs:1103 → an_untranslatable_constant_is_the_provers_limit_too
-    src/creusot.rs:1164 → a_later_untranslatable_construct_does_not_preempt_the_first_error
+    src/creusot.rs:1102 → an_untranslatable_constant_is_the_provers_limit_too
+    src/creusot.rs:1163 → a_later_untranslatable_construct_does_not_preempt_the_first_error
 
 REQ071 — REQ071
   formalized: —   implemented: yes   verified: yes
   verdict: never verified
-    src/verify.rs:662 → subject_source_fingerprint
+    src/verify.rs:661 → subject_source_fingerprint
     src/verdict_store.rs:675 → a_companion_only_commit_is_not_code_drift
     src/verdict_store.rs:697 → source_movement_is_code_drift
     src/verdict_store.rs:721 → a_verdict_without_a_source_fingerprint_keeps_the_commit_rule
-    src/verify.rs:785 → source_fingerprint_ignores_the_records_other_axes_own
-    src/verify.rs:854 → source_fingerprint_ignores_reqforge_requirements_too
-    src/verify.rs:918 → a_non_repo_has_no_source_fingerprint
+    src/verify.rs:784 → source_fingerprint_ignores_the_records_other_axes_own
+    src/verify.rs:853 → source_fingerprint_ignores_reqforge_requirements_too
+    src/verify.rs:917 → a_non_repo_has_no_source_fingerprint
 
 REQ072 — REQ072
   formalized: —   implemented: yes   verified: yes
   verdict: never verified
-    src/llm.rs:366 → build_prompt
+    src/llm.rs:377 → build_prompt
     src/prl/fragment.rs:131 → triage_boundaries
-    src/rust_adapter.rs:1896 → inventory
-    src/llm.rs:526 → prompt_carries_observables_and_states_its_cap
-    src/llm.rs:547 → an_empty_context_renders_no_observables_section
-    src/llm.rs:555 → prompt_boundaries_come_from_the_gate
+    src/rust_adapter.rs:1898 → inventory
+    src/llm.rs:537 → prompt_carries_observables_and_states_its_cap
+    src/llm.rs:558 → an_empty_context_renders_no_observables_section
+    src/llm.rs:566 → prompt_boundaries_come_from_the_gate
     src/prl/fragment.rs:209 → triage_boundaries_place_every_verb_once_per_category
-    src/rust_adapter.rs:2165 → inventory_names_predicates_and_sorts
+    src/rust_adapter.rs:2167 → inventory_names_predicates_and_sorts
 
 REQ073 — REQ073
   formalized: —   implemented: yes   verified: —
@@ -800,8 +799,8 @@ REQ074 — Author a requirement into the ReqForge collection
   formalized: —   implemented: yes   verified: yes
   verdict: never verified
     src/create.rs:11
-    src/create.rs:107 → authors_a_readable_unreviewed_requirement
-    src/create.rs:141 → refuses_to_overwrite_an_existing_id
+    src/create.rs:110 → authors_a_readable_unreviewed_requirement
+    src/create.rs:144 → refuses_to_overwrite_an_existing_id
 
 REQ075 — Scan requirement-trace tags and resolve them to the source they annotate
   formalized: —   implemented: yes   verified: yes
@@ -814,9 +813,9 @@ REQ075 — Scan requirement-trace tags and resolve them to the source they annot
     src/trace/mod.rs:157 → verifies_tag_resolves_through_attribute_to_the_fn
     src/trace/mod.rs:183 → a_hyphenless_id_is_accepted
     src/trace/mod.rs:198 → implements_aliases_map_to_one_kind
-    src/trace/mod.rs:213 → a_module_level_tag_resolves_to_no_symbol
-    src/trace/mod.rs:230 → an_appledouble_sidecar_is_not_scanned
-    src/trace/mod.rs:248 → parenthetical_prose_ids_are_filtered_by_prefix
+    src/trace/mod.rs:214 → a_module_level_tag_resolves_to_no_symbol
+    src/trace/mod.rs:231 → an_appledouble_sidecar_is_not_scanned
+    src/trace/mod.rs:249 → parenthetical_prose_ids_are_filtered_by_prefix
 
 REQ076 — Run a tagged test and record it as asserted evidence
   formalized: —   implemented: yes   verified: yes
@@ -844,7 +843,7 @@ REQ078 — Verdict breadcrumb on the requirement
     src/reqforge.rs:505 → record_verdict_appends_a_provreq_verdict_entry
     src/reqforge.rs:533 → record_verdict_appends_and_does_not_replace
     src/reqforge.rs:562 → record_verdict_rejects_unknown_item
-    src/verify.rs:899 → a_verdict_transition_is_first_or_changed_status
+    src/verify.rs:898 → a_verdict_transition_is_first_or_changed_status
 
 REQ079 — Report recommends retiring a redundant asserted test
   formalized: —   implemented: —   verified: yes
@@ -856,4 +855,16 @@ REQ079 — Report recommends retiring a redundant asserted test
 REQ080 — Validation fails on an orphan code tag
   formalized: —   implemented: —   verified: yes
   verdict: never verified
-    src/check.rs:105 → check_fails_on_an_orphan_tag
+    src/check.rs:107 → check_fails_on_an_orphan_tag
+
+REQ081 — provreq exposes an MCP server
+  formalized: —   implemented: yes   verified: yes
+  verdict: never verified
+    crates/provreq-mcp/src/lib.rs:13 → client
+    crates/provreq-mcp/tests/end_to_end.rs:72 → full_mcp_round_trip_against_mock_provreq_server
+
+REQ082 — The MCP server exposes provreq's proof surface
+  formalized: —   implemented: yes   verified: yes
+  verdict: never verified
+    crates/provreq-mcp/src/tools.rs:477 → list_requirements
+    crates/provreq-mcp/src/tools.rs:771 → list_requirements_reads_the_backlog
