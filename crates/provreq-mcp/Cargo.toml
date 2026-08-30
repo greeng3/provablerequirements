@@ -1,0 +1,39 @@
+[package]
+name = "provreq-mcp"
+version = "0.0.8"
+# Edition 2024, matching provreq and reqforge-model. Absorbed from ReqForge's `reqforge-mcp` member
+# (arc-2 slice 8, #376) — a standalone stdio JSON-RPC binary that proxies into a running
+# `provreq serve`. Versioned with provreq so the version the MCP reports to an agent means what an
+# operator expects.
+edition = "2024"
+description = "provreq MCP server — stdio JSON-RPC adapter over a running provreq server"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/greeng3/provablerequirements"
+publish = false
+
+# Read-only MCP (Model Context Protocol) server. Standalone binary that speaks JSON-RPC
+# 2.0 on stdio and makes HTTP calls into a running provreq server. It depends on nothing else in the
+# workspace — the seam is HTTP, exactly as it was in ReqForge's tree.
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+
+# `full` matches reqforge-model's pin (already resolved in the lock); the transport uses the
+# current-thread runtime plus async stdin/stdout.
+tokio = { version = "1", features = ["full"] }
+# Matches provreq's own 0.13 pin (arc-2 slice 0, #356).
+reqwest = { version = "0.13", default-features = false, features = [
+    "rustls",
+    "webpki-roots",
+    "json",
+] }
+url = "2"
+
+# Logs go to stderr so stdout stays reserved for JSON-RPC traffic.
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+
+[dev-dependencies]
+tempfile = "3"
+# Mock HTTP server for the client/transport round-trip tests. Matches ReqForge's own `0.6` pin.
+wiremock = "0.6"
