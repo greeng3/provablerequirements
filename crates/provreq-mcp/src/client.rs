@@ -2,7 +2,8 @@
 //!
 //! Every MCP tool / resource / prompt handler goes through here
 //! so URL construction, timeout handling, and error translation
-//! live in one place. Read-only for 10c — the only verb is GET.
+//! live in one place. GET for reads; POST for the two proof
+//! writes (verify, triage).
 
 use std::time::Duration;
 
@@ -58,6 +59,36 @@ impl ProvreqClient {
             .json::<Value>()
             .await
             .map_err(|e| HandlerError::Upstream(format!("GET {url}: decode: {e}")))
+    }
+
+    /// POST `path` with an optional JSON body and return the
+    /// parsed JSON response. Used by the proof tools (verify /
+    /// triage), which are the only write verbs the MCP exposes —
+    /// operator proof actions, not artifact authoring. Error
+    /// handling mirrors [`get_json`].
+    pub async fn post_json(&self, path: &str, body: Option<&Value>) -> Result<Value, HandlerError> {
+        let url = self.join(path)?;
+        let mut request = self.http.post(url.clone());
+        if let Some(body) = body {
+            request = request.json(body);
+        }
+        let response = request
+            .send()
+            .await
+            .map_err(|e| HandlerError::Upstream(format!("POST {url}: {e}")))?;
+        let status = response.status();
+        if !status.is_success() {
+            let body_preview = response.text().await.unwrap_or_default();
+            return Err(HandlerError::Upstream(format!(
+                "POST {url} → HTTP {}: {}",
+                status.as_u16(),
+                truncate(&body_preview, 500)
+            )));
+        }
+        response
+            .json::<Value>()
+            .await
+            .map_err(|e| HandlerError::Upstream(format!("POST {url}: decode: {e}")))
     }
 
     /// Typed variant of [`get_json`] that walks one extra
