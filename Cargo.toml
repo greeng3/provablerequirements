@@ -3,7 +3,7 @@
 # `src/`, so its own tests come along unchanged and the boundary between their code and ours stays
 # visible after the second edit.
 [workspace]
-members = ["crates/reqforge-model"]
+members = ["crates/reqforge-model", "crates/provreq-mcp"]
 
 [package]
 name = "provreq"
