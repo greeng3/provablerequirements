@@ -69,6 +69,7 @@ impl McpClient {
     }
 }
 
+/// Verifies: REQ081
 #[tokio::test]
 async fn full_mcp_round_trip_against_mock_provreq_server() {
     let server = fixture_server().await;
@@ -107,7 +108,7 @@ async fn full_mcp_round_trip_against_mock_provreq_server() {
     // --- tools/list -------------------------------------------------------
     let tools = mcp.call(2, "tools/list", None).await;
     let tool_arr = tools["result"]["tools"].as_array().unwrap();
-    assert_eq!(tool_arr.len(), 11);
+    assert_eq!(tool_arr.len(), 16);
 
     // --- tools/call (list_projects) --------------------------------------
     let call = mcp

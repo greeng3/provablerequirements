@@ -357,14 +357,14 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn tools_list_returns_eleven_tools() {
+    async fn tools_list_returns_sixteen_tools() {
         let server = MockServer::start().await;
         let client = make_client(&server.uri());
         let resp = dispatch_for_test(&client, req(3, "tools/list", None))
             .await
             .unwrap();
         let tools = resp.result.unwrap()["tools"].as_array().cloned().unwrap();
-        assert_eq!(tools.len(), 11);
+        assert_eq!(tools.len(), 16);
     }
 
     #[tokio::test]

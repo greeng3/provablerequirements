@@ -1,6 +1,6 @@
 [package]
 name = "provreq-mcp"
-version = "0.0.8"
+version = "0.0.9"
 # Edition 2024, matching provreq and reqforge-model. Absorbed from ReqForge's `reqforge-mcp` member
 # (arc-2 slice 8, #376) — a standalone stdio JSON-RPC binary that proxies into a running
 # `provreq serve`. Versioned with provreq so the version the MCP reports to an agent means what an
@@ -11,7 +11,7 @@ license = "MIT OR Apache-2.0"
 repository = "https://github.com/greeng3/provablerequirements"
 publish = false
 
-# Read-only MCP (Model Context Protocol) server. Standalone binary that speaks JSON-RPC
+# Read-only-plus-proof MCP (Model Context Protocol) server. Standalone binary that speaks JSON-RPC
 # 2.0 on stdio and makes HTTP calls into a running provreq server. It depends on nothing else in the
 # workspace — the seam is HTTP, exactly as it was in ReqForge's tree.
 [dependencies]

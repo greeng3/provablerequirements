@@ -1,9 +1,13 @@
-//! Read-only MCP tools per `LLM-mcpTools`.
+//! MCP tools over the `provreq server` REST API.
 //!
-//! Eleven handlers mapping one-to-one to existing
-//! `provreq server` REST endpoints. Each converts its typed
-//! arguments into a URL + query string, calls the server, and
-//! wraps the JSON body in a text content block.
+//! Sixteen handlers mapping one-to-one to existing endpoints:
+//! eleven read-only management tools (per `LLM-mcpTools`) plus
+//! five proof tools (REQ082) — list/get requirements, engine
+//! status, verify-on-demand, and triage. Each converts its
+//! typed arguments into a URL (+ query string or JSON body),
+//! calls the server, and wraps the JSON body in a text content
+//! block. The two proof writes (verify, triage) are operator
+//! proof actions, not artifact authoring.
 
 use serde_json::{Value, json};
 
@@ -159,6 +163,57 @@ pub fn tool_definitions() -> Vec<ToolDefinition> {
                 "additionalProperties": false
             }),
         ),
+        // --- Proof surface (arc-2 slice 8, #376) --------------------------
+        tool(
+            "provreq_list_requirements",
+            "List the served subject's requirement backlog: the coverage funnel plus each item's triage bucket, formalization state, and last stored verdict.",
+            json!({"type": "object", "properties": {}, "additionalProperties": false}),
+        ),
+        tool(
+            "provreq_get_requirement",
+            "Fetch one requirement's proof detail: triage, formalization draft, live grounding dry-run, and the last stored verdict with drift.",
+            json!({
+                "type": "object",
+                "properties": {
+                    "id": { "type": "string", "description": "Requirement id, e.g. REQ001." }
+                },
+                "required": ["id"],
+                "additionalProperties": false
+            }),
+        ),
+        tool(
+            "provreq_engines",
+            "Report which verification engines are installed and what each is doing right now.",
+            json!({"type": "object", "properties": {}, "additionalProperties": false}),
+        ),
+        tool(
+            "provreq_verify",
+            "Run the engine ensemble on demand for one requirement and return the aggregate verdict plus each engine's evidence. Synchronous — the call blocks for the run.",
+            json!({
+                "type": "object",
+                "properties": {
+                    "id": { "type": "string", "description": "Requirement id to verify." }
+                },
+                "required": ["id"],
+                "additionalProperties": false
+            }),
+        ),
+        tool(
+            "provreq_triage",
+            "Set one requirement's triage bucket (formalizable-now | falsifiable-only | stays-prose) and return the updated backlog.",
+            json!({
+                "type": "object",
+                "properties": {
+                    "id": { "type": "string", "description": "Requirement id to triage." },
+                    "classification": {
+                        "type": "string",
+                        "enum": ["formalizable-now", "falsifiable-only", "stays-prose"]
+                    }
+                },
+                "required": ["id", "classification"],
+                "additionalProperties": false
+            }),
+        ),
     ]
 }
 
@@ -191,6 +246,11 @@ pub async fn dispatch(
         "provreq_search" => search(client, args).await,
         "provreq_run_report" => run_report(client, args).await,
         "provreq_get_graph" => get_graph(client, args).await,
+        "provreq_list_requirements" => list_requirements(client, args).await,
+        "provreq_get_requirement" => get_requirement(client, args).await,
+        "provreq_engines" => engines(client, args).await,
+        "provreq_verify" => verify(client, args).await,
+        "provreq_triage" => triage(client, args).await,
         other => Err(HandlerError::InvalidParams(format!(
             "unknown tool '{other}'"
         ))),
@@ -258,10 +318,7 @@ async fn list_artifacts(
     Ok(json_result(&body))
 }
 
-async fn get_artifact(
-    client: &ProvreqClient,
-    args: Value,
-) -> Result<CallToolResult, HandlerError> {
+async fn get_artifact(client: &ProvreqClient, args: Value) -> Result<CallToolResult, HandlerError> {
     let uuid = require_string(&args, "uuid")?;
     let body = client
         .get_json(&format!("/api/artifacts/{}", encode(&uuid)))
@@ -413,6 +470,55 @@ async fn get_graph(client: &ProvreqClient, args: Value) -> Result<CallToolResult
     Ok(json_result(&body))
 }
 
+// --- Proof handlers (arc-2 slice 8, #376) ---------------------------------
+
+/// The proof surface: backlog, requirement detail, engine status, verify, and triage.
+///
+/// Implements: REQ082
+async fn list_requirements(
+    client: &ProvreqClient,
+    _args: Value,
+) -> Result<CallToolResult, HandlerError> {
+    let body = client.get_json("/api/requirements").await?;
+    Ok(json_result(&body))
+}
+
+async fn get_requirement(
+    client: &ProvreqClient,
+    args: Value,
+) -> Result<CallToolResult, HandlerError> {
+    let id = require_string(&args, "id")?;
+    let body = client
+        .get_json(&format!("/api/requirements/{}", encode(&id)))
+        .await?;
+    Ok(json_result(&body))
+}
+
+async fn engines(client: &ProvreqClient, _args: Value) -> Result<CallToolResult, HandlerError> {
+    let body = client.get_json("/api/engines").await?;
+    Ok(json_result(&body))
+}
+
+async fn verify(client: &ProvreqClient, args: Value) -> Result<CallToolResult, HandlerError> {
+    let id = require_string(&args, "id")?;
+    let body = client
+        .post_json(&format!("/api/requirements/{}/verify", encode(&id)), None)
+        .await?;
+    Ok(json_result(&body))
+}
+
+async fn triage(client: &ProvreqClient, args: Value) -> Result<CallToolResult, HandlerError> {
+    let id = require_string(&args, "id")?;
+    let classification = require_string(&args, "classification")?;
+    let body = client
+        .post_json(
+            &format!("/api/requirements/{}/triage", encode(&id)),
+            Some(&json!({ "classification": classification })),
+        )
+        .await?;
+    Ok(json_result(&body))
+}
+
 // --- Helpers --------------------------------------------------------------
 
 fn json_result(body: &Value) -> CallToolResult {
@@ -465,13 +571,19 @@ mod tests {
     }
 
     #[test]
-    fn tool_definitions_are_exactly_eleven() {
+    fn tool_definitions_are_exactly_sixteen() {
         let defs = tool_definitions();
-        assert_eq!(defs.len(), 11);
+        assert_eq!(defs.len(), 16);
         let names: Vec<&str> = defs.iter().map(|d| d.name.as_str()).collect();
         assert!(names.contains(&"provreq_list_projects"));
         assert!(names.contains(&"provreq_search"));
         assert!(names.contains(&"provreq_get_graph"));
+        // The proof surface (arc-2 slice 8, #376).
+        assert!(names.contains(&"provreq_list_requirements"));
+        assert!(names.contains(&"provreq_get_requirement"));
+        assert!(names.contains(&"provreq_engines"));
+        assert!(names.contains(&"provreq_verify"));
+        assert!(names.contains(&"provreq_triage"));
     }
 
     #[test]
@@ -654,6 +766,156 @@ mod tests {
             .unwrap_err();
         assert!(matches!(err, HandlerError::Upstream(_)));
         assert!(err.to_string().contains("HTTP 500"));
+    }
+
+    /// Verifies: REQ082
+    #[tokio::test]
+    async fn list_requirements_reads_the_backlog() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/api/requirements"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "coverage": { "total": 1 },
+                "items": [ { "id": "REQ001" } ]
+            })))
+            .mount(&server)
+            .await;
+        let client = make_client(&server.uri());
+        let out = dispatch(&client, "provreq_list_requirements", None)
+            .await
+            .unwrap();
+        let text = match &out.content[0] {
+            crate::protocol::ContentBlock::Text { text } => text,
+        };
+        assert!(text.contains("REQ001"));
+        assert!(text.contains("coverage"));
+    }
+
+    #[tokio::test]
+    async fn get_requirement_routes_id_into_the_path() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/api/requirements/REQ042"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "id": "REQ042", "title": "A requirement"
+            })))
+            .mount(&server)
+            .await;
+        let client = make_client(&server.uri());
+        let out = dispatch(
+            &client,
+            "provreq_get_requirement",
+            Some(serde_json::json!({ "id": "REQ042" })),
+        )
+        .await
+        .unwrap();
+        let text = match &out.content[0] {
+            crate::protocol::ContentBlock::Text { text } => text,
+        };
+        assert!(text.contains("A requirement"));
+    }
+
+    #[tokio::test]
+    async fn get_requirement_validates_required_args() {
+        let server = MockServer::start().await;
+        let client = make_client(&server.uri());
+        let err = dispatch(
+            &client,
+            "provreq_get_requirement",
+            Some(serde_json::json!({})),
+        )
+        .await
+        .unwrap_err();
+        match err {
+            HandlerError::InvalidParams(m) => assert!(m.contains("id")),
+            other => panic!("expected InvalidParams, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn engines_reads_the_engine_status() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/api/engines"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "engines": [ { "name": "creusot", "status": "ready" } ]
+            })))
+            .mount(&server)
+            .await;
+        let client = make_client(&server.uri());
+        let out = dispatch(&client, "provreq_engines", None).await.unwrap();
+        let text = match &out.content[0] {
+            crate::protocol::ContentBlock::Text { text } => text,
+        };
+        assert!(text.contains("creusot"));
+    }
+
+    #[tokio::test]
+    async fn verify_posts_to_the_verify_endpoint() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/api/requirements/REQ001/verify"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "id": "REQ001", "verdict": "proven"
+            })))
+            .mount(&server)
+            .await;
+        let client = make_client(&server.uri());
+        let out = dispatch(
+            &client,
+            "provreq_verify",
+            Some(serde_json::json!({ "id": "REQ001" })),
+        )
+        .await
+        .unwrap();
+        let text = match &out.content[0] {
+            crate::protocol::ContentBlock::Text { text } => text,
+        };
+        assert!(text.contains("proven"));
+    }
+
+    #[tokio::test]
+    async fn triage_posts_the_classification_body() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/api/requirements/REQ001/triage"))
+            .and(wiremock::matchers::body_json(serde_json::json!({
+                "classification": "formalizable-now"
+            })))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "coverage": { "total": 1 }, "items": []
+            })))
+            .mount(&server)
+            .await;
+        let client = make_client(&server.uri());
+        let out = dispatch(
+            &client,
+            "provreq_triage",
+            Some(serde_json::json!({ "id": "REQ001", "classification": "formalizable-now" })),
+        )
+        .await
+        .unwrap();
+        let text = match &out.content[0] {
+            crate::protocol::ContentBlock::Text { text } => text,
+        };
+        assert!(text.contains("coverage"));
+    }
+
+    #[tokio::test]
+    async fn triage_validates_required_args() {
+        let server = MockServer::start().await;
+        let client = make_client(&server.uri());
+        let err = dispatch(
+            &client,
+            "provreq_triage",
+            Some(serde_json::json!({ "id": "REQ001" })),
+        )
+        .await
+        .unwrap_err();
+        match err {
+            HandlerError::InvalidParams(m) => assert!(m.contains("classification")),
+            other => panic!("expected InvalidParams, got {other:?}"),
+        }
     }
 
     #[tokio::test]
