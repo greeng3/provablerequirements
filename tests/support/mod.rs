@@ -93,13 +93,21 @@ pub fn write_artifact(root: &Path, collection_dir: &str, name: &str, uuid: &str,
 }
 
 /// A `DiscoveryConfig` pointing at `subject`, with the same limits
-/// ReqForge's tests used. `workspace_dir: None` keeps thumbnails and
-/// the blob workspace out of play.
+/// ReqForge's tests used. `workspace_dir` is where saved report
+/// configs and the blob workspace live; `None` keeps thumbnails and
+/// the workspace out of play (the common case).
 pub fn test_config(subject: &Path) -> DiscoveryConfig {
+    config_with_workspace(subject, None)
+}
+
+pub fn config_with_workspace(
+    subject: &Path,
+    workspace_dir: Option<std::path::PathBuf>,
+) -> DiscoveryConfig {
     DiscoveryConfig {
         mount_prefix: subject.to_path_buf(),
         system_config_path: None,
-        workspace_dir: None,
+        workspace_dir,
         max_blob_bytes: 50 * 1024 * 1024,
         thumbnail_cache_max_bytes: 500 * 1024 * 1024,
         external_url: None,
@@ -114,6 +122,17 @@ pub fn test_config(subject: &Path) -> DiscoveryConfig {
 /// The returned `TempDir` must be kept alive for the duration of the
 /// test — dropping it deletes the subject out from under the server.
 pub async fn build_app(seed: impl FnOnce(&Path)) -> (Router, Arc<AppState>, tempfile::TempDir) {
+    build_app_with_workspace(seed, None).await
+}
+
+/// Like [`build_app`], but with a configured `workspace_dir` — needed
+/// by report-config and adopt-orphan endpoints that persist under the
+/// workspace. Pass `Some(dir)` (a live tempdir path) to enable them;
+/// `None` matches [`build_app`].
+pub async fn build_app_with_workspace(
+    seed: impl FnOnce(&Path),
+    workspace_dir: Option<std::path::PathBuf>,
+) -> (Router, Arc<AppState>, tempfile::TempDir) {
     let temp = tempfile::tempdir().unwrap();
     let subject = temp.path().join(SUBJECT_SLUG);
     write_project(&subject, SUBJECT_SLUG);
@@ -121,7 +140,7 @@ pub async fn build_app(seed: impl FnOnce(&Path)) -> (Router, Arc<AppState>, temp
 
     let state = Arc::new(AppState::new_single_subject(
         subject.clone(),
-        test_config(&subject),
+        config_with_workspace(&subject, workspace_dir),
         OwnershipOverrides::default(),
     ));
     state.refresh().await.unwrap();
