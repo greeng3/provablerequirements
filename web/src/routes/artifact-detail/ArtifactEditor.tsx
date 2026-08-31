@@ -1,6 +1,5 @@
-import { useCallback, useId, useRef, useState } from "react";
+import { Suspense, lazy, useCallback, useId, useRef, useState } from "react";
 
-import { MarkdownEditor } from "../../components/MarkdownEditor";
 import type {
   ArtifactDetail,
   LinkView,
@@ -10,6 +9,14 @@ import { useUpdateArtifact } from "../../api/queries";
 import { ConflictDialog, type ConflictChoice } from "./ConflictDialog";
 import { LinkPicker } from "./LinkPicker";
 import { OutgoingLinks } from "./OutgoingLinks";
+
+// CodeMirror is heavy and only needed once the editor opens, so
+// keep it out of the main bundle and load it with the edit view.
+const MarkdownEditor = lazy(() =>
+  import("../../components/MarkdownEditor").then((m) => ({
+    default: m.MarkdownEditor,
+  })),
+);
 
 interface Props {
   readonly artifact: ArtifactDetail;
@@ -239,11 +246,17 @@ export function ArtifactEditor({ artifact, onDone }: Props) {
         <OutgoingLinks links={stagedLinks} onRemove={removeLink} />
       </section>
 
-      <MarkdownEditor
-        value={body}
-        onChange={setBody}
-        ariaLabel="Artifact body"
-      />
+      <Suspense
+        fallback={
+          <p className="text-sm text-slate-500">Loading editor…</p>
+        }
+      >
+        <MarkdownEditor
+          value={body}
+          onChange={setBody}
+          ariaLabel="Artifact body"
+        />
+      </Suspense>
 
       {mutation.error ? (
         <p className="text-sm text-rose-600" role="alert">

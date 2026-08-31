@@ -1,3 +1,4 @@
+import { Suspense, lazy } from "react";
 import { Route, Routes } from "react-router-dom";
 
 import { AppShell } from "../layout/AppShell";
@@ -6,9 +7,7 @@ import { ArtifactPage } from "./ArtifactPage";
 import { CollectionPage } from "./CollectionPage";
 import { BrowsePage } from "./browse/BrowsePage";
 import { CodeTraceabilityReportPage } from "./reports/CodeTraceabilityReportPage";
-import { GraphPage } from "./explore/graph/GraphPage";
 import { LlmProvidersPage } from "./llm/LlmProvidersPage";
-import { MatrixPage } from "./explore/matrix/MatrixPage";
 import { ProofPage } from "./proof/ProofPage";
 import { SearchPage } from "./search/SearchPage";
 import { ProjectPage } from "./ProjectPage";
@@ -23,6 +22,19 @@ import { ReviewStatusReportPage } from "./reports/ReviewStatusReportPage";
 import { UnresolvedLinksReportPage } from "./reports/UnresolvedLinksReportPage";
 import { ReviewQueuePage } from "./ReviewQueuePage";
 import { HomeRedirect } from "./HomeRedirect";
+
+// The explore views pull in the heavy graph/matrix libraries
+// (ReactFlow + dagre + d3-force), which no landing path needs.
+// Lazy-load them into their own chunks, each behind a Suspense
+// boundary local to its route.
+const GraphPage = lazy(() =>
+  import("./explore/graph/GraphPage").then((m) => ({ default: m.GraphPage })),
+);
+const MatrixPage = lazy(() =>
+  import("./explore/matrix/MatrixPage").then((m) => ({ default: m.MatrixPage })),
+);
+
+const lazyFallback = <p className="text-sm text-slate-500">Loading…</p>;
 
 /// Application routes. Bare URL patterns — the AppShell layout is
 /// applied at the outer Route via Outlet.
@@ -75,8 +87,22 @@ export function AppRoutes() {
           element={<CodeTraceabilityReportPage />}
         />
         <Route path="/proof" element={<ProofPage />} />
-        <Route path="/explore/graph" element={<GraphPage />} />
-        <Route path="/explore/matrix" element={<MatrixPage />} />
+        <Route
+          path="/explore/graph"
+          element={
+            <Suspense fallback={lazyFallback}>
+              <GraphPage />
+            </Suspense>
+          }
+        />
+        <Route
+          path="/explore/matrix"
+          element={
+            <Suspense fallback={lazyFallback}>
+              <MatrixPage />
+            </Suspense>
+          }
+        />
         <Route path="/search" element={<SearchPage />} />
         <Route path="/browse" element={<BrowsePage />} />
         <Route path="/llm" element={<LlmProvidersPage />} />
