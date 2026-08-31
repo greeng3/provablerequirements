@@ -108,6 +108,15 @@ export const queryKeys = {
   engines: ["engines"] as const,
 };
 
+// A disabled query (missing args) still registers in the cache, so
+// its key must stay in its OWN namespace rather than borrowing an
+// active hook's real key. Sharing a real key lets an
+// `invalidateQueries` on the true owner refetch the disabled query
+// with the wrong queryFn, clobbering the cache (#385, first seen in
+// #384). This sentinel fills a missing id so the key never matches a
+// real fetch. See useRequirement for the original occurrence.
+const DISABLED = "__none__";
+
 export function useHealth() {
   return useQuery({
     queryKey: queryKeys.health,
@@ -132,7 +141,7 @@ export function useProjects() {
 
 export function useProject(slug: string | undefined) {
   return useQuery({
-    queryKey: slug ? queryKeys.project(slug) : queryKeys.projects,
+    queryKey: queryKeys.project(slug ?? DISABLED),
     queryFn: () => api.project(slug!),
     enabled: Boolean(slug),
   });
@@ -140,7 +149,7 @@ export function useProject(slug: string | undefined) {
 
 export function useCollections(slug: string | undefined) {
   return useQuery({
-    queryKey: slug ? queryKeys.collections(slug) : queryKeys.projects,
+    queryKey: queryKeys.collections(slug ?? DISABLED),
     queryFn: () => api.collections(slug!),
     enabled: Boolean(slug),
   });
@@ -151,8 +160,7 @@ export function useCollection(
   prefix: string | undefined,
 ) {
   return useQuery({
-    queryKey:
-      slug && prefix ? queryKeys.collection(slug, prefix) : queryKeys.projects,
+    queryKey: queryKeys.collection(slug ?? DISABLED, prefix ?? DISABLED),
     queryFn: () => api.collection(slug!, prefix!),
     enabled: Boolean(slug && prefix),
   });
@@ -163,8 +171,7 @@ export function useArtifacts(
   prefix: string | undefined,
 ) {
   return useQuery({
-    queryKey:
-      slug && prefix ? queryKeys.artifacts(slug, prefix) : queryKeys.projects,
+    queryKey: queryKeys.artifacts(slug ?? DISABLED, prefix ?? DISABLED),
     queryFn: () => api.artifacts(slug!, prefix!),
     enabled: Boolean(slug && prefix),
   });
@@ -172,7 +179,7 @@ export function useArtifacts(
 
 export function useArtifact(uuid: string | undefined) {
   return useQuery({
-    queryKey: uuid ? queryKeys.artifact(uuid) : queryKeys.projects,
+    queryKey: queryKeys.artifact(uuid ?? DISABLED),
     queryFn: () => api.artifact(uuid!),
     enabled: Boolean(uuid),
   });
@@ -180,7 +187,7 @@ export function useArtifact(uuid: string | undefined) {
 
 export function useIncomingLinks(uuid: string | undefined) {
   return useQuery({
-    queryKey: uuid ? ["artifacts", uuid, "incoming-links"] : queryKeys.projects,
+    queryKey: ["artifacts", uuid ?? DISABLED, "incoming-links"],
     queryFn: () => api.incomingLinks(uuid!),
     enabled: Boolean(uuid),
   });
@@ -354,7 +361,7 @@ export function useBulkCheckUrls(slug: string, prefix: string) {
 // Phase 5d: history + diff queries.
 export function useArtifactHistory(uuid: string | undefined) {
   return useQuery({
-    queryKey: uuid ? queryKeys.artifactHistory(uuid) : queryKeys.projects,
+    queryKey: queryKeys.artifactHistory(uuid ?? DISABLED),
     queryFn: () => api.artifactHistory(uuid!),
     enabled: Boolean(uuid),
   });
@@ -366,10 +373,7 @@ export function useArtifactDiff(
   to: string | undefined,
 ) {
   return useQuery({
-    queryKey:
-      uuid && from
-        ? queryKeys.artifactDiff(uuid, from, to)
-        : queryKeys.projects,
+    queryKey: queryKeys.artifactDiff(uuid ?? DISABLED, from ?? DISABLED, to),
     queryFn: () => api.artifactDiff(uuid!, from!, to),
     enabled: Boolean(uuid && from),
   });
@@ -679,13 +683,9 @@ export function useRequirements() {
 /// One requirement's read-only formalization detail (REQ035); gated on an
 /// id so the detail dialog fires only once a row is selected.
 export function useRequirement(id: string | null) {
-  // The disabled (id === null) fallback key must NOT be `queryKeys.requirements`
-  // — that is the backlog's own key, and sharing it means an `invalidateQueries`
-  // on the backlog refetches this key with the *detail* queryFn (fetching
-  // `/api/requirements/null`), clobbering the backlog cache. A distinct
-  // never-fetched key keeps the two queries independent.
+  // Disabled fallback must not borrow the backlog's own key — see DISABLED.
   return useQuery({
-    queryKey: queryKeys.requirement(id ?? "__none__"),
+    queryKey: queryKeys.requirement(id ?? DISABLED),
     queryFn: () => api.requirement(id!),
     enabled: Boolean(id),
   });
