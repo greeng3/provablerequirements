@@ -26,11 +26,9 @@ describe("App landing page", () => {
     expect(brand).toHaveAttribute("href", "/");
   });
 
-  it("renders the System Home route by default", () => {
+  it("shows a no-project message at / when none is served", async () => {
     stubFetch();
     render(<App />);
-    expect(
-      screen.getByRole("heading", { name: /System Home/i }),
-    ).toBeInTheDocument();
+    expect(await screen.findByText(/no project found/i)).toBeInTheDocument();
   });
 });

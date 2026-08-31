@@ -1,4 +1,4 @@
-import { useId, useMemo } from "react";
+import { useEffect, useId, useMemo } from "react";
 
 import { useCollections, useProjects } from "../../api/queries";
 import type { ReportScopeParam } from "../../api/types";
@@ -8,56 +8,40 @@ interface Props {
   readonly onChange: (scope: ReportScopeParam) => void;
 }
 
-/// Three-level System / Project / Collection cascader driving
-/// a `ReportScopeParam` string. Collection options depend on the
-/// currently-selected project; flipping projects resets the
-/// collection picker back to "All collections".
+/// Single-subject collection narrower. The backend serves exactly
+/// one project, so there is no System or Project level to pick —
+/// the scope defaults to the whole project and the operator only
+/// chooses whether to narrow to a single collection within it.
+/// The emitted contract is preserved: `project:{slug}` for the
+/// whole project, `collection:{slug}/{prefix}` for one collection.
 export function ScopeSelector({ value, onChange }: Props) {
   const projects = useProjects();
+  const slug = projects.data?.[0]?.slug;
   const parsed = useMemo(() => parseScope(value), [value]);
-  const collections = useCollections(parsed.projectSlug);
-  const projectId = useId();
+  const collections = useCollections(slug);
   const collectionId = useId();
 
-  const onProjectChange = (slug: string) => {
-    if (!slug) onChange("system");
-    else onChange(`project:${slug}`);
-  };
+  // Anchor the scope to the single project as soon as it resolves.
+  // Anything not already scoped to this project (a stale "system"
+  // default, or a scope pointing at a different slug) collapses to
+  // the whole project.
+  useEffect(() => {
+    if (!slug) return;
+    if (parsed.projectSlug !== slug) onChange(`project:${slug}`);
+  }, [slug, parsed.projectSlug, onChange]);
+
+  const selectedPrefix =
+    parsed.projectSlug === slug ? (parsed.collectionPrefix ?? "") : "";
 
   const onCollectionChange = (prefix: string) => {
-    if (!parsed.projectSlug) return;
-    if (!prefix) onChange(`project:${parsed.projectSlug}`);
-    else onChange(`collection:${parsed.projectSlug}/${prefix}`);
+    if (!slug) return;
+    if (!prefix) onChange(`project:${slug}`);
+    else onChange(`collection:${slug}/${prefix}`);
   };
 
   return (
     <div className="flex flex-wrap items-center gap-3 text-sm">
       <label className="flex items-center gap-2">
-        <span
-          className="text-xs uppercase tracking-wide text-slate-500"
-          id={`${projectId}-label`}
-        >
-          Project
-        </span>
-        <select
-          id={projectId}
-          aria-labelledby={`${projectId}-label`}
-          value={parsed.projectSlug ?? ""}
-          onChange={(e) => onProjectChange(e.target.value)}
-          className="rounded border border-slate-300 bg-white px-2 py-1 text-xs dark:border-slate-600 dark:bg-slate-800"
-        >
-          <option value="">All projects (System)</option>
-          {(projects.data ?? []).map((p) => (
-            <option key={p.slug} value={p.slug}>
-              {p.name}
-            </option>
-          ))}
-        </select>
-      </label>
-
-      <label
-        className={`flex items-center gap-2 ${parsed.projectSlug ? "" : "opacity-50"}`}
-      >
         <span
           className="text-xs uppercase tracking-wide text-slate-500"
           id={`${collectionId}-label`}
@@ -67,8 +51,8 @@ export function ScopeSelector({ value, onChange }: Props) {
         <select
           id={collectionId}
           aria-labelledby={`${collectionId}-label`}
-          disabled={!parsed.projectSlug}
-          value={parsed.collectionPrefix ?? ""}
+          disabled={!slug}
+          value={selectedPrefix}
           onChange={(e) => onCollectionChange(e.target.value)}
           className="rounded border border-slate-300 bg-white px-2 py-1 text-xs disabled:bg-slate-100 dark:border-slate-600 dark:bg-slate-800 dark:disabled:bg-slate-900"
         >
@@ -89,11 +73,11 @@ function parseScope(scope: ReportScopeParam): {
   collectionPrefix?: string;
 } {
   // Defensive: callers pass `ReportScopeParam` (always a string) at
-  // the type level, but a corrupt saved config blob could round-
-  // trip a non-string here. Collapse anything unexpected down to
-  // "system" rather than crashing the picker.
+  // the type level, but a stale saved config blob could round-trip
+  // a non-string or a legacy "system" scope here. Anything the
+  // picker doesn't understand collapses to "no project", and the
+  // anchoring effect re-points it at the single project.
   if (typeof scope !== "string") return {};
-  if (scope === "system") return {};
   if (scope.startsWith("project:")) {
     return { projectSlug: scope.slice("project:".length) };
   }

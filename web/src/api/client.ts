@@ -34,7 +34,6 @@ import type {
   GraphResponse,
   HealthResponse,
   IncomingLinkEntry,
-  InitProjectRequest,
   LastApprovalSnapshot,
   LinkType,
   LlmAcknowledgePrivacyResponse,
@@ -43,10 +42,8 @@ import type {
   MigrateSchemaRequest,
   MigrateSchemaResponse,
   SampleContentResponse,
-  SystemStateResponse,
   MatrixQueryParams,
   MatrixResponse,
-  MountEntry,
   ProjectDetail,
   ProjectSummary,
   ReadinessResponse,
@@ -138,7 +135,6 @@ async function send<T>(
 export const api = {
   health: () => request<HealthResponse>("/healthz"),
   readiness: () => request<ReadinessResponse>("/readyz"),
-  mounts: () => request<MountEntry[]>("/api/mounts"),
   projects: () => request<ProjectSummary[]>("/api/projects"),
   project: (slug: string) =>
     request<ProjectDetail>(`/api/projects/${encodeURIComponent(slug)}`),
@@ -200,13 +196,6 @@ export const api = {
       "DELETE",
     );
   },
-
-  initProject: (dirName: string, req: InitProjectRequest) =>
-    send<ProjectDetail>(
-      `/api/mounts/${encodeURIComponent(dirName)}/init`,
-      "POST",
-      req,
-    ),
 
   linkTypes: () => request<LinkType[]>("/api/link-types"),
   searchArtifacts: (q: string, exclude?: string, limit = 25) => {
@@ -475,9 +464,6 @@ export const api = {
       "POST",
       req,
     ),
-
-  // Phase 11c: system-state view for the config banner.
-  systemState: () => request<SystemStateResponse>("/api/system"),
 
   // Phase 11b: sample-content onboarding seed.
   createSampleContent: (slug: string) =>

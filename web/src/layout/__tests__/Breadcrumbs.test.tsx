@@ -25,31 +25,31 @@ function renderAt(path: string) {
 }
 
 describe("Breadcrumbs", () => {
-  it("shows only System on the home route", () => {
+  it("renders no crumbs on the home route", () => {
     renderAt("/");
-    const items = screen.getAllByRole("listitem");
-    // Filter out the `/` separator items.
-    const labels = items
-      .filter((el) => !el.hasAttribute("aria-hidden"))
-      .map((el) => el.textContent);
-    expect(labels).toEqual(["System"]);
+    expect(screen.queryAllByRole("listitem")).toHaveLength(0);
   });
 
-  it("shows System / slug on a project route with project not linkable", () => {
+  it("renders no crumbs on the bare project route", () => {
+    // Single subject: there is no System or project crumb, and the
+    // bare project page is itself the root, so nothing precedes it.
     renderAt("/projects/sample");
-    const links = screen.getAllByRole("link").map((a) => a.textContent);
-    expect(links).toContain("System");
-    expect(links).not.toContain("sample");
-    // The current crumb is rendered as plain text.
-    expect(screen.getByText("sample")).toBeInTheDocument();
+    expect(screen.queryAllByRole("listitem")).toHaveLength(0);
   });
 
-  it("links intermediate crumbs on deeper routes", () => {
+  it("starts at the collection crumb on a collection route", () => {
+    renderAt("/projects/sample/collections/REQ");
+    expect(screen.queryByText("sample")).not.toBeInTheDocument();
+    // The collection is the current, plain-text (non-linked) crumb.
+    expect(screen.getByText("REQ")).toBeInTheDocument();
+    expect(screen.queryByRole("link")).not.toBeInTheDocument();
+  });
+
+  it("links the collection crumb on a deeper artifact route", () => {
     renderAt("/projects/sample/collections/REQ/artifacts/REQ-hello");
     const links = screen.getAllByRole("link").map((a) => a.textContent);
-    expect(links).toContain("System");
-    expect(links).toContain("sample");
-    expect(links).toContain("REQ");
+    expect(links).toEqual(["REQ"]);
+    expect(screen.queryByText("sample")).not.toBeInTheDocument();
     // The terminal crumb is the artifact name as plain text.
     expect(screen.getByText("REQ-hello")).toBeInTheDocument();
   });

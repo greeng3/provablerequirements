@@ -3,7 +3,7 @@ import { renderHook, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ReactNode } from "react";
 
-import { useMounts, useProjects } from "../queries";
+import { useProjects } from "../queries";
 
 function stubFetch(handler: (url: string) => Response) {
   vi.stubGlobal("fetch", async (input: RequestInfo) => {
@@ -58,19 +58,6 @@ describe("react-query hooks", () => {
         artifactCount: 2,
       },
     ]);
-  });
-
-  it("useMounts resolves to the mount list", async () => {
-    stubFetch(() =>
-      json([
-        { path: "/repos/a", dirName: "a", state: "needsInit" },
-        { path: "/repos/b", dirName: "b", state: "noGit" },
-      ]),
-    );
-    const { result } = renderHook(() => useMounts(), { wrapper: wrapper() });
-    await waitFor(() => expect(result.current.isSuccess).toBe(true));
-    expect(result.current.data).toHaveLength(2);
-    expect(result.current.data?.[0].state).toBe("needsInit");
   });
 
   it("useProjects surfaces an error when fetch fails", async () => {

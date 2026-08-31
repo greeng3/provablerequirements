@@ -16,36 +16,25 @@ export function Breadcrumbs() {
   }>();
 
   const crumbs: Crumb[] = [];
-  const atRoot = location.pathname === "/";
-  crumbs.push({
-    label: "System",
-    to: atRoot ? undefined : "/",
-  });
 
   if (params.uuid && location.pathname.startsWith("/artifacts/")) {
     crumbs.push({ label: `Artifact ${shorten(params.uuid)}` });
     return renderCrumbs(crumbs);
   }
 
-  if (params.slug) {
-    const projectCrumb: Crumb = {
-      label: params.slug,
-      to: params.prefix ? `/projects/${params.slug}` : undefined,
+  // Single subject: breadcrumbs start at the collection level
+  // within the one project — there is no System or project crumb.
+  if (params.slug && params.prefix) {
+    const collectionCrumb: Crumb = {
+      label: params.prefix,
+      to: params.name
+        ? `/projects/${params.slug}/collections/${params.prefix}`
+        : undefined,
     };
-    crumbs.push(projectCrumb);
+    crumbs.push(collectionCrumb);
 
-    if (params.prefix) {
-      const collectionCrumb: Crumb = {
-        label: params.prefix,
-        to: params.name
-          ? `/projects/${params.slug}/collections/${params.prefix}`
-          : undefined,
-      };
-      crumbs.push(collectionCrumb);
-
-      if (params.name) {
-        crumbs.push({ label: params.name });
-      }
+    if (params.name) {
+      crumbs.push({ label: params.name });
     }
   }
 

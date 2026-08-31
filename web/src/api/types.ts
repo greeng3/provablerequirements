@@ -4,8 +4,6 @@
 
 export type ArtifactShape = "content" | "blob" | "url";
 
-export type MountStateTag = "project" | "needsInit" | "noGit" | "loadFailed";
-
 export interface HealthResponse {
   status: string;
 }
@@ -106,17 +104,6 @@ export interface SampleContentResponse {
   collectionsCreated: number;
   artifactsCreated: number;
   collections: SampleContentCollectionSummary[];
-}
-
-// --- Phase 11c: system-state view ---------------------------------------
-
-export interface SystemStateResponse {
-  loaded: boolean;
-  /** Present only when `loaded === true`; the field is omitted
-   * from the wire when absent so clients can rely on key-missing
-   * semantics rather than branching on `null`. */
-  name?: string;
-  projectCount: number;
 }
 
 export interface ArtifactListing {
@@ -326,14 +313,6 @@ export interface ArtifactDetail {
   checkStatus?: UrlCheckStatus;
 }
 
-export interface MountEntry {
-  path: string;
-  dirName: string;
-  state: MountStateTag;
-  project?: ProjectSummary;
-  error?: string;
-}
-
 export interface CreateArtifactRequest {
   name: string;
   title: string;
@@ -394,13 +373,6 @@ export interface CreateCollectionRequest {
   name: string;
   description?: string | null;
   expectsCodeTrace?: boolean;
-}
-
-export interface InitProjectRequest {
-  slug: string;
-  name: string;
-  description?: string | null;
-  artifactsPath?: string;
 }
 
 export interface IncomingLinkEntry {
