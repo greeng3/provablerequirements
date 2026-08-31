@@ -72,18 +72,10 @@ function renderWithRouter(ui: React.ReactNode) {
 
 describe("OutgoingLinks", () => {
   beforeEach(() => {
-    // UnresolvedBadge calls useMounts; stub /api/mounts so
-    // unresolved-link tests don't need a real server.
-    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
-      const url = new URL(input.toString(), "http://localhost");
-      if (url.pathname === "/api/mounts") {
-        return new Response(JSON.stringify([]), {
-          status: 200,
-          headers: { "content-type": "application/json" },
-        });
-      }
-      return new Response(JSON.stringify([]), { status: 200 });
-    });
+    // Stub the network so link rows render without a real server.
+    vi.spyOn(globalThis, "fetch").mockImplementation(
+      async () => new Response(JSON.stringify([]), { status: 200 }),
+    );
   });
   afterEach(() => {
     vi.restoreAllMocks();

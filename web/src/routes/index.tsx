@@ -21,7 +21,7 @@ import { LinkOrphansReportPage } from "./reports/LinkOrphansReportPage";
 import { ReviewStatusReportPage } from "./reports/ReviewStatusReportPage";
 import { UnresolvedLinksReportPage } from "./reports/UnresolvedLinksReportPage";
 import { ReviewQueuePage } from "./ReviewQueuePage";
-import { SystemHomePage } from "./SystemHomePage";
+import { HomeRedirect } from "./HomeRedirect";
 
 /// Application routes. Bare URL patterns — the AppShell layout is
 /// applied at the outer Route via Outlet.
@@ -29,7 +29,7 @@ export function AppRoutes() {
   return (
     <Routes>
       <Route element={<AppShell />}>
-        <Route path="/" element={<SystemHomePage />} />
+        <Route path="/" element={<HomeRedirect />} />
         <Route path="/projects/:slug" element={<ProjectPage />} />
         <Route
           path="/projects/:slug/collections/:prefix"

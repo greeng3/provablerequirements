@@ -39,11 +39,36 @@ afterEach(() => {
 });
 
 describe("AppRoutes", () => {
-  it("renders SystemHomePage at /", async () => {
+  it("redirects / to the single project's page", async () => {
+    stubByPath({
+      "/api/projects": [
+        {
+          slug: "sample-project",
+          name: "Sample Project",
+          description: null,
+          collectionCount: 0,
+          artifactCount: 0,
+        },
+      ],
+      "/api/projects/sample-project": {
+        slug: "sample-project",
+        name: "Sample Project",
+        description: null,
+        artifactsPath: "artifacts",
+        collections: [],
+      },
+    });
     renderAt("/");
-    expect(
-      screen.getByRole("heading", { name: /System Home/i }),
-    ).toBeInTheDocument();
+    await waitFor(() =>
+      expect(
+        screen.getByRole("heading", { name: "Sample Project" }),
+      ).toBeInTheDocument(),
+    );
+  });
+
+  it("shows a no-project message at / when none is served", async () => {
+    renderAt("/");
+    expect(await screen.findByText(/no project found/i)).toBeInTheDocument();
   });
 
   it("renders ProjectPage at /projects/:slug", async () => {

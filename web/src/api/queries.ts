@@ -12,7 +12,6 @@ import type {
   CreateReviewRequest,
   CreateUrlArtifactRequest,
   GraphQueryParams,
-  InitProjectRequest,
   MatrixQueryParams,
   ProviderCrudRequest,
   ProviderPatchRequest,
@@ -80,7 +79,6 @@ export const queryKeys = {
     ] as const,
   health: ["health"] as const,
   readiness: ["readiness"] as const,
-  mounts: ["mounts"] as const,
   projects: ["projects"] as const,
   project: (slug: string) => ["projects", slug] as const,
   collections: (slug: string) => ["projects", slug, "collections"] as const,
@@ -116,13 +114,6 @@ export function useReadiness() {
     queryKey: queryKeys.readiness,
     queryFn: api.readiness,
     refetchInterval: (query) => (query.state.data?.ready ? false : 1000),
-  });
-}
-
-export function useMounts() {
-  return useQuery({
-    queryKey: queryKeys.mounts,
-    queryFn: api.mounts,
   });
 }
 
@@ -276,14 +267,6 @@ export function useWipeProjectArtifacts(slug: string) {
   return useMutation({
     mutationFn: (opts: { deinit?: boolean } = {}) =>
       api.wipeProjectArtifacts(slug, opts),
-    onSuccess: () => invalidateAll(qc),
-  });
-}
-
-export function useInitProject(dirName: string) {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (req: InitProjectRequest) => api.initProject(dirName, req),
     onSuccess: () => invalidateAll(qc),
   });
 }
@@ -609,15 +592,6 @@ export function useCreateSampleContent(slug: string) {
     // Seeding writes a full project worth of collections +
     // artifacts; every cached listing is stale afterwards.
     onSuccess: () => invalidateAll(qc),
-  });
-}
-
-// --- Phase 11c: system-state view ---------------------------------------
-
-export function useSystemState() {
-  return useQuery({
-    queryKey: ["system"] as const,
-    queryFn: () => api.systemState(),
   });
 }
 

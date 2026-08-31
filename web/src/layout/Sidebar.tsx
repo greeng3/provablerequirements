@@ -1,14 +1,15 @@
-import { NavLink, useParams } from "react-router-dom";
+import { NavLink } from "react-router-dom";
 import clsx from "clsx";
 
 import { useCollections, useProjects, useReviewQueue } from "../api/queries";
 
-/// Sidebar driven by the current URL params: when a project is
-/// selected, its collections appear nested beneath it.
+/// Sidebar for the single subject: the top nav links plus the one
+/// project's collections rendered directly (there is no project
+/// switcher — the backend serves exactly one project).
 export function Sidebar() {
-  const params = useParams<{ slug?: string }>();
   const projectsQuery = useProjects();
-  const collectionsQuery = useCollections(params.slug);
+  const project = projectsQuery.data?.[0];
+  const collectionsQuery = useCollections(project?.slug);
   const queueQuery = useReviewQueue({});
   const queueCount =
     (queueQuery.data?.awaitingReview?.length ?? 0) +
@@ -16,7 +17,7 @@ export function Sidebar() {
 
   return (
     <aside
-      aria-label="Projects and collections"
+      aria-label="Sidebar navigation"
       className="hidden w-64 shrink-0 border-r border-slate-200 bg-white p-4 md:block dark:border-slate-800 dark:bg-slate-900"
     >
       <NavLink
@@ -120,58 +121,36 @@ export function Sidebar() {
         LLM providers
       </NavLink>
       <h2 className="mb-2 text-xs font-semibold tracking-wide text-slate-500 uppercase">
-        Projects
+        Collections
       </h2>
       {projectsQuery.isLoading ? (
         <p className="text-sm text-slate-500">Loading…</p>
       ) : projectsQuery.isError ? (
-        <p className="text-sm text-rose-600">Failed to load projects.</p>
-      ) : projectsQuery.data && projectsQuery.data.length > 0 ? (
-        <ul className="space-y-1 text-sm">
-          {projectsQuery.data.map((project) => {
-            const isActive = params.slug === project.slug;
-            return (
-              <li key={project.slug}>
-                <NavLink
-                  to={`/projects/${project.slug}`}
-                  className={({ isActive: active }) =>
-                    clsx(
-                      "block rounded px-2 py-1",
-                      active
-                        ? "bg-slate-100 font-medium text-slate-900 dark:bg-slate-800 dark:text-slate-100"
-                        : "text-slate-700 hover:bg-slate-50 dark:text-slate-300 dark:hover:bg-slate-800",
-                    )
-                  }
-                >
-                  {project.name}
-                </NavLink>
-                {isActive && collectionsQuery.data ? (
-                  <ul className="mt-1 ml-3 space-y-0.5 border-l border-slate-200 pl-3 text-sm dark:border-slate-700">
-                    {collectionsQuery.data.map((collection) => (
-                      <li key={collection.prefix}>
-                        <NavLink
-                          to={`/projects/${project.slug}/collections/${collection.prefix}`}
-                          className={({ isActive }) =>
-                            clsx(
-                              "block rounded px-2 py-0.5 font-mono text-xs",
-                              isActive
-                                ? "bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-slate-100"
-                                : "text-slate-600 hover:bg-slate-50 dark:text-slate-400 dark:hover:bg-slate-800",
-                            )
-                          }
-                        >
-                          {collection.prefix}
-                        </NavLink>
-                      </li>
-                    ))}
-                  </ul>
-                ) : null}
-              </li>
-            );
-          })}
+        <p className="text-sm text-rose-600" role="alert">
+          Failed to load project.
+        </p>
+      ) : project ? (
+        <ul className="space-y-0.5 text-sm">
+          {(collectionsQuery.data ?? []).map((collection) => (
+            <li key={collection.prefix}>
+              <NavLink
+                to={`/projects/${project.slug}/collections/${collection.prefix}`}
+                className={({ isActive }) =>
+                  clsx(
+                    "block rounded px-2 py-0.5 font-mono text-xs",
+                    isActive
+                      ? "bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-slate-100"
+                      : "text-slate-600 hover:bg-slate-50 dark:text-slate-400 dark:hover:bg-slate-800",
+                  )
+                }
+              >
+                {collection.prefix}
+              </NavLink>
+            </li>
+          ))}
         </ul>
       ) : (
-        <p className="text-sm text-slate-500">No projects mounted.</p>
+        <p className="text-sm text-slate-500">No project found.</p>
       )}
     </aside>
   );

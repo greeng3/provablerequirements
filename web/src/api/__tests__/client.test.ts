@@ -102,30 +102,22 @@ describe("api client", () => {
     });
   });
 
-  it("returns the full typed array for /api/mounts", async () => {
+  it("returns the full typed array for /api/projects", async () => {
     stubFetch(() =>
       json([
         {
-          path: "/repos/a",
-          dirName: "a",
-          state: "project",
-          project: {
-            slug: "a",
-            name: "A",
-            description: null,
-            collectionCount: 1,
-            artifactCount: 2,
-          },
+          slug: "a",
+          name: "A",
+          description: null,
+          collectionCount: 1,
+          artifactCount: 2,
         },
-        { path: "/repos/b", dirName: "b", state: "needsInit" },
-        { path: "/repos/c", dirName: "c", state: "noGit" },
       ]),
     );
-    const mounts = await api.mounts();
-    expect(mounts).toHaveLength(3);
-    expect(mounts[0].state).toBe("project");
-    expect(mounts[0].project?.artifactCount).toBe(2);
-    expect(mounts[1].state).toBe("needsInit");
+    const projects = await api.projects();
+    expect(projects).toHaveLength(1);
+    expect(projects[0].slug).toBe("a");
+    expect(projects[0].artifactCount).toBe(2);
   });
 });
 
