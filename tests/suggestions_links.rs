@@ -1,28 +1,35 @@
-//! Ported from ReqForge `tests/suggestions_links.rs` (#374 batch C):
-//! the LLM-assisted link-suggestion HTTP surface (analyze / list /
-//! accept / reject / reinstate).
+//! Ported from ReqForge `tests/suggestions_links.rs` (#374 batches
+//! C + E): the LLM-assisted link-suggestion HTTP surface (analyze /
+//! list / accept / reject / reinstate).
 //!
 //! Single-subject: the original already stood up one "sample"
 //! project, so the seeders map straight onto the shared harness.
 //!
-//! #374: the two wiremock-driven analyze cases
+//! The two wiremock-driven analyze cases
 //! (`analyze_happy_path_writes_pending_and_returns_ok`,
-//! `analyze_surfaces_malformed_llm_output_as_bad_gateway`) are
-//! DROPPED — they need the `wiremock` dev-dependency, which provreq
-//! does not carry, and this batch is test-only (no Cargo.toml
-//! change). The live-adapter happy path is deferred to batch E,
-//! alongside `llm_adapters`.
+//! `analyze_surfaces_malformed_llm_output_as_bad_gateway`) were
+//! deferred out of batch C (`wiremock` was not yet a provreq
+//! dev-dependency) and restored here in batch E, which adds it.
+//! They boot through a local `app_with_llm` helper that folds an
+//! `llm` block into the subject's `system.json`.
 
 mod support;
 
 use std::path::Path;
+use std::sync::Arc;
 
 use axum::Router;
 use axum::body::{Body, to_bytes};
 use axum::http::{Request, StatusCode};
-use serde_json::Value;
-use support::{build_app, get_json, write_artifact, write_collection};
+use provreq::app::AppState;
+use provreq::http::build_router;
+use reqforge_model::world::DiscoveryConfig;
+use reqforge_model::write::OwnershipOverrides;
+use serde_json::{Value, json};
+use support::{SUBJECT_SLUG, build_app, get_json, write_artifact, write_collection, write_project};
 use tower::util::ServiceExt;
+use wiremock::matchers::{method, path as wm_path};
+use wiremock::{Mock, MockServer, ResponseTemplate};
 
 const FROM_UUID: &str = "0194f6d0-0001-7000-8000-000000000001";
 const TO_UUID: &str = "0194f6d0-0001-7000-8000-000000000002";
@@ -37,6 +44,63 @@ async fn app() -> (Router, tempfile::TempDir) {
     })
     .await;
     (router, temp)
+}
+
+/// Boot the app with the two seed artifacts AND a named `system.json`
+/// carrying the given `llm` block, so `POST .../analyze` has a live
+/// runtime to drive. Mirrors `app()` but sets `system_config_path`,
+/// which `discover_single` reads into a `LoadedSystem::Named` with
+/// the llm providers. The system config lives outside the subject and
+/// (on POSIX) is mode 0600 — the loader rejects world-readable files
+/// because they hold API keys.
+async fn app_with_llm(llm: Value) -> (Router, tempfile::TempDir) {
+    let temp = tempfile::tempdir().unwrap();
+    let subject = temp.path().join(SUBJECT_SLUG);
+    write_project(&subject, SUBJECT_SLUG);
+    write_collection(&subject, "requirements", "REQ");
+    write_artifact(&subject, "requirements", "REQ-a", FROM_UUID, "From");
+    write_artifact(&subject, "requirements", "REQ-b", TO_UUID, "To");
+
+    let system_path = temp.path().join("system.json");
+    std::fs::write(
+        &system_path,
+        json!({
+            "schemaVersion": 2,
+            "name": "test",
+            "projects": [],
+            "linkTypes": [],
+            "llm": llm,
+        })
+        .to_string(),
+    )
+    .unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&system_path, std::fs::Permissions::from_mode(0o600)).unwrap();
+    }
+
+    let config = DiscoveryConfig {
+        mount_prefix: subject.clone(),
+        system_config_path: Some(system_path),
+        workspace_dir: None,
+        max_blob_bytes: 50 * 1024 * 1024,
+        thumbnail_cache_max_bytes: 500 * 1024 * 1024,
+        external_url: None,
+    };
+    let state = Arc::new(AppState::new_single_subject(
+        subject.clone(),
+        config,
+        OwnershipOverrides::default(),
+    ));
+    state.refresh().await.unwrap();
+    (build_router(state, None), temp)
+}
+
+fn chat_completion(content: &str) -> Value {
+    json!({
+        "choices": [{"message": {"content": content}}]
+    })
 }
 
 /// POST with an empty body — the suggestion routes take their inputs
@@ -266,4 +330,93 @@ async fn analyze_for_unknown_project_returns_404() {
     let (router, _temp) = app().await;
     let (status, _body) = post_empty(&router, "/api/projects/nope/suggestions/links/analyze").await;
     assert_eq!(status, StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn analyze_happy_path_writes_pending_and_returns_ok() {
+    // Stand up a wiremock server that pretends to be an
+    // OpenAI-compatible LLM. Configure the AppState's LlmRuntime
+    // to point at it. POST /analyze, assert the response is a
+    // discriminated `ok` carrying the parsed suggestions and the
+    // server-by attribution, and that pending.json on disk
+    // matches the same suggestions.
+    let server = MockServer::start().await;
+    let suggestion_payload = format!(
+        r#"[{{"from":"{FROM_UUID}","to":"{TO_UUID}","linkType":"derives-from","confidence":0.85,"rationale":"REQ-a derives from REQ-b"}}]"#
+    );
+    Mock::given(method("POST"))
+        .and(wm_path("/v1/chat/completions"))
+        .respond_with(
+            ResponseTemplate::new(200).set_body_json(chat_completion(&suggestion_payload)),
+        )
+        .mount(&server)
+        .await;
+
+    let (router, temp) = app_with_llm(json!([
+        {
+            "provider": "openai-compatible",
+            "model": "gpt-4o-mini",
+            "endpoint": server.uri(),
+            "apiKey": "secret",
+        }
+    ]))
+    .await;
+
+    let (status, body) =
+        post_empty(&router, "/api/projects/sample/suggestions/links/analyze").await;
+    assert_eq!(status, StatusCode::OK, "body={body}");
+    assert_eq!(body["kind"], "ok");
+    let suggestions = body["suggestions"].as_array().unwrap();
+    assert_eq!(suggestions.len(), 1);
+    assert_eq!(suggestions[0]["from"], FROM_UUID);
+    assert_eq!(suggestions[0]["to"], TO_UUID);
+    assert_eq!(suggestions[0]["linkType"], "derives-from");
+    assert_eq!(suggestions[0]["rationale"], "REQ-a derives from REQ-b");
+    assert!((suggestions[0]["confidence"].as_f64().unwrap() - 0.85).abs() < 1e-6);
+    assert_eq!(body["servedByIndex"], 0);
+    assert_eq!(body["servedBy"], "openai-compatible/gpt-4o-mini");
+
+    // pending.json on disk mirrors the response so a refresh
+    // sees the same set.
+    let pending: Value = serde_json::from_str(
+        &std::fs::read_to_string(
+            temp.path()
+                .join("sample/artifacts/.suggestions/pending.json"),
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    let persisted = pending["suggestions"].as_array().unwrap();
+    assert_eq!(persisted.len(), 1);
+    assert_eq!(persisted[0]["linkType"], "derives-from");
+}
+
+#[tokio::test]
+async fn analyze_surfaces_malformed_llm_output_as_bad_gateway() {
+    // The LLM returns prose without a JSON array at all. The
+    // engine's parser should reject this as ParseError::NoArray,
+    // which the handler maps to BAD_GATEWAY.
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(wm_path("/v1/chat/completions"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(chat_completion(
+            "Sorry, I can't make any suggestions today.",
+        )))
+        .mount(&server)
+        .await;
+
+    let (router, _temp) = app_with_llm(json!([
+        {
+            "provider": "openai-compatible",
+            "model": "gpt-4o-mini",
+            "endpoint": server.uri(),
+            "apiKey": "secret",
+        }
+    ]))
+    .await;
+
+    let (status, body) =
+        post_empty(&router, "/api/projects/sample/suggestions/links/analyze").await;
+    assert_eq!(status, StatusCode::BAD_GATEWAY);
+    assert!(body["error"].as_str().unwrap_or("").contains("JSON array"));
 }
