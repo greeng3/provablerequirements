@@ -225,12 +225,11 @@ describe("LinkCreateDialog", () => {
         />
       </TestQueryProvider>,
     );
-    // Once the source artifact's existing links load, the
-    // duplicate guard should disable Create and surface a note.
-    const createButton = await screen.findByRole("button", {
-      name: /^create$/i,
-    });
-    await waitFor(() => expect(createButton).toBeDisabled());
-    expect(screen.getByRole("alert")).toHaveTextContent(/already exists/i);
+    // Once the source artifact's existing links load, the duplicate guard should
+    // surface a note and disable Create. Wait for the alert itself: Create is also
+    // disabled while the links are still loading, so waiting on `toBeDisabled` alone
+    // races the async render and the alert may not be mounted yet (flaked on CI).
+    expect(await screen.findByRole("alert")).toHaveTextContent(/already exists/i);
+    expect(screen.getByRole("button", { name: /^create$/i })).toBeDisabled();
   });
 });
