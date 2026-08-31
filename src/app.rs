@@ -226,7 +226,7 @@ impl AppState {
             .mounts
             .iter()
             .filter_map(|m| match &m.state {
-                reqforge_model::mount::MountState::Project(p) => Some(p.root.join(".git")),
+                reqforge_model::mount::MountState::Project(p) => p.git_repo_path(),
                 _ => None,
             })
             .collect();
