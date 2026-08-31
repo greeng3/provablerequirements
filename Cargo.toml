@@ -86,6 +86,10 @@ unexpected_cfgs = { level = "warn", check-cfg = ['cfg(kani)'] }
 
 [dev-dependencies]
 tower = { version = "0.5", features = ["util"] }
+# LLM adapter/analyze handler tests (#374 batch E) mock the OpenAI/Anthropic/Gemini
+# HTTP endpoints. Already in the workspace lock via crates/provreq-mcp, so this adds
+# no Cargo.lock churn.
+wiremock = "0.6"
 
 # cargo-dist / release configuration is expressed in the CI workflow
 # (.github/workflows/release.yml) for this prototype; see docs/build-and-release.md.

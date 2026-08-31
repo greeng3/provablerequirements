@@ -2703,6 +2703,7 @@ dependencies = [
  "url",
  "uuid",
  "walkdir",
+ "wiremock",
 ]
 
 [[package]]
