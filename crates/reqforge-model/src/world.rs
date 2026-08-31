@@ -78,11 +78,17 @@ pub struct DiscoveryConfig {
 /// repository, so its World holds exactly one mount — the subject itself — rather than every
 /// sibling directory under a `mount_prefix`. Everything downstream (uuid index, system config,
 /// link catalog, search index) is identical to `run_discovery`; only the mount set differs.
+/// Build a one-mount World for provreq's single subject. `git_root` is the subject repo (where
+/// `.git` lives); `project_root` is where the ReqForge project (`reqforge.json` + artifacts) lives,
+/// which provreq resolves through the companion's `subject_requirements` — for its own repo these
+/// differ (`.git` at the root, `reqforge.json` in `requirements/`). When they're the same path this
+/// is exactly ReqForge's original single-directory classification.
 pub fn discover_single(
-    subject_root: PathBuf,
+    project_root: PathBuf,
+    git_root: PathBuf,
     config: &DiscoveryConfig,
 ) -> Result<World, DiscoveryError> {
-    let mounts = vec![crate::mount::classify_mount(subject_root)];
+    let mounts = vec![crate::mount::classify_single(project_root, &git_root)];
     build_world(mounts, config)
 }
 
