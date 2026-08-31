@@ -175,7 +175,36 @@ mod tests {
         let mount = classify_single(project_root.clone(), git_root);
         assert_eq!(mount.path, project_root);
         match mount.state {
-            MountState::Project(p) => assert_eq!(p.config.slug, "provreq"),
+            MountState::Project(p) => {
+                assert_eq!(p.config.slug, "provreq");
+                // The repo is resolved by walking up from the project dir to the `.git`
+                // ancestor (#379) — not `project_root/.git`, which does not exist here.
+                assert_eq!(p.git_root(), git_root);
+                assert_eq!(p.git_repo_path(), Some(git_root.join(".git")));
+            }
+            other => panic!("expected Project, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn git_root_is_the_project_dir_when_git_is_co_located() {
+        // ReqForge's own layout: `.git` and `reqforge.json` in the same directory. The walk finds
+        // `.git` immediately, so `git_root` is the project dir and behaviour is unchanged.
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        fs::create_dir(root.join(".git")).unwrap();
+        fs::create_dir_all(root.join("artifacts")).unwrap();
+        fs::write(
+            root.join("reqforge.json"),
+            r#"{"schemaVersion":1,"slug":"co","name":"Co-located"}"#,
+        )
+        .unwrap();
+
+        match classify_mount(root.to_path_buf()).state {
+            MountState::Project(p) => {
+                assert_eq!(p.git_root(), root);
+                assert_eq!(p.git_repo_path(), Some(root.join(".git")));
+            }
             other => panic!("expected Project, got {other:?}"),
         }
     }

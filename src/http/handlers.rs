@@ -2216,13 +2216,16 @@ pub async fn download_blob(
     // emitted for historical reads because we don't recompute the
     // content hash on the fly (the cost would dwarf the request).
     if let Some(oid) = q.at.clone() {
-        let project_root = project.root.clone();
-        let repo_rel = match repo_relative_path(&project_root, &binary_path) {
+        // Resolve the repo root (the `.git` ancestor of the project dir, #379) and make the blob
+        // path relative to it, so provreq's split layout (`.git` at the repo root, artifacts in a
+        // `requirements/` subdir) resolves history instead of failing to open `requirements/.git`.
+        let git_root = project.git_root().to_path_buf();
+        let repo_rel = match repo_relative_path(&git_root, &binary_path) {
             Some(p) => p,
             None => return internal_error("blob path outside project root"),
         };
         drop(world);
-        let repo = match state.repo_cache().open(&project_root.join(".git")) {
+        let repo = match state.repo_cache().open(&git_root.join(".git")) {
             Ok(r) => r,
             Err(err) => {
                 return history_unavailable(&format!("repo open failed: {err}"));
@@ -2634,9 +2637,11 @@ pub async fn get_history(State(state): State<Arc<AppState>>, Path(uuid): Path<Uu
         return internal_error("index references an artifact that isn't loaded");
     };
 
-    let project_root = project.root.clone();
+    // Repo root = the `.git` ancestor of the project dir (#379); the tracked path is made relative
+    // to it so blob lookups key off the repo root, which is what provreq's split layout needs.
+    let git_root = project.git_root().to_path_buf();
     let tracked_path = history_tracked_path(artifact);
-    let Some(repo_rel) = repo_relative_path(&project_root, &tracked_path) else {
+    let Some(repo_rel) = repo_relative_path(&git_root, &tracked_path) else {
         return Json(ArtifactHistoryResponse {
             commits: Vec::new(),
             fallback_reason: Some("artifact source path is not inside the project root".to_owned()),
@@ -2645,7 +2650,7 @@ pub async fn get_history(State(state): State<Arc<AppState>>, Path(uuid): Path<Uu
     };
     drop(world);
 
-    let repo = match state.repo_cache().open(&project_root.join(".git")) {
+    let repo = match state.repo_cache().open(&git_root.join(".git")) {
         Ok(r) => r,
         Err(err) => {
             return Json(ArtifactHistoryResponse {
@@ -2712,9 +2717,10 @@ pub async fn get_diff(
         None | Some("current") => "working tree".to_owned(),
         Some(oid) => oid.chars().take(10).collect::<String>(),
     };
-    let project_root = project.root.clone();
+    // Repo root = the `.git` ancestor of the project dir (#379); repo_rel keys off it.
+    let git_root = project.git_root().to_path_buf();
     let tracked_path = history_tracked_path(artifact);
-    let Some(repo_rel) = repo_relative_path(&project_root, &tracked_path) else {
+    let Some(repo_rel) = repo_relative_path(&git_root, &tracked_path) else {
         return internal_error("artifact source path is not inside the project root");
     };
     let current_bytes = if shape == ArtifactShape::Blob {
@@ -2736,7 +2742,7 @@ pub async fn get_diff(
     drop(world);
 
     let repo_cache = state.repo_cache().clone();
-    let git_dir = project_root.join(".git");
+    let git_dir = git_root.join(".git");
     let repo = match repo_cache.open(&git_dir) {
         Ok(r) => r,
         Err(err) => {
@@ -2942,11 +2948,14 @@ fn historical_artifact_detail(
     oid: &str,
 ) -> Result<ArtifactDetail, Response> {
     let tracked_path = history_tracked_path(artifact);
-    let repo_rel = repo_relative_path(&project.root, &tracked_path)
+    // Repo root = the `.git` ancestor of the project dir (#379); repo_rel keys off it so the split
+    // layout (artifacts in a `requirements/` subdir of the repo) reads blobs at the right path.
+    let git_root = project.git_root();
+    let repo_rel = repo_relative_path(git_root, &tracked_path)
         .ok_or_else(|| internal_error("artifact source path is not inside the project root"))?;
     let repo = state
         .repo_cache()
-        .open(&project.root.join(".git"))
+        .open(&git_root.join(".git"))
         .map_err(|err| history_unavailable(&format!("repo open failed: {err}")))?;
     let bytes = reqforge_model::git_history::read_blob_at_commit(&repo, oid, &repo_rel)
         .map_err(|err| history_unavailable(&err.to_string()))?;

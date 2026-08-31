@@ -40,18 +40,29 @@ impl LoadedProject {
             .flatten()
     }
 
-    /// Absolute path to the mount's own `.git` directory, or `None`
-    /// when the mount is a NeedsInit / NoGit candidate that hasn't
-    /// been `git init`ed. Phase 5d's gitoxide history service
-    /// consumes this to open the repo handle; keeping the helper
-    /// here means discovery doesn't need to know about gitoxide.
+    /// The git repository directory (`…/.git`) the project's files live in, or `None` when the
+    /// project is not inside a git repo. Resolved by walking up from [`Self::root`] to the nearest
+    /// `.git` ancestor — exactly how git itself locates the repo for a path. ReqForge's
+    /// multi-project model puts `.git` in the project directory itself (`root/.git`), so the walk
+    /// finds it immediately; provreq self-hosts with the project in a `requirements/` subdir of the
+    /// repo, so the walk climbs to the repo root. The gitoxide history service opens this handle,
+    /// and file paths are made relative to [`Self::git_root`] so blob lookups key off the repo root.
     pub fn git_repo_path(&self) -> Option<PathBuf> {
-        let git_dir = self.root.join(".git");
-        if git_dir.exists() {
-            Some(git_dir)
-        } else {
-            None
-        }
+        self.root
+            .ancestors()
+            .map(|a| a.join(".git"))
+            .find(|git_dir| git_dir.exists())
+    }
+
+    /// The root of the git repository the project's files live in — the directory that contains
+    /// `.git`. Falls back to [`Self::root`] when the project is not in a git repo (so callers that
+    /// build a `root/.git` path and let the open fail keep working). For a co-located ReqForge
+    /// project this is `root`; for provreq's split layout it is the enclosing repo root.
+    pub fn git_root(&self) -> &Path {
+        self.root
+            .ancestors()
+            .find(|a| a.join(".git").exists())
+            .unwrap_or(self.root.as_path())
     }
 }
 
