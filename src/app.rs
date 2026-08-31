@@ -315,7 +315,16 @@ impl AppState {
         let config = self.config.clone();
         let subject = self.subject_root.clone();
         let world = tokio::task::spawn_blocking(move || match subject {
-            Some(root) => discover_single(root, &config),
+            // provreq's ReqForge project can live in a `requirements/` subdir of the subject repo,
+            // so classify the git repo (the subject) and the project (its `requirements_root`,
+            // resolved through the companion's `subject_requirements`) separately — the same
+            // convention the proof surface uses to find requirements. For a subject with no
+            // companion, `requirements_root` falls back to the subject, so external ReqForge repos
+            // (git + reqforge.json at the root) classify exactly as before.
+            Some(root) => {
+                let project_root = crate::adopt::requirements_root(&root);
+                discover_single(project_root, root, &config)
+            }
             None => run_discovery(&config),
         })
         .await
