@@ -17,3 +17,4 @@
 # .claude-home is bind-mounted to /root/.claude in the dev container.
 .claude/
 .claude-home/
+/web/*.tsbuildinfo
