@@ -9,6 +9,7 @@ import { CodeTraceabilityReportPage } from "./reports/CodeTraceabilityReportPage
 import { GraphPage } from "./explore/graph/GraphPage";
 import { LlmProvidersPage } from "./llm/LlmProvidersPage";
 import { MatrixPage } from "./explore/matrix/MatrixPage";
+import { ProofPage } from "./proof/ProofPage";
 import { SearchPage } from "./search/SearchPage";
 import { ProjectPage } from "./ProjectPage";
 import { ReportsIndexPage } from "./ReportsIndexPage";
@@ -73,6 +74,7 @@ export function AppRoutes() {
           path="/reports/code-traceability"
           element={<CodeTraceabilityReportPage />}
         />
+        <Route path="/proof" element={<ProofPage />} />
         <Route path="/explore/graph" element={<GraphPage />} />
         <Route path="/explore/matrix" element={<MatrixPage />} />
         <Route path="/search" element={<SearchPage />} />

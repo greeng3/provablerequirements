@@ -41,6 +41,11 @@ import type {
   LlmRetestResponse,
   MigrateSchemaRequest,
   MigrateSchemaResponse,
+  ProofBacklog,
+  ProofClassification,
+  ProofDetail,
+  ProofEnginesResponse,
+  ProofVerifyResponse,
   SampleContentResponse,
   MatrixQueryParams,
   MatrixResponse,
@@ -505,5 +510,24 @@ export const api = {
       `/api/projects/${encodeURIComponent(slug)}/suggestions/links/${encodeURIComponent(id)}/reinstate`,
       "POST",
       {},
+    ),
+
+  // Sub-slice 9c: provreq's proof surface. These hit provreq's own
+  // /api/requirements + /api/engines routes (src/server.rs), merged into
+  // the same single-subject router the ReqForge management API serves.
+  requirements: () => request<ProofBacklog>("/api/requirements"),
+  requirement: (id: string) =>
+    request<ProofDetail>(`/api/requirements/${encodeURIComponent(id)}`),
+  engines: () => request<ProofEnginesResponse>("/api/engines"),
+  triageRequirement: (id: string, classification: ProofClassification) =>
+    send<ProofBacklog>(
+      `/api/requirements/${encodeURIComponent(id)}/triage`,
+      "POST",
+      { classification },
+    ),
+  verifyRequirement: (id: string) =>
+    send<ProofVerifyResponse>(
+      `/api/requirements/${encodeURIComponent(id)}/verify`,
+      "POST",
     ),
 };
