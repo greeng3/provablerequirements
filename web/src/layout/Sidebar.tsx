@@ -21,6 +21,19 @@ export function Sidebar() {
       className="hidden w-64 shrink-0 border-r border-slate-200 bg-white p-4 md:block dark:border-slate-800 dark:bg-slate-900"
     >
       <NavLink
+        to="/proof"
+        className={({ isActive }) =>
+          clsx(
+            "mb-2 block rounded px-2 py-1 text-sm font-semibold",
+            isActive
+              ? "bg-sky-100 text-sky-900 dark:bg-sky-900/40 dark:text-sky-100"
+              : "text-sky-700 hover:bg-sky-50 dark:text-sky-300 dark:hover:bg-sky-900/30",
+          )
+        }
+      >
+        Proof
+      </NavLink>
+      <NavLink
         to="/search"
         className={({ isActive }) =>
           clsx(

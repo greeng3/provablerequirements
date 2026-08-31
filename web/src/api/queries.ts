@@ -5,6 +5,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "./client";
 import type {
   AdoptOrphanBlobRequest,
+  ProofBacklog,
+  ProofClassification,
   BrowseQueryParams,
   CreateArtifactRequest,
   DoorstopImportRequest,
@@ -100,6 +102,10 @@ export const queryKeys = {
     ["projects", slug, "suggestions", "links", "pending"] as const,
   declinedLinkSuggestions: (slug: string) =>
     ["projects", slug, "suggestions", "links", "declined"] as const,
+  // Sub-slice 9c: provreq proof surface.
+  requirements: ["requirements"] as const,
+  requirement: (id: string) => ["requirements", id] as const,
+  engines: ["engines"] as const,
 };
 
 export function useHealth() {
@@ -656,5 +662,86 @@ export function useReinstateLinkSuggestion(slug: string) {
     mutationFn: (id: string) => api.reinstateLinkSuggestion(slug, id),
     // Reinstate writes a real link AND drops from declined.
     onSuccess: () => invalidateAll(qc),
+  });
+}
+
+// --- Sub-slice 9c: provreq proof surface --------------------------------
+
+/// The read-only backlog + coverage funnel (REQ034). A 409 (unadopted
+/// subject) surfaces through `query.error` so the page can name the cause.
+export function useRequirements() {
+  return useQuery({
+    queryKey: queryKeys.requirements,
+    queryFn: () => api.requirements(),
+  });
+}
+
+/// One requirement's read-only formalization detail (REQ035); gated on an
+/// id so the detail dialog fires only once a row is selected.
+export function useRequirement(id: string | null) {
+  // The disabled (id === null) fallback key must NOT be `queryKeys.requirements`
+  // — that is the backlog's own key, and sharing it means an `invalidateQueries`
+  // on the backlog refetches this key with the *detail* queryFn (fetching
+  // `/api/requirements/null`), clobbering the backlog cache. A distinct
+  // never-fetched key keeps the two queries independent.
+  return useQuery({
+    queryKey: queryKeys.requirement(id ?? "__none__"),
+    queryFn: () => api.requirement(id!),
+    enabled: Boolean(id),
+  });
+}
+
+/// What every verification engine is doing right now (REQ051). Probed on
+/// each request and independent of the backlog, so it renders even when the
+/// subject is unadopted and the backlog 409s.
+export function useEngines() {
+  return useQuery({
+    queryKey: queryKeys.engines,
+    queryFn: () => api.engines(),
+  });
+}
+
+/// Set one item's triage bucket (REQ037). Optimistic: the new bucket shows
+/// at once, then reconciles to the authoritative backlog the server returns
+/// (correct coverage); a failure rolls back and the error surfaces through
+/// `mutation.error`.
+export function useTriageRequirement() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (args: { id: string; classification: ProofClassification }) =>
+      api.triageRequirement(args.id, args.classification),
+    onMutate: async ({ id, classification }) => {
+      await qc.cancelQueries({ queryKey: queryKeys.requirements });
+      const previous = qc.getQueryData<ProofBacklog>(queryKeys.requirements);
+      if (previous) {
+        qc.setQueryData<ProofBacklog>(queryKeys.requirements, {
+          ...previous,
+          items: previous.items.map((it) =>
+            it.id === id ? { ...it, classification } : it,
+          ),
+        });
+      }
+      return { previous };
+    },
+    onError: (_err, _args, context) => {
+      if (context?.previous) {
+        qc.setQueryData(queryKeys.requirements, context.previous);
+      }
+    },
+    onSuccess: (backlog) => {
+      qc.setQueryData(queryKeys.requirements, backlog);
+    },
+  });
+}
+
+/// Run the engine ensemble on demand for one requirement (REQ038). The
+/// backend blocks while the engines run, so callers show a pending state
+/// until it resolves. A fresh verdict refreshes the backlog funnel.
+export function useVerifyRequirement() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.verifyRequirement(id),
+    onSuccess: () =>
+      qc.invalidateQueries({ queryKey: queryKeys.requirements }),
   });
 }

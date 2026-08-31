@@ -1186,3 +1186,176 @@ export interface ListLinkSuggestionsResponse {
 export interface ListDeclinedLinkSuggestionsResponse {
   declined: LinkSuggestionDeclineRecord[];
 }
+
+// --- provreq proof surface (sub-slice 9c) --------------------------------
+//
+// These mirror provreq's own HTTP surface (src/server.rs), which predates
+// the ReqForge server and keeps its original serde wire shape: snake_case
+// coverage counts and kebab-case enum values. Unlike the camelCase ReqForge
+// DTOs above, the field names here are the contract with a different backend
+// module, so they are intentionally left snake_case rather than normalized.
+
+export type ProofClassification =
+  | "formalizable-now"
+  | "falsifiable-only"
+  | "stays-prose";
+
+export type ProofFormalization = "none" | "drafting" | "admitted";
+
+/// What produced a classification (src/triage.rs `Origin`): a bucket a
+/// classifier judged versus one seeded because nothing could — distinct
+/// facts, with "unrecorded" for entries written before the field existed.
+export type ProofOrigin = "classified" | "seeded" | "operator" | "unrecorded";
+
+export interface ProofCoverage {
+  discovered: number;
+  untriaged: number;
+  formalizable_now: number;
+  falsifiable_only: number;
+  stays_prose: number;
+  drafting: number;
+  formalized: number;
+  verified: number;
+  stale: number;
+}
+
+export type ProofEngineState =
+  | "available"
+  | "missing"
+  | "unusable"
+  | "incompatible"
+  | "not-wired";
+
+export interface ProofEngineReport {
+  category: string;
+  name: string;
+  state: ProofEngineState;
+  /** The same human line the CLI prints. */
+  detail: string;
+  /** The bare fault text, for a state that has one to explain — null otherwise. */
+  reason: string | null;
+}
+
+export interface ProofEnginesResponse {
+  engines: ProofEngineReport[];
+}
+
+export interface ProofEvidenceReport {
+  engine: string;
+  status: string;
+  basis: string | null;
+  witness: string | null;
+  detail: string[];
+}
+
+/// A stored verdict paired with whether it still holds against the current
+/// world (src/verdict_store.rs `VerdictView`). `fresh` is false when any
+/// provenance axis drifted; `stale_reasons` names each drift.
+export interface ProofVerdictView {
+  status: string;
+  basis: string | null;
+  reason: string | null;
+  detail: string[];
+  witness: string | null;
+  evidence: ProofEvidenceReport[];
+  fresh: boolean;
+  stale_reasons: string[];
+  /** Where this verdict was proved, or null when it predates recording. */
+  environment: string | null;
+}
+
+export interface ProofItemState {
+  id: string;
+  title: string | null;
+  text: string;
+  classification: ProofClassification | null;
+  /** What produced that classification; null when the item is untriaged. */
+  classified_by: ProofOrigin | null;
+  formalization: ProofFormalization;
+  verdict: ProofVerdictView | null;
+}
+
+export interface ProofBacklog {
+  coverage: ProofCoverage;
+  items: ProofItemState[];
+}
+
+export type ProofFidelity = "definitional" | "observed" | "probed";
+
+export interface ProofBinding {
+  symbol: string;
+  category: string;
+  observable: string;
+  fidelity: ProofFidelity;
+}
+
+export type ProofGateStatus =
+  | { status: "ungated" }
+  | { status: "passed"; warnings: string[] }
+  | { status: "failed"; errors: string[] };
+
+export interface ProofAdmissionInfo {
+  review: "mandatory" | "optional";
+  by: string;
+}
+
+export interface ProofBindingResolution {
+  symbol: string;
+  observable: string;
+  category: string;
+  resolved: boolean;
+  summary: string;
+}
+
+export interface ProofGroundingReport {
+  grounded: boolean;
+  bindings: ProofBindingResolution[];
+}
+
+export interface ProofDetail {
+  id: string;
+  title: string | null;
+  text: string;
+  revision: string;
+  stale: boolean;
+  classification: ProofClassification | null;
+  classified_by: ProofOrigin | null;
+  formalization: ProofFormalization;
+  admission: ProofAdmissionInfo | null;
+  candidate: string | null;
+  gate: ProofGateStatus | null;
+  readback: string | null;
+  bindings: ProofBinding[];
+  grounding: ProofGroundingReport | null;
+  verdict: ProofVerdictView | null;
+}
+
+export interface ProofProvenanceReport {
+  requirement_revision: string;
+  subject_commit: string | null;
+  tool_version: string;
+}
+
+export interface ProofVerdictReport {
+  id: string;
+  status: string;
+  basis: string | null;
+  reason: string | null;
+  witness: string | null;
+  detail: string[];
+  evidence: ProofEvidenceReport[];
+  provenance: ProofProvenanceReport;
+}
+
+/// The `POST /:id/verify` payload: a real verdict or an honest
+/// not-yet-verifiable state (nothing fabricated when there is nothing to run).
+export type ProofVerifyResponse =
+  | { state: "no-draft" }
+  | { state: "not-admitted" }
+  | { state: "no-candidate" }
+  | { state: "gate-failed"; errors: string[] }
+  | { state: "verdict"; stale: boolean; verdict: ProofVerdictReport };
+
+export interface ProofTriageRequest {
+  classification: ProofClassification;
+}
