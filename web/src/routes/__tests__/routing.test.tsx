@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MemoryRouter } from "react-router-dom";
 
@@ -68,7 +68,10 @@ describe("AppRoutes", () => {
 
   it("shows a no-project message at / when none is served", async () => {
     renderAt("/");
-    expect(await screen.findByText(/no project found/i)).toBeInTheDocument();
+    // Scope to the main content — the sidebar renders its own
+    // "No project found." copy for the empty subject.
+    const main = within(screen.getByRole("main"));
+    expect(await main.findByText(/no project found/i)).toBeInTheDocument();
   });
 
   it("renders ProjectPage at /projects/:slug", async () => {
