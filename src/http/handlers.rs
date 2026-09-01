@@ -1840,6 +1840,8 @@ fn parse_bool(s: &str) -> bool {
 
 /// POST /api/projects/:slug/collections/:prefix/artifacts/blob —
 /// create a new blob artifact from a multipart upload.
+///
+/// Implements: ART002
 pub async fn create_blob_artifact(
     State(state): State<Arc<AppState>>,
     Path((slug, prefix)): Path<(String, String)>,
@@ -1955,6 +1957,8 @@ pub async fn create_blob_artifact(
 /// PUT /api/artifacts/:uuid/blob — replace the binary on a blob
 /// artifact. Preserves UUID / review log / links (per
 /// `ART-uploadReplaceOnly`).
+///
+/// Implements: ART003
 pub async fn replace_blob(
     State(state): State<Arc<AppState>>,
     Path(uuid): Path<Uuid>,
@@ -2079,6 +2083,8 @@ pub async fn replace_blob(
 
 /// POST /api/projects/:slug/collections/:prefix/artifacts/url —
 /// create a URL artifact.
+///
+/// Implements: ART004
 pub async fn create_url_artifact(
     State(state): State<Arc<AppState>>,
     Path((slug, prefix)): Path<(String, String)>,
@@ -2374,6 +2380,8 @@ fn thumbnail_not_found(reason: &str, detail: &str) -> Response {
 
 /// POST /api/artifacts/:uuid/check-url — run a single URL check
 /// and persist the outcome to the sidecar.
+///
+/// Implements: ART005
 pub async fn check_url(State(state): State<Arc<AppState>>, Path(uuid): Path<Uuid>) -> Response {
     let outcome = match run_url_check(&state, uuid).await {
         Ok(outcome) => outcome,

@@ -154,6 +154,10 @@ pub fn load_project(root: &Path) -> Result<LoadedProject, ProjectLoadError> {
     let mut collections = Vec::new();
     let mut diagnostics = Vec::new();
 
+    // Any subdirectory with a `.collection.json` is a collection — new
+    // artifact types are added purely as new collections, with no change
+    // to this discovery loop or the storage model.
+    // Implements: ART009
     let subdirs = immediate_subdirectories(&artifacts_root).unwrap_or_default();
     for subdir in subdirs {
         let dir_name = subdir

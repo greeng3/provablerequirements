@@ -1,5 +1,7 @@
 //! Thumbnail pipeline (Phase 5c).
 //!
+//! Implements: ART006
+//!
 //! A thumbnail is a 512 px-longest-edge PNG keyed on the source
 //! blob's sha256 content hash. Each supported input format is
 //! serviced by a [`ThumbnailProvider`]; the registry walks providers

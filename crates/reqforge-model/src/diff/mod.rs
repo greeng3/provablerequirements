@@ -1,5 +1,7 @@
 //! Shape-aware diff (Phase 5d).
 //!
+//! Implements: ART007
+//!
 //! Given two commit OIDs (or "current" for the working-tree view),
 //! produce a structured DTO per artifact shape:
 //!

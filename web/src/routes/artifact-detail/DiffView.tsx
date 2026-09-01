@@ -13,6 +13,7 @@ interface Props {
 /// standalone /artifacts/:uuid/diff route and the review pane's
 /// "Since last approval" block, so the visual vocabulary is
 /// unified across the two surfaces.
+// Implements: ART007 — renders the shape-tagged diff per artifact shape.
 export function DiffView({ response }: Props) {
   return (
     <div className="space-y-3">

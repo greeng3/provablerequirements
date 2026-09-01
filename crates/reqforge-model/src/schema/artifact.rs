@@ -14,6 +14,8 @@ use uuid::Uuid;
 use crate::schema::{Link, Overflow, ReviewLogEntry};
 
 /// The three artifact shapes ReqForge supports.
+///
+/// Implements: ART001
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ArtifactShape {
