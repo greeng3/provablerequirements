@@ -1,5 +1,41 @@
 Traceability report
 
+ART001 — Three artifact shapes, one graph
+  formalized: —   implemented: —   verified: —
+  verdict: never verified
+
+ART002 — Upload support for common document formats
+  formalized: —   implemented: —   verified: —
+  verdict: never verified
+
+ART003 — Uploaded artifacts are replace-only
+  formalized: —   implemented: —   verified: —
+  verdict: never verified
+
+ART004 — URL-reference artifact
+  formalized: —   implemented: —   verified: —
+  verdict: never verified
+
+ART005 — URL reachability check
+  formalized: —   implemented: —   verified: —
+  verdict: never verified
+
+ART006 — Tiered upload preview
+  formalized: —   implemented: —   verified: —
+  verdict: never verified
+
+ART007 — Shape-aware diff
+  formalized: —   implemented: —   verified: —
+  verdict: never verified
+
+ART008 — First-class artifact types via collections
+  formalized: —   implemented: —   verified: —
+  verdict: never verified
+
+ART009 — Extensible artifact types
+  formalized: —   implemented: —   verified: —
+  verdict: never verified
+
 REQ001 — REQ001
   formalized: —   implemented: yes   verified: yes
   verdict: never verified
@@ -800,8 +836,10 @@ REQ074 — Author a requirement into the ReqForge collection
   formalized: —   implemented: yes   verified: yes
   verdict: never verified
     src/create.rs:11
-    src/create.rs:110 → authors_a_readable_unreviewed_requirement
-    src/create.rs:144 → refuses_to_overwrite_an_existing_id
+    src/create.rs:139 → authors_a_readable_unreviewed_requirement
+    src/create.rs:173 → refuses_to_overwrite_an_existing_id
+    src/create.rs:197 → routes_by_id_prefix_when_multiple_collections
+    src/create.rs:218 → errors_when_no_collection_matches_the_prefix
 
 REQ075 — Scan requirement-trace tags and resolve them to the source they annotate
   formalized: —   implemented: yes   verified: yes
