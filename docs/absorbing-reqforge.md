@@ -1,5 +1,9 @@
 # Absorbing ReqForge — Decision and Consequences
 
+> **Status (2026-09): complete.** All phases below shipped and the standalone ReqForge repo is
+> retired; its model lives in `crates/reqforge-model` and its design docs are archived under
+> `docs/reqforge-heritage/`. This is the decision record, not current work.
+
 provreq becomes a **complete requirements system**. ReqForge's management model becomes the
 substrate; provreq's engines, verdicts, and evidence become the layer that makes it more than
 management. ReqForge is then retired.
@@ -60,8 +64,10 @@ Two reasons put it there, neither technical:
    so the companion tree read idiomatically beside the doorstop tree it mirrors (decision A3).
 
 With ReqForge's model as the native store, YAML demotes to an **import-only format**: the thing
-read when ingesting a foreign doorstop tree. Everything provreq writes becomes JSON, and
-`serde_json` is already a dependency.
+read when ingesting a foreign doorstop tree. The requirements store provreq writes becomes JSON, and
+`serde_json` is already a dependency. (As shipped, this applies to the requirements store; provreq's
+companion state — `verdicts.yml`, `drafts.yml`, `triage.yml`, and the `provreq.yml` manifest —
+stayed YAML, so it reads idiomatically beside the doorstop trees it is imported from.)
 
 ## Consequences that shape the work
 

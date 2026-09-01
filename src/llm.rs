@@ -493,6 +493,9 @@ fn capped_list(label: &str, names: &[String]) -> String {
 /// blanket fallback across the whole backlog would be a fabricated classification, indistinguishable
 /// from a model that read every requirement and judged them all unformalizable. That case is an
 /// error, not a result. Pure.
+///
+/// Implements: REQ083 (#297) — the `expects_code_trace == Some(false)` arm is the deterministic
+/// guard that keeps a ruled-out item out of formalizable-now regardless of what the model returned.
 fn parse_buckets(raw: &str, items: &[Item]) -> Result<Vec<Option<Classification>>> {
     let map = parse_assignments(raw);
     if map.is_empty() {
