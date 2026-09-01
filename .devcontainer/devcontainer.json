@@ -67,7 +67,6 @@
         // "source=/c/etc/secrets,target=/etc/secrets,type=bind",
         // *** Common
         "source=${localWorkspaceFolder}/../qrusty,target=/qrusty,type=bind",
-        "source=${localWorkspaceFolder}/../reqforge,target=/reqforge,type=bind",
         // Share local .claude-home with container
         "source=${localWorkspaceFolder}/.claude-home,target=/root/.claude,type=bind"
     ],
