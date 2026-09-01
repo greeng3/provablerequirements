@@ -573,6 +573,8 @@ REQ050 — REQ050
   formalized: —   implemented: —   verified: yes
   verdict: never verified
     src/verdict_store.rs:622 → a_recorded_environment_is_distinguishable_from_an_unrecorded_one
+    web/src/routes/proof/components/__tests__/VerifyPanel.test.tsx:36 → names the environment a recorded verdict was proved in
+    web/src/routes/proof/components/__tests__/VerifyPanel.test.tsx:46 → calls out a verdict whose environment was never recorded
 
 REQ051 — REQ051
   formalized: —   implemented: yes   verified: yes
