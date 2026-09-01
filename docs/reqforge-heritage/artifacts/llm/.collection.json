@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "prefix": "LLM",
+  "name": "LLM (imported from doorstop)",
+  "importNotes": {
+    "doorstopDigits": 3,
+    "doorstopItemFormat": "yaml",
+    "doorstopParent": "REQ",
+    "doorstopSep": "-"
+  }
+}

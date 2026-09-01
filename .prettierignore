@@ -23,6 +23,11 @@ node_modules
 # not be.
 tests/fixtures/reqforge-subject
 
+# Frozen design docs copied out of the ReqForge peer repo before it was retired (#402).
+# Same reasoning as the fixtures above: a verbatim primary source, kept as the record of
+# why the absorbed subsystems are shaped as they are — reflowing it would restate it.
+docs/reqforge-heritage
+
 # Claude Code local state, bind-mounted into the workspace (see .gitignore).
 .claude
 .claude-home

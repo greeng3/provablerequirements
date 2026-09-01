@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "prefix": "ART",
+  "name": "ART (imported from doorstop)",
+  "importNotes": {
+    "doorstopDigits": 3,
+    "doorstopItemFormat": "yaml",
+    "doorstopParent": "REQ",
+    "doorstopSep": "-"
+  }
+}
