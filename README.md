@@ -601,20 +601,23 @@ Prusti, Creusot — baked into the image). Open the repo in VS Code and
 make check-tools           # verify the toolchain is present
 make fmt                   # format Markdown + YAML (prettier)
 make lint                  # markdownlint + yamllint
-make check-requirements    # validate the Doorstop tree
+make check-requirements    # validate the ReqForge requirements project
 make traceability          # requirements-to-code traceability report
 make pre-merge             # full local preflight; CI re-runs it plus the engine jobs
 make setup-hooks           # install the pre-commit gate
 ```
 
-Requirements are managed with Doorstop in [`requirements-doorstop/`](requirements-doorstop).
+Requirements are ReqForge-native, stored in [`requirements/`](requirements) (a
+`reqforge.json` manifest plus one artifact per requirement under `artifacts/req/`).
+An existing Doorstop tree is imported once with `provreq migrate-doorstop`.
 See [.devcontainer/README.md](.devcontainer/README.md) for details.
 
 ## Status
 
 Working prototype. The ideas above are implemented as **`provreq`** — a Rust CLI and
 local server that adopts an existing repo as a subject, manages its requirements
-through Doorstop, triages them (LLM-assisted, operator-corrected), formalizes the
+in a ReqForge-native store (importing an existing Doorstop tree once), triages them
+(LLM-assisted, operator-corrected), formalizes the
 formalizable ones into PRL, grounds their vocabulary against the subject's code or
 models, and verifies them through the engine matching their category: Kani, Creusot,
 and Prusti (category 1), TLC (2a), MonPoly (2b), and WebDriver (3). Verdicts carry

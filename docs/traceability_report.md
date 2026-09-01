@@ -39,7 +39,7 @@ REQ007 — REQ007
   verdict: never verified
     src/doorstop.rs:6
     src/doorstop.rs:42 → discover
-    src/doorstop.rs:190 → discover_reads_prefix_and_items
+    src/doorstop.rs:191 → discover_reads_prefix_and_items
 
 REQ008 — REQ008
   formalized: —   implemented: yes   verified: yes
@@ -57,54 +57,54 @@ REQ009 — REQ009
     src/source.rs:8
     src/adopt.rs:314 → a_reqforge_subject_resolves_through_the_same_seam_as_a_doorstop_one
     src/adopt.rs:334 → a_subject_without_a_collection_is_still_read_as_doorstop
-    src/doorstop.rs:207 → doorstop_source_reads_prose_and_revision
-    src/reqforge.rs:294 → reads_a_reqforge_artifact_as_a_source_item
-    src/reqforge.rs:319 → the_revision_follows_the_prose_and_not_the_timestamp
-    src/reqforge.rs:388 → an_inactive_artifact_is_not_a_requirement
-    src/source.rs:124 → the_revision_token_is_a_pinned_digest_not_a_build_local_hash
+    src/doorstop.rs:208 → doorstop_source_reads_prose_and_revision
+    src/reqforge.rs:295 → reads_a_reqforge_artifact_as_a_source_item
+    src/reqforge.rs:383 → the_revision_follows_the_prose_and_not_the_timestamp
+    src/reqforge.rs:452 → an_inactive_artifact_is_not_a_requirement
+    src/source.rs:133 → the_revision_token_is_a_pinned_digest_not_a_build_local_hash
 
 REQ010 — REQ010
   formalized: —   implemented: yes   verified: yes
   verdict: never verified
     src/triage.rs:7
-    src/triage.rs:471 → prose_floor_defaults_to_prose_and_honors_hint
-    src/triage.rs:631 → reclassify_never_replaces_an_operators_choice
-    src/triage.rs:660 → a_fully_operator_set_backlog_reclassifies_nothing
-    src/triage.rs:910 → seed_is_additive_and_set_overrides
-    src/triage.rs:936 → state_persists_and_reloads
+    src/triage.rs:472 → prose_floor_defaults_to_prose_and_honors_hint
+    src/triage.rs:632 → reclassify_never_replaces_an_operators_choice
+    src/triage.rs:661 → a_fully_operator_set_backlog_reclassifies_nothing
+    src/triage.rs:911 → seed_is_additive_and_set_overrides
+    src/triage.rs:937 → state_persists_and_reloads
 
 REQ011 — REQ011
   formalized: —   implemented: yes   verified: yes
   verdict: never verified
     src/status.rs:6
-    src/status.rs:247 → funnel_keeps_states_distinct
+    src/status.rs:248 → funnel_keeps_states_distinct
 
 REQ012 — REQ012
   formalized: —   implemented: yes   verified: yes
   verdict: never verified
     src/llm.rs:10
-    src/llm.rs:605 → classify_maps_buckets_by_id
-    src/llm.rs:757 → classify_tolerates_code_fenced_json
+    src/llm.rs:640 → classify_maps_buckets_by_id
+    src/llm.rs:847 → classify_tolerates_code_fenced_json
 
 REQ013 — REQ013
   formalized: —   implemented: yes   verified: yes
   verdict: never verified
     src/draft.rs:12
-    src/draft.rs:368 → open_is_additive_and_preserves_candidate
+    src/draft.rs:369 → open_is_additive_and_preserves_candidate
 
 REQ014 — REQ014
   formalized: yes   implemented: yes   verified: yes
   verdict: not-determined [mechanical] [stale — re-verify]
     src/draft.rs:12
-    src/draft.rs:386 → stale_when_source_revision_moves
+    src/draft.rs:387 → stale_when_source_revision_moves
 
 REQ015 — REQ015
   formalized: —   implemented: yes   verified: yes
   verdict: never verified
     src/formalize.rs:16
-    src/formalize.rs:229 → translate_returns_candidate
-    src/formalize.rs:242 → translate_strips_code_fence
-    src/formalize.rs:255 → translate_rejects_empty_candidate
+    src/formalize.rs:230 → translate_returns_candidate
+    src/formalize.rs:243 → translate_strips_code_fence
+    src/formalize.rs:256 → translate_rejects_empty_candidate
 
 REQ016 — REQ016
   formalized: —   implemented: yes   verified: yes
@@ -125,10 +125,10 @@ REQ017 — REQ017
     src/prl/error.rs:7
     src/prl/vacuity.rs:13
     src/prl.rs:13 → ast
-    src/draft.rs:447 → set_gate_updates_outcome_only
-    src/formalize.rs:310 → repair_loop_recovers_on_second_attempt
-    src/formalize.rs:327 → repair_loop_gives_up_after_max_attempts
-    src/formalize.rs:344 → vacuity_warnings_do_not_drive_repair
+    src/draft.rs:448 → set_gate_updates_outcome_only
+    src/formalize.rs:311 → repair_loop_recovers_on_second_attempt
+    src/formalize.rs:328 → repair_loop_gives_up_after_max_attempts
+    src/formalize.rs:345 → vacuity_warnings_do_not_drive_repair
     src/prl.rs:116 → gate_accepts_but_warns_on_vacuity
 
 REQ018 — REQ018
@@ -139,25 +139,25 @@ REQ018 — REQ018
 REQ019 — REQ019
   formalized: —   implemented: —   verified: yes
   verdict: never verified
-    src/draft.rs:484 → admit_records_review_and_provenance
-    src/draft.rs:508 → editing_candidate_revokes_admission
+    src/draft.rs:485 → admit_records_review_and_provenance
+    src/draft.rs:509 → editing_candidate_revokes_admission
 
 REQ020 — REQ020
   formalized: —   implemented: yes   verified: yes
   verdict: never verified
     src/reqforge.rs:16
-    src/doorstop.rs:232 → annotate_stamps_and_replaces_provreq_block
-    src/reqforge.rs:437 → annotate_appends_a_provreq_review_log_entry
-    src/reqforge.rs:467 → annotate_appends_and_does_not_replace
-    src/reqforge.rs:574 → annotate_rejects_unknown_item
+    src/doorstop.rs:233 → annotate_stamps_and_replaces_provreq_block
+    src/reqforge.rs:501 → annotate_appends_a_provreq_review_log_entry
+    src/reqforge.rs:531 → annotate_appends_and_does_not_replace
+    src/reqforge.rs:638 → annotate_rejects_unknown_item
 
 REQ021 — REQ021
   formalized: —   implemented: yes   verified: yes
   verdict: never verified
     src/grounding.rs:17
     src/trace/mod.rs:254
-    src/draft.rs:541 → set_binding_attaches_and_overwrites_by_symbol
-    src/draft.rs:567 → editing_candidate_clears_bindings
+    src/draft.rs:542 → set_binding_attaches_and_overwrites_by_symbol
+    src/draft.rs:568 → editing_candidate_clears_bindings
     src/grounding.rs:638 → bindable_symbols_are_declared_predicates
     src/grounding.rs:646 → category_and_fidelity_default_from_the_requirement
     src/grounding.rs:655 → is_bindable_rejects_undeclared_symbols
@@ -434,15 +434,15 @@ REQ034 — REQ034
     src/server.rs:208 → requirements
     src/server.rs:529 → requirements_on_unadopted_subject_is_conflict
     src/server.rs:541 → requirements_lists_items_with_coverage
-    src/status.rs:493 → backlog_pairs_each_item_with_its_triage_and_formalization
+    src/status.rs:494 → backlog_pairs_each_item_with_its_triage_and_formalization
 
 REQ035 — REQ035
   formalized: —   implemented: yes   verified: yes
   verdict: never verified
     src/detail.rs:12
     src/server.rs:324 → requirement_detail
-    src/detail.rs:191 → item_without_a_draft_has_no_formalization
-    src/detail.rs:204 → admitted_draft_surfaces_candidate_readback_and_review
+    src/detail.rs:192 → item_without_a_draft_has_no_formalization
+    src/detail.rs:205 → admitted_draft_surfaces_candidate_readback_and_review
     src/server.rs:584 → detail_for_unknown_id_is_not_found
     src/server.rs:593 → detail_for_known_id_returns_the_item
 
@@ -450,7 +450,7 @@ REQ036 — REQ036
   formalized: —   implemented: yes   verified: yes
   verdict: never verified
     src/detail.rs:91 → grounding_report
-    src/detail.rs:265 → grounding_report_reports_per_binding_and_parks_on_any_unresolved
+    src/detail.rs:266 → grounding_report_reports_per_binding_and_parks_on_any_unresolved
 
 REQ037 — REQ037
   formalized: —   implemented: yes   verified: yes
@@ -477,7 +477,7 @@ REQ039 — REQ039
   verdict: never verified
     src/verdict_store.rs:15
     src/server.rs:698 → stored_verdict_surfaces_on_the_row_and_drift_drops_it_from_verified
-    src/status.rs:309 → verified_counts_only_fresh_holds_and_row_surfaces_drift
+    src/status.rs:310 → verified_counts_only_fresh_holds_and_row_surfaces_drift
     src/verdict_store.rs:746 → unmoved_verdict_is_fresh
     src/verdict_store.rs:764 → each_moved_axis_is_a_named_reason
     src/verdict_store.rs:852 → record_and_load_round_trip_replacing_prior
@@ -506,12 +506,12 @@ REQ041 — REQ041
 REQ042 — REQ042
   formalized: —   implemented: —   verified: yes
   verdict: never verified
-    src/llm.rs:925 → load_config_honors_explicit_timeout
+    src/llm.rs:1015 → load_config_honors_explicit_timeout
 
 REQ043 — REQ043
   formalized: —   implemented: —   verified: yes
   verdict: never verified
-    src/status.rs:409 → stale_counts_drifted_verdicts_of_any_polarity
+    src/status.rs:410 → stale_counts_drifted_verdicts_of_any_polarity
 
 REQ044 — REQ044
   formalized: —   implemented: —   verified: —
@@ -520,7 +520,7 @@ REQ044 — REQ044
 REQ045 — REQ045
   formalized: —   implemented: —   verified: yes
   verdict: never verified
-    src/status.rs:347 → editing_the_admitted_candidate_drifts_its_verdict
+    src/status.rs:348 → editing_the_admitted_candidate_drifts_its_verdict
     src/verdict_store.rs:809 → formalization_change_drifts_the_verdict
     src/verdict_store.rs:829 → no_admitted_formalization_drifts_the_verdict
     src/verdict_store.rs:840 → pre_axis_verdict_is_not_flagged_on_formalization
@@ -573,7 +573,6 @@ REQ050 — REQ050
   formalized: —   implemented: —   verified: yes
   verdict: never verified
     src/verdict_store.rs:622 → a_recorded_environment_is_distinguishable_from_an_unrecorded_one
-    web/src/App.test.tsx:168 → a stored verdict says where it was proved, or that it was never recorded
 
 REQ051 — REQ051
   formalized: —   implemented: yes   verified: yes
@@ -591,26 +590,26 @@ REQ051 — REQ051
 REQ052 — REQ052
   formalized: —   implemented: —   verified: yes
   verdict: never verified
-    src/llm.rs:630 → classify_leaves_missing_and_unknown_untriaged
-    src/llm.rs:653 → a_reply_with_no_usable_assignment_is_an_error
-    src/llm.rs:688 → one_usable_assignment_is_still_an_answer
-    src/llm.rs:707 → reject_empty_treats_blank_completion_as_failure
-    src/llm.rs:783 → the_prompt_asks_about_lowering_not_about_wording
-    src/triage.rs:509 → a_declined_item_is_left_exactly_as_it_was
-    src/triage.rs:783 → a_failed_classifier_leaves_the_existing_state_untouched
+    src/llm.rs:665 → classify_leaves_missing_and_unknown_untriaged
+    src/llm.rs:743 → a_reply_with_no_usable_assignment_is_an_error
+    src/llm.rs:778 → one_usable_assignment_is_still_an_answer
+    src/llm.rs:797 → reject_empty_treats_blank_completion_as_failure
+    src/llm.rs:873 → the_prompt_asks_about_lowering_not_about_wording
+    src/triage.rs:510 → a_declined_item_is_left_exactly_as_it_was
+    src/triage.rs:784 → a_failed_classifier_leaves_the_existing_state_untouched
 
 REQ053 — REQ053
   formalized: —   implemented: —   verified: yes
   verdict: never verified
-    src/triage.rs:687 → a_fully_triaged_backlog_plans_no_work
-    src/triage.rs:719 → reclassify_puts_every_item_back_in_front_of_the_classifier
+    src/triage.rs:688 → a_fully_triaged_backlog_plans_no_work
+    src/triage.rs:720 → reclassify_puts_every_item_back_in_front_of_the_classifier
 
 REQ054 — REQ054
   formalized: —   implemented: —   verified: yes
   verdict: never verified
-    src/triage.rs:737 → a_stopped_reclassify_still_covers_every_item
-    src/triage.rs:830 → a_failed_batch_keeps_the_batches_that_landed_and_a_retry_resumes
-    src/triage.rs:893 → a_zero_batch_size_still_classifies_the_backlog
+    src/triage.rs:738 → a_stopped_reclassify_still_covers_every_item
+    src/triage.rs:831 → a_failed_batch_keeps_the_batches_that_landed_and_a_retry_resumes
+    src/triage.rs:894 → a_zero_batch_size_still_classifies_the_backlog
 
 REQ055 — REQ055
   formalized: —   implemented: —   verified: yes
@@ -676,7 +675,7 @@ REQ059 — REQ059
 REQ060 — REQ060
   formalized: —   implemented: —   verified: yes
   verdict: never verified
-    src/reqforge.rs:361 → a_mac_sidecar_never_becomes_a_requirement
+    src/reqforge.rs:425 → a_mac_sidecar_never_becomes_a_requirement
     src/rust_adapter.rs:2110 → a_hidden_source_file_is_still_the_subjects_own
     src/rust_adapter.rs:2130 → mac_resource_files_never_become_binding_candidates
     src/subject_tree.rs:90 → prunes_build_and_vcs_directories_by_name
@@ -784,9 +783,9 @@ REQ072 — REQ072
     src/llm.rs:377 → build_prompt
     src/prl/fragment.rs:131 → triage_boundaries
     src/rust_adapter.rs:1898 → inventory
-    src/llm.rs:537 → prompt_carries_observables_and_states_its_cap
-    src/llm.rs:558 → an_empty_context_renders_no_observables_section
-    src/llm.rs:566 → prompt_boundaries_come_from_the_gate
+    src/llm.rs:563 → prompt_carries_observables_and_states_its_cap
+    src/llm.rs:584 → an_empty_context_renders_no_observables_section
+    src/llm.rs:592 → prompt_boundaries_come_from_the_gate
     src/prl/fragment.rs:209 → triage_boundaries_place_every_verb_once_per_category
     src/rust_adapter.rs:2167 → inventory_names_predicates_and_sorts
 
@@ -840,9 +839,9 @@ REQ077 — On-demand traceability report
 REQ078 — Verdict breadcrumb on the requirement
   formalized: —   implemented: —   verified: yes
   verdict: never verified
-    src/reqforge.rs:505 → record_verdict_appends_a_provreq_verdict_entry
-    src/reqforge.rs:533 → record_verdict_appends_and_does_not_replace
-    src/reqforge.rs:562 → record_verdict_rejects_unknown_item
+    src/reqforge.rs:569 → record_verdict_appends_a_provreq_verdict_entry
+    src/reqforge.rs:597 → record_verdict_appends_and_does_not_replace
+    src/reqforge.rs:626 → record_verdict_rejects_unknown_item
     src/verify.rs:898 → a_verdict_transition_is_first_or_changed_status
 
 REQ079 — Report recommends retiring a redundant asserted test
@@ -868,3 +867,13 @@ REQ082 — The MCP server exposes provreq's proof surface
   verdict: never verified
     crates/provreq-mcp/src/tools.rs:477 → list_requirements
     crates/provreq-mcp/src/tools.rs:771 → list_requirements_reads_the_backlog
+
+REQ083 — A source's not-expected-to-trace declaration is never laundered into formalizable-now
+  formalized: —   implemented: yes   verified: yes
+  verdict: never verified
+    src/llm.rs:497 → parse_buckets
+    src/llm.rs:688 → classify_declines_formalizable_now_for_a_ruled_out_item
+    src/llm.rs:722 → prompt_states_the_ruled_out_declaration
+    src/reqforge.rs:351 → explicit_false_is_carried_and_seeds_no_bucket
+    src/reqforge.rs:362 → explicit_true_is_carried_and_seeds_formalizable_now
+    src/reqforge.rs:374 → absent_expects_code_trace_carries_nothing

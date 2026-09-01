@@ -118,7 +118,7 @@ The tool splits into two parts:
 
 - **A subject-independent brain** — PRL parse, LLM front-end, mechanical gate, read-back,
   verdict store, UI. Runs anywhere; knows nothing about the subject's toolchain.
-- **A subject-local executor** — invokes the verification engines (Verus/Prusti, Viper,
+- **A subject-local executor** — invokes the verification engines (Creusot/Prusti, Viper,
   MonPoly, …) against the **built** subject. Must run where the subject actually builds.
 
 Define the executor as a clean interface — _a lowered engine job + a subject workspace →
@@ -156,7 +156,7 @@ It also browses the subject's source, tests, and config — because grounding is
 pointing at real code (the function, the identity field, the span name) and assumptions
 trace to real config values. But **browse-only is wrong for annotation**, for a concrete
 reason: **a deductive tool's proof elements are not _about_ the code — they _are_ the
-code.** Verus/Prusti read `requires` / `ensures` / `invariant` / ghost state / spec fns
+code.** Creusot/Prusti read `requires` / `ensures` / `invariant` / ghost state / spec fns
 straight out of the `.rs` source; the verifier never sees a companion file. So for the
 whole deductive category (2a) — the center of the qrusty case — a companion overlay
 _cannot host the proof at all_. Taken seriously, A3's own principle ("proofs live with the
@@ -170,19 +170,19 @@ the subject: the human reviews the working-tree diff and commits, pushes, and op
 branch's work done. The tool holds no commit rights, no push rights, and makes no
 GitLab-vs-GitHub-vs-on-prem assumption. That is the same trust gate as D12 — only the
 artifact is a working-tree patch instead of a confirmation click. It is exactly how a human
-adds a Verus contract by hand, just LLM-drafted and mechanically gate-checked before it
+adds a Creusot contract by hand, just LLM-drafted and mechanically gate-checked before it
 lands. Proofs then version atomically with the code they guard, through the human's own
 version control.
 
 Annotation therefore travels by **channel chosen per artifact**, not one overlay for
 everything:
 
-| What                                                                                                | Lands in                                                | How                                 | Read by                              |
-| --------------------------------------------------------------------------------------------------- | ------------------------------------------------------- | ----------------------------------- | ------------------------------------ |
-| Proof carriers — contracts, invariants, ghost/spec fns                                              | subject source (`.rs`)                                  | tool proposes patch → human applies | the verifier directly (Verus/Prusti) |
-| Traceability marker (`// prl: QRUS042`) beside the carrier                                          | subject source                                          | same patch                          | humans + `provreq report`            |
-| Back-link: PRL id + latest verdict                                                                  | the Doorstop item's YAML (native `links` / custom attr) | tool proposes → human applies       | Doorstop, published docs             |
-| Runtime/monitor bindings, telemetry field maps, dry-run bindings pre-commitment, transient verdicts | companion tree                                          | tool writes freely                  | monitors, UI                         |
+| What                                                                                                | Lands in                                                | How                                 | Read by                                |
+| --------------------------------------------------------------------------------------------------- | ------------------------------------------------------- | ----------------------------------- | -------------------------------------- |
+| Proof carriers — contracts, invariants, ghost/spec fns                                              | subject source (`.rs`)                                  | tool proposes patch → human applies | the verifier directly (Creusot/Prusti) |
+| Traceability marker (`// prl: QRUS042`) beside the carrier                                          | subject source                                          | same patch                          | humans + `provreq report`              |
+| Back-link: PRL id + latest verdict                                                                  | the Doorstop item's YAML (native `links` / custom attr) | tool proposes → human applies       | Doorstop, published docs               |
+| Runtime/monitor bindings, telemetry field maps, dry-run bindings pre-commitment, transient verdicts | companion tree                                          | tool writes freely                  | monitors, UI                           |
 
 The companion overlay does not disappear — it stays correct for artifacts that genuinely
 should not touch source: a binding still being _dry-run_ before you commit to it, transient
@@ -203,7 +203,7 @@ already builds, so nothing new is mounted.
 
 ## Cautions carried into implementation
 
-1. **Verification needs the subject's build/toolchain.** Deductive checks (Verus/Prusti)
+1. **Verification needs the subject's build/toolchain.** Deductive checks (Creusot/Prusti)
    run on the actual compiled code, so the executor lives where the subject builds (A5-B).
    Never teach the ProvableRequirements container to build the subject.
 2. **Source-mounting covers static categories only.** Categories 1 and 2a are satisfied by

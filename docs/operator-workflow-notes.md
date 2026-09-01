@@ -120,7 +120,8 @@ state; coverage display; grounding no-match) are **answered** in the Steps 2–3
 ### The requirements source is an abstraction; Doorstop is adapter #1
 
 Doorstop is **one** requirements tool, not the model. The operator also builds
-[**reqforge**](https://gitlab.com/greeng3/reqforge) — a broader-scope, faster requirements
+**reqforge** (since absorbed into `crates/reqforge-model`; the standalone GitLab repo is
+retired) — a broader-scope, faster requirements
 manager (requirements + design docs + use cases + diagrams + roadmaps, one file per artifact in
 git) intended to **eventually supplant Doorstop**. reqforge already ships a Doorstop _importer_
 (`legacy.doorstopUid` on imported artifacts), so subjects migrate Doorstop → reqforge and provreq
@@ -220,7 +221,8 @@ read-back and human confirm → D13 grounding dry-run → admit. Two questions w
 
 > **📌 This sequence was executed as planned and is complete.** Kept as the record of the intended
 > order; the "Shipped so far" list below it grew into the full slice history in the sections that
-> follow. The reqforge adapter is the one item still waiting, on reqforge's own format.
+> follow. The reqforge adapter — the last item this pin recorded as waiting — has since shipped
+> (#296), and provreq migrated its own requirements onto a ReqForge project (#321).
 
 CLI-first, per the A5-B / build-order guardrail. Natural next slices, each its own issue+branch:
 draw the `RequirementsSource` seam and refactor `src/doorstop.rs` behind it (`R-src-1..4`) → a triage
@@ -555,7 +557,8 @@ separate axis from where it runs.
   spine, scriptable) **and** a `serve` mode running a **local** web server hosting the
   **embedded** web UI (the A6 gate surface), co-resident in the dev env. Local-served, not
   hosted — **decided, see "provreq is a single-operator tool" below (#122)**. `serve` foreground
-  default; `--background` / `--port` flags; no daemon manager.
+  default; no daemon manager. (As shipped, `serve` takes `--port` and `--path` only, and runs in
+  the foreground — there is no `--background` flag.)
 
 ### Where the subject path goes (issue #130 / REQ056)
 
