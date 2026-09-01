@@ -198,6 +198,7 @@ mod tests {
             revision: "r".into(),
             title: None,
             verification_hint: None,
+            expects_code_trace: None,
         }
     }
 

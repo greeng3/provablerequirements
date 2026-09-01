@@ -56,10 +56,19 @@ pub struct Item {
     pub text: String,
     pub revision: String,
     pub title: Option<String>,
-    /// Optional per-source prior for triage (ReqForge's `expectsCodeTrace`, and only where an
+    /// Optional per-source prior for triage (ReqForge's `expectsCodeTrace: true`, and only where an
     /// artifact states it explicitly — see [`crate::reqforge`]); `None` for Doorstop, which has no
     /// equivalent. Advisory seed only (R-src-5).
     pub verification_hint: Option<Classification>,
+    /// The source's own declaration of whether this requirement is expected to trace to code
+    /// (ReqForge's `expectsCodeTrace`; `None` for Doorstop, which has no equivalent). An explicit
+    /// `Some(false)` is real information that [`Classification`] deliberately cannot express: it
+    /// rules `FormalizableNow` *out* — the source has declared this requirement is not expected to
+    /// have a code-level implementation to verify — without choosing between `FalsifiableOnly` and
+    /// `StaysProse`. Carried alongside `verification_hint` rather than folded into it so the bucket
+    /// set stays a clean partition (R-src-7, #297); the classifiers honour it, and must never place
+    /// an item its source ruled out into `FormalizableNow`.
+    pub expects_code_trace: Option<bool>,
 }
 
 /// The formalization provenance provreq stamps back onto a source item once a

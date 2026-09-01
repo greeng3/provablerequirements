@@ -465,6 +465,7 @@ mod tests {
             revision: format!("rev-{id}"),
             title: None,
             verification_hint: hint,
+            expects_code_trace: None,
         }
     }
 

@@ -118,25 +118,26 @@ impl RequirementsSource for ReqforgeSource {
                     text,
                     title: Some(meta.title),
                     // Advisory seed only (R-src-5), and only an *explicit* artifact-level `true`
-                    // seeds anything. ReqForge defines this flag (`TRACE-codeCoverageExpectation`)
+                    // seeds a bucket. ReqForge defines this flag (`TRACE-codeCoverageExpectation`)
                     // as whether an artifact is expected to have implementation and verification
                     // references in code, defaulting to `true` at the collection level with a
                     // per-artifact override — so absent means "inherit", not "unknown", and an
                     // inherited default is a choice nobody made. Seeding every imported requirement
                     // as formalizable on the strength of it would bias triage while carrying no
                     // operator intent.
-                    //
-                    // An explicit `false` is real information — ReqForge's generalisation of
-                    // doorstop's non-functional-requirement exemption — and it still seeds nothing,
-                    // because it rules `FormalizableNow` *out* without choosing between the
-                    // remaining two: "responds within 200ms" is falsifiable-only, "shall be
-                    // maintainable" stays prose. [`Classification`] cannot say "not that one", so
-                    // any pick here would be a coin flip wearing a hint's clothes. Widening the
-                    // type to carry it is filed for phase 2/4 (#297).
                     verification_hint: match meta.expects_code_trace {
                         Some(true) => Some(Classification::FormalizableNow),
                         _ => None,
                     },
+                    // The raw declaration is carried whole (R-src-7, #297). An explicit `false` is
+                    // real information — ReqForge's generalisation of doorstop's non-functional
+                    // exemption — that `Classification` cannot express: it rules `FormalizableNow`
+                    // *out* without choosing between "responds within 200ms" (falsifiable-only) and
+                    // "shall be maintainable" (stays prose). Rather than pick for the operator (a
+                    // coin flip wearing a hint's clothes) or drop the signal, the adapter carries it
+                    // here for the classifiers to honour; only an explicit value is passed, so the
+                    // inherited collection default stays a choice nobody made.
+                    expects_code_trace: meta.expects_code_trace,
                 });
             }
         }
@@ -314,6 +315,69 @@ mod tests {
             "`expectsCodeTrace: true` is the prior Item::verification_hint was written for"
         );
         assert!(!item.revision.is_empty());
+    }
+
+    /// The real fixture artifact with its `expectsCodeTrace` patched: `Some(b)` sets it, `None`
+    /// removes it (the "inherit the collection default" case). Built from the committed artifact so
+    /// the on-disk shape stays the one ReqForge actually writes, not a hand-rolled guess.
+    fn items_with_expects(expects: Option<bool>) -> Vec<Item> {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path().join("artifacts/req");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::copy(
+            fixture().join("artifacts/req/.collection.json"),
+            dir.join(COLLECTION_FILE),
+        )
+        .unwrap();
+        let src =
+            std::fs::read_to_string(fixture().join("artifacts/req/REQ-queueIsDrained.md")).unwrap();
+        let rest = src.strip_prefix("---\n").expect("frontmatter fence");
+        let (fm, body) = rest.split_once("\n---\n").expect("closing fence");
+        let mut meta: serde_json::Value = serde_json::from_str(fm).expect("json frontmatter");
+        match expects {
+            Some(b) => meta["expectsCodeTrace"] = serde_json::Value::Bool(b),
+            None => {
+                meta.as_object_mut().unwrap().remove("expectsCodeTrace");
+            }
+        }
+        std::fs::write(
+            dir.join("REQ-queueIsDrained.md"),
+            format!("---\n{meta}\n---\n{body}"),
+        )
+        .unwrap();
+        ReqforgeSource::new(tmp.path()).items().unwrap()
+    }
+
+    // Verifies: REQ083 (#297) — an explicit `expectsCodeTrace: false` is carried whole onto the
+    // item (it is real information the seam must not drop) and, because it rules formalizable-now
+    // *out* without choosing between the other two, seeds no `verification_hint` bucket.
+    #[test]
+    fn explicit_false_is_carried_and_seeds_no_bucket() {
+        let items = items_with_expects(Some(false));
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].expects_code_trace, Some(false));
+        assert_eq!(items[0].verification_hint, None);
+    }
+
+    // Verifies: REQ083 (#297) — an explicit `true` is carried too, and still seeds the
+    // formalizable-now hint it always has (the raw field and the advisory hint are kept alongside).
+    #[test]
+    fn explicit_true_is_carried_and_seeds_formalizable_now() {
+        let items = items_with_expects(Some(true));
+        assert_eq!(items[0].expects_code_trace, Some(true));
+        assert_eq!(
+            items[0].verification_hint,
+            Some(Classification::FormalizableNow)
+        );
+    }
+
+    // Verifies: REQ083 (#297) — an absent flag is an inherited default nobody chose, so nothing is
+    // carried: neither the raw declaration nor a hint.
+    #[test]
+    fn absent_expects_code_trace_carries_nothing() {
+        let items = items_with_expects(None);
+        assert_eq!(items[0].expects_code_trace, None);
+        assert_eq!(items[0].verification_hint, None);
     }
 
     // Verifies: REQ009 / #296 — the revision tracks the prose, not the metadata timestamp. A

@@ -362,6 +362,7 @@ mod tests {
             revision: revision.into(),
             title: None,
             verification_hint: None,
+            expects_code_trace: None,
         }
     }
 
