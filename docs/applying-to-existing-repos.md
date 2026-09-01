@@ -137,7 +137,9 @@ the seam in a different place:
 
 Both are the same interface; only the seam's location (in-process vs. wire) differs.
 Starting with B and keeping the executor behind the interface leaves A a deployment change,
-not a rewrite.
+not a rewrite. The operator-facing "how do I actually install and run this in the subject's
+dev environment" mechanics live in
+[installing-and-running.md](installing-and-running.md).
 
 ## A6 — The UI is the human-gate surface; annotation is write-through-review, not read-only
 
