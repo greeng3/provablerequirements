@@ -1,5 +1,7 @@
 //! URL reachability check (Phase 5b), per `UX-urlArtifactChecking`.
 //!
+//! Implements: ART005
+//!
 //! The check runs one HTTP request against a URL artifact's stored
 //! URL and classifies the outcome into a small stable string set
 //! that the client renders as a status pill. The classification is

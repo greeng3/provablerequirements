@@ -40,6 +40,8 @@ function formatBytes(bytes: number): string {
   return `${value.toFixed(value >= 10 ? 0 : 1)} ${units[unitIdx]}`;
 }
 
+// Implements: ART006 — tiered preview: inline for browser-native media,
+// server thumbnail otherwise, icon + download as the floor.
 export function BlobArtifactView({ artifact }: Props) {
   const [isReplaceOpen, setReplaceOpen] = useState(false);
   const blob = artifact.blob;

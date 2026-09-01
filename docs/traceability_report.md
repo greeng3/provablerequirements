@@ -1,40 +1,55 @@
 Traceability report
 
 ART001 — Three artifact shapes, one graph
-  formalized: —   implemented: —   verified: —
+  formalized: —   implemented: yes   verified: —
   verdict: never verified
+    crates/reqforge-model/src/schema/artifact.rs:18 → ArtifactShape
 
 ART002 — Upload support for common document formats
-  formalized: —   implemented: —   verified: —
+  formalized: —   implemented: yes   verified: —
   verdict: never verified
+    crates/reqforge-model/src/load/blob_allowlist.rs:16 → ALLOWED_BLOB_EXTENSIONS
+    src/http/handlers.rs:1844 → create_blob_artifact
 
 ART003 — Uploaded artifacts are replace-only
-  formalized: —   implemented: —   verified: —
+  formalized: —   implemented: yes   verified: —
   verdict: never verified
+    src/http/handlers.rs:1961 → replace_blob
+    web/src/routes/artifact-detail/ReplaceBlobDialog.tsx:11 → ReplaceBlobDialog
 
 ART004 — URL-reference artifact
-  formalized: —   implemented: —   verified: —
+  formalized: —   implemented: yes   verified: —
   verdict: never verified
+    crates/reqforge-model/src/load/url.rs:10
+    src/http/handlers.rs:2087 → create_url_artifact
 
 ART005 — URL reachability check
-  formalized: —   implemented: —   verified: —
+  formalized: —   implemented: yes   verified: —
   verdict: never verified
+    crates/reqforge-model/src/urls/check.rs:3
+    src/http/handlers.rs:2384 → check_url
 
 ART006 — Tiered upload preview
-  formalized: —   implemented: —   verified: —
+  formalized: —   implemented: yes   verified: —
   verdict: never verified
+    crates/reqforge-model/src/thumbnails/mod.rs:3 → cache
+    web/src/routes/artifact-detail/BlobArtifactView.tsx:43 → BlobArtifactView
 
 ART007 — Shape-aware diff
-  formalized: —   implemented: —   verified: —
+  formalized: —   implemented: yes   verified: —
   verdict: never verified
+    crates/reqforge-model/src/diff/mod.rs:3
+    web/src/routes/artifact-detail/DiffView.tsx:16 → DiffView
 
 ART008 — First-class artifact types via collections
-  formalized: —   implemented: —   verified: —
+  formalized: —   implemented: yes   verified: —
   verdict: never verified
+    crates/reqforge-model/src/schema/collection.rs:5
 
 ART009 — Extensible artifact types
-  formalized: —   implemented: —   verified: —
+  formalized: —   implemented: yes   verified: —
   verdict: never verified
+    crates/reqforge-model/src/load/project.rs:160
 
 REQ001 — REQ001
   formalized: —   implemented: yes   verified: yes

@@ -8,6 +8,7 @@ interface Props {
   readonly onClose: () => void;
 }
 
+// Implements: ART003 — a blob is updated only by uploading a replacement.
 export function ReplaceBlobDialog({ artifact, onClose }: Props) {
   const mutation = useReplaceBlob(artifact.uuid);
   const [file, setFile] = useState<File | null>(null);

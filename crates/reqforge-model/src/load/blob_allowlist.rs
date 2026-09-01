@@ -12,6 +12,8 @@
 /// out office documents, PDFs, and common image types as the
 /// starting set; additional formats land through the thumbnailer
 /// extensibility path in a later phase.
+///
+/// Implements: ART002
 pub const ALLOWED_BLOB_EXTENSIONS: &[&str] = &[
     "pdf", "docx", "xlsx", "pptx", "png", "jpg", "jpeg", "gif", "svg",
 ];

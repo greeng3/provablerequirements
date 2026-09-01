@@ -6,6 +6,8 @@
 //! externally-hosted content, and `UX-urlArtifactChecking` records
 //! `checkedAt` / `checkStatus` fields the Phase 5b check action
 //! populates.
+//!
+//! Implements: ART004
 
 use std::fs;
 use std::path::{Path, PathBuf};

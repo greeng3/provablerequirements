@@ -1,6 +1,8 @@
 //! Collection configuration — per `FORMAT-collectionConfigSchema`.
 //!
 //! Found at the Collection-directory root as `.collection.json`.
+//!
+//! Implements: ART008
 
 use serde::{Deserialize, Serialize};
 
