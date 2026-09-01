@@ -2,7 +2,9 @@
 
 How the PRL native executable is built and published. Realises requirements
 REQ001–REQ006 and the packaging half of **Design C** (see
-[operator-workflow-notes.md](operator-workflow-notes.md)).
+[operator-workflow-notes.md](operator-workflow-notes.md)). This is the **producer**
+side; for how an operator installs and runs a binary against a subject, see
+[installing-and-running.md](installing-and-running.md).
 
 > **Status: prototype.** `provreq serve` runs a local axum server (loopback)
 > that exposes `GET /health` (REQ005) and serves a React UI embedded into the
