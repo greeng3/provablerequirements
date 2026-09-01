@@ -381,11 +381,22 @@ fn build_prompt(items: &[Item], context: &SubjectContext) -> String {
     prompt.push_str(&observables_section(context));
     prompt.push_str("\nRequirements:\n");
     for item in items {
-        // Flatten prose to a single line so the list stays unambiguous.
+        // Flatten prose to a single line so the list stays unambiguous. When the source has
+        // declared the requirement is not expected to trace to code (`expectsCodeTrace: false`),
+        // state that inline so the model does not place it in formalizable-now — the one bucket the
+        // declaration rules out (R-src-7, #297). It is advisory here; the deterministic guard in
+        // `parse_buckets` enforces it regardless of whether the model obeys.
+        let ruled_out = if item.expects_code_trace == Some(false) {
+            " [the source declares this requirement is NOT expected to trace to code, so it cannot \
+             be formalizable-now — choose falsifiable-only or stays-prose, or omit it]"
+        } else {
+            ""
+        };
         prompt.push_str(&format!(
-            "- {}: {}\n",
+            "- {}: {}{}\n",
             item.id,
-            item.text.replace('\n', " ")
+            item.text.replace('\n', " "),
+            ruled_out
         ));
     }
     prompt.push_str(PROMPT_FOOTER);
@@ -491,7 +502,19 @@ fn parse_buckets(raw: &str, items: &[Item]) -> Result<Vec<Option<Classification>
             excerpt(raw)
         );
     }
-    Ok(items.iter().map(|i| map.get(&i.id).copied()).collect())
+    Ok(items
+        .iter()
+        .map(|i| match map.get(&i.id).copied() {
+            // The source declared this requirement is not expected to trace to code, which rules
+            // formalizable-now out (R-src-7, #297). If the model returned it anyway, decline the
+            // item rather than present a hint that contradicts the source's own declaration: a
+            // decline leaves the item exactly as it was (#226), never inventing or overwriting a
+            // judgement. The other two buckets are left untouched — the declaration excludes one
+            // bucket, it does not choose among the rest.
+            Some(Classification::FormalizableNow) if i.expects_code_trace == Some(false) => None,
+            other => other,
+        })
+        .collect())
 }
 
 /// A short, single-line rendering of a reply for an error message — enough for the operator to
@@ -587,6 +610,15 @@ mod tests {
             revision: "r".into(),
             title: None,
             verification_hint: None,
+            expects_code_trace: None,
+        }
+    }
+
+    /// An item whose source declared `expectsCodeTrace: false` — formalizable-now is ruled out.
+    fn item_ruled_out(id: &str, text: &str) -> Item {
+        Item {
+            expects_code_trace: Some(false),
+            ..item(id, text)
         }
     }
 
@@ -647,6 +679,61 @@ mod tests {
             buckets,
             vec![None, Some(Classification::FalsifiableOnly), None],
             "a bucket the model did not give is not a bucket the tool may invent"
+        );
+    }
+
+    // Verifies: REQ083 (#297) — an explicit `expectsCodeTrace: false` rules formalizable-now out.
+    // If the model returns it anyway, the deterministic guard declines the item (leaves it as it
+    // was, #226) rather than present a hint that contradicts the source. The declaration excludes
+    // exactly one bucket: the model's other answers for ruled-out items stand, and a normal item's
+    // formalizable-now is untouched.
+    #[tokio::test]
+    async fn classify_declines_formalizable_now_for_a_ruled_out_item() {
+        let items = [
+            item_ruled_out("RULED", "the interface shall respond within 200ms"),
+            item_ruled_out("KEPT", "the queue shall never lose a message"),
+            item("NORMAL", "the parser shall reject empty input"),
+        ];
+        let backend = StubBackend {
+            // The model over-claims formalizable-now for the first ruled-out item, gives the
+            // second ruled-out item a bucket the declaration allows, and classifies the normal one.
+            reply: r#"[{"id":"RULED","bucket":"formalizable-now"},
+                       {"id":"KEPT","bucket":"falsifiable-only"},
+                       {"id":"NORMAL","bucket":"formalizable-now"}]"#
+                .into(),
+        };
+        let buckets = LlmClassifier::new(backend, SubjectContext::default())
+            .classify(&items)
+            .await
+            .unwrap();
+        assert_eq!(
+            buckets,
+            vec![
+                None,
+                Some(Classification::FalsifiableOnly),
+                Some(Classification::FormalizableNow),
+            ],
+        );
+    }
+
+    // Verifies: REQ083 (#297) — the prompt states the ruled-out declaration inline for an
+    // `expectsCodeTrace: false` item, and says nothing extra for an ordinary one.
+    #[test]
+    fn prompt_states_the_ruled_out_declaration() {
+        let prompt = build_prompt(
+            &[
+                item_ruled_out("RULED", "respond within 200ms"),
+                item("NORMAL", "reject empty input"),
+            ],
+            &SubjectContext::default(),
+        );
+        assert!(
+            prompt.contains("RULED: respond within 200ms [the source declares"),
+            "ruled-out item carries the not-expected-to-trace note; prompt was:\n{prompt}"
+        );
+        assert!(
+            prompt.contains("NORMAL: reject empty input\n"),
+            "an ordinary item carries no extra note; prompt was:\n{prompt}"
         );
     }
 

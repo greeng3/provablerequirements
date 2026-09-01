@@ -143,6 +143,7 @@ impl RequirementsSource for DoorstopSource {
                     text,
                     title: None,
                     verification_hint: None,
+                    expects_code_trace: None,
                 });
             }
         }

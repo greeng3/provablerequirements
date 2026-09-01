@@ -181,6 +181,7 @@ mod tests {
             revision: "r1".into(),
             title: Some("Login invariant".into()),
             verification_hint: None,
+            expects_code_trace: None,
         }
     }
 

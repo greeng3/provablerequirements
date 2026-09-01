@@ -194,6 +194,7 @@ mod tests {
             revision: id.into(),
             title: None,
             verification_hint: None,
+            expects_code_trace: None,
         }
     }
 
