@@ -79,7 +79,7 @@ fmt-check-md:
 # excluded from the prose linter like the other generated/managed trees — its shape is provreq's to
 # decide, not the linter's.
 lint-md:
-	@$(MARKDOWNLINT) "**/*.md" "!qrusty/**" "!requirements/**" "!docs/traceability_report.md" "!**/node_modules/**" "!.venv/**" "!.claude/**" "!.claude-home/**"
+	@$(MARKDOWNLINT) "**/*.md" "!qrusty/**" "!requirements/**" "!docs/reqforge-heritage/**" "!docs/traceability_report.md" "!**/node_modules/**" "!.venv/**" "!.claude/**" "!.claude-home/**"
 
 # --- YAML ---
 # --no-error-on-unmatched-pattern: the repo has only `.yml` today, and prettier >=3 errors on a

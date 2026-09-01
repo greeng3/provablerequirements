@@ -1,0 +1,197 @@
+{
+  "schemaVersion": 1,
+  "suggestions": [
+    {
+      "id": "019dfa40-df7f-7042-b790-b0c513fdd346",
+      "from": "019df9d6-cbf5-7133-a8e2-b6f07dd80ac4",
+      "to": "019df9d6-cbf5-7133-a8e2-b65d6a50e3c1",
+      "linkType": "related-to",
+      "confidence": 0.8,
+      "rationale": "Design documents are related to requirements as they provide the design solutions for meeting specific requirements."
+    },
+    {
+      "id": "019dfa40-df7f-7042-b790-b0d49518fe37",
+      "from": "019df9d6-cbf5-7133-a8e2-b6f07dd80ac4",
+      "to": "019df9d6-cbf5-7133-a8e2-b6cf2d833dfb",
+      "linkType": "related-to",
+      "confidence": 0.7,
+      "rationale": "Design documents are related to use cases as they often describe the design solutions for scenarios described by use cases."
+    },
+    {
+      "id": "019dfa44-5454-73d1-8151-d958323f806a",
+      "from": "019df9d6-cbf5-7133-a8e2-b6e5da51e037",
+      "to": "019df9d6-cbf6-7ac2-8a79-de40c87ed999",
+      "linkType": "related-to",
+      "confidence": 0.8,
+      "rationale": "Bind-mounted repositories are discovered using a specific mount convention."
+    },
+    {
+      "id": "019dfa44-5454-73d1-8151-d96f3d7fed03",
+      "from": "019df9d6-cbf5-7133-a8e2-b6e5da51e037",
+      "to": "019df9d6-cbf6-7ac2-8a79-de6d87fd2ba5",
+      "linkType": "related-to",
+      "confidence": 0.8,
+      "rationale": "Bind-mounted repositories can be treated as multiple projects."
+    },
+    {
+      "id": "019dfa44-5454-73d1-8151-d9711d52d1e6",
+      "from": "019df9d6-cbf6-7ac2-8a79-ddc8316a0b58",
+      "to": "019df9d6-cbf6-7ac2-8a79-dee8d07057ee",
+      "linkType": "related-to",
+      "confidence": 0.7,
+      "rationale": "UID/GID matching is relevant in a multi-project system."
+    },
+    {
+      "id": "019dfa44-5454-73d1-8151-d9872e18bfd3",
+      "from": "019df9d6-cbf6-7ac2-8a79-ddc8316a0b58",
+      "to": "019df9d6-cbf6-7ac2-8a79-de2aaca04f50",
+      "linkType": "related-to",
+      "confidence": 0.7,
+      "rationale": "UID/GID matching can be overridden by environment variables."
+    },
+    {
+      "id": "019dfa47-e2d2-74a3-ace8-0da9bb6764cb",
+      "from": "019df9d6-cbf6-7ac2-8a79-df073343f4b4",
+      "to": "019df9d6-cbf6-7ac2-8a79-df714a0ce349",
+      "linkType": "related-to",
+      "confidence": 0.8,
+      "rationale": "Artifact metadata schema and field presence handling are related."
+    },
+    {
+      "id": "019dfa47-e2d2-74a3-ace8-0dbc336f81e0",
+      "from": "019df9d6-cbf6-7ac2-8a79-df073343f4b4",
+      "to": "019df9d6-cbf6-7ac2-8a79-dfc4ae8615e0",
+      "linkType": "related-to",
+      "confidence": 0.8,
+      "rationale": "Artifact metadata schema and link payload schema are related."
+    },
+    {
+      "id": "019dfa47-e2d2-74a3-ace8-0dca908887b2",
+      "from": "019df9d6-cbf6-7ac2-8a79-df073343f4b4",
+      "to": "019df9d6-cbf6-7ac2-8a79-e0138cde3be6",
+      "linkType": "related-to",
+      "confidence": 0.8,
+      "rationale": "Artifact metadata schema and review log entry schema are related."
+    },
+    {
+      "id": "019dfa47-e2d2-74a3-ace8-0ddbc04e4f4a",
+      "from": "019df9d6-cbf6-7ac2-8a79-df073343f4b4",
+      "to": "019df9d6-cbf6-7ac2-8a79-e003997c6eb1",
+      "linkType": "related-to",
+      "confidence": 0.8,
+      "rationale": "Artifact metadata schema and review log handling are related."
+    },
+    {
+      "id": "019dfa47-e2d2-74a3-ace8-0deff7405226",
+      "from": "019df9d6-cbf6-7ac2-8a79-df073343f4b4",
+      "to": "019df9d6-cbf6-7ac2-8a79-dfdab9dc4352",
+      "linkType": "related-to",
+      "confidence": 0.8,
+      "rationale": "Artifact metadata schema and link storage are related."
+    },
+    {
+      "id": "019dfa47-e2d2-74a3-ace8-0dffe043fffd",
+      "from": "019df9d6-cbf6-7ac2-8a79-df073343f4b4",
+      "to": "019df9d6-cbf6-7ac2-8a79-dff635d34c08",
+      "linkType": "related-to",
+      "confidence": 0.8,
+      "rationale": "Artifact metadata schema and qualified extension are related."
+    },
+    {
+      "id": "019dfa47-e2d2-74a3-ace8-0e0ac30363b7",
+      "from": "019df9d6-cbf6-7ac2-8a79-df073343f4b4",
+      "to": "019df9d6-cbf6-7ac2-8a79-dfb50d90baad",
+      "linkType": "related-to",
+      "confidence": 0.8,
+      "rationale": "Artifact metadata schema and JSON usage are related."
+    },
+    {
+      "id": "019dfa47-e2d2-74a3-ace8-0e1085a9b9bb",
+      "from": "019df9d6-cbf6-7ac2-8a79-df073343f4b4",
+      "to": "019df9d6-cbf6-7ac2-8a79-df8ef129b75e",
+      "linkType": "related-to",
+      "confidence": 0.8,
+      "rationale": "Artifact metadata schema and file encoding are related."
+    },
+    {
+      "id": "019dfa47-e2d2-74a3-ace8-0e295337fb9e",
+      "from": "019df9d6-cbf6-7ac2-8a79-df073343f4b4",
+      "to": "019df9d6-cbf6-7ac2-8a79-df53291ff656",
+      "linkType": "related-to",
+      "confidence": 0.8,
+      "rationale": "Artifact metadata schema and configuration files are related."
+    },
+    {
+      "id": "019dfa47-e2d2-74a3-ace8-0e34acfec00d",
+      "from": "019df9d6-cbf6-7ac2-8a79-df073343f4b4",
+      "to": "019df9d6-cbf6-7ac2-8a79-dfa11f2d2234",
+      "linkType": "related-to",
+      "confidence": 0.8,
+      "rationale": "Artifact metadata schema and identifier validation are related."
+    },
+    {
+      "id": "019dfa47-e2d2-74a3-ace8-0e4164696b88",
+      "from": "019df9d6-cbf6-7ac2-8a79-df073343f4b4",
+      "to": "019df9d6-cbf6-7ac2-8a79-df926933f4dd",
+      "linkType": "related-to",
+      "confidence": 0.8,
+      "rationale": "Artifact metadata schema and frontmatter delimiters are related."
+    },
+    {
+      "id": "019dfa47-e2d2-74a3-ace8-0e5d74ed55ae",
+      "from": "019df9d6-cbf6-7ac2-8a79-df073343f4b4",
+      "to": "019df9d6-cbf6-7ac2-8a79-dfe4bc8fb579",
+      "linkType": "related-to",
+      "confidence": 0.8,
+      "rationale": "Artifact metadata schema and project configuration are related."
+    },
+    {
+      "id": "019dfa47-e2d2-74a3-ace8-0e641871eead",
+      "from": "019df9d6-cbf6-7ac2-8a79-df073343f4b4",
+      "to": "019df9d6-cbf6-7ac2-8a79-df4b9288644a",
+      "linkType": "related-to",
+      "confidence": 0.8,
+      "rationale": "Artifact metadata schema and collections root path are related."
+    },
+    {
+      "id": "019dfa47-e2d2-74a3-ace8-0e7561c74473",
+      "from": "019df9d6-cbf6-7ac2-8a79-df073343f4b4",
+      "to": "019df9d6-cbf6-7ac2-8a79-df3abed4fbf4",
+      "linkType": "related-to",
+      "confidence": 0.8,
+      "rationale": "Artifact metadata schema and collection configuration are related."
+    },
+    {
+      "id": "019dfa47-e2d2-74a3-ace8-0e84713cd01f",
+      "from": "019df9d6-cbf6-7ac2-8a79-df073343f4b4",
+      "to": "019df9d6-cbf6-7ac2-8a79-e0296faf260d",
+      "linkType": "related-to",
+      "confidence": 0.8,
+      "rationale": "Artifact metadata schema and system configuration are related."
+    },
+    {
+      "id": "019dfa47-e2d2-74a3-ace8-0e9eae7bead1",
+      "from": "019df9d6-cbf6-7ac2-8a79-df073343f4b4",
+      "to": "019df9d6-cbf6-7ac2-8a79-df6375b0b91b",
+      "linkType": "related-to",
+      "confidence": 0.8,
+      "rationale": "Artifact metadata schema and content-hosted Markdown are related."
+    },
+    {
+      "id": "019dfa47-e2d2-74a3-ace8-0ebce1825340",
+      "from": "019df9d6-cbf6-7ac2-8a79-df073343f4b4",
+      "to": "019df9d6-cbf6-7ac2-8a79-df2fa728e517",
+      "linkType": "related-to",
+      "confidence": 0.8,
+      "rationale": "Artifact metadata schema and blob sidecar are related."
+    },
+    {
+      "id": "019dfa47-e2d2-74a3-ace8-0eccc423b0a0",
+      "from": "019df9d6-cbf6-7ac2-8a79-df073343f4b4",
+      "to": "019df9d6-cbf6-7ac2-8a79-df1b6866e19b",
+      "linkType": "related-to",
+      "confidence": 0.8,
+      "rationale": "Artifact metadata schema and shape-specific fields are related."
+    }
+  ]
+}
