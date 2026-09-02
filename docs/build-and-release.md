@@ -29,13 +29,21 @@ Six targets — three OSes × two architectures — each pinned to a runner:
 | `aarch64-unknown-linux-gnu` | `ubuntu-24.04-arm` |
 | `x86_64-pc-windows-msvc`    | `windows-latest`   |
 | `aarch64-pc-windows-msvc`   | `windows-latest`   |
-| `x86_64-apple-darwin`       | `macos-13`         |
+| `x86_64-apple-darwin`       | `macos-14`         |
 | `aarch64-apple-darwin`      | `macos-14`         |
 
 macOS and Windows need real runners — macOS cannot be built off Apple hardware,
 and MSVC targets are impractical to cross-build. This is the whole reason the
 repo lives on **public GitHub**: unlimited free Actions minutes across all three
 OSes. The supported set is explicit and finite, not auto-discovered (REQ002).
+
+Both macOS targets run on `macos-14` (Apple Silicon): the `aarch64` one natively,
+the `x86_64` one cross-compiled via `rustup target add` — pure-Rust, and the Xcode
+SDK carries both arches. The Intel `macos-13` image is being retired, and the
+first release attempt showed why: an `x86_64-apple-darwin` job pinned to it sat
+8h+ unscheduled while every other target finished, and the all-or-nothing publish
+job (`needs: build`) never ran. Building the Intel binary on an Apple-Silicon
+runner removes that dependency.
 
 ## Frontend build stage (REQ006)
 
