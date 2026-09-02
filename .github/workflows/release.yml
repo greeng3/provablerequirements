@@ -25,8 +25,10 @@ jobs:
             os: windows-latest
           - target: aarch64-pc-windows-msvc
             os: windows-latest
+          # Apple Silicon runner cross-builds the Intel target; the Intel macos-13
+          # image is being retired and its jobs sit unscheduled for hours.
           - target: x86_64-apple-darwin
-            os: macos-13
+            os: macos-14
           - target: aarch64-apple-darwin
             os: macos-14
     runs-on: ${{ matrix.os }}
