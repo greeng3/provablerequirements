@@ -50,7 +50,9 @@ pub async fn single_subject_state(subject: PathBuf) -> Result<Shared, DiscoveryE
         // `discover_single` keys off the subject directly, so `mount_prefix` is unused in
         // single-subject mode; set it to the subject so any incidental read is harmless.
         mount_prefix: subject.clone(),
-        system_config_path: None,
+        // The System config (LLM providers etc.) is operator-supplied via
+        // PROVREQ_SYSTEM_CONFIG — the var the /api/system + LLM handlers name.
+        system_config_path: std::env::var_os("PROVREQ_SYSTEM_CONFIG").map(PathBuf::from),
         workspace_dir: None,
         max_blob_bytes: MAX_BLOB_BYTES,
         thumbnail_cache_max_bytes: THUMBNAIL_CACHE_MAX_BYTES,
