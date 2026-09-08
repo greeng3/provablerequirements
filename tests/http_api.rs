@@ -1,8 +1,8 @@
-//! HTTP handler integration tests, ported from ReqForge's
+//! HTTP handler integration tests, ported from Provreq's
 //! `tests/http_api.rs` for #374 and adapted to provreq's
 //! single-subject model.
 //!
-//! ReqForge seeded several sibling projects under a `mount_prefix`
+//! Provreq seeded several sibling projects under a `mount_prefix`
 //! and drove multi-project `discover_mounts`. provreq serves exactly
 //! one repository (#370), so these tests go through the shared
 //! single-subject harness in `tests/support/mod.rs`
@@ -31,7 +31,7 @@ use axum::body::{Body, to_bytes};
 use axum::http::{Request, StatusCode};
 use provreq::app::AppState;
 use provreq::http::build_router;
-use reqforge_model::write::OwnershipOverrides;
+use provreq_model::write::OwnershipOverrides;
 use serde_json::{Value, json};
 use tower::util::ServiceExt;
 
@@ -78,7 +78,7 @@ async fn patch_json(router: &Router, uri: &str, body: &Value) -> (StatusCode, Va
 }
 
 /// Static-file bundle seeding (a frontend `dist/`), separate from
-/// subject seeding — ported verbatim from ReqForge.
+/// subject seeding — ported verbatim from Provreq.
 fn seed_static_bundle(root: &Path) {
     std::fs::create_dir_all(root).unwrap();
     std::fs::write(
@@ -715,7 +715,7 @@ async fn wipe_project_artifacts_removes_all_collections_and_their_files() {
     let req_dir = temp.path().join("sample/artifacts/requirements");
     let des_dir = temp.path().join("sample/artifacts/design");
     let artifacts_root = temp.path().join("sample/artifacts");
-    let reqforge_json = temp.path().join("sample/reqforge.json");
+    let provreq_json = temp.path().join("sample/provreq.json");
     assert!(req_dir.exists() && des_dir.exists());
 
     let (status, _) = delete_json(&router, "/api/projects/sample/artifacts").await;
@@ -727,7 +727,7 @@ async fn wipe_project_artifacts_removes_all_collections_and_their_files() {
         artifacts_root.exists(),
         "artifacts/ root must remain or the project fails to load"
     );
-    assert!(reqforge_json.exists(), "reqforge.json must be untouched");
+    assert!(provreq_json.exists(), "provreq.json must be untouched");
 
     // Project still resolves and now reports zero collections.
     let (status, body) = get_json(&router, "/api/projects/sample").await;
@@ -737,14 +737,14 @@ async fn wipe_project_artifacts_removes_all_collections_and_their_files() {
 }
 
 #[tokio::test]
-async fn wipe_with_deinit_also_removes_reqforge_json_and_artifacts_dir() {
+async fn wipe_with_deinit_also_removes_provreq_json_and_artifacts_dir() {
     let (router, _state, temp) =
         build_app_with_artifacts(&[("REQ-a", UUID_A), ("REQ-b", UUID_B)]).await;
 
     let req_dir = temp.path().join("sample/artifacts/requirements");
     let artifacts_root = temp.path().join("sample/artifacts");
-    let reqforge_json = temp.path().join("sample/reqforge.json");
-    assert!(req_dir.exists() && reqforge_json.exists());
+    let provreq_json = temp.path().join("sample/provreq.json");
+    assert!(req_dir.exists() && provreq_json.exists());
 
     let (status, _) = delete_json(&router, "/api/projects/sample/artifacts?deinit=true").await;
     assert_eq!(status, StatusCode::NO_CONTENT);
@@ -755,11 +755,11 @@ async fn wipe_with_deinit_also_removes_reqforge_json_and_artifacts_dir() {
         "artifacts/ dir itself should be gone in deinit mode"
     );
     assert!(
-        !reqforge_json.exists(),
-        "reqforge.json should be gone in deinit mode"
+        !provreq_json.exists(),
+        "provreq.json should be gone in deinit mode"
     );
 
-    // Mount reverts to NeedsInit since reqforge.json is gone.
+    // Mount reverts to NeedsInit since provreq.json is gone.
     let (status, body) = get_json(&router, "/api/mounts").await;
     assert_eq!(status, StatusCode::OK);
     let entries = body.as_array().unwrap();
@@ -781,13 +781,13 @@ async fn wipe_unknown_project_returns_404() {
 
 #[tokio::test]
 async fn wipe_project_with_no_collections_is_a_noop() {
-    // A project with reqforge.json + empty artifacts/, no collections.
+    // A project with provreq.json + empty artifacts/, no collections.
     let (router, _state, temp) = build_app(|_subject| {}).await;
 
     let (status, _) = delete_json(&router, "/api/projects/sample/artifacts").await;
     assert_eq!(status, StatusCode::NO_CONTENT);
     assert!(temp.path().join("sample/artifacts").exists());
-    assert!(temp.path().join("sample/reqforge.json").exists());
+    assert!(temp.path().join("sample/provreq.json").exists());
 }
 
 // #374: dropped `post_mount_init_promotes_needs_init_to_project` and

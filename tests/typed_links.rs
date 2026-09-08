@@ -1,4 +1,4 @@
-//! Ported from ReqForge `tests/typed_links.rs` (#374 batch C):
+//! Ported from Provreq `tests/typed_links.rs` (#374 batch C):
 //! link-type catalog endpoint, server-side link resolution in
 //! ArtifactDetail, incoming-links, the artifact-search endpoint, and
 //! link-write validation.
@@ -23,8 +23,8 @@ use std::sync::Arc;
 use axum::Router;
 use provreq::app::AppState;
 use provreq::http::build_router;
-use reqforge_model::world::DiscoveryConfig;
-use reqforge_model::write::OwnershipOverrides;
+use provreq_model::world::DiscoveryConfig;
+use provreq_model::write::OwnershipOverrides;
 use serde_json::Value;
 use serde_json::json;
 use support::{SUBJECT_SLUG, build_app, get_json, put_json, write_collection, write_project};

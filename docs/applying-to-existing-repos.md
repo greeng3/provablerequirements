@@ -13,7 +13,7 @@ Status: **design settled.** Decisions below; deferred-to-implementation items at
 
 > **Note (2026-08):** this doc describes attaching to a _foreign_ repo whose requirements live in
 > Doorstop — still exactly how a subject like qrusty is adopted. provreq's **own** requirements have
-> since moved off Doorstop onto a ReqForge project (#321); for provreq itself, Doorstop is only an
+> since moved off Doorstop onto a provreq-native project (#321); for provreq itself, Doorstop is only an
 > import format (`provreq migrate-doorstop`). The adoption model here is unchanged.
 
 ## Guiding principle

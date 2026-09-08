@@ -1,9 +1,9 @@
 //! Report-export endpoint integration tests
-//! (`GET /api/reports/:kind/export/:ext`), ported from ReqForge's
+//! (`GET /api/reports/:kind/export/:ext`), ported from Provreq's
 //! `tests/report_exports.rs` for #374 and adapted to provreq's
 //! single-subject model.
 //!
-//! ReqForge drove multi-project `discover_mounts`; provreq serves one
+//! Provreq drove multi-project `discover_mounts`; provreq serves one
 //! repository (#370). These tests seed one subject through the shared
 //! harness helpers, but boot a local single-subject `AppState` so the
 //! `external_url` config (which the shared `build_app` fixes to
@@ -23,8 +23,8 @@ use axum::body::{Body, to_bytes};
 use axum::http::{Request, StatusCode};
 use provreq::app::AppState;
 use provreq::http::build_router;
-use reqforge_model::world::DiscoveryConfig;
-use reqforge_model::write::OwnershipOverrides;
+use provreq_model::world::DiscoveryConfig;
+use provreq_model::write::OwnershipOverrides;
 use tower::util::ServiceExt;
 
 use support::{SUBJECT_SLUG, write_collection, write_project};
@@ -148,7 +148,7 @@ async fn json_export_returns_serialised_report_as_attachment() {
     assert!(content_type(&resp).starts_with("application/json"));
     let disp = content_disposition(&resp);
     assert!(disp.contains("attachment"));
-    assert!(disp.contains("reqforge-link-orphans-system-"));
+    assert!(disp.contains("provreq-link-orphans-system-"));
     assert!(disp.ends_with(".json\""));
     let bytes = to_bytes(resp.into_body(), 128 * 1024).await.unwrap();
     let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
@@ -192,7 +192,7 @@ async fn html_export_uses_absolute_urls_when_external_url_set() {
     let bytes = to_bytes(resp.into_body(), 128 * 1024).await.unwrap();
     let text = String::from_utf8(bytes.to_vec()).unwrap();
     assert!(text.starts_with("<!DOCTYPE html>"));
-    assert!(text.contains("<title>ReqForge · Unresolved links · system</title>"));
+    assert!(text.contains("<title>Provreq · Unresolved links · system</title>"));
     // The only unresolved candidate in the sample fixture is the
     // REQ-a → REQ-b link, which does resolve, so the report body
     // reports the empty-state. The empty-state page still has
@@ -249,7 +249,7 @@ async fn filename_slug_encodes_collection_scope() {
     assert_eq!(resp.status(), StatusCode::OK);
     let disp = content_disposition(&resp);
     assert!(
-        disp.contains("reqforge-link-orphans-collection-sample-req-"),
+        disp.contains("provreq-link-orphans-collection-sample-req-"),
         "expected collection-sample-req slug in filename: {disp}"
     );
 }

@@ -1,7 +1,7 @@
 //! Polling filesystem watcher per `DEPLOY-pollingWatch`.
 //!
 //! Detects external changes (git pull, text-editor save outside
-//! ReqForge) by periodically snapshotting a cheap fingerprint of
+//! Provreq) by periodically snapshotting a cheap fingerprint of
 //! the mount prefix — the set of file paths and their
 //! modification timestamps — and comparing successive snapshots.
 //! On diff, triggers `AppState::refresh` which rediscovers and
@@ -31,8 +31,8 @@ pub const DEFAULT_POLL_INTERVAL: Duration = Duration::from_secs(2);
 pub type Fingerprint = BTreeMap<PathBuf, SystemTime>;
 
 /// Walk `mount_prefix` and compute a fingerprint covering every
-/// file ReqForge could care about: `.collection.json`,
-/// `reqforge.json`, and `*.md` under any directory. Paths include
+/// file Provreq could care about: `.collection.json`,
+/// `provreq.json`, and `*.md` under any directory. Paths include
 /// `.git/` too so branch switches trigger a refresh.
 ///
 /// Synchronous / blocking; callers run this from
@@ -119,7 +119,7 @@ mod tests {
     fn fingerprint_covers_md_and_json_files() {
         let temp = tempdir().unwrap();
         let root = temp.path();
-        std::fs::write(root.join("reqforge.json"), "{}").unwrap();
+        std::fs::write(root.join("provreq.json"), "{}").unwrap();
         std::fs::create_dir_all(root.join("artifacts/reqs")).unwrap();
         std::fs::write(root.join("artifacts/reqs/.collection.json"), "{}").unwrap();
         std::fs::write(root.join("artifacts/reqs/REQ-a.md"), "# a").unwrap();
@@ -128,7 +128,7 @@ mod tests {
 
         let fp = compute_fingerprint(root);
         let names: Vec<_> = fp.keys().filter_map(|p| p.file_name()).collect();
-        assert!(names.iter().any(|n| *n == "reqforge.json"));
+        assert!(names.iter().any(|n| *n == "provreq.json"));
         assert!(names.iter().any(|n| *n == ".collection.json"));
         assert!(names.iter().any(|n| *n == "REQ-a.md"));
         assert!(!names.iter().any(|n| *n == "notes.txt"));
@@ -144,7 +144,7 @@ mod tests {
     fn fingerprint_changes_when_a_file_is_modified() {
         let temp = tempdir().unwrap();
         let root = temp.path();
-        let path = root.join("reqforge.json");
+        let path = root.join("provreq.json");
         std::fs::write(&path, "{}").unwrap();
         let fp1 = compute_fingerprint(root);
 
@@ -163,7 +163,7 @@ mod tests {
         let root = temp.path();
         let fp1 = compute_fingerprint(root);
 
-        std::fs::write(root.join("reqforge.json"), "{}").unwrap();
+        std::fs::write(root.join("provreq.json"), "{}").unwrap();
         let fp2 = compute_fingerprint(root);
         assert_ne!(fp1, fp2);
         assert_eq!(fp1.len(), 0);

@@ -1,7 +1,7 @@
 //! The `RequirementsSource` seam: provreq reaches requirement items only through
 //! this abstraction, never off a specific tool's files (R-src-1). Doorstop is
-//! adapter #1 (see [`crate::doorstop`]) and ReqForge is adapter #2 (see
-//! [`crate::reqforge`]), which arrived with phase 1 of the absorb (#296) and
+//! adapter #1 (see [`crate::doorstop`]) and Provreq is adapter #2 (see
+//! [`crate::provreq`]), which arrived with phase 1 of the absorb (#296) and
 //! made this the two-implementation seam R-src-4 was waiting for. Which one a
 //! subject uses is decided in exactly one place, [`crate::adopt::source_for`].
 //!
@@ -56,12 +56,12 @@ pub struct Item {
     pub text: String,
     pub revision: String,
     pub title: Option<String>,
-    /// Optional per-source prior for triage (ReqForge's `expectsCodeTrace: true`, and only where an
-    /// artifact states it explicitly — see [`crate::reqforge`]); `None` for Doorstop, which has no
+    /// Optional per-source prior for triage (Provreq's `expectsCodeTrace: true`, and only where an
+    /// artifact states it explicitly — see [`crate::provreq`]); `None` for Doorstop, which has no
     /// equivalent. Advisory seed only (R-src-5).
     pub verification_hint: Option<Classification>,
     /// The source's own declaration of whether this requirement is expected to trace to code
-    /// (ReqForge's `expectsCodeTrace`; `None` for Doorstop, which has no equivalent). An explicit
+    /// (Provreq's `expectsCodeTrace`; `None` for Doorstop, which has no equivalent). An explicit
     /// `Some(false)` is real information that [`Classification`] deliberately cannot express: it
     /// rules `FormalizableNow` *out* — the source has declared this requirement is not expected to
     /// have a code-level implementation to verify — without choosing between `FalsifiableOnly` and
@@ -92,7 +92,7 @@ pub struct Annotation {
 /// A fingerprint of an item's prose, used as the revision token when the source has no native one,
 /// or when its native one answers a different question (R-src-3).
 ///
-/// Shared by the adapters rather than owned by one: both Doorstop and ReqForge reach for it, and an
+/// Shared by the adapters rather than owned by one: both Doorstop and Provreq reach for it, and an
 /// adapter borrowing it from a sibling adapter would couple two implementations of this seam that
 /// are supposed to know nothing about each other.
 ///
@@ -114,7 +114,7 @@ pub fn content_hash(text: &str) -> String {
 }
 
 /// The requirements-source seam (R-src-1). One implementation for now
-/// ([`crate::doorstop::DoorstopSource`]); the reqforge adapter is a real,
+/// ([`crate::doorstop::DoorstopSource`]); the provreq adapter is a real,
 /// not-speculative second consumer that lands when its format stabilises.
 pub trait RequirementsSource {
     /// Every requirement item in the source, sorted by `id`.

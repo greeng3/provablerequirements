@@ -1,13 +1,13 @@
 # provreq is both the root package and the workspace root. The second member arrived with phase 2
-# of the ReqForge absorb (#305): its artifact model is taken as a crate rather than pasted into
+# of the Provreq absorb (#305): its artifact model is taken as a crate rather than pasted into
 # `src/`, so its own tests come along unchanged and the boundary between their code and ours stays
 # visible after the second edit.
 [workspace]
-members = ["crates/reqforge-model", "crates/provreq-mcp"]
+members = ["crates/provreq-model", "crates/provreq-mcp"]
 
 [package]
 name = "provreq"
-version = "0.0.10"
+version = "0.0.11"
 edition = "2024"
 description = "PRL native provisioner and backend server (Design C)"
 license = "MIT OR Apache-2.0"
@@ -33,7 +33,7 @@ serde_json = "1"
 serde_yaml = "0.9"
 walkdir = "2"
 # reqwest 0.13 split the old `rustls-tls` bundle into `rustls` + `webpki-roots` (arc-2 slice 0, #356);
-# matches ReqForge's own proven 0.13 feature set so the absorbed llm/http layers resolve cleanly.
+# matches Provreq's own proven 0.13 feature set so the absorbed llm/http layers resolve cleanly.
 reqwest = { version = "0.13", default-features = false, features = ["rustls", "webpki-roots", "json"] }
 # The category-1 adapter resolves a PRL predicate to a real item in the subject's Rust
 # (REQ025). Both crates were already in Cargo.lock transitively (serde derive), so this
@@ -54,19 +54,19 @@ tempfile = "3"
 # pair outright. `creusot_std_moves_in_lockstep_with_the_installed_tag` fails if they drift.
 creusot-std = "0.13"
 sha2 = "0.11"
-reqforge-model = { version = "0.1.0", path = "crates/reqforge-model" }
-# The ReqForge adapter writes provenance back as a review-log entry, whose `timestamp` is a
-# `chrono::DateTime<Utc>` for the ReqForge review-log back-write (REQ020) and `Utc::now()` for the
-# migrate-doorstop timestamps (#317). Already in the tree via reqforge-model, so cargo unifies
+provreq-model = { version = "0.1.0", path = "crates/provreq-model" }
+# The Provreq adapter writes provenance back as a review-log entry, whose `timestamp` is a
+# `chrono::DateTime<Utc>` for the Provreq review-log back-write (REQ020) and `Utc::now()` for the
+# migrate-doorstop timestamps (#317). Already in the tree via provreq-model, so cargo unifies
 # rather than adding weight.
 chrono = { version = "0.4", default-features = false, features = ["std", "clock"] }
 # Minting a fresh artifact uuid when authoring a requirement (`provreq new`, #325). v7 is
-# time-ordered, the id scheme ReqForge artifacts use. Already in the tree via reqforge-model.
+# time-ordered, the id scheme Provreq artifacts use. Already in the tree via provreq-model.
 uuid = { version = "1", features = ["v7"] }
-# The reqforge application layer (AppState + http/ handlers + watcher) absorbed in arc-2 slice 7
+# The provreq application layer (AppState + http/ handlers + watcher) absorbed in arc-2 slice 7
 # (#371) pulls these directly in provreq's binary. All were already transitive (axum → tower/
-# tower-http/bytes/http-body; reqwest → url; reqforge-model → similar/csv/tracing), so this promotes
-# locked versions rather than adding weight. Feature set + pins match reqforge's own workspace.
+# tower-http/bytes/http-body; reqwest → url; provreq-model → similar/csv/tracing), so this promotes
+# locked versions rather than adding weight. Feature set + pins match provreq's own workspace.
 tower = "0.5"
 tower-http = { version = "0.7", features = ["cors", "fs", "trace"] }
 async-stream = "0.3"

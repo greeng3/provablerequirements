@@ -12,10 +12,10 @@
 use crate::source::{Classification, Item};
 use crate::triage::Classifier;
 use anyhow::{Context, Result, anyhow, bail};
-use reqforge_model::llm::{LlmRuntime, ProviderConfig, ProviderFamily};
+use provreq_model::llm::{LlmRuntime, ProviderConfig, ProviderFamily};
 // Re-exported so provreq's LLM features (and their test stubs) build a request and read a response
-// without depending on `reqforge_model` directly — the seam is `crate::llm`.
-pub use reqforge_model::llm::{PromptMessage, PromptRequest, PromptResponse, PromptRole};
+// without depending on `provreq_model` directly — the seam is `crate::llm`.
+pub use provreq_model::llm::{PromptMessage, PromptRequest, PromptResponse, PromptRole};
 use std::collections::BTreeMap;
 use std::path::Path;
 use std::sync::Arc;
@@ -167,9 +167,9 @@ impl LlmConfig {
 /// (via [`user_request`]) and reads the model's text from the [`PromptResponse`]; a stub returns a
 /// canned response so prompt-building and reply-parsing are unit-tested with no live endpoint.
 ///
-/// This is ReqForge's `PromptRequest`/`PromptResponse` seam (absorbed in slice 3a), reached here
+/// This is Provreq's `PromptRequest`/`PromptResponse` seam (absorbed in slice 3a), reached here
 /// through [`RuntimeBackend`] so provreq's features inherit its fallback chain, health tracking and
-/// privacy gate — see `crates/reqforge-model/src/llm`.
+/// privacy gate — see `crates/provreq-model/src/llm`.
 pub trait LlmBackend {
     fn run_prompt(
         &self,
@@ -177,7 +177,7 @@ pub trait LlmBackend {
     ) -> impl std::future::Future<Output = Result<PromptResponse>> + Send;
 }
 
-/// Upper bound on output tokens for every provreq LLM call. ReqForge's `PromptRequest` requires an
+/// Upper bound on output tokens for every provreq LLM call. Provreq's `PromptRequest` requires an
 /// explicit cap; provreq's outputs are short structured text (a bucket array, a PRL block, a
 /// contract) so one generous cap covers every feature. Raise a per-feature cap only if one truncates.
 // ponytail: one shared cap; split per-feature if a feature ever truncates.
@@ -200,7 +200,7 @@ pub fn user_request(prompt: String) -> PromptRequest {
     }
 }
 
-/// The production backend: ReqForge's [`LlmRuntime`] over a single configured provider.
+/// The production backend: Provreq's [`LlmRuntime`] over a single configured provider.
 pub struct RuntimeBackend {
     runtime: Arc<LlmRuntime>,
     /// The operator's configured per-request timeout, in milliseconds, injected into every prompt
@@ -211,7 +211,7 @@ pub struct RuntimeBackend {
 impl RuntimeBackend {
     /// Build from config, resolving the API key from its named env var. Errors if the named
     /// variable is missing (fail fast, no silent keyless downgrade) — provreq keeps its committed
-    /// manifest free of secrets, so the key is never read from the config the way ReqForge's own
+    /// manifest free of secrets, so the key is never read from the config the way Provreq's own
     /// `apiKey` field allows.
     pub fn from_config(config: LlmConfig) -> Result<Self> {
         let api_key =
@@ -225,7 +225,7 @@ impl RuntimeBackend {
         let runtime = LlmRuntime::build(vec![provider_config_for(&config, api_key)])
             .context("building the LLM runtime")?;
         // provreq's CLI drafting has no privacy-ack UI; the operator configuring an endpoint has
-        // already consented, so acknowledge the single provider up front (ReqForge's runtime would
+        // already consented, so acknowledge the single provider up front (Provreq's runtime would
         // otherwise skip a non-local endpoint until acked). Local endpoints need no ack anyway.
         runtime.privacy().acknowledge(0);
         Ok(Self {
@@ -235,11 +235,11 @@ impl RuntimeBackend {
     }
 }
 
-/// Map provreq's single-provider [`LlmConfig`] onto ReqForge's [`ProviderConfig`] (pure). The
+/// Map provreq's single-provider [`LlmConfig`] onto Provreq's [`ProviderConfig`] (pure). The
 /// resolved API key is passed in so the env read stays out of this function.
 ///
 /// The endpoint is normalised: provreq manifests write the OpenAI-compatible `base_url` with its
-/// `/v1` segment (`http://localhost:11434/v1`), but ReqForge's adapter appends `/v1/chat/completions`
+/// `/v1` segment (`http://localhost:11434/v1`), but Provreq's adapter appends `/v1/chat/completions`
 /// to a host root, so the `/v1` is stripped here to avoid a doubled segment.
 fn provider_config_for(config: &LlmConfig, api_key: Option<String>) -> ProviderConfig {
     ProviderConfig {
@@ -254,7 +254,7 @@ fn provider_config_for(config: &LlmConfig, api_key: Option<String>) -> ProviderC
     }
 }
 
-/// Strip a trailing `/v1` (and any trailing slash) from an endpoint so ReqForge's adapter, which
+/// Strip a trailing `/v1` (and any trailing slash) from an endpoint so Provreq's adapter, which
 /// joins `/v1/chat/completions` onto a host root, does not produce `…/v1/v1/…` (pure). An endpoint
 /// without the segment is returned unchanged.
 fn normalize_endpoint(base_url: &str) -> String {
@@ -810,7 +810,7 @@ mod tests {
     }
 
     // Verifies: #364 — the OpenAI-compatible `base_url` provreq manifests carry (with its `/v1`
-    // segment) maps to a ReqForge endpoint at the host root, so the adapter's appended
+    // segment) maps to a Provreq endpoint at the host root, so the adapter's appended
     // `/v1/chat/completions` does not double the segment. A key resolved from the env is carried
     // through; the provider family is mapped.
     #[test]

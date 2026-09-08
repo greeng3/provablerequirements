@@ -1,7 +1,7 @@
-//! Validate a subject's ReqForge requirements project — the analogue of `doorstop -e` now that
-//! provreq's own requirements live in a ReqForge collection (#321).
+//! Validate a subject's Provreq requirements project — the analogue of `doorstop -e` now that
+//! provreq's own requirements live in a Provreq collection (#321).
 //!
-//! Loads the project through `reqforge-model` and promotes every soft diagnostic to an error, the
+//! Loads the project through `provreq-model` and promotes every soft diagnostic to an error, the
 //! way `doorstop -e` promoted doorstop's warnings: a requirement tree that loads with warnings is
 //! not validated. Catches schema errors, missing or invalid collection configs, unloadable
 //! artifacts, files whose `schemaVersion` is newer than this build, two artifacts sharing a uuid,
@@ -12,17 +12,17 @@ use std::path::Path;
 
 use anyhow::{Context, Result, bail};
 
-use reqforge_model::index::build_uuid_index;
-use reqforge_model::load::load_project;
+use provreq_model::index::build_uuid_index;
+use provreq_model::load::load_project;
 
-/// Validate the subject's ReqForge requirements project. Returns the number of artifacts checked on
+/// Validate the subject's Provreq requirements project. Returns the number of artifacts checked on
 /// success; errors (after reporting each problem) when any diagnostic, duplicate uuid, or orphan
 /// code tag is present.
 pub fn check(subject: &Path) -> Result<usize> {
     let req_root = crate::adopt::requirements_root(subject);
     let project = load_project(&req_root).with_context(|| {
         format!(
-            "loading the ReqForge requirements project at {}",
+            "loading the Provreq requirements project at {}",
             req_root.display()
         )
     })?;
@@ -65,10 +65,10 @@ pub fn check(subject: &Path) -> Result<usize> {
 mod tests {
     use super::*;
 
-    /// A subject whose requirements live in a freshly-migrated ReqForge project at `proj/`, with a
+    /// A subject whose requirements live in a freshly-migrated Provreq project at `proj/`, with a
     /// companion declaring it. Built through `migrate_doorstop` so the fixture is a real project the
     /// importer wrote, not a hand-guess at the format.
-    fn subject_with_reqforge_project() -> tempfile::TempDir {
+    fn subject_with_provreq_project() -> tempfile::TempDir {
         let tmp = tempfile::tempdir().unwrap();
         let src = tmp.path().join("src/reqs");
         std::fs::create_dir_all(&src).unwrap();
@@ -97,10 +97,10 @@ mod tests {
         tmp
     }
 
-    // Verifies: #323 — a clean ReqForge project validates and reports its artifact count.
+    // Verifies: #323 — a clean Provreq project validates and reports its artifact count.
     #[test]
     fn check_passes_a_clean_project() {
-        let tmp = subject_with_reqforge_project();
+        let tmp = subject_with_provreq_project();
         assert_eq!(check(tmp.path()).unwrap(), 2);
     }
 
@@ -109,7 +109,7 @@ mod tests {
     // into `provreq check` means one gate refuses a project whose code points at a ghost requirement.
     #[test]
     fn check_fails_on_an_orphan_tag() {
-        let tmp = subject_with_reqforge_project();
+        let tmp = subject_with_provreq_project();
         // A clean project passes before the orphan tag is introduced — so the failure below is the
         // tag's doing, not a pre-existing problem.
         assert_eq!(check(tmp.path()).unwrap(), 2);
@@ -129,7 +129,7 @@ mod tests {
     // The loader accumulates it as a soft diagnostic; the gate promotes that to an error.
     #[test]
     fn check_fails_on_an_unloadable_artifact() {
-        let tmp = subject_with_reqforge_project();
+        let tmp = subject_with_provreq_project();
         let artifact = tmp.path().join("proj/artifacts/req/REQ001.md");
         std::fs::write(&artifact, "---\nnot valid json frontmatter\n---\nbody\n").unwrap();
         assert!(check(tmp.path()).is_err());

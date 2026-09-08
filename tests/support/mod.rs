@@ -1,9 +1,9 @@
-//! Shared harness for the ported ReqForge HTTP handler integration
+//! Shared harness for the ported Provreq HTTP handler integration
 //! tests (#374). Drives the absorbed management API over
 //! `tower::oneshot` — no real socket — against a single-subject
 //! `AppState`.
 //!
-//! ReqForge's originals seeded several sibling projects under a
+//! Provreq's originals seeded several sibling projects under a
 //! `mount_prefix` and ran multi-project `discover_mounts`. provreq
 //! is single-subject (#370): one process serves exactly one
 //! repository, so the harness seeds one subject at the tempdir root
@@ -23,8 +23,8 @@ use axum::body::{Body, to_bytes};
 use axum::http::{Request, StatusCode};
 use provreq::app::AppState;
 use provreq::http::build_router;
-use reqforge_model::world::DiscoveryConfig;
-use reqforge_model::write::OwnershipOverrides;
+use provreq_model::world::DiscoveryConfig;
+use provreq_model::write::OwnershipOverrides;
 use serde_json::Value;
 use tower::util::ServiceExt;
 
@@ -33,14 +33,14 @@ use tower::util::ServiceExt;
 /// against this constant.
 pub const SUBJECT_SLUG: &str = "sample";
 
-/// Write a git + `reqforge.json` + empty `artifacts/` project at
-/// `root`. Mirrors ReqForge's `write_project`; provreq classifies
-/// the subject as an external repo (`reqforge.json` at the git
+/// Write a git + `provreq.json` + empty `artifacts/` project at
+/// `root`. Mirrors Provreq's `write_project`; provreq classifies
+/// the subject as an external repo (`provreq.json` at the git
 /// root), so `project_root == git_root` here.
 pub fn write_project(root: &Path, slug: &str) {
     std::fs::create_dir_all(root.join(".git")).unwrap();
     std::fs::write(
-        root.join("reqforge.json"),
+        root.join("provreq.json"),
         serde_json::json!({
             "schemaVersion": 1,
             "slug": slug,
@@ -93,7 +93,7 @@ pub fn write_artifact(root: &Path, collection_dir: &str, name: &str, uuid: &str,
 }
 
 /// A `DiscoveryConfig` pointing at `subject`, with the same limits
-/// ReqForge's tests used. `workspace_dir` is where saved report
+/// Provreq's tests used. `workspace_dir` is where saved report
 /// configs and the blob workspace live; `None` keeps thumbnails and
 /// the workspace out of play (the common case).
 pub fn test_config(subject: &Path) -> DiscoveryConfig {

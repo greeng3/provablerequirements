@@ -66,20 +66,20 @@ RUN uv tool install yamllint
 # rustls) the LLM classifier pulls in. cargo comes from the base rust-dev image.
 RUN cargo install cargo-audit --locked
 
-# The three tools ReqForge's `make pre-merge` needs that this image lacked (#299). Phase 2 of the
+# The three tools Provreq's `make pre-merge` needs that this image lacked (#299). Phase 2 of the
 # absorb moves its code here rather than extracting a model crate in its own tree, which we neither
 # build in nor run CI for — so this image becomes the build environment for 47k lines it has never
 # compiled, and its gate has to be runnable here.
 #
 # Only these three. `ruff` and `mypy` are invoked as `uv tool run …`, and `uv` is already present,
 # so pinning them would duplicate a resolver that already works. Deliberately NOT copied from
-# ReqForge's Dockerfile: `libssl-dev`, `libmagic-dev`, `protobuf-compiler`, `lsof`,
+# Provreq's Dockerfile: `libssl-dev`, `libmagic-dev`, `protobuf-compiler`, `lsof`,
 # `silversearcher-ag` — nothing in its Rust dependency graph or its Makefile asks for them
 # (`reqwest` is rustls-only exactly as ours is, `infer` does media-type detection in pure Rust
 # rather than through libmagic, and `gix` is a pure-Rust git). Installing them because the other
 # image happens to would be cargo-culting a dependency list.
 #
-# `taplo-cli` is here rather than left to ReqForge's Makefile, which installs it on first use: a
+# `taplo-cli` is here rather than left to Provreq's Makefile, which installs it on first use: a
 # formatting gate that reaches the network mid-run fails for reasons that have nothing to do with
 # the code being formatted.
 # `cargo-outdated` alone clears RUSTFLAGS. The image sets `-C target-feature=+crt-static`

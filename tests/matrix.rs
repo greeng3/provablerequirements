@@ -1,4 +1,4 @@
-//! Ported from ReqForge `tests/matrix.rs` (#374 batch D): the
+//! Ported from Provreq `tests/matrix.rs` (#374 batch D): the
 //! `GET /api/matrix` endpoint — two-axis scope parsing, per-axis
 //! filters, and error mapping.
 //!

@@ -1,4 +1,4 @@
-//! Ported from ReqForge `tests/browse.rs` (#374 batch D): the
+//! Ported from Provreq `tests/browse.rs` (#374 batch D): the
 //! `GET /api/browse` endpoint — prefix-keyed panes, in-pane sort,
 //! the filter vocabulary shared with search, and error mapping.
 //!

@@ -1,14 +1,14 @@
-//! Author a new requirement as a ReqForge artifact (#325).
+//! Author a new requirement as a Provreq artifact (#325).
 //!
 //! The self-migration (#321) left provreq able to import and read requirements but with no way to
 //! *create* one — creation was UI / LLM / doorstop-import only. This is the CLI path: an id, a
-//! title, and prose become a valid ReqForge artifact with a freshly minted uuid.
+//! title, and prose become a valid Provreq artifact with a freshly minted uuid.
 //!
 //! The artifact arrives **unreviewed** (an empty review log). That is the absorb's trust rule: a
 //! doorstop import carries a human baseline and is auto-approved, but a requirement authored here is
 //! new prose nobody has reviewed, so it must pass through the review workflow like any other.
 //!
-//! Implements: REQ074 (author a requirement into the subject's ReqForge collection)
+//! Implements: REQ074 (author a requirement into the subject's Provreq collection)
 
 use std::path::{Path, PathBuf};
 
@@ -16,20 +16,20 @@ use anyhow::{Result, bail};
 use chrono::Utc;
 use uuid::Uuid;
 
-use reqforge_model::schema::{Artifact, ArtifactShape};
-use reqforge_model::write::{atomic_write, render_artifact_file};
+use provreq_model::schema::{Artifact, ArtifactShape};
+use provreq_model::write::{atomic_write, render_artifact_file};
 
-/// Author requirement `id` with `title` and `prose` into the subject's ReqForge collection. Returns
+/// Author requirement `id` with `title` and `prose` into the subject's Provreq collection. Returns
 /// the path written. With one collection it authors there; with several it selects the one whose
 /// prefix matches the id's (`ART001` → the `ART` collection, #410). Refuses when the id already
 /// exists, when there is no collection, or when the id's prefix matches none.
 pub fn create(subject: &Path, id: &str, title: &str, prose: &str) -> Result<PathBuf> {
     let req_root = crate::adopt::requirements_root(subject);
-    let mut collections = crate::reqforge::discover(&req_root);
+    let mut collections = crate::provreq::discover(&req_root);
     let dir = match collections.len() {
         1 => collections.pop().expect("length checked"),
         0 => bail!(
-            "no ReqForge collection under {} to author into",
+            "no Provreq collection under {} to author into",
             req_root.display()
         ),
         // More than one collection: route by the id's alphabetic prefix (`ART001` → the collection
@@ -96,18 +96,18 @@ pub fn create(subject: &Path, id: &str, title: &str, prose: &str) -> Result<Path
 /// `None` when the config is missing or unreadable — such a directory simply does not match any id
 /// prefix, so a bad config narrows the routing rather than aborting the author.
 fn collection_prefix(dir: &Path) -> Option<String> {
-    let text = std::fs::read_to_string(dir.join(crate::reqforge::COLLECTION_FILE)).ok()?;
-    let config: reqforge_model::schema::CollectionConfig = serde_json::from_str(&text).ok()?;
+    let text = std::fs::read_to_string(dir.join(crate::provreq::COLLECTION_FILE)).ok()?;
+    let config: provreq_model::schema::CollectionConfig = serde_json::from_str(&text).ok()?;
     Some(config.prefix)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::reqforge::ReqforgeSource;
+    use crate::provreq::ProvreqSource;
     use crate::source::RequirementsSource;
 
-    /// A subject whose requirements live in a freshly-migrated ReqForge project, with a companion
+    /// A subject whose requirements live in a freshly-migrated Provreq project, with a companion
     /// declaring it — the shape `create` writes into.
     fn subject() -> tempfile::TempDir {
         let tmp = tempfile::tempdir().unwrap();
@@ -149,7 +149,7 @@ mod tests {
         )
         .unwrap();
 
-        let items = ReqforgeSource::new(crate::adopt::requirements_root(tmp.path()))
+        let items = ProvreqSource::new(crate::adopt::requirements_root(tmp.path()))
             .items()
             .unwrap();
         let new = items
@@ -160,7 +160,7 @@ mod tests {
         assert_eq!(new.title.as_deref(), Some("A new thing"));
 
         // Unreviewed: the written artifact carries an empty review log.
-        let loaded = reqforge_model::load::artifact::load_content_artifact(
+        let loaded = provreq_model::load::artifact::load_content_artifact(
             &crate::adopt::requirements_root(tmp.path()).join("artifacts/req/REQ002.md"),
         )
         .unwrap();
@@ -187,7 +187,7 @@ mod tests {
         let art = crate::adopt::requirements_root(tmp.path()).join("artifacts/art");
         std::fs::create_dir_all(&art).unwrap();
         std::fs::write(
-            art.join(crate::reqforge::COLLECTION_FILE),
+            art.join(crate::provreq::COLLECTION_FILE),
             r#"{"schemaVersion":1,"prefix":"ART","name":"Artifact model"}"#,
         )
         .unwrap();

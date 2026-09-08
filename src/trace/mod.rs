@@ -7,13 +7,13 @@
 //! Two portable stages, neither a per-language parser:
 //!   1. [`carve`] extracts comment runs per a per-language comment grammar
 //!      ([`languages`]); [`tags`] parses `Implements:`/`Verifies:` tags out of them. Both
-//!      are absorbed from ReqForge's proven scanner, adapted to provreq's id grammar
+//!      are absorbed from Provreq's proven scanner, adapted to provreq's id grammar
 //!      (which does not require a hyphen — `REQ021`, not only `REQ-021`).
 //!   2. [`resolve`] forward-scans from a tag to the declaration that follows it, over a
 //!      small per-language declaration table — the portable spine that generalises to
 //!      other languages by a table entry, not a new parser.
 //!
-//! The walk is provreq's own ([`crate::subject_tree`] pruning + `WalkDir`), not ReqForge's,
+//! The walk is provreq's own ([`crate::subject_tree`] pruning + `WalkDir`), not Provreq's,
 //! so an AppleDouble `._foo.rs` sidecar is never scanned as a second source (#294/#307).
 //!
 //! Implements: REQ075
@@ -28,9 +28,9 @@ use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 use walkdir::{DirEntry, WalkDir};
 
-/// What a tag claims about the requirement it names. ReqForge's six-verb catalog collapses
+/// What a tag claims about the requirement it names. Provreq's six-verb catalog collapses
 /// to the two that speak about *code*: `Implements:` (with its `Requirements:` alias, and
-/// ReqForge's own `Satisfies:`) says this source realises the requirement; `Verifies:` says
+/// Provreq's own `Satisfies:`) says this source realises the requirement; `Verifies:` says
 /// it checks it. The other four verbs are requirement-to-requirement links, never code tags.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TraceKind {
@@ -229,7 +229,7 @@ mod tests {
     }
 
     // Verifies: REQ075 — the walk is provreq's own: an AppleDouble `._*.rs` sidecar is NOT
-    // scanned as a second source (#294/#307), unlike ReqForge's extension-only matcher.
+    // scanned as a second source (#294/#307), unlike Provreq's extension-only matcher.
     #[test]
     fn an_appledouble_sidecar_is_not_scanned() {
         let tmp = subject("src/a.rs", "// Verifies: REQ021\nfn a() {}\n");

@@ -1,8 +1,8 @@
 //! Tag parser — parses `Implements:` / `Verifies:` tags out of already-carved comment
-//! text. Absorbed from ReqForge's `scan/tags.rs` (its comment-only continuation rule and
+//! text. Absorbed from Provreq's `scan/tags.rs` (its comment-only continuation rule and
 //! verb-alias table came across intact), with one load-bearing adaptation: provreq's id
 //! grammar does not require a hyphen, so `REQ021` is a valid id and not only `REQ-021`
-//! (ReqForge's `is_plausible_id` demanded one, which would have dropped every provreq tag).
+//! (Provreq's `is_plausible_id` demanded one, which would have dropped every provreq tag).
 //!
 //! Pure: it parses [`CommentRun`] values into [`RawTag`]s and reads no files.
 //!
@@ -11,7 +11,7 @@
 use std::collections::HashMap;
 use std::sync::OnceLock;
 
-/// The six canonical verbs from ReqForge's link catalog. provreq only *acts* on the two
+/// The six canonical verbs from Provreq's link catalog. provreq only *acts* on the two
 /// that speak about code (`Satisfies`/`Verifies` → [`super::TraceKind`]); the parser still
 /// recognises all six so a mixed comment does not mis-parse, and the caller drops the rest.
 pub const CANONICAL_VERBS: &[&str] = &[
@@ -82,7 +82,7 @@ pub struct CommentRun<'a> {
 }
 
 /// Parse tags out of a sequence of comment runs. Multi-line continuation fires only across
-/// comment-only runs, matching ReqForge's spec.
+/// comment-only runs, matching Provreq's spec.
 pub fn parse_tags(runs: &[CommentRun<'_>]) -> Vec<RawTag> {
     let mut out: Vec<RawTag> = Vec::new();
     let mut continuation_verb: Option<String> = None;
@@ -183,7 +183,7 @@ pub fn canonicalise_verb(verb: &str) -> Option<&'static str> {
 
 /// Split an id list into owned ids plus whether it ended on a trailing comma. Splits on
 /// commas **and** whitespace — provreq's real tags carry trailing prose on the same line
-/// (`Verifies: REQ021 — the bindable symbols…`), and ReqForge's comma-only split swallowed
+/// (`Verifies: REQ021 — the bindable symbols…`), and Provreq's comma-only split swallowed
 /// the id into the prose. Non-id-shaped tokens (the prose) are dropped; the caller still
 /// prefix-filters what survives (see [`id_prefix`]).
 fn split_ids(input: &str) -> (Vec<String>, bool) {
@@ -200,7 +200,7 @@ fn split_ids(input: &str) -> (Vec<String>, bool) {
 /// Whether a token has the shape of a requirement id: `<letters><optional - or _><digits>`
 /// — `REQ021`, `REQ-001`, `req_001`, `category-1`. This drops prose (a word with no trailing
 /// digits) but cannot tell a real id from a coincidence like `category-1`; the prefix filter
-/// does that. Deliberately narrower than ReqForge's (which required a hyphen and would have
+/// does that. Deliberately narrower than Provreq's (which required a hyphen and would have
 /// dropped every provreq id) and than doorstop name-NANUs (`DES-rocket_nozzle`), which are an
 /// artifact-id form, not a code-tag form — code tags name `prefix+number` ids.
 fn is_id_shaped(s: &str) -> bool {
@@ -235,7 +235,7 @@ mod tests {
         }])
     }
 
-    // The verb-alias table came across from ReqForge unchanged.
+    // The verb-alias table came across from Provreq unchanged.
     #[test]
     fn canonicalise_handles_casing_hyphens_and_aliases() {
         assert_eq!(canonicalise_verb("Verifies"), Some("Verifies"));
@@ -247,7 +247,7 @@ mod tests {
         assert_eq!(canonicalise_verb("Bogus"), None);
     }
 
-    // The adaptation this port turns on: a hyphenless id is id-shaped, unlike ReqForge's
+    // The adaptation this port turns on: a hyphenless id is id-shaped, unlike Provreq's
     // hyphen-required rule that would have dropped every provreq tag.
     #[test]
     fn hyphenless_provreq_ids_are_id_shaped() {

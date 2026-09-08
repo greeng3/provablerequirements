@@ -44,9 +44,9 @@ check cargo             cargo         --version   # Rust build / test / clippy
 check cargo-audit       cargo-audit   --version   # make audit (dependency CVEs)
 # cargo-llvm-cov is a cargo SUBCOMMAND: invoked directly it demands its own name back
 # before any flag, so a bare `--version` is an argument error rather than a version.
-check cargo-llvm-cov    cargo-llvm-cov llvm-cov --version  # ReqForge's coverage gate (#299)
-check cargo-outdated    cargo-outdated outdated --version  # ReqForge's audit-deps gate (#299)
-check taplo             taplo         --version   # ReqForge's TOML fmt/lint gates (#299)
+check cargo-llvm-cov    cargo-llvm-cov llvm-cov --version  # Provreq's coverage gate (#299)
+check cargo-outdated    cargo-outdated outdated --version  # Provreq's audit-deps gate (#299)
+check taplo             taplo         --version   # Provreq's TOML fmt/lint gates (#299)
 echo
 
 if [ "$status" -eq 0 ]; then

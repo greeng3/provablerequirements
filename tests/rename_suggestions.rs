@@ -1,8 +1,8 @@
 //! Rename-suggestion endpoint integration tests (Phase 10b.1), ported
-//! from ReqForge `tests/rename_suggestions.rs` for #374 batch F and
+//! from Provreq `tests/rename_suggestions.rs` for #374 batch F and
 //! adapted to provreq's single-subject model.
 //!
-//! ReqForge seeded its project under `prefix/sample` and drove
+//! Provreq seeded its project under `prefix/sample` and drove
 //! multi-project discovery; provreq serves exactly one repository
 //! (#370), so these boot through the shared single-subject harness in
 //! `tests/support/mod.rs`. The LLM-driven cases fold an `llm` block
@@ -35,8 +35,8 @@ use axum::Router;
 use axum::http::StatusCode;
 use provreq::app::AppState;
 use provreq::http::build_router;
-use reqforge_model::world::DiscoveryConfig;
-use reqforge_model::write::OwnershipOverrides;
+use provreq_model::world::DiscoveryConfig;
+use provreq_model::write::OwnershipOverrides;
 use serde_json::{Value, json};
 use support::{
     SUBJECT_SLUG, build_app, post_json, write_artifact, write_collection, write_project,

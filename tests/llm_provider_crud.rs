@@ -1,4 +1,4 @@
-//! Ported from ReqForge `tests/llm_provider_crud.rs` (#374 batch E):
+//! Ported from Provreq `tests/llm_provider_crud.rs` (#374 batch E):
 //! the LLM provider CRUD endpoints (`POST/PUT/DELETE/PATCH
 //! /api/llm/providers[/:index]`).
 //!
@@ -25,10 +25,10 @@ use axum::body::{Body, to_bytes};
 use axum::http::{Request, StatusCode};
 use provreq::app::AppState;
 use provreq::http::build_router;
-use reqforge_model::index::UuidIndex;
-use reqforge_model::system::{LoadedSystem, load_system_config};
-use reqforge_model::world::{DiscoveryConfig, World};
-use reqforge_model::write::OwnershipOverrides;
+use provreq_model::index::UuidIndex;
+use provreq_model::system::{LoadedSystem, load_system_config};
+use provreq_model::world::{DiscoveryConfig, World};
+use provreq_model::write::OwnershipOverrides;
 use serde_json::{Value, json};
 use tower::util::ServiceExt;
 
@@ -60,8 +60,8 @@ async fn app_from_system_file(path: &Path, mount_prefix: &Path) -> (Router, Arc<
         duplicates: Vec::new(),
         system,
         missing_project_slugs: Vec::new(),
-        link_catalog: reqforge_model::links::builtin_catalog().to_vec(),
-        search_index: reqforge_model::search::empty_index(),
+        link_catalog: provreq_model::links::builtin_catalog().to_vec(),
+        search_index: provreq_model::search::empty_index(),
     };
     let state = Arc::new(AppState::new(
         DiscoveryConfig {
@@ -378,8 +378,8 @@ async fn post_when_no_system_config_loaded_returns_409() {
         duplicates: Vec::new(),
         system: LoadedSystem::Unnamed,
         missing_project_slugs: Vec::new(),
-        link_catalog: reqforge_model::links::builtin_catalog().to_vec(),
-        search_index: reqforge_model::search::empty_index(),
+        link_catalog: provreq_model::links::builtin_catalog().to_vec(),
+        search_index: provreq_model::search::empty_index(),
     };
     let state = Arc::new(AppState::new(
         DiscoveryConfig {

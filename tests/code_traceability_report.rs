@@ -1,14 +1,14 @@
 //! Code-traceability report + coverage-matrix code-evidence
-//! integration tests, ported from ReqForge's
+//! integration tests, ported from Provreq's
 //! `tests/code_traceability_report.rs` for #374 and adapted to
 //! provreq's single-subject model.
 //!
-//! ReqForge drove multi-project `discover_mounts`; provreq serves one
+//! Provreq drove multi-project `discover_mounts`; provreq serves one
 //! repository (#370). These tests seed one subject (with a
 //! mixed-language `src/`+`tests/` code tree) through the shared
 //! single-subject harness — `refresh()` / `discover_single` builds
 //! the search index the code scan relies on. Collections and content
-//! carry an `expectsCodeTrace` flag, so this file ports ReqForge's
+//! carry an `expectsCodeTrace` flag, so this file ports Provreq's
 //! own richer `write_collection` / `write_content` as local helpers.
 //!
 //! Dropped tests: none.

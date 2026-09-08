@@ -17,19 +17,19 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use serde::Serialize;
 use tokio::sync::{RwLock, broadcast};
 
-use reqforge_model::git_history::RepoCache;
-use reqforge_model::llm::LlmRuntime;
-use reqforge_model::thumbnails::{ThumbnailCache, ThumbnailCacheConfig, ThumbnailRegistry};
-use reqforge_model::urls::UrlCheckClient;
+use provreq_model::git_history::RepoCache;
+use provreq_model::llm::LlmRuntime;
+use provreq_model::thumbnails::{ThumbnailCache, ThumbnailCacheConfig, ThumbnailRegistry};
+use provreq_model::urls::UrlCheckClient;
 use std::path::PathBuf;
 
-use reqforge_model::world::{DiscoveryConfig, DiscoveryError, discover_single, run_discovery};
-use reqforge_model::write::OwnershipOverrides;
+use provreq_model::world::{DiscoveryConfig, DiscoveryError, discover_single, run_discovery};
+use provreq_model::write::OwnershipOverrides;
 
-// `World` is the model's view, absorbed into reqforge-model in arc-1 (#348). The application layer
+// `World` is the model's view, absorbed into provreq-model in arc-1 (#348). The application layer
 // (AppState, handlers) refers to it as `crate::app::World`, so re-export it here rather than
 // redefining it.
-pub use reqforge_model::world::World;
+pub use provreq_model::world::World;
 
 /// Change notifications broadcast to SSE subscribers. Phase 2 has
 /// a single variant — the world was replaced, clients should
@@ -74,7 +74,7 @@ pub struct AppState {
     /// are out of scope per the Phase 8 locked decision). A
     /// server restart loses the cached report.
     doorstop_reports:
-        RwLock<std::collections::HashMap<String, Arc<reqforge_model::doorstop::ImportReport>>>,
+        RwLock<std::collections::HashMap<String, Arc<provreq_model::doorstop::ImportReport>>>,
     /// Phase 10a: LLM adapter runtime — built once at first
     /// `publish` from `SystemConfig.llm`, then stable for
     /// the process lifetime. `None` when the System carries
@@ -86,7 +86,7 @@ pub struct AppState {
     /// provreq single-subject mode (#370): the one repository this process serves. When set,
     /// discovery yields a one-mount World (`discover_single`) instead of scanning
     /// `config.mount_prefix` for sibling projects, and proof handlers read the subject from here.
-    /// `None` restores ReqForge's multi-project scan.
+    /// `None` restores Provreq's multi-project scan.
     subject_root: Option<PathBuf>,
 }
 
@@ -156,7 +156,7 @@ impl AppState {
     pub async fn set_doorstop_report(
         &self,
         slug: String,
-        report: reqforge_model::doorstop::ImportReport,
+        report: provreq_model::doorstop::ImportReport,
     ) {
         self.doorstop_reports
             .write()
@@ -169,7 +169,7 @@ impl AppState {
     pub async fn get_doorstop_report(
         &self,
         slug: &str,
-    ) -> Option<Arc<reqforge_model::doorstop::ImportReport>> {
+    ) -> Option<Arc<provreq_model::doorstop::ImportReport>> {
         self.doorstop_reports.read().await.get(slug).cloned()
     }
 
@@ -226,7 +226,7 @@ impl AppState {
             .mounts
             .iter()
             .filter_map(|m| match &m.state {
-                reqforge_model::mount::MountState::Project(p) => p.git_repo_path(),
+                provreq_model::mount::MountState::Project(p) => p.git_repo_path(),
                 _ => None,
             })
             .collect();
@@ -251,7 +251,7 @@ impl AppState {
             }
         }
         let llm_value = world.system.config().and_then(|c| c.llm.as_ref());
-        let parsed = match reqforge_model::llm::parse_llm(llm_value) {
+        let parsed = match provreq_model::llm::parse_llm(llm_value) {
             Ok(v) => v,
             Err(err) => {
                 tracing::warn!(%err, "SystemConfig.llm is malformed; LLM endpoints will be unavailable");
@@ -315,12 +315,12 @@ impl AppState {
         let config = self.config.clone();
         let subject = self.subject_root.clone();
         let world = tokio::task::spawn_blocking(move || match subject {
-            // provreq's ReqForge project can live in a `requirements/` subdir of the subject repo,
+            // provreq's Provreq project can live in a `requirements/` subdir of the subject repo,
             // so classify the git repo (the subject) and the project (its `requirements_root`,
             // resolved through the companion's `subject_requirements`) separately — the same
             // convention the proof surface uses to find requirements. For a subject with no
-            // companion, `requirements_root` falls back to the subject, so external ReqForge repos
-            // (git + reqforge.json at the root) classify exactly as before.
+            // companion, `requirements_root` falls back to the subject, so external Provreq repos
+            // (git + provreq.json at the root) classify exactly as before.
             Some(root) => {
                 let project_root = crate::adopt::requirements_root(&root);
                 discover_single(project_root, root, &config)
@@ -329,7 +329,7 @@ impl AppState {
         })
         .await
         .map_err(|join_err| {
-            DiscoveryError::Mount(reqforge_model::mount::MountDiscoveryError::Io {
+            DiscoveryError::Mount(provreq_model::mount::MountDiscoveryError::Io {
                 path: std::path::PathBuf::new(),
                 source: std::io::Error::other(join_err.to_string()),
             })
@@ -350,8 +350,8 @@ impl AppState {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use reqforge_model::index::UuidIndex;
-    use reqforge_model::system::LoadedSystem;
+    use provreq_model::index::UuidIndex;
+    use provreq_model::system::LoadedSystem;
 
     fn fake_config() -> DiscoveryConfig {
         DiscoveryConfig {
@@ -372,7 +372,7 @@ mod tests {
             system: LoadedSystem::Unnamed,
             missing_project_slugs: Vec::new(),
             link_catalog: Vec::new(),
-            search_index: reqforge_model::search::empty_index(),
+            search_index: provreq_model::search::empty_index(),
         }
     }
 

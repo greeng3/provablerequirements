@@ -1,6 +1,6 @@
 //! Read-only HTTP handlers for Phase 1a.
 
-// Several handlers return `Result<_, axum::response::Response>` — the deliberate reqforge pattern of
+// Several handlers return `Result<_, axum::response::Response>` — the deliberate provreq pattern of
 // carrying an early-return Response as the Err so a helper can short-circuit a request. clippy 1.98's
 // `result_large_err` flags the axum Response as a large Err variant, but boxing an axum Response is
 // unidiomatic and would ripple through every `?` site; the pattern is intentional, so allow it here.
@@ -20,10 +20,10 @@ use futures_core::Stream;
 use uuid::Uuid;
 
 use crate::app::AppState;
-use reqforge_model::load::{LoadedCollection, LoadedProject};
-use reqforge_model::mount::MountState;
-use reqforge_model::schema::{Artifact, ArtifactShape, CollectionConfig, ProjectConfig};
-use reqforge_model::write::{atomic_write, reconcile_ownership, write_artifact_file};
+use provreq_model::load::{LoadedCollection, LoadedProject};
+use provreq_model::mount::MountState;
+use provreq_model::schema::{Artifact, ArtifactShape, CollectionConfig, ProjectConfig};
+use provreq_model::write::{atomic_write, reconcile_ownership, write_artifact_file};
 
 use super::dto::{
     AdoptOrphanBlobRequest, ArtifactDetail, ArtifactDiffResponse, ArtifactHistoryResponse,
@@ -82,8 +82,8 @@ pub async fn list_projects(State(state): State<Arc<AppState>>) -> Response {
 /// `project_count >= 2`, the operator has multi-project mounts
 /// but hasn't chosen to group them into a named System yet.
 ///
-/// Never writes the System config — per INTENTIONS.md, ReqForge
-/// only reads an operator-supplied `REQFORGE_SYSTEM_CONFIG`.
+/// Never writes the System config — per INTENTIONS.md, Provreq
+/// only reads an operator-supplied `PROVREQ_SYSTEM_CONFIG`.
 pub async fn get_system(State(state): State<Arc<AppState>>) -> Response {
     let Some(world) = state.snapshot().await else {
         return service_unavailable();
@@ -348,7 +348,7 @@ pub async fn list_reviewers(
 
     let persisted = match state.config().workspace_dir.as_ref() {
         Some(dir) => {
-            match reqforge_model::reviews::load_reviewers_json(&dir.join("reviewers.json")) {
+            match provreq_model::reviews::load_reviewers_json(&dir.join("reviewers.json")) {
                 Ok(file) => file.reviewers,
                 Err(err) => {
                     tracing::warn!(
@@ -430,7 +430,7 @@ pub async fn review_queue(
                 }
 
                 let derived =
-                    reqforge_model::reviews::derive_review_state(&artifact.metadata.review_log);
+                    provreq_model::reviews::derive_review_state(&artifact.metadata.review_log);
 
                 if let Some(reviewer_filter) = &params.reviewer {
                     let matches = derived.last_reviewer.as_deref() == Some(reviewer_filter)
@@ -459,16 +459,16 @@ pub async fn review_queue(
                 };
 
                 match derived.state {
-                    reqforge_model::reviews::ReviewState::NeverReviewed
-                    | reqforge_model::reviews::ReviewState::Rejected
-                    | reqforge_model::reviews::ReviewState::ReRequested => {
+                    provreq_model::reviews::ReviewState::NeverReviewed
+                    | provreq_model::reviews::ReviewState::Rejected
+                    | provreq_model::reviews::ReviewState::ReRequested => {
                         if entry.blocking_todo_count > 0 {
                             blocking.push(entry);
                         } else {
                             awaiting.push(entry);
                         }
                     }
-                    reqforge_model::reviews::ReviewState::Approved => {
+                    provreq_model::reviews::ReviewState::Approved => {
                         // Approved artifacts only land in the queue
                         // when they have open TODOs *post-approval*
                         // — in practice that's never, because
@@ -499,7 +499,7 @@ pub struct ReviewQueueParams {
     #[serde(default)]
     pub collection_prefix: Option<String>,
     #[serde(default)]
-    pub shape: Option<reqforge_model::schema::ArtifactShape>,
+    pub shape: Option<provreq_model::schema::ArtifactShape>,
     #[serde(default)]
     pub tag: Option<String>,
     #[serde(default)]
@@ -549,7 +549,7 @@ fn sort_queue_section(
 /// GET /api/events — SSE stream of world-change notifications.
 ///
 /// Each subscriber gets a dedicated broadcast receiver; when
-/// ReqForge's world is replaced (CRUD write, polling-watcher
+/// Provreq's world is replaced (CRUD write, polling-watcher
 /// refresh) a `change` event with a JSON payload fires. If the
 /// subscriber lags too far behind the broadcast buffer, the
 /// channel returns `Lagged` — we rebroadcast it as a single
@@ -673,14 +673,10 @@ pub async fn update_artifact(
         metadata.outline_level = outline_level;
     }
     if let Some(link_reqs) = req.links {
-        let inputs: Vec<reqforge_model::links::LinkWriteInput> =
+        let inputs: Vec<provreq_model::links::LinkWriteInput> =
             link_reqs.into_iter().map(Into::into).collect();
-        match reqforge_model::links::validate_links(
-            uuid,
-            &inputs,
-            &world.link_catalog,
-            &world.index,
-        ) {
+        match provreq_model::links::validate_links(uuid, &inputs, &world.link_catalog, &world.index)
+        {
             Ok(validated) => {
                 metadata.links = validated.0;
             }
@@ -735,7 +731,7 @@ pub async fn update_artifact(
                 overrides,
             )
             .map_err(|err| format!("{err}")),
-            ArtifactShape::Url => reqforge_model::write::write_sidecar_only(
+            ArtifactShape::Url => provreq_model::write::write_sidecar_only(
                 &source_path,
                 &project_root,
                 &metadata_for_write,
@@ -746,7 +742,7 @@ pub async fn update_artifact(
                 // Blob metadata updates share the sidecar path —
                 // the binary is unaffected, only the sidecar JSON
                 // is rewritten.
-                reqforge_model::write::write_sidecar_only(
+                provreq_model::write::write_sidecar_only(
                     &source_path,
                     &project_root,
                     &metadata_for_write,
@@ -835,15 +831,15 @@ pub async fn create_review(
         return internal_error("index references an artifact that isn't loaded");
     };
 
-    let derived = reqforge_model::reviews::derive_review_state(&current.metadata.review_log);
-    let action_input = reqforge_model::reviews::ReviewActionInput {
+    let derived = provreq_model::reviews::derive_review_state(&current.metadata.review_log);
+    let action_input = provreq_model::reviews::ReviewActionInput {
         reviewer: req.reviewer.clone(),
         action: req.action.into_action_input(),
         explanation: req.explanation,
     };
     let now = chrono::Utc::now();
     let validated =
-        match reqforge_model::reviews::validate_and_build_entry(&derived, action_input, now) {
+        match provreq_model::reviews::validate_and_build_entry(&derived, action_input, now) {
             Ok(v) => v,
             Err(err) => {
                 return review_validation_response(err);
@@ -890,7 +886,7 @@ pub async fn create_review(
         let workspace_for_persist = workspace.clone();
         let reviewer_for_persist = reviewer_for_session.clone();
         let persist = tokio::task::spawn_blocking(move || {
-            reqforge_model::reviews::append_reviewer_if_missing(
+            provreq_model::reviews::append_reviewer_if_missing(
                 &workspace_for_persist,
                 &reviewer_for_persist,
             )
@@ -918,7 +914,7 @@ pub async fn create_review(
             let body_for_snapshot = body.clone();
             if !frontmatter_json.is_empty() {
                 let snapshot = tokio::task::spawn_blocking(move || {
-                    reqforge_model::reviews::write_approval_snapshot(
+                    provreq_model::reviews::write_approval_snapshot(
                         &workspace_for_snapshot,
                         uuid,
                         now,
@@ -981,7 +977,7 @@ pub async fn create_review(
 /// return the most recent approval snapshot for an artifact.
 ///
 /// 404s when no approval snapshot has been written yet (the
-/// artifact has never been approved through ReqForge), so the UI
+/// artifact has never been approved through Provreq), so the UI
 /// can suppress the diff panel per `UX-reviewPane`'s
 /// "No prior approval" rule.
 pub async fn last_approval_snapshot(
@@ -1000,7 +996,7 @@ pub async fn last_approval_snapshot(
     drop(world);
 
     let lookup = tokio::task::spawn_blocking(move || {
-        reqforge_model::reviews::load_latest_approval_snapshot(&workspace, uuid)
+        provreq_model::reviews::load_latest_approval_snapshot(&workspace, uuid)
     })
     .await;
     let snapshot = match lookup {
@@ -1021,8 +1017,8 @@ pub async fn last_approval_snapshot(
     .into_response()
 }
 
-fn review_validation_response(err: reqforge_model::reviews::ReviewValidationError) -> Response {
-    use reqforge_model::reviews::ReviewValidationError;
+fn review_validation_response(err: provreq_model::reviews::ReviewValidationError) -> Response {
+    use provreq_model::reviews::ReviewValidationError;
     let msg = err.to_string();
     let status = match err {
         ReviewValidationError::ApproveWithOpenTodos { .. } => StatusCode::CONFLICT,
@@ -1173,7 +1169,7 @@ pub async fn list_incoming_links(
 /// DELETE /api/artifacts/:uuid — remove an artifact's file from
 /// disk and refresh state. Incoming links on other artifacts
 /// survive as unresolved (per ART-deletionSemantics +
-/// TRACE-unresolvedLinks) — ReqForge does not rewrite source-side
+/// TRACE-unresolvedLinks) — Provreq does not rewrite source-side
 /// artifacts to scrub them.
 pub async fn delete_artifact(
     State(state): State<Arc<AppState>>,
@@ -1496,7 +1492,7 @@ pub async fn delete_collection(
 /// Query parameters for the project wipe endpoint.
 #[derive(Debug, Default, serde::Deserialize)]
 pub struct WipeProjectQuery {
-    /// When true, also remove `reqforge.json` and the `artifacts/`
+    /// When true, also remove `provreq.json` and the `artifacts/`
     /// directory itself, reverting the mount to a NeedsInit state.
     /// When false (default), only the contents of `artifacts/` are
     /// removed and the project continues to load.
@@ -1507,15 +1503,15 @@ pub struct WipeProjectQuery {
 /// DELETE /api/projects/:slug/artifacts — scorched-earth wipe.
 ///
 /// Default: removes every immediate subdirectory of the project's
-/// artifacts root, leaving reqforge.json and the artifacts/ root
+/// artifacts root, leaving provreq.json and the artifacts/ root
 /// itself in place so the project continues to load. Walks the
 /// filesystem rather than the in-memory snapshot so a stray
 /// collection directory the watcher hasn't caught up to gets
 /// nuked too — re-imports must start from a clean slate.
 ///
 /// With `?deinit=true`: additionally removes the artifacts/
-/// directory itself and reqforge.json so the mount reverts to a
-/// NeedsInit state, as if ReqForge had never touched the repo.
+/// directory itself and provreq.json so the mount reverts to a
+/// NeedsInit state, as if Provreq had never touched the repo.
 pub async fn wipe_project_artifacts(
     State(state): State<Arc<AppState>>,
     Path(slug): Path<String>,
@@ -1552,7 +1548,7 @@ pub async fn wipe_project_artifacts(
                 Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
                 Err(err) => return Err(err),
             }
-            match std::fs::remove_file(project_root.join("reqforge.json")) {
+            match std::fs::remove_file(project_root.join("provreq.json")) {
                 Ok(()) => {}
                 Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
                 Err(err) => return Err(err),
@@ -1574,7 +1570,7 @@ pub async fn wipe_project_artifacts(
 }
 
 /// POST /api/mounts/:dirName/init — promote a NeedsInit mount to
-/// a fully-loaded Project by writing a reqforge.json at its root.
+/// a fully-loaded Project by writing a provreq.json at its root.
 pub async fn init_project(
     State(state): State<Arc<AppState>>,
     Path(dir_name): Path<String>,
@@ -1618,7 +1614,7 @@ pub async fn init_project(
                 StatusCode::CONFLICT,
                 Json(ErrorResponse {
                     error: format!(
-                        "mount '{dir_name}' has a reqforge.json but failed to load: {err}"
+                        "mount '{dir_name}' has a provreq.json but failed to load: {err}"
                     ),
                 }),
             )
@@ -1654,9 +1650,9 @@ pub async fn init_project(
             b.push(b'\n');
             b
         }
-        Err(err) => return internal_error(format!("serialize reqforge.json: {err}")),
+        Err(err) => return internal_error(format!("serialize provreq.json: {err}")),
     };
-    let target = repo_root.join("reqforge.json");
+    let target = repo_root.join("provreq.json");
     let overrides = state.overrides();
 
     drop(world);
@@ -1678,7 +1674,7 @@ pub async fn init_project(
     .await;
     match write_result {
         Ok(Ok(())) => {}
-        Ok(Err(err)) => return internal_error(format!("write reqforge.json: {err}")),
+        Ok(Err(err)) => return internal_error(format!("write provreq.json: {err}")),
         Err(join_err) => return internal_error(format!("write task panicked: {join_err}")),
     }
 
@@ -1752,7 +1748,7 @@ async fn parse_blob_multipart(
                         StatusCode::PAYLOAD_TOO_LARGE,
                         Json(ErrorResponse {
                             error: format!(
-                                "upload is {} bytes; cap is {} bytes (REQFORGE_MAX_BLOB_BYTES). \
+                                "upload is {} bytes; cap is {} bytes (PROVREQ_MAX_BLOB_BYTES). \
                                  Consider a URL-reference artifact instead.",
                                 data.len(),
                                 max_bytes,
@@ -1869,7 +1865,7 @@ pub async fn create_blob_artifact(
         .and_then(|e| e.to_str())
         .unwrap_or("")
         .to_ascii_lowercase();
-    if !reqforge_model::load::is_allowed_blob_extension(&extension) {
+    if !provreq_model::load::is_allowed_blob_extension(&extension) {
         return bad_request(format!(
             "extension '{extension}' is not in the blob allowlist",
         ));
@@ -1925,7 +1921,7 @@ pub async fn create_blob_artifact(
         overflow: std::collections::BTreeMap::new(),
     };
     let binary_target = project.root.join(&binary_relative);
-    let sidecar_target = reqforge_model::schema::sidecar::sidecar_path_for_blob(&binary_target);
+    let sidecar_target = provreq_model::schema::sidecar::sidecar_path_for_blob(&binary_target);
     let project_root = project.root.clone();
     let overrides = state.overrides();
     drop(world);
@@ -1933,7 +1929,7 @@ pub async fn create_blob_artifact(
     let metadata_for_write = metadata.clone();
     let bytes = parts.bytes;
     let write_result = tokio::task::spawn_blocking(move || {
-        reqforge_model::write::write_blob_and_sidecar(
+        provreq_model::write::write_blob_and_sidecar(
             &binary_target,
             &bytes,
             &sidecar_target,
@@ -2012,7 +2008,7 @@ pub async fn replace_blob(
         .and_then(|e| e.to_str())
         .unwrap_or("")
         .to_ascii_lowercase();
-    if !reqforge_model::load::is_allowed_blob_extension(&new_extension) {
+    if !provreq_model::load::is_allowed_blob_extension(&new_extension) {
         return bad_request(format!(
             "extension '{new_extension}' is not in the blob allowlist",
         ));
@@ -2034,7 +2030,7 @@ pub async fn replace_blob(
     } else {
         old_binary.with_extension(&new_extension)
     };
-    let new_sidecar = reqforge_model::schema::sidecar::sidecar_path_for_blob(&new_binary);
+    let new_sidecar = provreq_model::schema::sidecar::sidecar_path_for_blob(&new_binary);
     let project_root = project.root.clone();
 
     let mut metadata = current.metadata.clone();
@@ -2052,7 +2048,7 @@ pub async fn replace_blob(
     let metadata_for_write = metadata.clone();
     let bytes = parts.bytes;
     let write_result = tokio::task::spawn_blocking(move || -> Result<(), String> {
-        reqforge_model::write::write_blob_and_sidecar(
+        provreq_model::write::write_blob_and_sidecar(
             &new_binary,
             &bytes,
             &new_sidecar,
@@ -2149,7 +2145,7 @@ pub async fn create_url_artifact(
     let sidecar_target =
         collection
             .dir_path
-            .join(reqforge_model::schema::sidecar::url_sidecar_filename(
+            .join(provreq_model::schema::sidecar::url_sidecar_filename(
                 &req.name,
             ));
     let project_root = project.root.clone();
@@ -2158,7 +2154,7 @@ pub async fn create_url_artifact(
 
     let metadata_for_write = metadata.clone();
     let write_result = tokio::task::spawn_blocking(move || {
-        reqforge_model::write::write_sidecar_only(
+        provreq_model::write::write_sidecar_only(
             &sidecar_target,
             &project_root,
             &metadata_for_write,
@@ -2238,7 +2234,7 @@ pub async fn download_blob(
             }
         };
         let result = tokio::task::spawn_blocking(move || {
-            reqforge_model::git_history::read_blob_at_commit(&repo, &oid, &repo_rel)
+            provreq_model::git_history::read_blob_at_commit(&repo, &oid, &repo_rel)
         })
         .await;
         let bytes = match result {
@@ -2317,7 +2313,7 @@ pub async fn get_thumbnail(State(state): State<Arc<AppState>>, Path(uuid): Path<
     let Some(registry) = state.thumbnail_registry() else {
         return thumbnail_not_found(
             "workspace-not-configured",
-            "set REQFORGE_WORKSPACE_DIR to enable the thumbnail cache",
+            "set PROVREQ_WORKSPACE_DIR to enable the thumbnail cache",
         );
     };
 
@@ -2332,7 +2328,7 @@ pub async fn get_thumbnail(State(state): State<Arc<AppState>>, Path(uuid): Path<
         .await
     {
         Ok(path) => path,
-        Err(reqforge_model::thumbnails::ThumbnailError::NoProviderForMediaType { media_type }) => {
+        Err(provreq_model::thumbnails::ThumbnailError::NoProviderForMediaType { media_type }) => {
             return thumbnail_not_found(
                 "no-thumbnailer-for-format",
                 &format!("no provider accepts media type {media_type}"),
@@ -2503,7 +2499,7 @@ async fn run_url_check(state: &Arc<AppState>, uuid: Uuid) -> Result<UrlCheckOutc
 
     let metadata_for_write = metadata.clone();
     let write_result = tokio::task::spawn_blocking(move || {
-        reqforge_model::write::write_sidecar_only(
+        provreq_model::write::write_sidecar_only(
             &sidecar_path,
             &project_root,
             &metadata_for_write,
@@ -2621,7 +2617,7 @@ async fn respond_with_current(state: &Arc<AppState>, uuid: Uuid, status: StatusC
 
 /// GET /api/artifacts/:uuid/history — commits that touched the
 /// artifact's source file. Walks `HEAD` through
-/// [`reqforge_model::git_history::list_artifact_commits`] up to
+/// [`provreq_model::git_history::list_artifact_commits`] up to
 /// `HISTORY_COMMIT_CAP`. Returns a 200 with an empty commits
 /// list + a `fallbackReason` when history is unavailable.
 pub async fn get_history(State(state): State<Arc<AppState>>, Path(uuid): Path<Uuid>) -> Response {
@@ -2670,7 +2666,7 @@ pub async fn get_history(State(state): State<Arc<AppState>>, Path(uuid): Path<Uu
     };
 
     let result = tokio::task::spawn_blocking(move || {
-        reqforge_model::git_history::list_artifact_commits(&repo, &repo_rel)
+        provreq_model::git_history::list_artifact_commits(&repo, &repo_rel)
     })
     .await;
     match result {
@@ -2690,7 +2686,7 @@ pub async fn get_history(State(state): State<Arc<AppState>>, Path(uuid): Path<Uu
 
 /// GET /api/artifacts/:uuid/diff?from=<oid>&to=<oid|current> —
 /// shape-aware structured diff. Content bodies use
-/// [`reqforge_model::diff::diff_content`]; blob and URL artifacts report
+/// [`provreq_model::diff::diff_content`]; blob and URL artifacts report
 /// side-by-side metadata deltas. Falls back to the Phase 4b
 /// approval snapshot with a banner when git history can't resolve
 /// `from` / `to`.
@@ -2770,7 +2766,7 @@ pub async fn get_diff(
     let repo_for_from = repo.clone();
     let repo_for_to = repo.clone();
     let from_bytes = tokio::task::spawn_blocking(move || {
-        reqforge_model::git_history::read_blob_at_commit(&repo_for_from, &from_oid, &repo_rel_from)
+        provreq_model::git_history::read_blob_at_commit(&repo_for_from, &from_oid, &repo_rel_from)
     })
     .await;
 
@@ -2787,7 +2783,7 @@ pub async fn get_diff(
         Some(oid) => {
             let oid = oid.to_owned();
             let join = tokio::task::spawn_blocking(move || {
-                reqforge_model::git_history::read_blob_at_commit(&repo_for_to, &oid, &repo_rel_to)
+                provreq_model::git_history::read_blob_at_commit(&repo_for_to, &oid, &repo_rel_to)
             })
             .await;
             match join {
@@ -2829,8 +2825,8 @@ fn build_shape_diff(
     from_bytes: &[u8],
     to_bytes: Option<&[u8]>,
     current_blob_facts: Option<&(u64, String, String)>,
-) -> reqforge_model::diff::ShapeDiff {
-    use reqforge_model::diff::{BlobSide, diff_blob, diff_content, diff_url};
+) -> provreq_model::diff::ShapeDiff {
+    use provreq_model::diff::{BlobSide, diff_blob, diff_content, diff_url};
     match shape {
         ArtifactShape::Content => {
             let before = String::from_utf8_lossy(from_bytes).into_owned();
@@ -2839,7 +2835,7 @@ fn build_shape_diff(
                 .unwrap_or_default();
             let before_body = strip_frontmatter(&before);
             let after_body = strip_frontmatter(&after);
-            reqforge_model::diff::ShapeDiff::Content(diff_content(
+            provreq_model::diff::ShapeDiff::Content(diff_content(
                 Some(&before_body),
                 Some(&after_body),
             ))
@@ -2855,7 +2851,7 @@ fn build_shape_diff(
                     download_url: format!("/api/artifacts/{uuid}/blob"),
                 }),
             };
-            reqforge_model::diff::ShapeDiff::Blob(diff_blob(Some(before), after))
+            provreq_model::diff::ShapeDiff::Blob(diff_blob(Some(before), after))
         }
         ArtifactShape::Url => {
             let before = parse_url_from_sidecar(from_bytes);
@@ -2863,7 +2859,7 @@ fn build_shape_diff(
                 Some(b) => parse_url_from_sidecar(b),
                 None => None,
             };
-            reqforge_model::diff::ShapeDiff::Url(diff_url(before, after))
+            provreq_model::diff::ShapeDiff::Url(diff_url(before, after))
         }
     }
 }
@@ -2880,7 +2876,7 @@ fn strip_frontmatter(text: &str) -> String {
     text.to_owned()
 }
 
-fn blob_side_from_bytes(uuid: Uuid, bytes: &[u8]) -> reqforge_model::diff::BlobSide {
+fn blob_side_from_bytes(uuid: Uuid, bytes: &[u8]) -> provreq_model::diff::BlobSide {
     use sha2::{Digest, Sha256};
     let mut hasher = Sha256::new();
     hasher.update(bytes);
@@ -2888,7 +2884,7 @@ fn blob_side_from_bytes(uuid: Uuid, bytes: &[u8]) -> reqforge_model::diff::BlobS
     let media_type = infer::get(bytes)
         .map(|t| t.mime_type().to_owned())
         .unwrap_or_else(|| "application/octet-stream".to_owned());
-    reqforge_model::diff::BlobSide {
+    provreq_model::diff::BlobSide {
         byte_size: bytes.len() as u64,
         content_hash: hash,
         media_type,
@@ -2922,14 +2918,14 @@ fn diff_fallback_response(
     reason: &str,
 ) -> Response {
     let empty = match shape {
-        ArtifactShape::Content => reqforge_model::diff::ShapeDiff::Content(
-            reqforge_model::diff::diff_content(Some(""), Some("")),
+        ArtifactShape::Content => provreq_model::diff::ShapeDiff::Content(
+            provreq_model::diff::diff_content(Some(""), Some("")),
         ),
         ArtifactShape::Blob => {
-            reqforge_model::diff::ShapeDiff::Blob(reqforge_model::diff::diff_blob(None, None))
+            provreq_model::diff::ShapeDiff::Blob(provreq_model::diff::diff_blob(None, None))
         }
         ArtifactShape::Url => {
-            reqforge_model::diff::ShapeDiff::Url(reqforge_model::diff::diff_url(None, None))
+            provreq_model::diff::ShapeDiff::Url(provreq_model::diff::diff_url(None, None))
         }
     };
     Json(ArtifactDiffResponse {
@@ -2952,7 +2948,7 @@ fn historical_artifact_detail(
     world: &crate::app::World,
     project: &LoadedProject,
     collection: &LoadedCollection,
-    artifact: &reqforge_model::load::LoadedArtifact,
+    artifact: &provreq_model::load::LoadedArtifact,
     oid: &str,
 ) -> Result<ArtifactDetail, Response> {
     let tracked_path = history_tracked_path(artifact);
@@ -2965,7 +2961,7 @@ fn historical_artifact_detail(
         .repo_cache()
         .open(&git_root.join(".git"))
         .map_err(|err| history_unavailable(&format!("repo open failed: {err}")))?;
-    let bytes = reqforge_model::git_history::read_blob_at_commit(&repo, oid, &repo_rel)
+    let bytes = provreq_model::git_history::read_blob_at_commit(&repo, oid, &repo_rel)
         .map_err(|err| history_unavailable(&err.to_string()))?;
 
     // Reuse the wire DTO's `from_loaded` by rebuilding a
@@ -2976,20 +2972,20 @@ fn historical_artifact_detail(
     let text = String::from_utf8_lossy(&bytes).into_owned();
     let (historical_metadata, historical_body) = match artifact.metadata.shape {
         ArtifactShape::Content => {
-            let (frontmatter, body) = reqforge_model::frontmatter::split_frontmatter(&text)
+            let (frontmatter, body) = provreq_model::frontmatter::split_frontmatter(&text)
                 .map_err(|err| history_unavailable(&format!("parse frontmatter: {err}")))?;
-            let meta: reqforge_model::schema::Artifact = serde_json::from_str(frontmatter)
+            let meta: provreq_model::schema::Artifact = serde_json::from_str(frontmatter)
                 .map_err(|err| history_unavailable(&format!("parse metadata: {err}")))?;
             (meta, Some(body.to_owned()))
         }
         ArtifactShape::Blob | ArtifactShape::Url => {
-            let meta: reqforge_model::schema::Artifact = serde_json::from_slice(&bytes)
+            let meta: provreq_model::schema::Artifact = serde_json::from_slice(&bytes)
                 .map_err(|err| history_unavailable(&format!("parse sidecar at commit: {err}")))?;
             (meta, None)
         }
     };
 
-    let historical = reqforge_model::load::LoadedArtifact {
+    let historical = provreq_model::load::LoadedArtifact {
         name: artifact.name.clone(),
         source_path: artifact.source_path.clone(),
         metadata: historical_metadata,
@@ -3007,7 +3003,7 @@ fn historical_artifact_detail(
 /// The file whose history we consult for a given artifact. Content
 /// artifacts track the .md file; blob and URL artifacts track the
 /// sidecar (`source_path` is the sidecar for non-content shapes).
-fn history_tracked_path(artifact: &reqforge_model::load::LoadedArtifact) -> std::path::PathBuf {
+fn history_tracked_path(artifact: &provreq_model::load::LoadedArtifact) -> std::path::PathBuf {
     artifact.source_path.clone()
 }
 
@@ -3039,29 +3035,27 @@ fn history_unavailable(reason: &str) -> Response {
 pub async fn run_report(
     State(state): State<Arc<AppState>>,
     Path(kind_str): Path<String>,
-    Query(query): Query<reqforge_model::reports::ReportQuery>,
+    Query(query): Query<provreq_model::reports::ReportQuery>,
 ) -> Response {
-    let Some(kind) = reqforge_model::reports::ReportKind::from_kebab(&kind_str) else {
+    let Some(kind) = provreq_model::reports::ReportKind::from_kebab(&kind_str) else {
         return not_found(format!("unknown report kind '{kind_str}'"));
     };
-    let scope = match reqforge_model::reports::Scope::parse(query.scope.as_deref()) {
+    let scope = match provreq_model::reports::Scope::parse(query.scope.as_deref()) {
         Ok(s) => s,
         Err(err) => return bad_request(err.to_string()),
     };
     let Some(world) = state.snapshot().await else {
         return service_unavailable();
     };
-    match reqforge_model::reports::run_report(kind, scope, &query, &world) {
+    match provreq_model::reports::run_report(kind, scope, &query, &world) {
         Ok(resp) => Json(resp).into_response(),
-        Err(reqforge_model::reports::ReportError::ProjectNotMounted(slug)) => {
+        Err(provreq_model::reports::ReportError::ProjectNotMounted(slug)) => {
             not_found(format!("project '{slug}' is not currently mounted"))
         }
-        Err(reqforge_model::reports::ReportError::CollectionNotFound { slug, prefix }) => {
-            not_found(format!(
-                "collection '{prefix}' not found in project '{slug}'"
-            ))
-        }
-        Err(reqforge_model::reports::ReportError::InvalidDirection(dir)) => bad_request(format!(
+        Err(provreq_model::reports::ReportError::CollectionNotFound { slug, prefix }) => not_found(
+            format!("collection '{prefix}' not found in project '{slug}'"),
+        ),
+        Err(provreq_model::reports::ReportError::InvalidDirection(dir)) => bad_request(format!(
             "invalid direction '{dir}'; expected 'dependents' or 'dependencies'"
         )),
     }
@@ -3072,11 +3066,11 @@ pub async fn read_report_config(
     State(state): State<Arc<AppState>>,
     Path(kind_str): Path<String>,
 ) -> Response {
-    let Some(kind) = reqforge_model::reports::ReportKind::from_kebab(&kind_str) else {
+    let Some(kind) = provreq_model::reports::ReportKind::from_kebab(&kind_str) else {
         return not_found(format!("unknown report kind '{kind_str}'"));
     };
     let cfg =
-        reqforge_model::reports::saved_config::load(state.config().workspace_dir.as_deref(), kind);
+        provreq_model::reports::saved_config::load(state.config().workspace_dir.as_deref(), kind);
     Json(cfg.inner).into_response()
 }
 
@@ -3088,17 +3082,17 @@ pub async fn write_report_config(
     Path(kind_str): Path<String>,
     Json(body): Json<serde_json::Value>,
 ) -> Response {
-    let Some(kind) = reqforge_model::reports::ReportKind::from_kebab(&kind_str) else {
+    let Some(kind) = provreq_model::reports::ReportKind::from_kebab(&kind_str) else {
         return not_found(format!("unknown report kind '{kind_str}'"));
     };
-    let cfg = reqforge_model::reports::saved_config::SavedReportConfig::from_value(body);
-    match reqforge_model::reports::saved_config::save(
+    let cfg = provreq_model::reports::saved_config::SavedReportConfig::from_value(body);
+    match provreq_model::reports::saved_config::save(
         state.config().workspace_dir.as_deref(),
         kind,
         &cfg,
     ) {
         Ok(()) => (StatusCode::NO_CONTENT, Body::empty()).into_response(),
-        Err(reqforge_model::reports::saved_config::SavedConfigError::NoWorkspace) => (
+        Err(provreq_model::reports::saved_config::SavedConfigError::NoWorkspace) => (
             StatusCode::CONFLICT,
             Json(ErrorResponse {
                 error: "workspace directory is not configured — saved report configs are disabled"
@@ -3116,13 +3110,11 @@ pub async fn clear_report_config(
     State(state): State<Arc<AppState>>,
     Path(kind_str): Path<String>,
 ) -> Response {
-    let Some(kind) = reqforge_model::reports::ReportKind::from_kebab(&kind_str) else {
+    let Some(kind) = provreq_model::reports::ReportKind::from_kebab(&kind_str) else {
         return not_found(format!("unknown report kind '{kind_str}'"));
     };
-    match reqforge_model::reports::saved_config::clear(
-        state.config().workspace_dir.as_deref(),
-        kind,
-    ) {
+    match provreq_model::reports::saved_config::clear(state.config().workspace_dir.as_deref(), kind)
+    {
         Ok(()) => (StatusCode::NO_CONTENT, Body::empty()).into_response(),
         Err(err) => internal_error(format!("clearing report config: {err}")),
     }
@@ -3150,7 +3142,7 @@ pub async fn code_scan(State(state): State<Arc<AppState>>, Path(slug): Path<Stri
     let output = match tokio::task::spawn_blocking(move || {
         let project = find_project(&world, &slug_owned)
             .expect("project presence verified before spawn_blocking");
-        reqforge_model::scan::run_scan(project, &world)
+        provreq_model::scan::run_scan(project, &world)
     })
     .await
     {
@@ -3192,11 +3184,11 @@ pub async fn doorstop_preview(
         Ok(p) => p,
         Err(msg) => return bad_request(msg),
     };
-    let documents = match reqforge_model::doorstop::parse::discover(&source_root) {
+    let documents = match provreq_model::doorstop::parse::discover(&source_root) {
         Ok(d) => d,
         Err(err) => return bad_request(format!("doorstop parse error: {err}")),
     };
-    match reqforge_model::doorstop::plan::build_plan(project, documents, chrono::Utc::now()) {
+    match provreq_model::doorstop::plan::build_plan(project, documents, chrono::Utc::now()) {
         Ok(plan) => Json(plan).into_response(),
         Err(err) => internal_error(format!("doorstop plan error: {err}")),
     }
@@ -3223,12 +3215,12 @@ pub async fn doorstop_import(
         Ok(p) => p,
         Err(msg) => return bad_request(msg),
     };
-    let documents = match reqforge_model::doorstop::parse::discover(&source_root) {
+    let documents = match provreq_model::doorstop::parse::discover(&source_root) {
         Ok(d) => d,
         Err(err) => return bad_request(format!("doorstop parse error: {err}")),
     };
     let plan =
-        match reqforge_model::doorstop::plan::build_plan(project, documents, chrono::Utc::now()) {
+        match provreq_model::doorstop::plan::build_plan(project, documents, chrono::Utc::now()) {
             Ok(p) => p,
             Err(err) => return internal_error(format!("doorstop plan error: {err}")),
         };
@@ -3244,11 +3236,11 @@ pub async fn doorstop_import(
     }
 
     let overrides = state.overrides();
-    let target = reqforge_model::doorstop::ExecuteTarget::from_project(project);
+    let target = provreq_model::doorstop::ExecuteTarget::from_project(project);
     let source_label = req.source.clone();
     drop(world);
     let report_result = tokio::task::spawn_blocking(move || {
-        reqforge_model::doorstop::execute(&target, &source_label, plan, overrides)
+        provreq_model::doorstop::execute(&target, &source_label, plan, overrides)
     })
     .await;
     let report = match report_result {
@@ -3292,7 +3284,7 @@ pub async fn doorstop_report_export(
     State(state): State<Arc<AppState>>,
     Path((slug, ext)): Path<(String, String)>,
 ) -> Response {
-    let Some(format) = reqforge_model::exports::ExportFormat::from_ext(&ext) else {
+    let Some(format) = provreq_model::exports::ExportFormat::from_ext(&ext) else {
         return not_found(format!("unknown export format '{ext}'"));
     };
     let Some(report) = state.get_doorstop_report(&slug).await else {
@@ -3301,25 +3293,25 @@ pub async fn doorstop_report_export(
         ));
     };
     let filename = format!(
-        "reqforge-doorstop-import-{}-{}.{}",
+        "provreq-doorstop-import-{}-{}.{}",
         slug,
         report.import_run_at.format("%Y%m%dT%H%M%SZ"),
         format.ext()
     );
     let (bytes, mime) = match format {
-        reqforge_model::exports::ExportFormat::Json => {
+        provreq_model::exports::ExportFormat::Json => {
             let body = match serde_json::to_vec_pretty(&*report) {
                 Ok(b) => b,
                 Err(err) => return internal_error(format!("serialize: {err}")),
             };
             (body, format.mime())
         }
-        reqforge_model::exports::ExportFormat::Csv => (
-            reqforge_model::exports::doorstop::render_csv(&report),
+        provreq_model::exports::ExportFormat::Csv => (
+            provreq_model::exports::doorstop::render_csv(&report),
             format.mime(),
         ),
-        reqforge_model::exports::ExportFormat::Html => (
-            reqforge_model::exports::doorstop::render_html(&report),
+        provreq_model::exports::ExportFormat::Html => (
+            provreq_model::exports::doorstop::render_html(&report),
             format.mime(),
         ),
     };
@@ -3340,7 +3332,7 @@ pub async fn doorstop_report_export(
 /// absolute path that's guaranteed to stay inside the project
 /// root. Mirrors the Phase 6a orphan-adopt traversal check.
 fn resolve_doorstop_source(
-    project: &reqforge_model::load::LoadedProject,
+    project: &provreq_model::load::LoadedProject,
     source: &str,
 ) -> Result<std::path::PathBuf, String> {
     let declared = source.replace('\\', "/");
@@ -3381,24 +3373,24 @@ fn resolve_doorstop_source(
 /// vocabulary so operators don't relearn the knobs.
 pub async fn browse(
     State(state): State<Arc<AppState>>,
-    Query(query): Query<reqforge_model::browse::BrowseQuery>,
+    Query(query): Query<provreq_model::browse::BrowseQuery>,
 ) -> Response {
-    let scope = match reqforge_model::reports::Scope::parse(query.scope.as_deref()) {
+    let scope = match provreq_model::reports::Scope::parse(query.scope.as_deref()) {
         Ok(s) => s,
         Err(err) => return bad_request(err.to_string()),
     };
     let Some(world) = state.snapshot().await else {
         return service_unavailable();
     };
-    match reqforge_model::browse::run(scope, &query, &world) {
+    match provreq_model::browse::run(scope, &query, &world) {
         Ok(resp) => Json(resp).into_response(),
-        Err(reqforge_model::browse::BrowseError::ProjectNotMounted(slug)) => {
+        Err(provreq_model::browse::BrowseError::ProjectNotMounted(slug)) => {
             not_found(format!("project '{slug}' is not currently mounted"))
         }
-        Err(reqforge_model::browse::BrowseError::CollectionNotFound { slug, prefix }) => not_found(
+        Err(provreq_model::browse::BrowseError::CollectionNotFound { slug, prefix }) => not_found(
             format!("collection '{prefix}' not found in project '{slug}'"),
         ),
-        Err(reqforge_model::browse::BrowseError::UnknownReviewStates(list)) => {
+        Err(provreq_model::browse::BrowseError::UnknownReviewStates(list)) => {
             bad_request(format!("unknown review state(s): {list}"))
         }
     }
@@ -3413,9 +3405,9 @@ pub async fn browse(
 /// a match-all so pure-filter searches work.
 pub async fn search(
     State(state): State<Arc<AppState>>,
-    Query(query): Query<reqforge_model::search::SearchQuery>,
+    Query(query): Query<provreq_model::search::SearchQuery>,
 ) -> Response {
-    let scope = match reqforge_model::reports::Scope::parse(query.scope.as_deref()) {
+    let scope = match provreq_model::reports::Scope::parse(query.scope.as_deref()) {
         Ok(s) => s,
         Err(err) => return bad_request(err.to_string()),
     };
@@ -3428,32 +3420,32 @@ pub async fn search(
     if let Err(err) = ensure_search_scope_exists(&scope, &world) {
         return not_found(err);
     }
-    let scope_filter = reqforge_model::search::query::ScopeFilter::from_reports_scope(&scope);
-    match reqforge_model::search::run(&world.search_index, scope_filter, &query) {
+    let scope_filter = provreq_model::search::query::ScopeFilter::from_reports_scope(&scope);
+    match provreq_model::search::run(&world.search_index, scope_filter, &query) {
         Ok(resp) => Json(resp).into_response(),
-        Err(reqforge_model::search::SearchError::BadQuery(msg)) => {
+        Err(provreq_model::search::SearchError::BadQuery(msg)) => {
             bad_request(format!("malformed query: {msg}"))
         }
-        Err(reqforge_model::search::SearchError::UnknownReviewStates(list)) => {
+        Err(provreq_model::search::SearchError::UnknownReviewStates(list)) => {
             bad_request(format!("unknown review state(s): {list}"))
         }
-        Err(reqforge_model::search::SearchError::UnknownShapes(list)) => {
+        Err(provreq_model::search::SearchError::UnknownShapes(list)) => {
             bad_request(format!("unknown shape(s): {list}"))
         }
-        Err(reqforge_model::search::SearchError::Tantivy(err)) => {
+        Err(provreq_model::search::SearchError::Tantivy(err)) => {
             internal_error(format!("search error: {err}"))
         }
     }
 }
 
 fn ensure_search_scope_exists(
-    scope: &reqforge_model::reports::Scope,
+    scope: &provreq_model::reports::Scope,
     world: &crate::app::World,
 ) -> Result<(), String> {
-    use reqforge_model::mount::MountState;
+    use provreq_model::mount::MountState;
     match scope {
-        reqforge_model::reports::Scope::System => Ok(()),
-        reqforge_model::reports::Scope::Project(slug) => {
+        provreq_model::reports::Scope::System => Ok(()),
+        provreq_model::reports::Scope::Project(slug) => {
             let present = world.mounts.iter().any(|m| match &m.state {
                 MountState::Project(p) => p.config.slug == *slug,
                 _ => false,
@@ -3464,7 +3456,7 @@ fn ensure_search_scope_exists(
                 Err(format!("project '{slug}' is not currently mounted"))
             }
         }
-        reqforge_model::reports::Scope::Collection { slug, prefix } => {
+        provreq_model::reports::Scope::Collection { slug, prefix } => {
             let project_present = world.mounts.iter().any(|m| match &m.state {
                 MountState::Project(p) => p.config.slug == *slug,
                 _ => false,
@@ -3499,34 +3491,34 @@ fn ensure_search_scope_exists(
 /// blocking banner instead of a partial matrix.
 pub async fn get_matrix(
     State(state): State<Arc<AppState>>,
-    Query(query): Query<reqforge_model::matrix::MatrixQuery>,
+    Query(query): Query<provreq_model::matrix::MatrixQuery>,
 ) -> Response {
-    let row_scope = match reqforge_model::reports::Scope::parse(query.row_scope.as_deref()) {
+    let row_scope = match provreq_model::reports::Scope::parse(query.row_scope.as_deref()) {
         Ok(s) => s,
         Err(err) => return bad_request(format!("row scope: {err}")),
     };
-    let column_scope = match reqforge_model::reports::Scope::parse(query.column_scope.as_deref()) {
+    let column_scope = match provreq_model::reports::Scope::parse(query.column_scope.as_deref()) {
         Ok(s) => s,
         Err(err) => return bad_request(format!("column scope: {err}")),
     };
     let Some(world) = state.snapshot().await else {
         return service_unavailable();
     };
-    match reqforge_model::matrix::run(row_scope, column_scope, &query, &world) {
+    match provreq_model::matrix::run(row_scope, column_scope, &query, &world) {
         Ok(resp) => Json(resp).into_response(),
-        Err(reqforge_model::matrix::MatrixError::ProjectNotMounted(slug)) => {
+        Err(provreq_model::matrix::MatrixError::ProjectNotMounted(slug)) => {
             not_found(format!("project '{slug}' is not currently mounted"))
         }
-        Err(reqforge_model::matrix::MatrixError::CollectionNotFound { slug, prefix }) => not_found(
+        Err(provreq_model::matrix::MatrixError::CollectionNotFound { slug, prefix }) => not_found(
             format!("collection '{prefix}' not found in project '{slug}'"),
         ),
-        Err(reqforge_model::matrix::MatrixError::LinkTypeRequired) => {
+        Err(provreq_model::matrix::MatrixError::LinkTypeRequired) => {
             bad_request("linkType query parameter is required")
         }
-        Err(reqforge_model::matrix::MatrixError::UnknownLinkType(name)) => {
+        Err(provreq_model::matrix::MatrixError::UnknownLinkType(name)) => {
             bad_request(format!("unknown link type '{name}'"))
         }
-        Err(reqforge_model::matrix::MatrixError::UnknownReviewStates(list)) => {
+        Err(provreq_model::matrix::MatrixError::UnknownReviewStates(list)) => {
             bad_request(format!("unknown review state(s): {list}"))
         }
     }
@@ -3542,21 +3534,21 @@ pub async fn get_matrix(
 /// lets the UI banner the overflow.
 pub async fn get_graph(
     State(state): State<Arc<AppState>>,
-    Query(query): Query<reqforge_model::graph::GraphQuery>,
+    Query(query): Query<provreq_model::graph::GraphQuery>,
 ) -> Response {
-    let scope = match reqforge_model::reports::Scope::parse(query.scope.as_deref()) {
+    let scope = match provreq_model::reports::Scope::parse(query.scope.as_deref()) {
         Ok(s) => s,
         Err(err) => return bad_request(err.to_string()),
     };
     let Some(world) = state.snapshot().await else {
         return service_unavailable();
     };
-    match reqforge_model::graph::run(scope, &query, &world) {
+    match provreq_model::graph::run(scope, &query, &world) {
         Ok(resp) => Json(resp).into_response(),
-        Err(reqforge_model::graph::GraphError::ProjectNotMounted(slug)) => {
+        Err(provreq_model::graph::GraphError::ProjectNotMounted(slug)) => {
             not_found(format!("project '{slug}' is not currently mounted"))
         }
-        Err(reqforge_model::graph::GraphError::CollectionNotFound { slug, prefix }) => not_found(
+        Err(provreq_model::graph::GraphError::CollectionNotFound { slug, prefix }) => not_found(
             format!("collection '{prefix}' not found in project '{slug}'"),
         ),
     }
@@ -3639,12 +3631,12 @@ pub async fn adopt_orphan_blob(
         .and_then(|e| e.to_str())
         .unwrap_or("")
         .to_ascii_lowercase();
-    if !reqforge_model::load::is_allowed_blob_extension(&extension) {
+    if !provreq_model::load::is_allowed_blob_extension(&extension) {
         return bad_request(format!(
             "extension '{extension}' is not in the blob allowlist",
         ));
     }
-    let sidecar_target = reqforge_model::schema::sidecar::sidecar_path_for_blob(&binary_target);
+    let sidecar_target = provreq_model::schema::sidecar::sidecar_path_for_blob(&binary_target);
     if sidecar_target.exists() {
         return (
             StatusCode::CONFLICT,
@@ -3686,7 +3678,7 @@ pub async fn adopt_orphan_blob(
     let metadata_for_write = metadata.clone();
     let sidecar_target_cl = sidecar_target.clone();
     let write_result = tokio::task::spawn_blocking(move || {
-        reqforge_model::write::write_sidecar_only(
+        provreq_model::write::write_sidecar_only(
             &sidecar_target_cl,
             &project_root,
             &metadata_for_write,
@@ -3709,39 +3701,39 @@ pub async fn adopt_orphan_blob(
 /// requested format (json / csv / html). Browsers get a proper
 /// `Content-Disposition: attachment; filename=…` so a direct
 /// click downloads the file with the locked-shape name
-/// `reqforge-<kind>-<scope-slug>-<timestamp>.<ext>`. Cycles
+/// `provreq-<kind>-<scope-slug>-<timestamp>.<ext>`. Cycles
 /// declines CSV per the locked decision; unknown ext → 404.
 pub async fn export_report(
     State(state): State<Arc<AppState>>,
     Path((kind_str, ext_str)): Path<(String, String)>,
-    Query(query): Query<reqforge_model::reports::ReportQuery>,
+    Query(query): Query<provreq_model::reports::ReportQuery>,
 ) -> Response {
-    let Some(kind) = reqforge_model::reports::ReportKind::from_kebab(&kind_str) else {
+    let Some(kind) = provreq_model::reports::ReportKind::from_kebab(&kind_str) else {
         return not_found(format!("unknown report kind '{kind_str}'"));
     };
-    let Some(format) = reqforge_model::exports::ExportFormat::from_ext(&ext_str) else {
+    let Some(format) = provreq_model::exports::ExportFormat::from_ext(&ext_str) else {
         return not_found(format!(
             "unknown export format '{ext_str}'; expected json / csv / html",
         ));
     };
-    let scope = match reqforge_model::reports::Scope::parse(query.scope.as_deref()) {
+    let scope = match provreq_model::reports::Scope::parse(query.scope.as_deref()) {
         Ok(s) => s,
         Err(err) => return bad_request(err.to_string()),
     };
     let Some(world) = state.snapshot().await else {
         return service_unavailable();
     };
-    let response = match reqforge_model::reports::run_report(kind, scope, &query, &world) {
+    let response = match provreq_model::reports::run_report(kind, scope, &query, &world) {
         Ok(resp) => resp,
-        Err(reqforge_model::reports::ReportError::ProjectNotMounted(slug)) => {
+        Err(provreq_model::reports::ReportError::ProjectNotMounted(slug)) => {
             return not_found(format!("project '{slug}' is not currently mounted"));
         }
-        Err(reqforge_model::reports::ReportError::CollectionNotFound { slug, prefix }) => {
+        Err(provreq_model::reports::ReportError::CollectionNotFound { slug, prefix }) => {
             return not_found(format!(
                 "collection '{prefix}' not found in project '{slug}'"
             ));
         }
-        Err(reqforge_model::reports::ReportError::InvalidDirection(dir)) => {
+        Err(provreq_model::reports::ReportError::InvalidDirection(dir)) => {
             return bad_request(format!(
                 "invalid direction '{dir}'; expected 'dependents' or 'dependencies'"
             ));
@@ -3753,28 +3745,28 @@ pub async fn export_report(
     // Every variant carries a `ScopeDto`; we duplicate the small
     // dispatch rather than exposing a new public trait.
     let scope_dto = match &response {
-        reqforge_model::reports::ReportResponse::UnresolvedLinks(r) => &r.scope,
-        reqforge_model::reports::ReportResponse::LinkOrphans(r) => &r.scope,
-        reqforge_model::reports::ReportResponse::Cycles(r) => &r.scope,
-        reqforge_model::reports::ReportResponse::Conflicts(r) => &r.scope,
-        reqforge_model::reports::ReportResponse::CoverageMatrix(r) => &r.scope,
-        reqforge_model::reports::ReportResponse::ImpactAnalysis(r) => &r.scope,
-        reqforge_model::reports::ReportResponse::ReviewStatus(r) => &r.scope,
-        reqforge_model::reports::ReportResponse::FilesystemOrphans(r) => &r.scope,
-        reqforge_model::reports::ReportResponse::CodeTraceability(r) => &r.scope,
+        provreq_model::reports::ReportResponse::UnresolvedLinks(r) => &r.scope,
+        provreq_model::reports::ReportResponse::LinkOrphans(r) => &r.scope,
+        provreq_model::reports::ReportResponse::Cycles(r) => &r.scope,
+        provreq_model::reports::ReportResponse::Conflicts(r) => &r.scope,
+        provreq_model::reports::ReportResponse::CoverageMatrix(r) => &r.scope,
+        provreq_model::reports::ReportResponse::ImpactAnalysis(r) => &r.scope,
+        provreq_model::reports::ReportResponse::ReviewStatus(r) => &r.scope,
+        provreq_model::reports::ReportResponse::FilesystemOrphans(r) => &r.scope,
+        provreq_model::reports::ReportResponse::CodeTraceability(r) => &r.scope,
     };
     let filename =
-        reqforge_model::exports::filename::build(kind, scope_dto, format, chrono::Utc::now());
+        provreq_model::exports::filename::build(kind, scope_dto, format, chrono::Utc::now());
 
     let bytes = match format {
-        reqforge_model::exports::ExportFormat::Json => match serde_json::to_vec_pretty(&response) {
+        provreq_model::exports::ExportFormat::Json => match serde_json::to_vec_pretty(&response) {
             Ok(b) => b,
             Err(err) => return internal_error(format!("json encode: {err}")),
         },
-        reqforge_model::exports::ExportFormat::Csv => {
-            match reqforge_model::exports::render_csv(&response) {
-                reqforge_model::exports::CsvOutcome::Bytes(b) => b,
-                reqforge_model::exports::CsvOutcome::NotAcceptable {
+        provreq_model::exports::ExportFormat::Csv => {
+            match provreq_model::exports::render_csv(&response) {
+                provreq_model::exports::CsvOutcome::Bytes(b) => b,
+                provreq_model::exports::CsvOutcome::NotAcceptable {
                     reason,
                     alternatives,
                 } => {
@@ -3789,8 +3781,8 @@ pub async fn export_report(
                 }
             }
         }
-        reqforge_model::exports::ExportFormat::Html => {
-            reqforge_model::exports::render_html(&response, state.config().external_url.as_deref())
+        provreq_model::exports::ExportFormat::Html => {
+            provreq_model::exports::render_html(&response, state.config().external_url.as_deref())
         }
     };
 
@@ -3827,7 +3819,7 @@ pub async fn list_llm_providers(State(state): State<Arc<AppState>>) -> Response 
         .enumerate()
         .map(|(index, (cfg, adapter))| {
             let endpoint = adapter.endpoint();
-            let is_local = reqforge_model::llm::is_local_endpoint(endpoint);
+            let is_local = provreq_model::llm::is_local_endpoint(endpoint);
             let requires_privacy_ack = runtime.privacy().requires_ack(index, endpoint);
             LlmProviderEntry {
                 index,
@@ -3913,10 +3905,10 @@ pub async fn debug_llm_prompt(
     if runtime.is_empty() {
         return not_found("no llm providers configured");
     }
-    let prompt = reqforge_model::llm::PromptRequest {
+    let prompt = provreq_model::llm::PromptRequest {
         system: req.system,
-        messages: vec![reqforge_model::llm::PromptMessage {
-            role: reqforge_model::llm::PromptRole::User,
+        messages: vec![provreq_model::llm::PromptMessage {
+            role: provreq_model::llm::PromptRole::User,
             content: req.prompt,
         }],
         max_tokens: req.max_tokens,
@@ -3956,7 +3948,7 @@ pub async fn debug_llm_prompt(
 /// not hard-disabled or in backoff). Used by the handlers to
 /// distinguish the "every slot needs ack" case from "every slot
 /// is dead" — the first is fixable by the operator.
-fn providers_needing_ack(runtime: &reqforge_model::llm::LlmRuntime) -> Vec<usize> {
+fn providers_needing_ack(runtime: &provreq_model::llm::LlmRuntime) -> Vec<usize> {
     let mut out = Vec::new();
     for (i, adapter) in runtime.adapters().iter().enumerate() {
         if runtime.health().should_skip(i) {
@@ -3971,7 +3963,7 @@ fn providers_needing_ack(runtime: &reqforge_model::llm::LlmRuntime) -> Vec<usize
 
 /// Whether any provider is eligible (not skipped for health,
 /// not ack-pending). If none, the chain call is pointless.
-fn has_eligible_provider(runtime: &reqforge_model::llm::LlmRuntime) -> bool {
+fn has_eligible_provider(runtime: &provreq_model::llm::LlmRuntime) -> bool {
     runtime.adapters().iter().enumerate().any(|(i, adapter)| {
         !runtime.health().should_skip(i) && !runtime.privacy().requires_ack(i, adapter.endpoint())
     })
@@ -4028,18 +4020,17 @@ pub async fn rename_suggestions(
         .iter()
         .map(|a| a.name.clone())
         .collect();
-    let input = reqforge_model::rename_suggest::PromptInput {
+    let input = provreq_model::rename_suggest::PromptInput {
         collection_prefix: &collection.config.prefix,
         current_name: &artifact.name,
         current_title: &artifact.metadata.title,
         sibling_names: &siblings,
     };
-    let prompt = reqforge_model::rename_suggest::build_prompt(&input);
+    let prompt = provreq_model::rename_suggest::build_prompt(&input);
 
     match runtime.run_prompt(&prompt).await {
         Ok((index, response)) => {
-            match reqforge_model::rename_suggest::parse_suggestions(&response.text, &artifact.name)
-            {
+            match provreq_model::rename_suggest::parse_suggestions(&response.text, &artifact.name) {
                 Ok(suggestions) => {
                     let served_by = runtime
                         .providers()
@@ -4108,7 +4099,7 @@ pub async fn bulk_rename_suggestions(
     // session.
     struct TaskInput {
         uuid: Uuid,
-        prompt: reqforge_model::llm::PromptRequest,
+        prompt: provreq_model::llm::PromptRequest,
         current_name: String,
     }
     let mut inputs: Vec<TaskInput> = Vec::new();
@@ -4137,13 +4128,13 @@ pub async fn bulk_rename_suggestions(
             .iter()
             .map(|a| a.name.clone())
             .collect();
-        let input = reqforge_model::rename_suggest::PromptInput {
+        let input = provreq_model::rename_suggest::PromptInput {
             collection_prefix: &collection.config.prefix,
             current_name: &artifact.name,
             current_title: &artifact.metadata.title,
             sibling_names: &siblings,
         };
-        let prompt = reqforge_model::rename_suggest::build_prompt(&input);
+        let prompt = provreq_model::rename_suggest::build_prompt(&input);
         inputs.push(TaskInput {
             uuid: *uuid,
             prompt,
@@ -4190,9 +4181,9 @@ pub async fn bulk_rename_suggestions(
 }
 
 async fn run_one_suggestion(
-    runtime: &reqforge_model::llm::LlmRuntime,
+    runtime: &provreq_model::llm::LlmRuntime,
     uuid: Uuid,
-    prompt: &reqforge_model::llm::PromptRequest,
+    prompt: &provreq_model::llm::PromptRequest,
     current_name: &str,
 ) -> BulkRenameSuggestionEntry {
     if !has_eligible_provider(runtime) {
@@ -4207,7 +4198,7 @@ async fn run_one_suggestion(
     }
     match runtime.run_prompt(prompt).await {
         Ok((index, response)) => {
-            match reqforge_model::rename_suggest::parse_suggestions(&response.text, current_name) {
+            match provreq_model::rename_suggest::parse_suggestions(&response.text, current_name) {
                 Ok(suggestions) => {
                     let served_by = runtime
                         .providers()
@@ -4238,7 +4229,7 @@ async fn run_one_suggestion(
 // Phase 11a: bulk schema-migration endpoint.
 
 /// POST /api/projects/{slug}/migrate-schema — walk every
-/// ReqForge-authored file in the project, apply any registered
+/// Provreq-authored file in the project, apply any registered
 /// migrations, and atomic-rewrite the changed ones. Today every
 /// registered chain is empty (schemaVersion=1 for every file
 /// type), so the endpoint is usable as a dry-run smoke-test —
@@ -4246,7 +4237,7 @@ async fn run_one_suggestion(
 ///
 /// Body: `{ "force"?: bool }`. When `force=false` (default), a
 /// dirty git worktree produces a 409; when `force=true`, the
-/// run proceeds regardless. ReqForge never commits — the
+/// run proceeds regardless. Provreq never commits — the
 /// operator does.
 pub async fn migrate_project_schema(
     State(state): State<Arc<AppState>>,
@@ -4265,7 +4256,7 @@ pub async fn migrate_project_schema(
     drop(world); // Release the world Arc before the blocking call.
 
     let migration_result = tokio::task::spawn_blocking(move || {
-        reqforge_model::schema_migration::bulk::migrate_project(&project_root, overrides, force)
+        provreq_model::schema_migration::bulk::migrate_project(&project_root, overrides, force)
     })
     .await;
     match migration_result {
@@ -4276,7 +4267,7 @@ pub async fn migrate_project_schema(
             };
             Json(body).into_response()
         }
-        Ok(Err(reqforge_model::schema_migration::bulk::BulkMigrateError::DirtyWorktree)) => (
+        Ok(Err(provreq_model::schema_migration::bulk::BulkMigrateError::DirtyWorktree)) => (
             StatusCode::CONFLICT,
             Json(ErrorResponse {
                 error:
@@ -4326,7 +4317,7 @@ pub async fn create_sample_content(
     let overrides = state.overrides();
     drop(world);
 
-    let drafts = reqforge_model::sample_content::generate(&slug);
+    let drafts = provreq_model::sample_content::generate(&slug);
     let collection_summaries: Vec<SampleContentCollectionSummary> = drafts
         .iter()
         .map(|c| SampleContentCollectionSummary {
@@ -4371,13 +4362,13 @@ pub async fn create_sample_content(
 }
 
 fn write_sample_content(
-    drafts: &[reqforge_model::sample_content::CollectionDraft],
+    drafts: &[provreq_model::sample_content::CollectionDraft],
     artifacts_root: &std::path::Path,
     project_root: &std::path::Path,
-    overrides: reqforge_model::write::OwnershipOverrides,
+    overrides: provreq_model::write::OwnershipOverrides,
 ) -> Result<(), String> {
     use chrono::Utc;
-    use reqforge_model::schema::{Artifact, ArtifactShape, CollectionConfig};
+    use provreq_model::schema::{Artifact, ArtifactShape, CollectionConfig};
 
     std::fs::create_dir_all(artifacts_root).map_err(|e| format!("create artifacts root: {e}"))?;
 
@@ -4482,7 +4473,7 @@ pub async fn analyze_link_suggestions(
     let project_root = project.root.clone();
 
     // Load existing declined sidecar for the proposal filter.
-    let declined = match reqforge_model::suggestions::declined::load(&project_root) {
+    let declined = match provreq_model::suggestions::declined::load(&project_root) {
         Ok(d) => d,
         Err(err) => {
             return internal_error(format!("read declined sidecar: {err}"));
@@ -4491,7 +4482,7 @@ pub async fn analyze_link_suggestions(
 
     // Hold the world Arc snapshot across the LLM await — it's an
     // Arc clone, not a lock guard, so this is safe.
-    let result = reqforge_model::suggestions::engine::propose_links(
+    let result = provreq_model::suggestions::engine::propose_links(
         &runtime,
         project,
         &world.link_catalog,
@@ -4502,8 +4493,7 @@ pub async fn analyze_link_suggestions(
 
     match result {
         Ok(suggestions) => {
-            if let Err(err) =
-                reqforge_model::suggestions::pending::save(&project_root, &suggestions)
+            if let Err(err) = provreq_model::suggestions::pending::save(&project_root, &suggestions)
             {
                 return internal_error(format!("write pending sidecar: {err}"));
             }
@@ -4530,7 +4520,7 @@ pub async fn analyze_link_suggestions(
     }
 }
 
-fn first_eligible_provider_index(runtime: &reqforge_model::llm::LlmRuntime) -> Option<usize> {
+fn first_eligible_provider_index(runtime: &provreq_model::llm::LlmRuntime) -> Option<usize> {
     (0..runtime.adapters().len()).find(|&i| !runtime.health().should_skip(i))
 }
 
@@ -4549,7 +4539,7 @@ pub async fn list_pending_link_suggestions(
     let project_root = project.root.clone();
     drop(world);
 
-    match reqforge_model::suggestions::pending::load(&project_root) {
+    match provreq_model::suggestions::pending::load(&project_root) {
         Ok(suggestions) => {
             Json(crate::http::dto::ListSuggestionsResponse { suggestions }).into_response()
         }
@@ -4572,7 +4562,7 @@ pub async fn list_declined_link_suggestions(
     let project_root = project.root.clone();
     drop(world);
 
-    match reqforge_model::suggestions::declined::load(&project_root) {
+    match provreq_model::suggestions::declined::load(&project_root) {
         Ok(declined) => {
             Json(crate::http::dto::ListDeclinedSuggestionsResponse { declined }).into_response()
         }
@@ -4595,7 +4585,7 @@ pub async fn accept_link_suggestion(
     let project_root = project.root.clone();
     drop(world);
 
-    let Some(suggestion) = (match reqforge_model::suggestions::pending::remove(&project_root, id) {
+    let Some(suggestion) = (match provreq_model::suggestions::pending::remove(&project_root, id) {
         Ok(s) => s,
         Err(err) => {
             return internal_error(format!("remove from pending: {err}"));
@@ -4622,18 +4612,18 @@ pub async fn reject_link_suggestion(
     let project_root = project.root.clone();
     drop(world);
 
-    let Some(suggestion) = (match reqforge_model::suggestions::pending::remove(&project_root, id) {
+    let Some(suggestion) = (match provreq_model::suggestions::pending::remove(&project_root, id) {
         Ok(s) => s,
         Err(err) => return internal_error(format!("remove from pending: {err}")),
     }) else {
         return not_found(format!("pending suggestion {id} not found"));
     };
 
-    let record = reqforge_model::suggestions::DeclineRecord {
+    let record = provreq_model::suggestions::DeclineRecord {
         suggestion,
         declined_at: chrono::Utc::now(),
     };
-    if let Err(err) = reqforge_model::suggestions::declined::append(&project_root, record) {
+    if let Err(err) = provreq_model::suggestions::declined::append(&project_root, record) {
         return internal_error(format!("append to declined: {err}"));
     }
     StatusCode::NO_CONTENT.into_response()
@@ -4655,7 +4645,7 @@ pub async fn reinstate_link_suggestion(
     let project_root = project.root.clone();
     drop(world);
 
-    let Some(record) = (match reqforge_model::suggestions::declined::remove(&project_root, id) {
+    let Some(record) = (match provreq_model::suggestions::declined::remove(&project_root, id) {
         Ok(r) => r,
         Err(err) => return internal_error(format!("remove from declined: {err}")),
     }) else {
@@ -4671,7 +4661,7 @@ pub async fn reinstate_link_suggestion(
 /// artifact.
 async fn apply_suggestion_as_link(
     state: &AppState,
-    suggestion: &reqforge_model::suggestions::Suggestion,
+    suggestion: &provreq_model::suggestions::Suggestion,
 ) -> Response {
     let Some(world) = state.snapshot().await else {
         return service_unavailable();
@@ -4730,22 +4720,22 @@ async fn apply_suggestion_as_link(
     // resolves; validate_links re-walks the index to produce the
     // canonical hint payload.
     let _ = to_artifact;
-    let mut combined: Vec<reqforge_model::links::LinkWriteInput> = from_artifact
+    let mut combined: Vec<provreq_model::links::LinkWriteInput> = from_artifact
         .metadata
         .links
         .iter()
-        .map(|l| reqforge_model::links::LinkWriteInput {
+        .map(|l| provreq_model::links::LinkWriteInput {
             target_uuid: l.target_uuid,
             type_name: l.type_name.clone(),
             hint: None,
         })
         .collect();
-    combined.push(reqforge_model::links::LinkWriteInput {
+    combined.push(provreq_model::links::LinkWriteInput {
         target_uuid: suggestion.to,
         type_name: suggestion.link_type.clone(),
         hint: None,
     });
-    let validated = match reqforge_model::links::validate_links(
+    let validated = match provreq_model::links::validate_links(
         suggestion.from,
         &combined,
         &world.link_catalog,
@@ -4780,7 +4770,7 @@ async fn apply_suggestion_as_link(
                 overrides,
             )
             .map_err(|err| format!("{err}")),
-            ArtifactShape::Url | ArtifactShape::Blob => reqforge_model::write::write_sidecar_only(
+            ArtifactShape::Url | ArtifactShape::Blob => provreq_model::write::write_sidecar_only(
                 &source_path,
                 &project_root,
                 &metadata_for_write,
@@ -4913,7 +4903,7 @@ where
         Err(ProviderCrudError::NoSystemConfig) => (
             StatusCode::CONFLICT,
             Json(ErrorResponse {
-                error: "no system config is loaded — set REQFORGE_SYSTEM_CONFIG and restart"
+                error: "no system config is loaded — set PROVREQ_SYSTEM_CONFIG and restart"
                     .to_owned(),
             }),
         )
@@ -4947,11 +4937,11 @@ where
         .await
         .ok_or_else(|| ProviderCrudError::Invalid("server not ready".into()))?;
     let (config, path) = match &world.system {
-        reqforge_model::system::LoadedSystem::Named {
+        provreq_model::system::LoadedSystem::Named {
             config,
             source_path,
         } => ((**config).clone(), source_path.clone()),
-        reqforge_model::system::LoadedSystem::Unnamed => {
+        provreq_model::system::LoadedSystem::Unnamed => {
             return Err(ProviderCrudError::NoSystemConfig);
         }
     };
@@ -4967,11 +4957,11 @@ where
     let new_value = serde_json::Value::Array(llm_array);
     // Validate the new shape via parse_llm before writing — surface
     // schema problems as 400 rather than corrupting the file.
-    reqforge_model::llm::parse_llm(Some(&new_value))
+    provreq_model::llm::parse_llm(Some(&new_value))
         .map_err(|err| ProviderCrudError::PostMutateValidate(err.to_string()))?;
     new_config.llm = Some(new_value);
 
-    match reqforge_model::system::write_system_config(&path, &new_config) {
+    match provreq_model::system::write_system_config(&path, &new_config) {
         Ok(()) => {}
         Err(err) if err.is_read_only() => {
             return Err(ProviderCrudError::ReadOnly(path));

@@ -1,15 +1,15 @@
-//! Report catalog endpoint integration tests, ported from ReqForge's
+//! Report catalog endpoint integration tests, ported from Provreq's
 //! `tests/reports.rs` for #374 and adapted to provreq's
 //! single-subject model.
 //!
-//! ReqForge seeded several sibling projects under a `mount_prefix`
+//! Provreq seeded several sibling projects under a `mount_prefix`
 //! and drove multi-project `discover_mounts`. provreq serves exactly
 //! one repository (#370), so these tests go through the shared
 //! single-subject harness in `tests/support/mod.rs`
 //! (`new_single_subject` + `refresh()` / `discover_single`). Each
-//! ReqForge test seeded its project under `prefix/sample`; here the
+//! Provreq test seeded its project under `prefix/sample`; here the
 //! seed closure writes directly at the subject root (the harness has
-//! already written git + `reqforge.json` there).
+//! already written git + `provreq.json` there).
 //!
 //! Dropped tests: none — every case is expressible single-subject.
 //! `scope_for_unmounted_project_returns_404` is kept: it targets an
@@ -287,7 +287,7 @@ async fn filesystem_orphans_report_surfaces_both_sides() {
             "blobPath": "artifacts/designs/DES-ghost.pdf",
         });
         std::fs::write(
-            root.join("artifacts/designs/DES-ghost.pdf.reqforge.json"),
+            root.join("artifacts/designs/DES-ghost.pdf.provreq.json"),
             ghost_sidecar.to_string(),
         )
         .unwrap();
@@ -304,7 +304,7 @@ async fn filesystem_orphans_report_surfaces_both_sides() {
     assert_eq!(missing_binary.len(), 1);
     assert_eq!(
         missing_binary[0]["sidecarFilename"],
-        "DES-ghost.pdf.reqforge.json"
+        "DES-ghost.pdf.provreq.json"
     );
 }
 
@@ -334,7 +334,7 @@ async fn adopt_orphan_blob_writes_sidecar_and_returns_created_artifact() {
     // Sidecar should now exist alongside the binary.
     assert!(
         temp.path()
-            .join("sample/artifacts/designs/DES-logo.png.reqforge.json")
+            .join("sample/artifacts/designs/DES-logo.png.provreq.json")
             .exists()
     );
 }

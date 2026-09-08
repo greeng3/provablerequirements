@@ -1,4 +1,4 @@
-//! Source-language registry. Absorbed from ReqForge's `scan/languages.rs` — the built-in
+//! Source-language registry. Absorbed from Provreq's `scan/languages.rs` — the built-in
 //! comment grammar for Rust/Python/JS/TS/shell/Dockerfile — with its System-JSON runtime
 //! extensibility deliberately dropped (YAGNI; a static table serves every subject provreq
 //! scans today). Two fields are added for provreq's symbol resolver: the declaration
@@ -50,7 +50,7 @@ pub fn language_for(file_name: &str) -> Option<&'static Language> {
     BUILTIN_LANGUAGES.iter().find(|l| l.matches_file(file_name))
 }
 
-/// Built-in languages — the same set ReqForge ships, plus each one's declaration grammar.
+/// Built-in languages — the same set Provreq ships, plus each one's declaration grammar.
 pub const BUILTIN_LANGUAGES: &[Language] = &[
     Language {
         name: "Rust",

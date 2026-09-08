@@ -1,14 +1,14 @@
 //! Code-scan HTTP endpoint integration tests (Phase 9a.3), ported
-//! from ReqForge `tests/code_scan_http.rs` for #374 batch F and
+//! from Provreq `tests/code_scan_http.rs` for #374 batch F and
 //! adapted to provreq's single-subject model. A thin HTTP wrapper
 //! over `run_scan`, so these focus on the wire shape + error
 //! handling.
 //!
-//! ReqForge seeded its project under `prefix/sample` and drove
+//! Provreq seeded its project under `prefix/sample` and drove
 //! multi-project discovery; provreq serves exactly one repository
 //! (#370), so these boot through the shared single-subject harness in
 //! `tests/support/mod.rs`. The harness has already written git +
-//! `reqforge.json` at the subject root, so the seed closure only adds
+//! `provreq.json` at the subject root, so the seed closure only adds
 //! collections/artifacts and the source tree the scanner walks.
 //!
 //! Dropped tests: none — both cases are single-subject.

@@ -23,12 +23,12 @@ on this repo.
   arm64 provers table and the coroutine-ICE fix, both documented in the Dockerfile).
   MonPoly (category 2b) and a Selenium grid (category 3) are external — MonPoly builds
   from source on demand; Selenium runs as a service on port 4444, not a PATH binary.
-- **ReqForge's gate tools** — `cargo-llvm-cov` (with the `llvm-tools-preview` component),
-  `cargo-outdated`, and `taplo`. Phase 2 of the ReqForge absorb moves its code into this
+- **Provreq's gate tools** — `cargo-llvm-cov` (with the `llvm-tools-preview` component),
+  `cargo-outdated`, and `taplo`. Phase 2 of the Provreq absorb moves its code into this
   repo rather than extracting a model crate in its own tree, so this image has to be able
   to run its `make pre-merge`. `ruff` and `mypy` are deliberately absent: its Makefile
   invokes them through `uv tool run`, and `uv` is already here. See issue #299 for what
-  was measured, including the packages in ReqForge's Dockerfile that nothing in its
+  was measured, including the packages in Provreq's Dockerfile that nothing in its
   dependency graph actually needs.
 - Curated VS Code extensions (Markdown, YAML, TOML, TODO tree, GitHub PRs, GitHub
   Actions, Claude Code).
@@ -59,11 +59,11 @@ markdownlint-cli2 "**/*.md"
     ```
 
     Nothing here needs those scripts today — Vite 8 builds through rolldown rather than esbuild, and
-    both this repo's `web/` and ReqForge's frontend build and test cleanly without them (#302). The
+    both this repo's `web/` and Provreq's frontend build and test cleanly without them (#302). The
     reason to write it down is that the failure it _would_ cause is misleading: a package whose
     native binary or generated file arrives via `postinstall` is installed, present in
     `node_modules`, and broken at run time, with nothing in the install output saying so except a
-    warning that scrolled past. ReqForge's own container pins Node 22 and so npm 10, which still runs
+    warning that scrolled past. Provreq's own container pins Node 22 and so npm 10, which still runs
     these scripts — so a dependency can work there and fail here for a reason that has nothing to do
     with the code.
 

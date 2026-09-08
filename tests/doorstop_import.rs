@@ -1,13 +1,13 @@
 //! Doorstop import endpoint integration tests (Phase 8.2: import
 //! execute + cached report + Phase 6b-shaped exports), ported from
-//! ReqForge `tests/doorstop_import.rs` for #374 batch F and adapted
+//! Provreq `tests/doorstop_import.rs` for #374 batch F and adapted
 //! to provreq's single-subject model.
 //!
-//! ReqForge seeded its project under `prefix/sample` and drove
+//! Provreq seeded its project under `prefix/sample` and drove
 //! multi-project discovery; provreq serves exactly one repository
 //! (#370), so these boot through the shared single-subject harness in
 //! `tests/support/mod.rs`. The harness has already written git +
-//! `reqforge.json` + an empty `artifacts/` at the subject root, so
+//! `provreq.json` + an empty `artifacts/` at the subject root, so
 //! each file-local fixture writes only the doorstop source tree (and,
 //! for the collision fixture, the pre-existing collection).
 //!
