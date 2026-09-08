@@ -28,16 +28,16 @@ use std::sync::Arc;
 struct WebAssets;
 
 use crate::app::AppState;
-use reqforge_model::world::{DiscoveryConfig, DiscoveryError};
-use reqforge_model::write::OwnershipOverrides;
+use provreq_model::world::{DiscoveryConfig, DiscoveryError};
+use provreq_model::write::OwnershipOverrides;
 
-/// Shared router state: the single-subject [`AppState`] absorbed from ReqForge (arc-2 slice 7).
-/// It carries both the management World (mounts/index/search) the ReqForge handlers read and the
+/// Shared router state: the single-subject [`AppState`] absorbed from Provreq (arc-2 slice 7).
+/// It carries both the management World (mounts/index/search) the Provreq handlers read and the
 /// subject path provreq's proof handlers read — one state for both halves of the merged router.
 type Shared = Arc<AppState>;
 
-/// Default caps for the single-subject discovery config. provreq does not expose ReqForge's
-/// blob-upload / thumbnail knobs yet, so these mirror ReqForge's own defaults.
+/// Default caps for the single-subject discovery config. provreq does not expose Provreq's
+/// blob-upload / thumbnail knobs yet, so these mirror Provreq's own defaults.
 const MAX_BLOB_BYTES: u64 = 50 * 1024 * 1024;
 const THUMBNAIL_CACHE_MAX_BYTES: u64 = 500 * 1024 * 1024;
 /// How often the polling watcher rescans the subject and republishes the World for SSE clients.
@@ -65,7 +65,7 @@ pub async fn single_subject_state(subject: PathBuf) -> Result<Shared, DiscoveryE
     Ok(state)
 }
 
-/// Build the combined router: ReqForge's management API (`build_router`) merged with provreq's
+/// Build the combined router: Provreq's management API (`build_router`) merged with provreq's
 /// proof API, both over the one [`AppState`]. `build_router(state, None)` adds no fallback, so
 /// provreq's embedded-SPA fallback (`static_asset`) is the single fallback on the merged router.
 pub fn router(state: Shared) -> Router {

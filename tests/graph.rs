@@ -1,4 +1,4 @@
-//! Ported from ReqForge `tests/graph.rs` (#374 batch D): the
+//! Ported from Provreq `tests/graph.rs` (#374 batch D): the
 //! `GET /api/graph` endpoint — scope + filter query parameters,
 //! error mapping, and camelCase DTO shape.
 //!

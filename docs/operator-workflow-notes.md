@@ -24,8 +24,8 @@
 >
 > **📌 SINCE SUPERSEDED on the requirements-model question (2026-08, phase-3 absorb, #313–#326).**
 > The seam design below settled on "Doorstop is adapter #1; keep it the only implementation." That
-> discipline has since been discharged: the ReqForge adapter landed (#296), and provreq **migrated
-> its own requirements off Doorstop** onto a ReqForge project at `requirements/` (#321), validated by
+> discipline has since been discharged: the provreq adapter landed (#296), and provreq **migrated
+> its own requirements off Doorstop** onto a provreq-native project at `requirements/` (#321), validated by
 > `provreq check` (#323) in place of the old `doorstop -e` gate (#326), and authored with
 > `provreq new` (#325). **Doorstop is now only an _import_ format** (`provreq migrate-doorstop`) for
 > foreign subjects like qrusty — a permanent boundary, not provreq's own store. Read the
@@ -119,12 +119,12 @@ state; coverage display; grounding no-match) are **answered** in the Steps 2–3
 
 ### The requirements source is an abstraction; Doorstop is adapter #1
 
-Doorstop is **one** requirements tool, not the model. The operator also builds
-**reqforge** (since absorbed into `crates/reqforge-model`; the standalone GitLab repo is
-retired) — a broader-scope, faster requirements
-manager (requirements + design docs + use cases + diagrams + roadmaps, one file per artifact in
-git) intended to **eventually supplant Doorstop**. reqforge already ships a Doorstop _importer_
-(`legacy.doorstopUid` on imported artifacts), so subjects migrate Doorstop → reqforge and provreq
+Doorstop is **one** requirements tool, not the model. provreq's own requirement model — a
+broader-scope, faster manager (requirements + design docs + use cases + diagrams + roadmaps, one
+file per artifact in git) intended to **eventually supplant Doorstop** — was **absorbed into
+`crates/provreq-model`** from a standalone peer repository that has since been retired (see
+[absorbing-reqforge.md](absorbing-reqforge.md)). provreq already ships a Doorstop _importer_
+(`legacy.doorstopUid` on imported artifacts), so subjects migrate Doorstop → provreq and provreq
 follows by swapping adapters — not by a rewrite. So the requirements source sits behind a seam, the
 same interface-with-one-impl move the codebase already makes for the companion store (A3), the
 engine executor (A5), and the per-language adapter (R-eng-4).
@@ -134,26 +134,26 @@ engine executor (A5), and the per-language adapter (R-eng-4).
   formalize, grounding, and verdict code key off an abstract `Item`, never off `.doorstop.yml`.
 - **R-src-2** — the abstract `Item` carries an `id`, prose text, a revision token, and optional
   metadata (title, links, a verification hint). Requirement **content is prose in every source** —
-  reqforge's artifact shapes are `Content | Blob | Url` and a `content` body is markdown prose,
+  provreq's artifact shapes are `Content | Blob | Url` and a `content` body is markdown prose,
   exactly like Doorstop's `text:`. So D11's "the item's prose _is_ the untrusted NL input" (A1)
   holds universally; there is **no "already half-formalized, skip the LLM" branch** to design. The
   tool's breadth is in artifact _types_ and UX, not in making requirement text machine-structured.
-- **R-src-3** — `id` is an **opaque stable string** the source owns (Doorstop `REQ001`; reqforge a
+- **R-src-3** — `id` is an **opaque stable string** the source owns (Doorstop `REQ001`; provreq a
   UUIDv7). `derives_from: [id, …]` (A1) already holds either. The adapter also supplies a
-  **revision token** — the source's native change signal (reqforge `modifiedAt`) when it has one,
+  **revision token** — the source's native change signal (provreq `modifiedAt`) when it has one,
   else a content-hash of the prose (Doorstop). All staleness checks use this token, deferring to the
   source's own change-tracking whenever present.
 - **R-src-4** — the companion **logical model** (keyed by source `id`, `derives_from`, provenance,
   verdict) is source-agnostic; A3's Doorstop-file-tree mirror is one _rendering_ of it. A3 already
   separated logical-model from storage-medium, so a source that is not a file tree keeps the model
   and drops the mirror. Discipline: **draw the seam now, keep Doorstop the only implementation**
-  until reqforge needs the second (the A3 "draw the interface, defer the DB" precedent; the second
+  until provreq needs the second (the A3 "draw the interface, defer the DB" precedent; the second
   consumer is real, not speculative).
-- **R-src-5** — the adapter may expose an optional **verification hint** that seeds triage: reqforge
+- **R-src-5** — the adapter may expose an optional **verification hint** that seeds triage: provreq
   carries `expects_code_trace` per artifact, its own prior for "this should be verified against
   code." `None` for Doorstop. Advisory only (see R-triage-1).
 - **R-src-6** — back-links (PRL id + latest verdict onto the item, A6) are written **through the
-  adapter**: reqforge's native typed `links`, Doorstop's `links`/custom attribute. One seam method,
+  adapter**: provreq's native typed `links`, Doorstop's `links`/custom attribute. One seam method,
   per-adapter rendering.
 
 ### Graduated trust: five honest lifecycle states
@@ -221,14 +221,14 @@ read-back and human confirm → D13 grounding dry-run → admit. Two questions w
 
 > **📌 This sequence was executed as planned and is complete.** Kept as the record of the intended
 > order; the "Shipped so far" list below it grew into the full slice history in the sections that
-> follow. The reqforge adapter — the last item this pin recorded as waiting — has since shipped
-> (#296), and provreq migrated its own requirements onto a ReqForge project (#321).
+> follow. The provreq adapter — the last item this pin recorded as waiting — has since shipped
+> (#296), and provreq migrated its own requirements onto a provreq-native project (#321).
 
 CLI-first, per the A5-B / build-order guardrail. Natural next slices, each its own issue+branch:
 draw the `RequirementsSource` seam and refactor `src/doorstop.rs` behind it (`R-src-1..4`) → a triage
 command with companion triage state (`R-triage-*`) → a `status` coverage funnel (`R-cov-1`) → the
-formalize pipeline with draft persistence (`R-draft-*`, `R-ground-*`). The reqforge adapter (the
-`R-src-*` second impl) waits until reqforge's own requirement format stabilises.
+formalize pipeline with draft persistence (`R-draft-*`, `R-ground-*`). The provreq adapter (the
+`R-src-*` second impl) waits until provreq's own requirement format stabilises.
 
 **Shipped so far:**
 

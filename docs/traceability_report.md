@@ -3,12 +3,12 @@ Traceability report
 ART001 — Three artifact shapes, one graph
   formalized: —   implemented: yes   verified: —
   verdict: never verified
-    crates/reqforge-model/src/schema/artifact.rs:18 → ArtifactShape
+    crates/provreq-model/src/schema/artifact.rs:18 → ArtifactShape
 
 ART002 — Upload support for common document formats
   formalized: —   implemented: yes   verified: —
   verdict: never verified
-    crates/reqforge-model/src/load/blob_allowlist.rs:16 → ALLOWED_BLOB_EXTENSIONS
+    crates/provreq-model/src/load/blob_allowlist.rs:16 → ALLOWED_BLOB_EXTENSIONS
     src/http/handlers.rs:1844 → create_blob_artifact
 
 ART003 — Uploaded artifacts are replace-only
@@ -20,36 +20,36 @@ ART003 — Uploaded artifacts are replace-only
 ART004 — URL-reference artifact
   formalized: —   implemented: yes   verified: —
   verdict: never verified
-    crates/reqforge-model/src/load/url.rs:10
+    crates/provreq-model/src/load/url.rs:10
     src/http/handlers.rs:2087 → create_url_artifact
 
 ART005 — URL reachability check
   formalized: —   implemented: yes   verified: —
   verdict: never verified
-    crates/reqforge-model/src/urls/check.rs:3
+    crates/provreq-model/src/urls/check.rs:3
     src/http/handlers.rs:2384 → check_url
 
 ART006 — Tiered upload preview
   formalized: —   implemented: yes   verified: —
   verdict: never verified
-    crates/reqforge-model/src/thumbnails/mod.rs:3 → cache
+    crates/provreq-model/src/thumbnails/mod.rs:3 → cache
     web/src/routes/artifact-detail/BlobArtifactView.tsx:43 → BlobArtifactView
 
 ART007 — Shape-aware diff
   formalized: —   implemented: yes   verified: —
   verdict: never verified
-    crates/reqforge-model/src/diff/mod.rs:3
+    crates/provreq-model/src/diff/mod.rs:3
     web/src/routes/artifact-detail/DiffView.tsx:16 → DiffView
 
 ART008 — First-class artifact types via collections
   formalized: —   implemented: yes   verified: —
   verdict: never verified
-    crates/reqforge-model/src/schema/collection.rs:5
+    crates/provreq-model/src/schema/collection.rs:5
 
 ART009 — Extensible artifact types
   formalized: —   implemented: yes   verified: —
   verdict: never verified
-    crates/reqforge-model/src/load/project.rs:160
+    crates/provreq-model/src/load/project.rs:160
 
 REQ001 — REQ001
   formalized: —   implemented: yes   verified: yes
@@ -104,14 +104,14 @@ REQ009 — REQ009
   formalized: —   implemented: yes   verified: yes
   verdict: never verified
     src/doorstop.rs:102 → DoorstopSource
-    src/reqforge.rs:15
+    src/provreq.rs:15
     src/source.rs:8
-    src/adopt.rs:314 → a_reqforge_subject_resolves_through_the_same_seam_as_a_doorstop_one
+    src/adopt.rs:314 → a_provreq_subject_resolves_through_the_same_seam_as_a_doorstop_one
     src/adopt.rs:334 → a_subject_without_a_collection_is_still_read_as_doorstop
     src/doorstop.rs:208 → doorstop_source_reads_prose_and_revision
-    src/reqforge.rs:295 → reads_a_reqforge_artifact_as_a_source_item
-    src/reqforge.rs:383 → the_revision_follows_the_prose_and_not_the_timestamp
-    src/reqforge.rs:452 → an_inactive_artifact_is_not_a_requirement
+    src/provreq.rs:295 → reads_a_provreq_artifact_as_a_source_item
+    src/provreq.rs:383 → the_revision_follows_the_prose_and_not_the_timestamp
+    src/provreq.rs:452 → an_inactive_artifact_is_not_a_requirement
     src/source.rs:133 → the_revision_token_is_a_pinned_digest_not_a_build_local_hash
 
 REQ010 — REQ010
@@ -196,11 +196,11 @@ REQ019 — REQ019
 REQ020 — REQ020
   formalized: —   implemented: yes   verified: yes
   verdict: never verified
-    src/reqforge.rs:16
+    src/provreq.rs:16
     src/doorstop.rs:233 → annotate_stamps_and_replaces_provreq_block
-    src/reqforge.rs:501 → annotate_appends_a_provreq_review_log_entry
-    src/reqforge.rs:531 → annotate_appends_and_does_not_replace
-    src/reqforge.rs:638 → annotate_rejects_unknown_item
+    src/provreq.rs:501 → annotate_appends_a_provreq_review_log_entry
+    src/provreq.rs:531 → annotate_appends_and_does_not_replace
+    src/provreq.rs:638 → annotate_rejects_unknown_item
 
 REQ021 — REQ021
   formalized: —   implemented: yes   verified: yes
@@ -728,7 +728,7 @@ REQ059 — REQ059
 REQ060 — REQ060
   formalized: —   implemented: —   verified: yes
   verdict: never verified
-    src/reqforge.rs:425 → a_mac_sidecar_never_becomes_a_requirement
+    src/provreq.rs:425 → a_mac_sidecar_never_becomes_a_requirement
     src/rust_adapter.rs:2110 → a_hidden_source_file_is_still_the_subjects_own
     src/rust_adapter.rs:2130 → mac_resource_files_never_become_binding_candidates
     src/subject_tree.rs:90 → prunes_build_and_vcs_directories_by_name
@@ -827,7 +827,7 @@ REQ071 — REQ071
     src/verdict_store.rs:697 → source_movement_is_code_drift
     src/verdict_store.rs:721 → a_verdict_without_a_source_fingerprint_keeps_the_commit_rule
     src/verify.rs:784 → source_fingerprint_ignores_the_records_other_axes_own
-    src/verify.rs:853 → source_fingerprint_ignores_reqforge_requirements_too
+    src/verify.rs:853 → source_fingerprint_ignores_provreq_requirements_too
     src/verify.rs:917 → a_non_repo_has_no_source_fingerprint
 
 REQ072 — REQ072
@@ -847,7 +847,7 @@ REQ073 — REQ073
   verdict: never verified
     src/migrate.rs:12
 
-REQ074 — Author a requirement into the ReqForge collection
+REQ074 — Author a requirement into the provreq collection
   formalized: —   implemented: yes   verified: yes
   verdict: never verified
     src/create.rs:11
@@ -894,9 +894,9 @@ REQ077 — On-demand traceability report
 REQ078 — Verdict breadcrumb on the requirement
   formalized: —   implemented: —   verified: yes
   verdict: never verified
-    src/reqforge.rs:569 → record_verdict_appends_a_provreq_verdict_entry
-    src/reqforge.rs:597 → record_verdict_appends_and_does_not_replace
-    src/reqforge.rs:626 → record_verdict_rejects_unknown_item
+    src/provreq.rs:569 → record_verdict_appends_a_provreq_verdict_entry
+    src/provreq.rs:597 → record_verdict_appends_and_does_not_replace
+    src/provreq.rs:626 → record_verdict_rejects_unknown_item
     src/verify.rs:898 → a_verdict_transition_is_first_or_changed_status
 
 REQ079 — Report recommends retiring a redundant asserted test
@@ -929,6 +929,6 @@ REQ083 — A source's not-expected-to-trace declaration is never laundered into 
     src/llm.rs:497 → parse_buckets
     src/llm.rs:688 → classify_declines_formalizable_now_for_a_ruled_out_item
     src/llm.rs:722 → prompt_states_the_ruled_out_declaration
-    src/reqforge.rs:351 → explicit_false_is_carried_and_seeds_no_bucket
-    src/reqforge.rs:362 → explicit_true_is_carried_and_seeds_formalizable_now
-    src/reqforge.rs:374 → absent_expects_code_trace_carries_nothing
+    src/provreq.rs:351 → explicit_false_is_carried_and_seeds_no_bucket
+    src/provreq.rs:362 → explicit_true_is_carried_and_seeds_formalizable_now
+    src/provreq.rs:374 → absent_expects_code_trace_carries_nothing

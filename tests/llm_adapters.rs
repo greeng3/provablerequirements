@@ -1,4 +1,4 @@
-//! Ported from ReqForge `tests/llm_adapters.rs` (#374 batch E): the
+//! Ported from Provreq `tests/llm_adapters.rs` (#374 batch E): the
 //! LLM adapter layer.
 //!
 //! Each test stands up a `wiremock::MockServer` for each adapter
@@ -27,11 +27,11 @@ use axum::body::{Body, to_bytes};
 use axum::http::{Request, StatusCode};
 use provreq::app::AppState;
 use provreq::http::build_router;
-use reqforge_model::index::UuidIndex;
-use reqforge_model::schema::SystemConfig;
-use reqforge_model::system::LoadedSystem;
-use reqforge_model::world::{DiscoveryConfig, World};
-use reqforge_model::write::OwnershipOverrides;
+use provreq_model::index::UuidIndex;
+use provreq_model::schema::SystemConfig;
+use provreq_model::system::LoadedSystem;
+use provreq_model::world::{DiscoveryConfig, World};
+use provreq_model::write::OwnershipOverrides;
 use serde_json::{Value, json};
 use tower::util::ServiceExt;
 use wiremock::matchers::{method, path, path_regex};
@@ -62,8 +62,8 @@ async fn app_with_llm(llm: Value) -> (Router, Arc<AppState>) {
             source_path: PathBuf::from("/fake/system.json"),
         },
         missing_project_slugs: Vec::new(),
-        link_catalog: reqforge_model::links::builtin_catalog().to_vec(),
-        search_index: reqforge_model::search::empty_index(),
+        link_catalog: provreq_model::links::builtin_catalog().to_vec(),
+        search_index: provreq_model::search::empty_index(),
     };
     let state = Arc::new(AppState::new(
         DiscoveryConfig {

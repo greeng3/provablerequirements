@@ -1,4 +1,4 @@
-//! Ported from ReqForge `tests/search.rs` (#374 batch D): the
+//! Ported from Provreq `tests/search.rs` (#374 batch D): the
 //! `GET /api/search` endpoint — Tantivy text queries, field-scoped
 //! and boolean queries, structured filters, pagination, snippets,
 //! and error mapping.

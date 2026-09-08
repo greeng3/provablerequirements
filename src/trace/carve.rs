@@ -1,7 +1,7 @@
 //! Comment carver — extracts every comment run from a source file per a language's comment
-//! grammar, so the tag parser only ever sees comment text. Absorbed from ReqForge's
+//! grammar, so the tag parser only ever sees comment text. Absorbed from Provreq's
 //! `scan/walker.rs::extract_comment_runs` (and its line/offset helpers), adapted to the
-//! static [`Language`] table. Like ReqForge's, it does not tokenise string literals, so a
+//! static [`Language`] table. Like Provreq's, it does not tokenise string literals, so a
 //! `//`-like sequence inside a string is treated as a comment — tags never appear there and
 //! a full per-language tokenizer is not worth the one edge case.
 //!

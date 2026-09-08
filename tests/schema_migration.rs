@@ -1,12 +1,12 @@
 //! Schema-migration surface integration tests (Phase 11a), ported
-//! from ReqForge `tests/schema_migration.rs` for #374 batch F and
+//! from Provreq `tests/schema_migration.rs` for #374 batch F and
 //! adapted to provreq's single-subject model.
 //!
-//! ReqForge seeded its project under `prefix/sample` and drove
+//! Provreq seeded its project under `prefix/sample` and drove
 //! multi-project discovery; provreq serves exactly one repository
 //! (#370), so these boot through the shared single-subject harness in
 //! `tests/support/mod.rs` (`new_single_subject` + `refresh()`). The
-//! harness has already written git + `reqforge.json` + an empty
+//! harness has already written git + `provreq.json` + an empty
 //! `artifacts/` at the subject root, so the seed closure only adds the
 //! collection + artifacts.
 //!

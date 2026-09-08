@@ -2686,7 +2686,7 @@ dependencies = [
  "infer",
  "mime_guess",
  "proc-macro2",
- "reqforge-model",
+ "provreq-model",
  "reqwest",
  "rust-embed",
  "serde",
@@ -2719,6 +2719,29 @@ dependencies = [
  "tracing-subscriber",
  "url",
  "wiremock",
+]
+
+[[package]]
+name = "provreq-model"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "csv",
+ "dashmap",
+ "gix",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "sha2",
+ "similar",
+ "tantivy",
+ "tempfile",
+ "thiserror 2.0.18",
+ "tokio",
+ "tracing",
+ "url",
+ "uuid",
 ]
 
 [[package]]
@@ -2916,29 +2939,6 @@ name = "regex-syntax"
 version = "0.8.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d6f6ff9a378485b298a5286656da665ba74413d36db0979633275d2e708145d4"
-
-[[package]]
-name = "reqforge-model"
-version = "0.1.0"
-dependencies = [
- "chrono",
- "csv",
- "dashmap",
- "gix",
- "reqwest",
- "serde",
- "serde_json",
- "serde_yaml",
- "sha2",
- "similar",
- "tantivy",
- "tempfile",
- "thiserror 2.0.18",
- "tokio",
- "tracing",
- "url",
- "uuid",
-]
 
 [[package]]
 name = "reqwest"

@@ -198,7 +198,7 @@ fn finish(
     // The prior stored status, read before the record overwrites it, is what makes the artifact
     // breadcrumb (below) an event and not a per-run trace.
     let prior_status = store.verdicts.get(&report.id).map(|v| v.status.clone());
-    let breadcrumb = crate::reqforge::VerdictBreadcrumb {
+    let breadcrumb = crate::provreq::VerdictBreadcrumb {
         status: report.status.clone(),
         basis: report.basis.clone(),
         correspondence: report.correspondence.clone(),
@@ -223,24 +223,24 @@ fn is_verdict_transition(prior_status: Option<&str>, new_status: &str) -> bool {
     prior_status != Some(new_status)
 }
 
-/// Append a `provreq-verdict` breadcrumb to the requirement's ReqForge artifact on a status
-/// transition (Phase 4e, REQ078). ReqForge-only: a Doorstop subject has no review log to write to,
+/// Append a `provreq-verdict` breadcrumb to the requirement's Provreq artifact on a status
+/// transition (Phase 4e, REQ078). Provreq-only: a Doorstop subject has no review log to write to,
 /// so this is a no-op there and the verdict stays recorded in `verdicts.yml` regardless. The verdict
 /// is already persisted when this runs, so a write failure surfaces without losing the verdict.
 fn record_verdict_breadcrumb(
     subject: &Path,
     id: &str,
     prior_status: Option<&str>,
-    breadcrumb: &crate::reqforge::VerdictBreadcrumb,
+    breadcrumb: &crate::provreq::VerdictBreadcrumb,
 ) -> Result<()> {
     if !is_verdict_transition(prior_status, &breadcrumb.status) {
         return Ok(());
     }
     let req_root = crate::adopt::requirements_root(subject);
-    if crate::reqforge::discover(&req_root).is_empty() {
+    if crate::provreq::discover(&req_root).is_empty() {
         return Ok(());
     }
-    crate::reqforge::ReqforgeSource::new(req_root).record_verdict(id, breadcrumb)
+    crate::provreq::ProvreqSource::new(req_root).record_verdict(id, breadcrumb)
 }
 
 /// The asserted evidence a resolved `Verifies:` tag yields for requirement `id`: scan the subject
@@ -690,7 +690,7 @@ pub fn subject_source_fingerprint(subject: &Path) -> Option<String> {
     // the exclusion follows the requirements rather than one storage layout. Asked of both sources
     // rather than of the resolved one: a subject part-way through a migration holds both, and a
     // requirement left out of this list stales every verdict the moment it is edited (#296).
-    for dir in crate::reqforge::discover(subject) {
+    for dir in crate::provreq::discover(subject) {
         if let Ok(rel) = dir.strip_prefix(subject) {
             excluded.push(rel.to_path_buf());
         }
@@ -850,20 +850,20 @@ mod tests {
         );
     }
 
-    // Verifies: REQ071 / #296 — the same exemption, for a subject storing requirements as ReqForge
+    // Verifies: REQ071 / #296 — the same exemption, for a subject storing requirements as Provreq
     // artifacts. Found by the phase-1 spike: the exclusion list knew only about Doorstop documents,
-    // so editing a requirement in a ReqForge subject moved the *code*-drift fingerprint and staled
+    // so editing a requirement in a Provreq subject moved the *code*-drift fingerprint and staled
     // every stored verdict — which is exactly the failure #271 fixed for Doorstop. The requirement
     // axis owns requirement prose whatever format it is written in.
     #[test]
-    fn source_fingerprint_ignores_reqforge_requirements_too() {
+    fn source_fingerprint_ignores_provreq_requirements_too() {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path();
         let coll = root.join("artifacts/req");
         std::fs::create_dir_all(&coll).unwrap();
         let fixture = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("tests/fixtures/reqforge-subject/artifacts/req");
-        for name in [crate::reqforge::COLLECTION_FILE, "REQ-queueIsDrained.md"] {
+            .join("tests/fixtures/provreq-subject/artifacts/req");
+        for name in [crate::provreq::COLLECTION_FILE, "REQ-queueIsDrained.md"] {
             std::fs::copy(fixture.join(name), coll.join(name)).unwrap();
         }
         std::fs::write(root.join("lib.rs"), "fn a() {}\n").unwrap();

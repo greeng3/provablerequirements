@@ -1,4 +1,4 @@
-//! Ported from ReqForge `tests/suggestions_links.rs` (#374 batches
+//! Ported from Provreq `tests/suggestions_links.rs` (#374 batches
 //! C + E): the LLM-assisted link-suggestion HTTP surface (analyze /
 //! list / accept / reject / reinstate).
 //!
@@ -23,8 +23,8 @@ use axum::body::{Body, to_bytes};
 use axum::http::{Request, StatusCode};
 use provreq::app::AppState;
 use provreq::http::build_router;
-use reqforge_model::world::DiscoveryConfig;
-use reqforge_model::write::OwnershipOverrides;
+use provreq_model::world::DiscoveryConfig;
+use provreq_model::write::OwnershipOverrides;
 use serde_json::{Value, json};
 use support::{SUBJECT_SLUG, build_app, get_json, write_artifact, write_collection, write_project};
 use tower::util::ServiceExt;

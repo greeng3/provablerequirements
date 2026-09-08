@@ -1,12 +1,12 @@
 //! Sample-content endpoint integration tests (Phase 11b), ported
-//! from ReqForge `tests/sample_content.rs` for #374 batch F and
+//! from Provreq `tests/sample_content.rs` for #374 batch F and
 //! adapted to provreq's single-subject model.
 //!
-//! ReqForge seeded its project under `prefix/sample` and drove
+//! Provreq seeded its project under `prefix/sample` and drove
 //! multi-project discovery; provreq serves exactly one repository
 //! (#370), so these boot through the shared single-subject harness in
 //! `tests/support/mod.rs`. The harness already writes git +
-//! `reqforge.json` + an empty `artifacts/`, so the seed closure is
+//! `provreq.json` + an empty `artifacts/`, so the seed closure is
 //! empty and the sample-content handler operates on a clean subject.
 //!
 //! Dropped tests: none — every case is single-subject.

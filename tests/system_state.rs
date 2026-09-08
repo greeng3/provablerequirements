@@ -1,7 +1,7 @@
-//! Ported from ReqForge `tests/system_state.rs` (#374), adapted to
+//! Ported from Provreq `tests/system_state.rs` (#374), adapted to
 //! provreq's single-subject model.
 //!
-//! ReqForge drove the `UX-systemConfigBanner` permutations with
+//! Provreq drove the `UX-systemConfigBanner` permutations with
 //! multiple mounts and a named/unnamed System config. provreq serves
 //! exactly one project and no multi-project System, so `/api/system`
 //! reports `loaded: false, projectCount: 1`. The multi-project and

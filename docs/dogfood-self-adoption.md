@@ -2,7 +2,7 @@
 
 > **📌 Historical record — superseded on storage (2026-08, phase-3 absorb).** This captures the first
 > self-adoption, when provreq's requirements were a Doorstop tree at `requirements-doorstop/` (then 51
-> items). They have since migrated to a ReqForge project at `requirements/` (#321), validated by
+> items). They have since migrated to a provreq-native project at `requirements/` (#321), validated by
 > `provreq check` (#326); `requirements-doorstop/` is gone. The run below still shows how adoption and
 > the triage funnel behave — only the on-disk store changed.
 

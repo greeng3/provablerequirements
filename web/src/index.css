@@ -1,7 +1,7 @@
 @import "tailwindcss";
 @plugin "@tailwindcss/typography";
 
-/* Theme tokens. ReqForge's UI reads at comfortable widths with a
+/* Theme tokens. Provreq's UI reads at comfortable widths with a
    neutral palette; per UX-modernUi this is a deliberate design
    focus, not a stock Tailwind default. */
 @theme {

@@ -188,10 +188,10 @@ mostly measurement rather than new engines.
   `REQ001`. **Decided: infer the shape, and convert where conversion is genuinely needed.**
 - **B5 — the requirement model itself, beyond importing from Doorstop.** 100 of 108 items link to
   a parent, and provreq has never consumed Doorstop links because its own tree is flat.
-  **This is bigger than an import feature.** A peer repository, **reqforge**, holds a previous
-  attempt at improving on Doorstop. **Decided: absorb what is valuable in reqforge into provreq,
-  then retire reqforge.** That is a design conversation about provreq's own requirement model, and
-  it needs its own issue, branch, and a mount alongside qrusty.
+  **This is bigger than an import feature.** A peer repository held a previous attempt at
+  improving on Doorstop. **Its valuable parts have since been absorbed into provreq
+  (`crates/provreq-model`) and it has been retired** — see
+  [absorbing-reqforge.md](absorbing-reqforge.md). That reshaped provreq's own requirement model.
 - **B6 — per-document reporting and the UI at 108 items.** Coverage is reported today over one
   flat document of about 70 items.
 

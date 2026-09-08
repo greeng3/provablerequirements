@@ -184,25 +184,25 @@ enum Command {
         #[arg(long, requires = "draft_semantic")]
         repair: bool,
     },
-    /// Convert a Doorstop requirements tree into a ReqForge project (#317). Reads `source` only and
-    /// writes a `reqforge.json` + an `artifacts/` collection under `target`, which
-    /// `provreq` then reads through the ReqForge adapter. Ids are preserved verbatim, so a subject's
+    /// Convert a Doorstop requirements tree into a Provreq project (#317). Reads `source` only and
+    /// writes a `provreq.json` + an `artifacts/` collection under `target`, which
+    /// `provreq` then reads through the Provreq adapter. Ids are preserved verbatim, so a subject's
     /// verdicts, drafts, and code references keep pointing at the same items.
     MigrateDoorstop {
         /// The Doorstop tree to read (the directory holding the `.doorstop.yml` documents).
         source: PathBuf,
-        /// Where to write the ReqForge project (created if absent). Must not already hold the
+        /// Where to write the Provreq project (created if absent). Must not already hold the
         /// collection prefixes being imported.
         #[arg(long)]
         target: PathBuf,
-        /// Project slug for `reqforge.json`.
+        /// Project slug for `provreq.json`.
         #[arg(long)]
         slug: String,
-        /// Human-readable project name for `reqforge.json`.
+        /// Human-readable project name for `provreq.json`.
         #[arg(long)]
         name: String,
     },
-    /// Validate the subject's ReqForge requirements project (#323) — the analogue of `doorstop -e`.
+    /// Validate the subject's Provreq requirements project (#323) — the analogue of `doorstop -e`.
     /// Every artifact must load, collection configs must be present and valid, and no two artifacts
     /// may share a uuid. Exits non-zero, reporting each problem, if the project does not validate.
     Check {
@@ -210,7 +210,7 @@ enum Command {
         #[arg(default_value = ".")]
         path: PathBuf,
     },
-    /// Author a new requirement into the subject's ReqForge collection (#325). The artifact arrives
+    /// Author a new requirement into the subject's Provreq collection (#325). The artifact arrives
     /// unreviewed — authored prose passes through the review workflow like any other.
     New {
         /// Requirement id — the artifact's filename stem and the id provreq reads (e.g. REQ074).
@@ -882,7 +882,7 @@ fn writeback_candidate(subject: &Path, state: &draft::DraftState, item: &Item) -
         reviewed_at_unix: *at_unix,
         source_revision: draft.revision.clone(),
     };
-    // Through the seam, not the Doorstop adapter directly: a ReqForge-sourced subject must get
+    // Through the seam, not the Doorstop adapter directly: a Provreq-sourced subject must get
     // that adapter's honest refusal rather than a Doorstop lookup failing for a file that was never
     // going to be there (#296).
     provreq::adopt::source_for(&provreq::adopt::requirements_root(subject))

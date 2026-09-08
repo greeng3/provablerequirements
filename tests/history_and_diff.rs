@@ -1,16 +1,16 @@
 //! Git history/diff endpoint integration tests (Phase 5d:
 //! `/artifacts/:uuid/history`, `/artifact?at=<oid>`,
-//! `/artifact/:uuid/diff`), ported from ReqForge
+//! `/artifact/:uuid/diff`), ported from Provreq
 //! `tests/history_and_diff.rs` for #374 batch F and adapted to
 //! provreq's single-subject model.
 //!
-//! ReqForge seeded its project under `prefix/sample` and drove
+//! Provreq seeded its project under `prefix/sample` and drove
 //! multi-project discovery; provreq serves exactly one repository
 //! (#370), so these boot through the shared single-subject harness in
 //! `tests/support/mod.rs`. In these tempdir tests the subject is an
-//! external git repo — `.git` + `reqforge.json` share a root — so
+//! external git repo — `.git` + `provreq.json` share a root — so
 //! `classify_single` yields `project_root == git_root`, matching
-//! ReqForge's original single-dir classification. The git-repo setup
+//! Provreq's original single-dir classification. The git-repo setup
 //! (init + three commits) runs verbatim inside the seed closure so
 //! the commits are on disk before `refresh()` runs discovery.
 //!
@@ -45,7 +45,7 @@ fn build_project_with_history(root: &Path) {
     fs::create_dir_all(root.join("artifacts/REQ")).unwrap();
     fs::create_dir_all(root.join("artifacts/DES")).unwrap();
     fs::write(
-        root.join("reqforge.json"),
+        root.join("provreq.json"),
         serde_json::json!({
             "schemaVersion": 1,
             "slug": "sample",

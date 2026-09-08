@@ -11,7 +11,7 @@
 MARKDOWNLINT := markdownlint-cli2
 PRETTIER     := prettier
 YAMLLINT     := yamllint
-# provreq validates its own requirements now that they live in a ReqForge project (#321): every
+# provreq validates its own requirements now that they live in a Provreq project (#321): every
 # artifact loads, collection configs are valid, and no two artifacts share a uuid. Promotes soft
 # diagnostics to errors, the way `doorstop -e` did — a project that loads with warnings is not
 # validated.

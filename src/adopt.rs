@@ -231,20 +231,20 @@ fn read_subject_requirements(companion_root: &Path) -> Option<String> {
 /// Which [`RequirementsSource`] a subject keeps its requirements in — the one place provreq decides
 /// that, so every caller reaches requirements the same way (R-src-1).
 ///
-/// Detected from the tree rather than configured. A ReqForge collection announces itself with a
-/// [`crate::reqforge::COLLECTION_FILE`], and a subject holding one is read that way; everything
+/// Detected from the tree rather than configured. A Provreq collection announces itself with a
+/// [`crate::provreq::COLLECTION_FILE`], and a subject holding one is read that way; everything
 /// else is Doorstop, which stays the default because it is what foreign subjects like qrusty have
 /// and will keep having — the importer is a permanent boundary, not scaffolding.
 ///
-/// This function is the whole of what phase 1 of the ReqForge absorb had to change outside the new
+/// This function is the whole of what phase 1 of the Provreq absorb had to change outside the new
 /// adapter (#296). That is the claim the spike was built to test: the substrate is reachable
 /// through one decision, and the engines, refusal classifications, mirror channel, and verdict
 /// model never learn which side of it a requirement came from.
 pub fn source_for(subject: &Path) -> Box<dyn RequirementsSource> {
-    if crate::reqforge::discover(subject).is_empty() {
+    if crate::provreq::discover(subject).is_empty() {
         Box::new(DoorstopSource::new(subject))
     } else {
-        Box::new(crate::reqforge::ReqforgeSource::new(subject))
+        Box::new(crate::provreq::ProvreqSource::new(subject))
     }
 }
 
@@ -252,15 +252,15 @@ pub fn source_for(subject: &Path) -> Box<dyn RequirementsSource> {
 mod tests {
     use super::*;
 
-    /// A subject holding ReqForge artifacts and an adopted companion — the shape `resolve` meets
+    /// A subject holding Provreq artifacts and an adopted companion — the shape `resolve` meets
     /// once a subject has moved off Doorstop.
-    fn reqforge_subject() -> tempfile::TempDir {
+    fn provreq_subject() -> tempfile::TempDir {
         let tmp = tempfile::tempdir().unwrap();
         let fixture = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("tests/fixtures/reqforge-subject/artifacts/req");
+            .join("tests/fixtures/provreq-subject/artifacts/req");
         let dir = tmp.path().join("artifacts/req");
         std::fs::create_dir_all(&dir).unwrap();
-        for name in [crate::reqforge::COLLECTION_FILE, "REQ-queueIsDrained.md"] {
+        for name in [crate::provreq::COLLECTION_FILE, "REQ-queueIsDrained.md"] {
             std::fs::copy(fixture.join(name), dir.join(name)).unwrap();
         }
         let companion = tmp.path().join("ProvableRequirements");
@@ -272,7 +272,7 @@ mod tests {
     // Verifies: #319 — discovery is scoped to the requirements root the companion manifest declares
     // (`subject_requirements`), so a stray collection marker elsewhere in the subject cannot hijack
     // it. This is the fixture-in-tree bug: before the fix, `source_for` walked the whole subject and
-    // read the committed ReqForge test fixture as provreq's sole requirement.
+    // read the committed Provreq test fixture as provreq's sole requirement.
     #[test]
     fn discovery_is_scoped_to_the_declared_requirements_root() {
         let tmp = tempfile::tempdir().unwrap();
@@ -284,12 +284,12 @@ mod tests {
         std::fs::write(reqs.join(".doorstop.yml"), "settings:\n  prefix: REQ\n").unwrap();
         std::fs::write(reqs.join("REQ001.yml"), "text: the real one\n").unwrap();
 
-        // A stray ReqForge collection elsewhere in the tree — the shape of a committed fixture.
+        // A stray Provreq collection elsewhere in the tree — the shape of a committed fixture.
         let stray = subject.join("tests/fixtures/x/artifacts/req");
         std::fs::create_dir_all(&stray).unwrap();
         let fixture = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("tests/fixtures/reqforge-subject/artifacts/req");
-        for name in [crate::reqforge::COLLECTION_FILE, "REQ-queueIsDrained.md"] {
+            .join("tests/fixtures/provreq-subject/artifacts/req");
+        for name in [crate::provreq::COLLECTION_FILE, "REQ-queueIsDrained.md"] {
             std::fs::copy(fixture.join(name), stray.join(name)).unwrap();
         }
 
@@ -311,15 +311,15 @@ mod tests {
         );
     }
 
-    // Verifies: REQ009 / #296 — THE SPIKE. A requirement stored as a ReqForge artifact reaches the
+    // Verifies: REQ009 / #296 — THE SPIKE. A requirement stored as a Provreq artifact reaches the
     // rest of provreq through `resolve`, the one call both the CLI and the `serve` backend use, and
     // arrives as the same `Item` a Doorstop subject yields. What this had to change outside the new
     // adapter is `source_for` and nothing else: no engine adapter, no refusal classification, no
     // mirror-channel code, no verdict type. That is the claim the absorb rests on, and the spike
     // existed to falsify it rather than to confirm it.
     #[test]
-    fn a_reqforge_subject_resolves_through_the_same_seam_as_a_doorstop_one() {
-        let tmp = reqforge_subject();
+    fn a_provreq_subject_resolves_through_the_same_seam_as_a_doorstop_one() {
+        let tmp = provreq_subject();
         let (companion, items) = resolve(tmp.path()).unwrap();
 
         assert_eq!(companion, tmp.path().join("ProvableRequirements"));
@@ -332,7 +332,7 @@ mod tests {
     }
 
     // Verifies: REQ009 / #296 — Doorstop stays the default, because a foreign subject that never
-    // heard of ReqForge must keep working. Detection is by what the tree holds, not configuration.
+    // heard of Provreq must keep working. Detection is by what the tree holds, not configuration.
     #[test]
     fn a_subject_without_a_collection_is_still_read_as_doorstop() {
         let tmp = tempfile::tempdir().unwrap();

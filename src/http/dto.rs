@@ -1,17 +1,17 @@
 //! JSON response types for the read-only HTTP API.
 //!
-//! These are distinct from the on-disk schema types in `reqforge_model::schema`
+//! These are distinct from the on-disk schema types in `provreq_model::schema`
 //! so the wire format can evolve independently of the file format.
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use reqforge_model::links::{LinkType, LinkTypeSource};
-use reqforge_model::load::{LoadedArtifact, LoadedCollection, LoadedProject};
-use reqforge_model::mount::{MountInfo, MountState};
-use reqforge_model::reviews::{DerivedReviewState, OpenTodo, ReviewState, derive_review_state};
-use reqforge_model::schema::{ArtifactShape, Link, LinkHint, ReviewLogEntry};
+use provreq_model::links::{LinkType, LinkTypeSource};
+use provreq_model::load::{LoadedArtifact, LoadedCollection, LoadedProject};
+use provreq_model::mount::{MountInfo, MountState};
+use provreq_model::reviews::{DerivedReviewState, OpenTodo, ReviewState, derive_review_state};
+use provreq_model::schema::{ArtifactShape, Link, LinkHint, ReviewLogEntry};
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -62,7 +62,7 @@ pub struct ProjectDetail {
     pub artifacts_path: String,
     pub collections: Vec<CollectionSummary>,
     /// Phase 11a: files inside this project whose `schemaVersion`
-    /// is newer than this build of ReqForge knows how to read.
+    /// is newer than this build of Provreq knows how to read.
     /// The frontend shows a banner prompting an upgrade. Omitted
     /// from the wire when empty so v1-clean projects don't see a
     /// new field.
@@ -74,7 +74,7 @@ pub struct ProjectDetail {
 #[serde(rename_all = "camelCase")]
 pub struct SchemaDiagnostic {
     pub path: String,
-    pub file_type: reqforge_model::schema_migration::FileType,
+    pub file_type: provreq_model::schema_migration::FileType,
     pub found_version: u32,
     pub current_version: u32,
 }
@@ -85,7 +85,7 @@ impl From<&LoadedProject> for ProjectDetail {
             .diagnostics
             .iter()
             .filter_map(|d| match d {
-                reqforge_model::load::LoadDiagnostic::SchemaTooNew {
+                provreq_model::load::LoadDiagnostic::SchemaTooNew {
                     path,
                     file_type,
                     found_version,
@@ -375,7 +375,7 @@ fn resolve_link(link: &Link, world: &crate::app::World) -> LinkView {
 }
 
 fn target_summary_for(
-    location: &reqforge_model::index::ArtifactLocation,
+    location: &provreq_model::index::ArtifactLocation,
     world: &crate::app::World,
 ) -> Option<LinkTargetSummary> {
     for mount in &world.mounts {
@@ -492,7 +492,7 @@ pub struct CreateCollectionRequest {
 
 /// Request body for POST /api/mounts/:dirName/init — converts a
 /// NeedsInit mount into a fully-loaded Project by writing a
-/// `reqforge.json` at the mount root.
+/// `provreq.json` at the mount root.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct InitProjectRequest {
@@ -501,7 +501,7 @@ pub struct InitProjectRequest {
     #[serde(default)]
     pub description: Option<String>,
     /// Optional override for the Collections-root path. When unset,
-    /// ReqForge uses the default `artifacts/` (per
+    /// Provreq uses the default `artifacts/` (per
     /// FORMAT-collectionsRootPath).
     #[serde(default)]
     pub artifacts_path: Option<String>,
@@ -734,8 +734,8 @@ pub struct AddedTodoRequest {
 impl ReviewActionBody {
     /// Convert the wire-side tagged enum into the validator-facing
     /// input shape.
-    pub fn into_action_input(self) -> reqforge_model::reviews::ReviewAction {
-        use reqforge_model::reviews::{AddedTodoInput, ReviewAction};
+    pub fn into_action_input(self) -> provreq_model::reviews::ReviewAction {
+        use provreq_model::reviews::{AddedTodoInput, ReviewAction};
         match self {
             Self::Approve => ReviewAction::Approve,
             Self::RejectWithTodo { todo } => ReviewAction::RejectWithTodo(AddedTodoInput {
@@ -882,7 +882,7 @@ pub struct LinkWriteRequest {
     pub hint: Option<LinkHint>,
 }
 
-impl From<LinkWriteRequest> for reqforge_model::links::LinkWriteInput {
+impl From<LinkWriteRequest> for provreq_model::links::LinkWriteInput {
     fn from(req: LinkWriteRequest) -> Self {
         Self {
             target_uuid: req.target_uuid,
@@ -912,7 +912,7 @@ where
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ArtifactHistoryResponse {
-    pub commits: Vec<reqforge_model::git_history::CommitInfo>,
+    pub commits: Vec<provreq_model::git_history::CommitInfo>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub fallback_reason: Option<String>,
 }
@@ -947,7 +947,7 @@ pub struct ArtifactDiffResponse {
     pub shape: ArtifactShape,
     pub from_label: String,
     pub to_label: String,
-    pub diff: reqforge_model::diff::ShapeDiff,
+    pub diff: provreq_model::diff::ShapeDiff,
     /// Present when the server had to fall back to the approval
     /// snapshot because history couldn't resolve a commit — the
     /// banner wording is defined in the Phase 5 locked decision.
@@ -975,7 +975,7 @@ pub struct LlmProviderEntry {
     /// Mirrors `ProviderConfig.is_enabled()` so the UI can show
     /// the toggle state without re-reading the System config.
     pub enabled: bool,
-    pub health: reqforge_model::llm::HealthState,
+    pub health: provreq_model::llm::HealthState,
 }
 
 #[derive(Debug, Serialize)]
@@ -990,7 +990,7 @@ pub struct LlmRetestResponse {
     pub ok: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
-    pub health: reqforge_model::llm::HealthState,
+    pub health: provreq_model::llm::HealthState,
 }
 
 #[derive(Debug, Serialize)]
@@ -1022,7 +1022,7 @@ pub struct LlmPromptResponse {
     pub served_by: String,
     pub text: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub usage: Option<reqforge_model::llm::PromptUsage>,
+    pub usage: Option<provreq_model::llm::PromptUsage>,
 }
 
 // ---------------------------------------------------------------------------
@@ -1045,7 +1045,7 @@ pub struct RenameSuggestionsRequest {
 pub enum RenameSuggestionsResponse {
     /// The happy path — chain ran, produced suggestions.
     Ok {
-        suggestions: Vec<reqforge_model::rename_suggest::Suggestion>,
+        suggestions: Vec<provreq_model::rename_suggest::Suggestion>,
         served_by_index: usize,
         served_by: String,
     },
@@ -1084,7 +1084,7 @@ pub struct BulkRenameSuggestionsResponse {
 pub enum BulkRenameSuggestionEntry {
     Ok {
         uuid: Uuid,
-        suggestions: Vec<reqforge_model::rename_suggest::Suggestion>,
+        suggestions: Vec<provreq_model::rename_suggest::Suggestion>,
         served_by_index: usize,
         served_by: String,
     },
@@ -1117,7 +1117,7 @@ pub struct MigrateSchemaRequest {
 #[serde(rename_all = "camelCase")]
 pub struct MigrateSchemaResponse {
     pub project_slug: String,
-    pub result: reqforge_model::schema_migration::bulk::BulkMigrateResult,
+    pub result: provreq_model::schema_migration::bulk::BulkMigrateResult,
 }
 
 // ---------------------------------------------------------------------------
@@ -1157,7 +1157,7 @@ pub struct SampleContentCollectionSummary {
 pub struct SystemStateResponse {
     /// Whether a `SystemConfig` was successfully loaded this
     /// process lifetime. `false` for the unnamed-System case
-    /// (no `REQFORGE_SYSTEM_CONFIG` env var, missing file, etc).
+    /// (no `PROVREQ_SYSTEM_CONFIG` env var, missing file, etc).
     pub loaded: bool,
     /// `Some(name)` when `loaded == true` — the System's human
     /// display name. Omitted from the wire when absent so the UI
@@ -1183,7 +1183,7 @@ pub struct SystemStateResponse {
 )]
 pub enum AnalyzeSuggestionsResponse {
     Ok {
-        suggestions: Vec<reqforge_model::suggestions::Suggestion>,
+        suggestions: Vec<provreq_model::suggestions::Suggestion>,
         served_by_index: usize,
         served_by: String,
     },
@@ -1200,13 +1200,13 @@ pub enum AnalyzeSuggestionsResponse {
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ListSuggestionsResponse {
-    pub suggestions: Vec<reqforge_model::suggestions::Suggestion>,
+    pub suggestions: Vec<provreq_model::suggestions::Suggestion>,
 }
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ListDeclinedSuggestionsResponse {
-    pub declined: Vec<reqforge_model::suggestions::DeclineRecord>,
+    pub declined: Vec<provreq_model::suggestions::DeclineRecord>,
 }
 
 // ---------------------------------------------------------------------------

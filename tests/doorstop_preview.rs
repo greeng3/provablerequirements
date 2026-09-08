@@ -1,13 +1,13 @@
 //! Doorstop preview endpoint integration tests (Phase 8.1
 //! `POST /api/projects/:slug/doorstop/preview`), ported from
-//! ReqForge `tests/doorstop_preview.rs` for #374 batch F and adapted
+//! Provreq `tests/doorstop_preview.rs` for #374 batch F and adapted
 //! to provreq's single-subject model.
 //!
-//! ReqForge seeded its project under `prefix/sample` and drove
+//! Provreq seeded its project under `prefix/sample` and drove
 //! multi-project discovery; provreq serves exactly one repository
 //! (#370), so these boot through the shared single-subject harness in
 //! `tests/support/mod.rs`. The harness has already written git +
-//! `reqforge.json` + an empty `artifacts/` at the subject root, so
+//! `provreq.json` + an empty `artifacts/` at the subject root, so
 //! each file-local fixture writes only the doorstop source tree (and,
 //! for the collision fixture, the pre-existing collection).
 //!
@@ -83,7 +83,7 @@ fn fixture_clean(root: &Path) {
     );
 }
 
-/// Seed a pre-existing ReqForge REQ collection (should produce a
+/// Seed a pre-existing Provreq REQ collection (should produce a
 /// prefix collision on import) alongside a REQ doorstop source.
 fn fixture_with_existing_req_collection(root: &Path) {
     let existing = root.join("artifacts/requirements");

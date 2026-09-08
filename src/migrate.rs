@@ -1,28 +1,28 @@
-//! Convert a Doorstop requirements tree into a ReqForge project, via the absorbed importer.
+//! Convert a Doorstop requirements tree into a Provreq project, via the absorbed importer.
 //!
-//! This wires ReqForge's own importer — `parse::discover` → `build_plan` → `execute` — into a
-//! provreq action. It writes a ReqForge project (`reqforge.json` marker plus an `artifacts/`
-//! collection of `{id}.md` files) that `crate::reqforge::ReqforgeSource` reads back as the same
+//! This wires Provreq's own importer — `parse::discover` → `build_plan` → `execute` — into a
+//! provreq action. It writes a Provreq project (`provreq.json` marker plus an `artifacts/`
+//! collection of `{id}.md` files) that `crate::provreq::ProvreqSource` reads back as the same
 //! requirement items the Doorstop tree yielded. Since the importer now preserves the source uid
 //! verbatim (#315), the ids don't move, so a subject migrated this way keeps every id its verdicts,
 //! drafts, and code references are keyed on.
 //!
 //! The source tree is only read; the whole write lands under `target`.
 //!
-//! Implements: REQ073 (convert a Doorstop tree into a ReqForge project; #317)
+//! Implements: REQ073 (convert a Doorstop tree into a Provreq project; #317)
 
 use std::path::Path;
 
 use anyhow::{Context, Result};
 
-use reqforge_model::doorstop::{ExecuteTarget, ImportReport, build_plan, execute, parse};
-use reqforge_model::load::project::LoadedProject;
-use reqforge_model::schema::ProjectConfig;
-use reqforge_model::write::OwnershipOverrides;
+use provreq_model::doorstop::{ExecuteTarget, ImportReport, build_plan, execute, parse};
+use provreq_model::load::project::LoadedProject;
+use provreq_model::schema::ProjectConfig;
+use provreq_model::write::OwnershipOverrides;
 
-/// Convert the Doorstop tree at `source` into a ReqForge project rooted at `target`.
+/// Convert the Doorstop tree at `source` into a Provreq project rooted at `target`.
 ///
-/// `slug`/`name` identify the resulting ReqForge project. Returns the importer's report (collections
+/// `slug`/`name` identify the resulting Provreq project. Returns the importer's report (collections
 /// and artifacts written, refs classified) so a caller can show what happened.
 pub fn migrate_doorstop(
     source: &Path,
@@ -38,7 +38,7 @@ pub fn migrate_doorstop(
         slug: slug.to_string(),
         name: name.to_string(),
         description: None,
-        // Default `artifacts/` collection root — the location `ReqforgeSource` discovers by its
+        // Default `artifacts/` collection root — the location `ProvreqSource` discovers by its
         // `.collection.json` marker, so nothing else has to be told where the requirements went.
         artifacts_path: None,
         scan_paths: None,
@@ -68,16 +68,16 @@ pub fn migrate_doorstop(
         // reconcile would otherwise do against the fresh (git-less) target root.
         ownership_overrides(source),
     )
-    .context("writing the ReqForge project")?;
+    .context("writing the Provreq project")?;
     Ok(report)
 }
 
-/// Write the `reqforge.json` project marker at the project root, so the target is a recognisable
-/// ReqForge project and not just a loose collection.
+/// Write the `provreq.json` project marker at the project root, so the target is a recognisable
+/// Provreq project and not just a loose collection.
 fn write_project_marker(project: &LoadedProject) -> Result<()> {
-    let path = project.root.join("reqforge.json");
+    let path = project.root.join("provreq.json");
     let mut bytes =
-        serde_json::to_vec_pretty(&project.config).context("serializing reqforge.json")?;
+        serde_json::to_vec_pretty(&project.config).context("serializing provreq.json")?;
     bytes.push(b'\n');
     std::fs::write(&path, &bytes).with_context(|| format!("writing {}", path.display()))
 }
@@ -104,7 +104,7 @@ fn ownership_overrides(_reference: &Path) -> OwnershipOverrides {
 mod tests {
     use super::*;
     use crate::doorstop::DoorstopSource;
-    use crate::reqforge::ReqforgeSource;
+    use crate::provreq::ProvreqSource;
     use crate::source::RequirementsSource;
 
     /// A minimal doorstop tree matching provreq's own settings (prefix `REQ`, empty sep).
@@ -122,7 +122,7 @@ mod tests {
         tmp
     }
 
-    // Verifies: #317 — a migrated doorstop tree is read back by the ReqForge adapter as the same
+    // Verifies: #317 — a migrated doorstop tree is read back by the Provreq adapter as the same
     // requirement items (ids + prose) the Doorstop adapter yielded. This is the round-trip the whole
     // self-migration rests on: if an id or a line of prose moved, every verdict and code reference
     // keyed on it would silently stale.
@@ -140,10 +140,10 @@ mod tests {
         .unwrap();
 
         // The project marker and a discoverable collection exist.
-        assert!(target.path().join("reqforge.json").is_file());
+        assert!(target.path().join("provreq.json").is_file());
 
         let before = DoorstopSource::new(src.path()).items().unwrap();
-        let after = ReqforgeSource::new(target.path()).items().unwrap();
+        let after = ProvreqSource::new(target.path()).items().unwrap();
 
         let ids_before: Vec<&str> = before.iter().map(|i| i.id.as_str()).collect();
         let ids_after: Vec<&str> = after.iter().map(|i| i.id.as_str()).collect();
