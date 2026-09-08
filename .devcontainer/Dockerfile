@@ -309,3 +309,27 @@ RUN apt-get update \
     # it. Outside a Creusot project it exits non-zero with "creusot-std not found in dependencies",
     # which is a perfectly good liveness signal — what must NOT appear is a loader error.
     && ! cargo-creusot --help 2>&1 | grep -q "error while loading shared libraries"
+
+# MonPoly — the category-2b verification engine (runtime monitoring, MFOTL). Baked into the image
+# for the same reason as Kani/TLC/Prusti/Creusot: a runtime install evaporates on rebuild and
+# `provreq engines` then reports 2b Missing — indistinguishable from a bug in our own code. This
+# is the engine `buildenv.rs` already declares image-provided ("the heavy tier — Creusot, Prusti,
+# MonPoly — has no native install recipe"); without this step the image's contract and its
+# contents disagreed for 2b specifically.
+#
+# MonPoly is pure OCaml/dune (deps: ocaml >= 4.11, dune, dune-build-info) and lives on Bitbucket —
+# not opam, not GitHub. Every dep is already in Creusot's opam switch (OCaml 5.3.0, dune), so it
+# reuses that switch: no new switch, nothing that can disturb the delicate Creusot setup. It is a
+# dune source build with no prebuilt provers, so it compiles on amd64 and arm64 alike — no per-arch
+# guard, unlike Creusot's provers. The runtime finds the engine as `MONPOLY_BIN` else `monpoly` on
+# PATH (src/monitor/run.rs), so the built exe is installed as /usr/local/bin/monpoly. Its src tree
+# is removed after the exe is copied out — an OCaml native exe is self-contained.
+RUN eval "$(opam env --switch="$CREUSOT_DATA")" \
+    && git clone --depth 1 https://bitbucket.org/monpoly/monpoly.git /opt/monpoly-src \
+    && cd /opt/monpoly-src \
+    && dune build \
+    && install -m755 _build/default/src/main.exe /usr/local/bin/monpoly \
+    && rm -rf /opt/monpoly-src \
+    # MonPoly's exit code carries no information (0 for clean, violation, AND refusal), so a
+    # liveness check greps the banner rather than trusting the code.
+    && monpoly -version 2>&1 | grep -qi monpoly
