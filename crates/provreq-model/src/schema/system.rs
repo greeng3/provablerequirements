@@ -31,6 +31,24 @@ pub struct SystemConfig {
     pub overflow: Overflow,
 }
 
+impl SystemConfig {
+    /// A fresh, empty config for the operator's first provider write when no `system.json` exists
+    /// yet — a rebuilt container or a never-configured subject. `name` is informational (shown in
+    /// the `/api/system` summary). The schema version tracks the migration chain so a freshly
+    /// written file is already current and needs no migration on the next load.
+    pub fn bootstrap(name: impl Into<String>) -> Self {
+        Self {
+            schema_version: crate::schema_migration::system::build().current_version(),
+            name: name.into(),
+            projects: Vec::new(),
+            link_types: Vec::new(),
+            languages: None,
+            llm: None,
+            overflow: Overflow::default(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SystemProjectRef {

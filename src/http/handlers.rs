@@ -4928,6 +4928,18 @@ where
     }
 }
 
+/// A fresh `SystemConfig` for the first provider write against a subject that has no `system.json`
+/// yet. Named after the subject dir for a friendlier `/api/system` summary, falling back to
+/// `provreq` when the state carries no subject (only the non-single-subject test path).
+fn bootstrap_system_config(state: &AppState) -> provreq_model::schema::SystemConfig {
+    let name = state
+        .subject()
+        .and_then(|p| p.file_name())
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "provreq".to_owned());
+    provreq_model::schema::SystemConfig::bootstrap(name)
+}
+
 async fn mutate_inner<F>(state: &AppState, mutate: F) -> Result<(), ProviderCrudError>
 where
     F: FnOnce(&mut Vec<serde_json::Value>) -> Result<(), ProviderCrudError>,
@@ -4942,7 +4954,14 @@ where
             source_path,
         } => ((**config).clone(), source_path.clone()),
         provreq_model::system::LoadedSystem::Unnamed => {
-            return Err(ProviderCrudError::NoSystemConfig);
+            // No file loaded yet, but single-subject serve always knows a durable target path
+            // (defaults to <subject>/.provreq/system.json). Bootstrap a fresh config there — this
+            // is what lets the settings screen add the *first* provider after a rebuild wiped the
+            // file. Only a pathless state (never provreq's own serve) has nowhere to write.
+            match state.config().system_config_path.clone() {
+                Some(target) => (bootstrap_system_config(state), target),
+                None => return Err(ProviderCrudError::NoSystemConfig),
+            }
         }
     };
     drop(world);
