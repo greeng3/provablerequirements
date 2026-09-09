@@ -149,6 +149,11 @@ goes to qrusty, not the reverse.
 4. **Work the backlog.** `provreq triage`, then `provreq draft`, then `provreq serve --path
 /workspaces/qrusty --port 17869` for the UI. (17869 is provreq's default; 17867 is qrusty's
    own devcontainer port — they do not collide.)
+5. **Keep your LLM config across rebuilds.** The UI's LLM/settings screen writes to
+   `<subject>/.provreq/system.json` — inside the subject checkout, so a container rebuild can't
+   wipe it (anything outside the checkout is gone on rebuild). It holds API keys, so
+   **add `.provreq/` to the subject's `.gitignore`** — `serve` prints this path and reminder on
+   startup. Set `PROVREQ_SYSTEM_CONFIG` to override the location.
 
 Throughout, the trust boundary from A6 holds: provreq stages proof carriers and back-links as
 **uncommitted working-tree edits** in the checked-out subject and stops there. It never runs

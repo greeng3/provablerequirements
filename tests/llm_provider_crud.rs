@@ -370,6 +370,68 @@ async fn put_with_out_of_range_index_returns_404() {
 }
 
 #[tokio::test]
+async fn post_bootstraps_a_fresh_config_when_the_file_is_absent_but_a_path_is_known() {
+    // A rebuilt container wipes system.json but the subject checkout (and its known config path)
+    // survive. The system loads Unnamed, yet a durable path is set — so the first provider write
+    // must bootstrap a fresh file at that path (creating the untracked `.provreq/` dir), not 409.
+    let temp = tempfile::tempdir().unwrap();
+    let path = temp.path().join(".provreq").join("system.json");
+    assert!(!path.exists(), "precondition: no config file yet");
+
+    let world = World {
+        mounts: Vec::new(),
+        index: UuidIndex::new(),
+        duplicates: Vec::new(),
+        system: LoadedSystem::Unnamed,
+        missing_project_slugs: Vec::new(),
+        link_catalog: provreq_model::links::builtin_catalog().to_vec(),
+        search_index: provreq_model::search::empty_index(),
+    };
+    let state = Arc::new(AppState::new(
+        DiscoveryConfig {
+            mount_prefix: temp.path().to_path_buf(),
+            system_config_path: Some(path.clone()),
+            workspace_dir: None,
+            max_blob_bytes: 50 * 1024 * 1024,
+            thumbnail_cache_max_bytes: 500 * 1024 * 1024,
+            external_url: None,
+        },
+        OwnershipOverrides::default(),
+    ));
+    state.publish(world).await;
+    let router = build_router(state, None);
+
+    let (status, _) = body_json(
+        router.clone(),
+        "POST",
+        "/api/llm/providers",
+        Some(json!({
+            "provider": "openai-compatible",
+            "model": "qwen2.5-coder:14b",
+            "endpoint": "http://host.docker.internal:11434"
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+
+    // The file (and its parent `.provreq/`) were created, carrying the new provider.
+    assert!(
+        path.exists(),
+        "bootstrap should have created the config file"
+    );
+    let cfg: Value = serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+    assert_eq!(cfg["llm"][0]["model"], "qwen2.5-coder:14b");
+    #[cfg(unix)]
+    {
+        let mode = fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o600, "bootstrapped system.json must be mode 0600");
+    }
+
+    let (_, body) = body_json(router, "GET", "/api/llm/providers", None).await;
+    assert_eq!(body["providers"][0]["model"], "qwen2.5-coder:14b");
+}
+
+#[tokio::test]
 async fn post_when_no_system_config_loaded_returns_409() {
     // Build an app whose LoadedSystem is Unnamed.
     let world = World {
