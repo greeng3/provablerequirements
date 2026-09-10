@@ -5,7 +5,7 @@ use provreq::draft::{self, Draft, GateStatus};
 use provreq::engine;
 use provreq::formalize::Translator;
 use provreq::grounding::{self, Binding, Grounding};
-use provreq::llm::{LlmClassifier, RuntimeBackend};
+use provreq::llm::LlmClassifier;
 use provreq::rust_adapter::Resolution;
 use provreq::source::{Classification, Item};
 use provreq::triage::{self, ProseFloorClassifier, TriageState};
@@ -225,6 +225,27 @@ enum Command {
         #[arg(long, default_value = ".")]
         path: PathBuf,
     },
+    /// Configure the LLM provider without the UI (#430). Writes the same untracked
+    /// `.provreq/system.json` the UI persists to, so `triage`, `draft --translate`, and
+    /// `verify --draft-semantic` — and the UI — all use it. Replaces the provider list with this
+    /// one provider (the common headless case: a single local or hosted endpoint).
+    SetLlm {
+        /// Model the provider serves (e.g. `qwen2.5-coder:14b`, `gpt-4o-mini`).
+        #[arg(long)]
+        model: String,
+        /// Provider family: `openai-compatible` (Ollama/LMStudio/OpenAI), `anthropic`, or `gemini`.
+        #[arg(long, default_value = "openai-compatible")]
+        provider: String,
+        /// Base URL. Required for `openai-compatible`; optional for `anthropic`/`gemini`.
+        #[arg(long)]
+        endpoint: Option<String>,
+        /// API key the provider needs. Omit for a keyless local endpoint (e.g. Ollama).
+        #[arg(long)]
+        api_key: Option<String>,
+        /// Path to the subject repository (defaults to the current directory).
+        #[arg(long, default_value = ".")]
+        path: PathBuf,
+    },
 }
 
 /// Whether an argument reads as a subject path rather than a mistyped flag or a bad id (REQ056).
@@ -348,7 +369,46 @@ async fn main() -> Result<()> {
             text,
             path,
         } => run_new(&path, &id, &title, &text),
+        Command::SetLlm {
+            model,
+            provider,
+            endpoint,
+            api_key,
+            path,
+        } => run_set_llm(
+            &path,
+            &provider,
+            &model,
+            endpoint.as_deref(),
+            api_key.as_deref(),
+        ),
     }
+}
+
+/// Persist an LLM provider to the subject's untracked `.provreq/system.json` — the non-UI half of
+/// #430. Confirms the write and never echoes the key back.
+fn run_set_llm(
+    subject: &Path,
+    provider: &str,
+    model: &str,
+    endpoint: Option<&str>,
+    api_key: Option<&str>,
+) -> Result<()> {
+    let path = provreq::llm::set_single_provider(subject, provider, model, endpoint, api_key)?;
+    let key_note = if api_key.is_some() {
+        " with an API key"
+    } else {
+        " (keyless)"
+    };
+    let endpoint_note = endpoint.map(|e| format!(" via {e}")).unwrap_or_default();
+    println!(
+        "LLM provider set: {provider} {model}{endpoint_note}{key_note}\n  written to {} \
+         (untracked — keep `{}/` out of git).\n  The UI, `triage`, `draft --translate`, and \
+         `verify --draft-semantic` all use it now.",
+        path.display(),
+        provreq::llm::SUBJECT_CONFIG_DIR,
+    );
+    Ok(())
 }
 
 fn run_check(subject: &Path) -> Result<()> {
@@ -516,15 +576,15 @@ async fn seed_backlog(
         Ok(())
     };
 
-    let outcome = match provreq::llm::load_config(companion)? {
-        Some(config) => {
-            let batch_size = config.batch_size;
+    let outcome = match provreq::llm::resolve_llm(subject, companion)? {
+        Some(resolved) => {
+            let batch_size = resolved.batch_size;
             println!(
                 "Classifying {count} of {} item(s) with {} via {}{}, {batch_size} at a time …",
                 items.len(),
-                config.model,
-                config.base_url,
-                config.override_note()
+                resolved.model,
+                resolved.endpoint,
+                resolved.note
             );
             // What the subject declares, so the classifier judges bindability rather than
             // guessing it from prose (REQ072, #259).
@@ -534,12 +594,12 @@ async fn seed_backlog(
                 predicates: inv.predicates,
                 sorts: inv.sorts,
             };
-            let classifier = LlmClassifier::new(RuntimeBackend::from_config(config)?, context);
+            let classifier = LlmClassifier::new(resolved.into_backend(), context);
             triage::seed_in_batches(state, &pending, &classifier, batch_size, persist).await?
         }
         None => {
             println!(
-                "No `llm:` config in provreq.yml — seeding {count} of {} item(s) with the \
+                "No LLM configured (System config or provreq.yml `llm:`) — seeding {count} of {} item(s) with the \
                  prose-floor default. A seed is recorded as a seed, not as a classification: \
                  configure a provider and re-run `provreq triage` and these are re-done, with no \
                  `--reclassify` and nothing else of yours touched.",
@@ -659,7 +719,7 @@ async fn run_draft(
     if translate {
         // Forward-translate then run the gate, repairing on rejection (the loop
         // returns the final candidate with its verdict either way).
-        let outcome = translate_gated_candidate(&companion, item).await?;
+        let outcome = translate_gated_candidate(subject, &companion, item).await?;
         let status = gate_to_status(&outcome.gate);
         let next = draft::set_candidate(&state, item, &outcome.candidate, status.clone());
         draft::save(&companion, &next)?;
@@ -698,20 +758,19 @@ async fn run_draft(
 /// mechanical gate and repair on rejection. Requires an `llm:` block (translate has no
 /// honest offline fallback the way triage does — the prose floor is not a formalization).
 async fn translate_gated_candidate(
+    subject: &Path,
     companion: &Path,
     item: &Item,
 ) -> Result<provreq::formalize::RepairOutcome> {
-    let config = provreq::llm::load_config(companion)?.context(
-        "no `llm:` block in provreq.yml — configure a provider to use `draft --translate`",
+    let resolved = provreq::llm::resolve_llm(subject, companion)?.context(
+        "no LLM configured (System config or provreq.yml `llm:`) — configure a provider to use \
+         `draft --translate`",
     )?;
     println!(
         "Translating {} with {} via {}{} …",
-        item.id,
-        config.model,
-        config.base_url,
-        config.override_note()
+        item.id, resolved.model, resolved.endpoint, resolved.note
     );
-    let translator = Translator::new(RuntimeBackend::from_config(config)?);
+    let translator = Translator::new(resolved.into_backend());
     translator.translate_gated(item).await
 }
 
@@ -1700,8 +1759,9 @@ async fn stage_semantic_drafts(
     // come from the admitted draft the verify run already read — reload them cheaply here rather than
     // widen the shared verify outcome with CLI-only fields.
     let (companion, items) = provreq::adopt::resolve(subject)?;
-    let config = provreq::llm::load_config(&companion)?.context(
-        "no `llm:` block in provreq.yml — configure a provider to use `verify --draft-semantic`",
+    let resolved = provreq::llm::resolve_llm(subject, &companion)?.context(
+        "no LLM configured (System config or provreq.yml `llm:`) — configure a provider to use \
+         `verify --draft-semantic`",
     )?;
     let intent = items
         .iter()
@@ -1726,11 +1786,9 @@ async fn stage_semantic_drafts(
     };
     println!(
         "\n--draft-semantic ({mode}): drafting {engine} contracts for {id} with {} via {}{} …",
-        config.model,
-        config.base_url,
-        config.override_note()
+        resolved.model, resolved.endpoint, resolved.note
     );
-    let drafter = Drafter::new(provreq::llm::RuntimeBackend::from_config(config)?);
+    let drafter = Drafter::new(resolved.into_backend());
 
     // A Creusot subject additionally needs LOGIC MIRRORS, and without them the contracts alone
     // cannot reach a proof: pearlite may only call `#[logic]` items, so a contract mentioning a
@@ -1739,9 +1797,11 @@ async fn stage_semantic_drafts(
     // change when the prover fails to discharge a claim, whereas a contract does. Prusti has no
     // such split (its `#[pure]` program functions are callable from specs), so this is Creusot-only.
     let drafted = if matches!(marker, provreq::contract_draft::Marker::Logic) {
-        Mirrorer::new(provreq::llm::RuntimeBackend::from_config(
-            provreq::llm::load_config(&companion)?.expect("config loaded above"),
-        )?)
+        Mirrorer::new(
+            provreq::llm::resolve_llm(subject, &companion)?
+                .expect("LLM resolved above")
+                .into_backend(),
+        )
         .draft(&intent, &claim, resolutions, &sources)
         .await?
     } else {

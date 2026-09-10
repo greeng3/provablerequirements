@@ -43,19 +43,6 @@ const THUMBNAIL_CACHE_MAX_BYTES: u64 = 500 * 1024 * 1024;
 /// How often the polling watcher rescans the subject and republishes the World for SSE clients.
 const WATCH_INTERVAL: std::time::Duration = std::time::Duration::from_secs(2);
 
-/// Untracked per-subject directory where provreq keeps operator config that must survive a
-/// container rebuild but must never be committed (`system.json` holds LLM API keys). The subject's
-/// own checkout is the one durable thing across rebuilds, so defaulting the system config here is
-/// why a rebuild no longer wipes the LLM setup. `PROVREQ_SYSTEM_CONFIG` still overrides for
-/// operators who mount it elsewhere. The operator gitignores `.provreq/` (serve prints the hint).
-const SUBJECT_CONFIG_DIR: &str = ".provreq";
-const SUBJECT_SYSTEM_CONFIG: &str = "system.json";
-
-/// The default system-config path inside a subject's untracked `.provreq/` dir.
-fn default_system_config_path(subject: &std::path::Path) -> PathBuf {
-    subject.join(SUBJECT_CONFIG_DIR).join(SUBJECT_SYSTEM_CONFIG)
-}
-
 /// Build a single-subject [`AppState`] and publish its initial one-mount World. Shared by
 /// [`serve`] and the router tests so both exercise the same construction path.
 pub async fn single_subject_state(subject: PathBuf) -> Result<Shared, DiscoveryError> {
@@ -66,11 +53,7 @@ pub async fn single_subject_state(subject: PathBuf) -> Result<Shared, DiscoveryE
         // The System config (LLM providers etc.) is operator-supplied. `PROVREQ_SYSTEM_CONFIG`
         // overrides; otherwise it defaults into the subject's untracked `.provreq/` dir so it
         // survives a container rebuild (which wipes everything outside the subject checkout).
-        system_config_path: Some(
-            std::env::var_os("PROVREQ_SYSTEM_CONFIG")
-                .map(PathBuf::from)
-                .unwrap_or_else(|| default_system_config_path(&subject)),
-        ),
+        system_config_path: Some(crate::llm::system_config_path(&subject)),
         workspace_dir: None,
         max_blob_bytes: MAX_BLOB_BYTES,
         thumbnail_cache_max_bytes: THUMBNAIL_CACHE_MAX_BYTES,
@@ -129,8 +112,8 @@ pub async fn serve(port: u16, subject: PathBuf) -> std::io::Result<()> {
         // it holds API keys and lives inside the subject so a rebuild can't wipe it.
         println!(
             "  LLM/system config: {}  (untracked — add `{}/` to the subject's .gitignore)",
-            default_system_config_path(&subject).display(),
-            SUBJECT_CONFIG_DIR,
+            crate::llm::default_system_config_path(&subject).display(),
+            crate::llm::SUBJECT_CONFIG_DIR,
         );
     }
     let state = single_subject_state(subject)
