@@ -1,24 +1,125 @@
 //! LLM bulk pre-sort triage classifier (R-triage-1 primary flow). Multi-provider
-//! and configurable: the operator picks a provider, endpoint, and model in
-//! `provreq.yml`; the API key (if any) comes only from a named environment
-//! variable, never the file. The classifier's output is advisory — the operator
-//! still reviews and confirms/overrides.
+//! and configurable: the operator picks a provider, endpoint, model, and any API
+//! key in the System config (`.provreq/system.json`, written by the UI or
+//! `provreq set-llm`), which [`resolve_llm`] reads before the `provreq.yml` `llm:`
+//! fallback. The classifier's output is advisory — the operator still reviews and
+//! confirms/overrides.
 //!
 //! The single network call is factored behind [`LlmBackend`] so prompt-building
 //! and response-parsing are unit-tested with a stub, no live endpoint needed.
 //!
-//! Implements: REQ012 (LLM bulk pre-sort classifier, provider-configurable)
+//! Implements: REQ012 (LLM bulk pre-sort classifier, provider-configurable),
+//! REQ084 (single authoritative LLM configuration source: UI and CLI read one place)
 
 use crate::source::{Classification, Item};
 use crate::triage::Classifier;
 use anyhow::{Context, Result, anyhow, bail};
-use provreq_model::llm::{LlmRuntime, ProviderConfig, ProviderFamily};
+use provreq_model::llm::{LlmRuntime, ProviderConfig, ProviderFamily, parse_llm};
+use provreq_model::schema::SystemConfig;
+use provreq_model::system::{LoadedSystem, load_system_config, write_system_config};
 // Re-exported so provreq's LLM features (and their test stubs) build a request and read a response
 // without depending on `provreq_model` directly — the seam is `crate::llm`.
 pub use provreq_model::llm::{PromptMessage, PromptRequest, PromptResponse, PromptRole};
 use std::collections::BTreeMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
+
+/// Untracked per-subject directory + file where the UI/`serve` persists the System config (LLM
+/// providers and their API keys). Kept here so the CLI resolver and `serve` agree on exactly one
+/// location and cannot drift (#430) — a provider added in the UI is then used by everything.
+pub const SUBJECT_CONFIG_DIR: &str = ".provreq";
+pub const SUBJECT_SYSTEM_CONFIG: &str = "system.json";
+
+/// The default System-config path inside a subject's untracked `.provreq/` dir (no env override).
+/// `serve` prints this in its startup banner.
+pub fn default_system_config_path(subject: &Path) -> PathBuf {
+    subject.join(SUBJECT_CONFIG_DIR).join(SUBJECT_SYSTEM_CONFIG)
+}
+
+/// The System-config path for `subject`: `PROVREQ_SYSTEM_CONFIG` when set, else the subject's
+/// untracked `.provreq/system.json`. The single source both `serve` and the CLI read.
+pub fn system_config_path(subject: &Path) -> PathBuf {
+    std::env::var_os("PROVREQ_SYSTEM_CONFIG")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| default_system_config_path(subject))
+}
+
+/// Configure the LLM provider from the CLI, writing the *same* untracked `.provreq/system.json`
+/// the UI persists to (#430) — so "set it without the UI" and "set it in the UI" land in one place
+/// and everything reads it through [`resolve_llm`]. Replaces the provider list with this single
+/// provider: the common non-UI case is one local or hosted endpoint. Returns the file written.
+///
+/// ponytail: single-provider set. A multi-provider fallback chain is UI territory; add a CLI
+/// list-editor only if someone actually needs to manage the chain headless.
+///
+/// Implements: REQ084 (configure the one authoritative LLM source without the UI)
+pub fn set_single_provider(
+    subject: &Path,
+    provider: &str,
+    model: &str,
+    endpoint: Option<&str>,
+    api_key: Option<&str>,
+) -> Result<PathBuf> {
+    set_single_provider_at(
+        &system_config_path(subject),
+        provider,
+        model,
+        endpoint,
+        api_key,
+    )
+}
+
+/// [`set_single_provider`] with the target path supplied directly — pure over its inputs so the
+/// write→read round-trip is testable without `PROVREQ_SYSTEM_CONFIG`, the same split
+/// [`resolve_llm_at`] draws. `name` for a freshly-bootstrapped config is the subject dir's name.
+fn set_single_provider_at(
+    system_json: &Path,
+    provider: &str,
+    model: &str,
+    endpoint: Option<&str>,
+    api_key: Option<&str>,
+) -> Result<PathBuf> {
+    // Build the one `llm` array entry, omitting optional fields left unset.
+    let mut entry = serde_json::Map::new();
+    entry.insert("provider".into(), serde_json::json!(provider));
+    entry.insert("model".into(), serde_json::json!(model));
+    if let Some(endpoint) = endpoint {
+        entry.insert("endpoint".into(), serde_json::json!(endpoint));
+    }
+    if let Some(api_key) = api_key {
+        entry.insert("apiKey".into(), serde_json::json!(api_key));
+    }
+    let llm = serde_json::Value::Array(vec![serde_json::Value::Object(entry)]);
+
+    // Validate through the very parser the resolver and UI use, so the CLI enforces exactly the
+    // same rules (known family, endpoint-required-for-openai-compatible) with no duplicated logic.
+    parse_llm(Some(&llm)).map_err(|err| {
+        anyhow!("{err} — pass `--provider`/`--model`/`--endpoint` describing a valid provider")
+    })?;
+
+    // Load-or-bootstrap so a CLI write preserves any other System-config fields (projects, link
+    // types) an operator or the UI already set, and only replaces `llm`.
+    let mut config = match load_system_config(Some(system_json))
+        .context("reading the existing System config")?
+    {
+        LoadedSystem::Named { config, .. } => *config,
+        LoadedSystem::Unnamed => SystemConfig::bootstrap(subject_config_name(system_json)),
+    };
+    config.llm = Some(llm);
+    write_system_config(system_json, &config).context("writing the System config")?;
+    Ok(system_json.to_path_buf())
+}
+
+/// Informational `name` for a bootstrapped System config: the subject directory's name (the parent
+/// of `.provreq/`), falling back to `"provreq"`.
+fn subject_config_name(system_json: &Path) -> String {
+    system_json
+        .parent()
+        .and_then(Path::parent)
+        .and_then(|p| p.file_name())
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "provreq".to_string())
+}
 
 /// Wire protocol of the configured endpoint.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -232,6 +333,110 @@ impl RuntimeBackend {
             runtime,
             timeout_ms,
         })
+    }
+
+    /// Build from an already-parsed provider chain — the UI/System-config path (#430). Keys live in
+    /// the System config itself (mode 0600), so there is no env read here the way [`Self::from_config`]
+    /// does for the manifest. The operator configured every provider through the UI, so acknowledge
+    /// each one's privacy gate up front (same consent rationale as `from_config`, once per provider
+    /// because a System config may declare several). `ProviderConfig` carries no per-request timeout,
+    /// so `timeout_secs` is the caller's default.
+    pub fn from_providers(providers: Vec<ProviderConfig>, timeout_secs: u64) -> Result<Self> {
+        let timeout_ms = timeout_secs.saturating_mul(1000);
+        let runtime = LlmRuntime::build(providers).context("building the LLM runtime")?;
+        for slot in 0..runtime.provider_count() {
+            runtime.privacy().acknowledge(slot);
+        }
+        Ok(Self {
+            runtime,
+            timeout_ms,
+        })
+    }
+}
+
+/// A resolved LLM backend plus the facts a run banner prints. Produced by [`resolve_llm`], which
+/// reconciles the two config sources so no feature has to know there are two.
+pub struct ResolvedLlm {
+    backend: RuntimeBackend,
+    /// For the "with `<model>` via `<endpoint>`" banner. With a multi-provider System config this
+    /// names the first (highest-priority) provider in the chain.
+    pub model: String,
+    pub endpoint: String,
+    /// The override note ([`LlmConfig::override_note`]). Empty for a System-config source — the
+    /// `PROVREQ_LLM_*` overrides only apply to the `provreq.yml` path.
+    pub note: String,
+    /// Bulk pre-sort batch size (REQ054). From `provreq.yml`; [`DEFAULT_BATCH_SIZE`] for a System
+    /// config, whose schema carries no per-run batch size.
+    pub batch_size: usize,
+}
+
+impl ResolvedLlm {
+    /// Consume the resolution for its backend (after reading the banner fields).
+    pub fn into_backend(self) -> RuntimeBackend {
+        self.backend
+    }
+}
+
+/// Resolve the LLM backend for `subject`, reading the System config the UI writes first and falling
+/// back to the subject's `provreq.yml` `llm:` block (#430). `None` means neither source configured a
+/// provider — the honest "no LLM" that triage answers with the prose floor and translate/draft
+/// reject with a "configure a provider" message.
+///
+/// **Precedence: the System config wins.** A provider added through the UI is used by everything;
+/// the manifest `llm:` block remains the non-UI way to configure a subject that has no `system.json`.
+///
+/// Implements: REQ084 (single authoritative LLM configuration source)
+pub fn resolve_llm(subject: &Path, companion: &Path) -> Result<Option<ResolvedLlm>> {
+    resolve_llm_at(&system_config_path(subject), companion)
+}
+
+/// [`resolve_llm`] with the System-config path supplied directly — pure over its two inputs so the
+/// precedence rule is testable without touching `PROVREQ_SYSTEM_CONFIG`, the same split
+/// [`apply_overrides`] draws.
+fn resolve_llm_at(system_json: &Path, companion: &Path) -> Result<Option<ResolvedLlm>> {
+    // UI-authoritative source: the System config the UI persists. A missing file loads as
+    // `Unnamed` (no error), so an unconfigured subject falls straight through to the manifest.
+    let loaded =
+        load_system_config(Some(system_json)).context("loading the subject's System config")?;
+    if let Some(config) = loaded.config() {
+        let providers: Vec<ProviderConfig> = parse_llm(config.llm.as_ref())
+            .context("parsing the System config's LLM providers")?
+            .into_iter()
+            // `enabled: false` removes an entry from the chain; an all-disabled block is "no
+            // provider here" and must fall back rather than build an empty runtime.
+            .filter(|provider| provider.enabled != Some(false))
+            .collect();
+        if let Some(primary) = providers.first() {
+            let model = primary.model.clone();
+            let endpoint = primary.endpoint.clone().unwrap_or_default();
+            let backend = RuntimeBackend::from_providers(providers, DEFAULT_TIMEOUT_SECS)?;
+            return Ok(Some(ResolvedLlm {
+                backend,
+                model,
+                endpoint,
+                note: String::new(),
+                batch_size: DEFAULT_BATCH_SIZE,
+            }));
+        }
+    }
+
+    // Fallback: the `provreq.yml` `llm:` block (the non-UI path), env overrides applied.
+    match load_config(companion)? {
+        Some(config) => {
+            let model = config.model.clone();
+            let endpoint = config.base_url.clone();
+            let note = config.override_note();
+            let batch_size = config.batch_size;
+            let backend = RuntimeBackend::from_config(config)?;
+            Ok(Some(ResolvedLlm {
+                backend,
+                model,
+                endpoint,
+                note,
+                batch_size,
+            }))
+        }
+        None => Ok(None),
     }
 }
 
@@ -1032,5 +1237,151 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         std::fs::write(tmp.path().join(crate::adopt::MANIFEST_FILE), "schema: 1\n").unwrap();
         assert!(load_config(tmp.path()).unwrap().is_none());
+    }
+
+    // ---- #430: unified LLM config — the CLI resolves the same System config the UI writes ----
+
+    /// Write a `.provreq/system.json` under `subject` carrying `llm`, at mode 0600 (the loader
+    /// rejects looser modes). Built through `bootstrap` so the schema version is always current.
+    fn write_system_config(subject: &std::path::Path, llm: serde_json::Value) {
+        let mut cfg = provreq_model::schema::SystemConfig::bootstrap("test");
+        cfg.llm = Some(llm);
+        let dir = subject.join(SUBJECT_CONFIG_DIR);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join(SUBJECT_SYSTEM_CONFIG);
+        std::fs::write(&path, serde_json::to_string(&cfg).unwrap()).unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
+        }
+    }
+
+    fn system_json_path(subject: &tempfile::TempDir) -> PathBuf {
+        subject
+            .path()
+            .join(SUBJECT_CONFIG_DIR)
+            .join(SUBJECT_SYSTEM_CONFIG)
+    }
+
+    /// A companion manifest carrying an `llm:` block naming `manifest-model`, batch size 9.
+    const MANIFEST_WITH_LLM: &str = "schema: 1\nllm:\n  provider: openai-compatible\n  base_url: http://localhost:11434/v1\n  model: manifest-model\n  batch_size: 9\n";
+
+    fn keyless_system_provider(model: &str) -> serde_json::Value {
+        serde_json::json!([{
+            "provider": "openai-compatible",
+            "model": model,
+            "endpoint": "http://localhost:11434/v1",
+        }])
+    }
+
+    #[test]
+    fn resolve_reads_system_config_when_no_manifest_llm() {
+        let subject = tempfile::tempdir().unwrap();
+        let companion = tempfile::tempdir().unwrap();
+        std::fs::write(
+            companion.path().join(crate::adopt::MANIFEST_FILE),
+            "schema: 1\n",
+        )
+        .unwrap();
+        write_system_config(subject.path(), keyless_system_provider("system-model"));
+
+        let resolved = resolve_llm_at(&system_json_path(&subject), companion.path())
+            .unwrap()
+            .expect("a provider from system.json");
+        assert_eq!(resolved.model, "system-model");
+    }
+
+    #[test]
+    fn resolve_prefers_system_config_over_manifest() {
+        let subject = tempfile::tempdir().unwrap();
+        let companion = tempfile::tempdir().unwrap();
+        std::fs::write(
+            companion.path().join(crate::adopt::MANIFEST_FILE),
+            MANIFEST_WITH_LLM,
+        )
+        .unwrap();
+        write_system_config(subject.path(), keyless_system_provider("system-model"));
+
+        let resolved = resolve_llm_at(&system_json_path(&subject), companion.path())
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            resolved.model, "system-model",
+            "the UI-written System config must win over the provreq.yml llm block"
+        );
+    }
+
+    #[test]
+    fn resolve_falls_back_to_manifest_when_no_system_config() {
+        let subject = tempfile::tempdir().unwrap();
+        let companion = tempfile::tempdir().unwrap();
+        std::fs::write(
+            companion.path().join(crate::adopt::MANIFEST_FILE),
+            MANIFEST_WITH_LLM,
+        )
+        .unwrap();
+        // No system.json written: the path points at a file that does not exist.
+
+        let resolved = resolve_llm_at(&system_json_path(&subject), companion.path())
+            .unwrap()
+            .expect("the provreq.yml llm block");
+        assert_eq!(resolved.model, "manifest-model");
+        assert_eq!(resolved.batch_size, 9);
+    }
+
+    #[test]
+    fn resolve_none_when_neither_source_configured() {
+        let subject = tempfile::tempdir().unwrap();
+        let companion = tempfile::tempdir().unwrap();
+        std::fs::write(
+            companion.path().join(crate::adopt::MANIFEST_FILE),
+            "schema: 1\n",
+        )
+        .unwrap();
+
+        assert!(
+            resolve_llm_at(&system_json_path(&subject), companion.path())
+                .unwrap()
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn set_single_provider_writes_the_same_file_the_resolver_reads() {
+        // The whole point of #430: a provider set via the CLI lands in `.provreq/system.json` and
+        // is then the primary the resolver returns — the UI would read the identical file.
+        let subject = tempfile::tempdir().unwrap();
+        let companion = tempfile::tempdir().unwrap();
+        std::fs::write(
+            companion.path().join(crate::adopt::MANIFEST_FILE),
+            "schema: 1\n",
+        )
+        .unwrap();
+        let path = system_json_path(&subject); // .provreq/ does not exist yet — the writer creates it.
+
+        set_single_provider_at(
+            &path,
+            "openai-compatible",
+            "cli-model",
+            Some("http://localhost:11434/v1"),
+            None,
+        )
+        .unwrap();
+
+        let resolved = resolve_llm_at(&path, companion.path())
+            .unwrap()
+            .expect("a provider from the CLI-written system.json");
+        assert_eq!(resolved.model, "cli-model");
+        assert_eq!(resolved.endpoint, "http://localhost:11434/v1");
+    }
+
+    #[test]
+    fn set_single_provider_rejects_openai_compatible_without_endpoint() {
+        let subject = tempfile::tempdir().unwrap();
+        let path = system_json_path(&subject);
+        let err = set_single_provider_at(&path, "openai-compatible", "m", None, None).unwrap_err();
+        assert!(err.to_string().contains("endpoint"));
+        assert!(!path.exists(), "an invalid provider must not write a file");
     }
 }
