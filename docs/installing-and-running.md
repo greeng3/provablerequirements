@@ -155,22 +155,22 @@ goes to qrusty, not the reverse.
    **add `.provreq/` to the subject's `.gitignore`** — `serve` prints this path and reminder on
    startup. Set `PROVREQ_SYSTEM_CONFIG` to override the location.
 
-   **The CLI reads the same file.** `triage`, `draft --translate`, and `verify --draft-semantic`
-   use the providers you added through the UI — the System config is authoritative.
+    **The CLI reads the same file.** `triage`, `draft --translate`, and `verify --draft-semantic`
+    use the providers you added through the UI — the System config is authoritative.
 
-   **Configure it without the UI, in the same place.** `provreq set-llm` writes that same
-   `.provreq/system.json`, so a headless setup and a UI setup land in one file that everything
-   reads:
+    **Configure it without the UI, in the same place.** `provreq set-llm` writes that same
+    `.provreq/system.json`, so a headless setup and a UI setup land in one file that everything
+    reads:
 
-   ```sh
-   # a local Ollama endpoint (keyless)
-   provreq set-llm --model qwen2.5-coder:14b --endpoint http://localhost:11434/v1
-   # a hosted provider
-   provreq set-llm --provider anthropic --model claude-haiku-4-5 --api-key "$ANTHROPIC_API_KEY"
-   ```
+    ```sh
+    # a local Ollama endpoint (keyless)
+    provreq set-llm --model qwen2.5-coder:14b --endpoint http://localhost:11434/v1
+    # a hosted provider
+    provreq set-llm --provider anthropic --model claude-haiku-4-5 --api-key "$ANTHROPIC_API_KEY"
+    ```
 
-   As a last-resort fallback when no `system.json` exists, the CLI still reads a `provreq.yml`
-   `llm:` block.
+    As a last-resort fallback when no `system.json` exists, the CLI still reads a `provreq.yml`
+    `llm:` block.
 
 Throughout, the trust boundary from A6 holds: provreq stages proof carriers and back-links as
 **uncommitted working-tree edits** in the checked-out subject and stops there. It never runs
