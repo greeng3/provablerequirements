@@ -734,6 +734,20 @@ export function useTriageRequirement() {
   });
 }
 
+/// Bulk-classify the whole backlog (REQ085) — the web equivalent of `provreq
+/// triage` with no `--set`. Not optimistic: the run seeds many items through a
+/// possibly-slow classifier, so callers show a pending state until the
+/// authoritative backlog comes back, which is written straight into the cache.
+export function useSeedTriage() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (reclassify: boolean) => api.seedTriage(reclassify),
+    onSuccess: (backlog) => {
+      qc.setQueryData(queryKeys.requirements, backlog);
+    },
+  });
+}
+
 /// Run the engine ensemble on demand for one requirement (REQ038). The
 /// backend blocks while the engines run, so callers show a pending state
 /// until it resolves. A fresh verdict refreshes the backlog funnel.

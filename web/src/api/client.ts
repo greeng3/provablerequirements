@@ -538,6 +538,10 @@ export const api = {
             "POST",
             { classification },
         ),
+    seedTriage: (reclassify: boolean) =>
+        send<ProofBacklog>("/api/requirements/triage/seed", "POST", {
+            reclassify,
+        }),
     verifyRequirement: (id: string) =>
         send<ProofVerifyResponse>(
             `/api/requirements/${encodeURIComponent(id)}/verify`,
