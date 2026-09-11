@@ -1,0 +1,9 @@
+# Pin the exact toolchain so this dev container and CI's ubuntu-latest runner build, format, and
+# lint with the identical compiler. Without this there was nothing forcing them to agree: the
+# devcontainer image baked whatever `stable` it was built against (1.96.0), while the hosted CI
+# runner floats to the latest stable — so `cargo clippy` could pass locally and fail in CI on a lint
+# the newer clippy added. rustup honours this file on both sides. Bump it deliberately to move the
+# whole project's toolchain at once.
+[toolchain]
+channel = "1.98.1"
+components = ["clippy", "rustfmt"]

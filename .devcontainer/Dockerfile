@@ -82,6 +82,18 @@ RUN cargo install cargo-audit --locked
 # `taplo-cli` is here rather than left to Provreq's Makefile, which installs it on first use: a
 # formatting gate that reaches the network mid-run fails for reasons that have nothing to do with
 # the code being formatted.
+# Pin the project's Rust toolchain into the image, kept in sync by hand with
+# /workspace/rust-toolchain.toml (channel 1.98.1). The shared base image bakes an older stable, so
+# without this a rebuilt container drifts from CI's ubuntu-latest runner, and `rustup` would have to
+# install the pinned toolchain at first `cargo` — which trips an overlayfs cross-device (EXDEV) bug
+# doing it in place. Made the default *before* the cargo installs below so those tools, and the
+# llvm-tools-preview that `cargo llvm-cov` needs, all land on the pinned toolchain rather than the
+# base's stale one.
+ARG RUST_TOOLCHAIN=1.98.1
+RUN rustup toolchain install ${RUST_TOOLCHAIN} --profile minimal \
+    && rustup default ${RUST_TOOLCHAIN} \
+    && rustup component add --toolchain ${RUST_TOOLCHAIN} clippy rustfmt llvm-tools-preview
+
 # `cargo-outdated` alone clears RUSTFLAGS. The image sets `-C target-feature=+crt-static`
 # globally, and this tool pulls in the `cargo` library and `git2-curl`, so its link line arrives as
 # `-static` against libssl, libcrypto, libgit2, libssh2, libcurl and libsqlite3 — none of which
