@@ -77,6 +77,7 @@ pub fn router(state: Shared) -> Router {
         .route("/api/engines", get(engines))
         .route("/api/requirements", get(requirements))
         .route("/api/requirements/{id}", get(requirement_detail))
+        .route("/api/requirements/triage/seed", post(seed_triage))
         .route("/api/requirements/{id}/triage", post(set_triage))
         .route("/api/requirements/{id}/verify", post(verify_requirement))
         .fallback(static_asset)
@@ -325,6 +326,57 @@ fn apply_triage(
         coverage: crate::status::coverage(&items, &next, &drafts, &verdicts, &anchor),
         items: crate::status::backlog(&items, &next, &drafts, &verdicts, &anchor),
     }))
+}
+
+/// The body of a bulk-triage write: whether to re-classify items a classifier already judged.
+#[derive(serde::Deserialize)]
+struct SeedRequest {
+    #[serde(default)]
+    reclassify: bool,
+}
+
+/// POST /api/requirements/triage/seed — bulk-classify the whole backlog (REQ085).
+///
+/// The web equivalent of `provreq triage` with no `--set`: the configured LLM classifier seeds every
+/// untriaged or seeded item, or the honest prose-floor default when no provider is configured, and
+/// items the record already answers are read off the record rather than asked. It runs through the
+/// same [`crate::triage::seed_backlog`] machinery the command line uses, so the two never diverge on
+/// the backlog's classification. Like the CLI's `--yes`, a `reclassify` request is taken as consent
+/// — the UI confirms before it posts. Returns the refreshed backlog so the surface reconciles against
+/// authoritative coverage. Unadopted subject → 409.
+///
+/// Implements: REQ085
+async fn seed_triage(State(state): State<Shared>, Json(req): Json<SeedRequest>) -> Response {
+    let subject = match subject_or_conflict(&state) {
+        Ok(s) => s,
+        Err(r) => return r,
+    };
+    match run_seed(&subject, req.reclassify).await {
+        Ok(backlog) => Json(backlog).into_response(),
+        Err(e) => (
+            StatusCode::CONFLICT,
+            Json(serde_json::json!({ "error": e.to_string() })),
+        )
+            .into_response(),
+    }
+}
+
+/// Run the shared bulk-triage seed, then re-read the backlog. The UI narrates nothing, so the
+/// announce sink is a no-op; the run persists each batch itself, so the fresh read is authoritative.
+async fn run_seed(subject: &std::path::Path, reclassify: bool) -> anyhow::Result<Backlog> {
+    let (companion, items) = crate::adopt::resolve(subject)?;
+    let state = crate::triage::load(&companion)?;
+    crate::triage::seed_backlog(
+        subject,
+        &companion,
+        &state,
+        &items,
+        reclassify,
+        |_count| Ok(true),
+        |_step| {},
+    )
+    .await?;
+    load_backlog(subject)
 }
 
 /// GET /api/requirements/:id — one item's read-only formalization detail (REQ035).
@@ -747,6 +799,47 @@ mod tests {
         let bytes = to_bytes(res.into_body(), usize::MAX).await.unwrap();
         let body: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
         assert_eq!(body["state"], "no-draft");
+    }
+
+    // Verifies: REQ085 — bulk triage against an unadopted subject is the same 409 the read surface
+    // uses, never a 500.
+    #[tokio::test]
+    async fn bulk_triage_seed_on_unadopted_subject_is_conflict() {
+        let empty = tempfile::tempdir().unwrap();
+        let res = post_json(
+            "/api/requirements/triage/seed",
+            empty.path().to_path_buf(),
+            serde_json::json!({ "reclassify": false }),
+        )
+        .await;
+        assert_eq!(res.status(), StatusCode::CONFLICT);
+    }
+
+    // Verifies: REQ085 — with no LLM configured, bulk triage seeds every untriaged item with the
+    // honest prose-floor default (recorded as a seed, not a classification) and returns the updated
+    // backlog with the untriaged count drained to zero. This is the CLI's `provreq triage` (no
+    // `--set`) reached over HTTP, through the same triage machinery.
+    #[tokio::test]
+    async fn bulk_triage_seed_prose_floors_untriaged_items() {
+        let subject = adopted_subject_with_one_item();
+        let res = post_json(
+            "/api/requirements/triage/seed",
+            subject.path().to_path_buf(),
+            serde_json::json!({ "reclassify": false }),
+        )
+        .await;
+        assert_eq!(res.status(), StatusCode::OK);
+        let bytes = to_bytes(res.into_body(), usize::MAX).await.unwrap();
+        let body: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(body["items"][0]["classification"], "stays-prose");
+        assert_eq!(body["items"][0]["classified_by"], "seeded");
+        assert_eq!(body["coverage"]["untriaged"], 0);
+
+        // The seed persisted: a fresh GET reflects it.
+        let got = get_path_on("/api/requirements", subject.path().to_path_buf()).await;
+        let bytes = to_bytes(got.into_body(), usize::MAX).await.unwrap();
+        let backlog: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(backlog["items"][0]["classification"], "stays-prose");
     }
 
     /// A minimal adopted subject: a Doorstop document with one item plus the `provreq.yml`

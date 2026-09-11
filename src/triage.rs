@@ -280,6 +280,178 @@ pub async fn seed_in_batches<C: Classifier>(
     })
 }
 
+/// A step of a [`seed_backlog`] run, reported as it happens so a caller can narrate the run in its
+/// own medium. The command line prints each one; the web handler ignores them. They are emitted
+/// interleaved with the run, so ordering is preserved — the reason this is a callback and not a
+/// summary returned at the end (the "keeping N operator-set" notes have to precede the classify).
+pub enum SeedStep<'a> {
+    /// Items the record already answers, written as demonstrated without asking a classifier (#265).
+    ReadOffRecord(&'a [String]),
+    /// Operator-set entries a `--reclassify` is leaving alone (#257).
+    OperatorKept(&'a [String]),
+    /// Demonstrated entries a `--reclassify` is leaving alone, named apart from the operator's (#257).
+    DemonstratedKept(&'a [String]),
+    /// A configured model is about to classify `pending` of `total` item(s).
+    UsingLlm {
+        model: String,
+        endpoint: String,
+        note: String,
+        batch_size: usize,
+        pending: usize,
+        total: usize,
+    },
+    /// No model configured; the honest prose floor will seed `pending` of `total` item(s).
+    UsingProseFloor { pending: usize, total: usize },
+    /// A batch landed and was persisted.
+    BatchDone { done: usize, total: usize },
+}
+
+/// What a [`seed_backlog`] run decided and did. The final state is persisted to the companion as the
+/// run proceeds, so a caller re-reads it rather than trusting a returned copy.
+pub enum SeedRun {
+    /// Nothing to classify: `already` item(s) were already triaged (or all operator-set on a
+    /// reclassify). The caller advises differently by flag, so it decides the wording.
+    Nothing { already: usize },
+    /// A reclassify was declined at the confirm gate; nothing was written.
+    Aborted,
+    /// A classifier ran to completion, assigning `classified` bucket(s).
+    Classified { classified: usize },
+}
+
+/// Bulk-classify the pending backlog — the whole of `provreq triage` (no `--set`), factored out so
+/// the command line and the web surface run the identical machinery and never diverge on the
+/// backlog's classification (REQ085).
+///
+/// The record answers before a model is asked (#265): an item with a stored verdict or an admitted
+/// formalization is read off the record as demonstrated, never put in front of a classifier. The
+/// remaining scope is [`plan`]'s decision. A reclassify is consent-gated through `confirm` — the CLI
+/// prompts; the web handler, whose UI confirms before it posts, passes a closure that consents. Each
+/// batch is persisted as it lands (REQ054), so a failure costs one batch and the next run resumes.
+///
+/// `announce` receives each [`SeedStep`] as it happens; callers that do not narrate pass a no-op.
+pub async fn seed_backlog(
+    subject: &Path,
+    companion: &Path,
+    state: &TriageState,
+    items: &[Item],
+    reclassify: bool,
+    confirm: impl FnOnce(usize) -> Result<bool>,
+    mut announce: impl FnMut(SeedStep<'_>),
+) -> Result<SeedRun> {
+    // Let the record answer first (#265), and persist that before any classifier runs so `plan`
+    // below leaves the demonstrated items out of the batch.
+    let verdicts = crate::verdict_store::load(companion)?;
+    let drafts = crate::draft::load(companion)?;
+    let demonstrated = |item: &Item| {
+        verdicts.verdicts.contains_key(&item.id)
+            || crate::draft::admitted_fingerprint(&drafts, &item.id).is_some()
+    };
+    let (with_record, read_off_the_record) = apply_demonstrated(state, items, demonstrated);
+    if !read_off_the_record.is_empty() {
+        announce(SeedStep::ReadOffRecord(&read_off_the_record));
+        save(companion, &with_record)?;
+    }
+    let state = &with_record;
+
+    // Decide the scope before describing it (REQ053).
+    let pending = match plan(state, items, reclassify) {
+        TriagePlan::Nothing { already } => return Ok(SeedRun::Nothing { already }),
+        TriagePlan::Classify {
+            pending,
+            operator_kept,
+            demonstrated_kept,
+        } => {
+            if !operator_kept.is_empty() {
+                announce(SeedStep::OperatorKept(&operator_kept));
+            }
+            if !demonstrated_kept.is_empty() {
+                announce(SeedStep::DemonstratedKept(&demonstrated_kept));
+            }
+            pending
+        }
+    };
+    let count = pending.len();
+
+    // Re-classifying overwrites recorded judgements, so it is consent-gated. Operator-set entries
+    // are already out of `pending` (#257), so `count` is exactly what the run will touch.
+    if reclassify && !confirm(count)? {
+        return Ok(SeedRun::Aborted);
+    }
+
+    let total = items.len();
+    let outcome = match crate::llm::resolve_llm(subject, companion)? {
+        Some(resolved) => {
+            let batch_size = resolved.batch_size;
+            announce(SeedStep::UsingLlm {
+                model: resolved.model.clone(),
+                endpoint: resolved.endpoint.clone(),
+                note: resolved.note.clone(),
+                batch_size,
+                pending: count,
+                total,
+            });
+            // What the subject declares, so the classifier judges bindability rather than guessing
+            // it from prose (REQ072, #259). Scoped so the parsed subject — which carries `syn` AST
+            // types that are not `Send` — is dropped before the `.await` below; otherwise the run
+            // future is not `Send`, and the web handler that drives it needs it to be.
+            let context = {
+                let parsed = crate::rust_adapter::ParsedSubject::load(subject, companion);
+                let inv = crate::rust_adapter::inventory(&parsed);
+                crate::llm::SubjectContext {
+                    predicates: inv.predicates,
+                    sorts: inv.sorts,
+                }
+            };
+            let classifier = crate::llm::LlmClassifier::new(resolved.into_backend(), context);
+            seed_in_batches(
+                state,
+                &pending,
+                &classifier,
+                batch_size,
+                |s, done, total| {
+                    save(companion, s)?;
+                    announce(SeedStep::BatchDone { done, total });
+                    Ok(())
+                },
+            )
+            .await?
+        }
+        None => {
+            announce(SeedStep::UsingProseFloor {
+                pending: count,
+                total,
+            });
+            seed_in_batches(
+                state,
+                &pending,
+                &ProseFloorClassifier,
+                count,
+                |s, done, total| {
+                    save(companion, s)?;
+                    announce(SeedStep::BatchDone { done, total });
+                    Ok(())
+                },
+            )
+            .await?
+        }
+    };
+
+    // A run that stopped early already persisted what it managed; report what did and did not get
+    // classified rather than letting the failure imply nothing happened (REQ054).
+    if let Some(stopped) = outcome.stopped {
+        return Err(stopped).with_context(|| {
+            format!(
+                "classified {} of {count} item(s); {} not classified and left as they were — \
+                 re-run bulk triage to resume from here",
+                outcome.classified, outcome.unclassified
+            )
+        });
+    }
+    Ok(SeedRun::Classified {
+        classified: outcome.classified,
+    })
+}
+
 /// Set (or override) one item's classification against its current revision
 /// (R-triage-1 confirm/override). Returns a new state.
 pub fn set(state: &TriageState, item: &Item, classification: Classification) -> TriageState {

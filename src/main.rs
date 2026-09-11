@@ -5,10 +5,9 @@ use provreq::draft::{self, Draft, GateStatus};
 use provreq::engine;
 use provreq::formalize::Translator;
 use provreq::grounding::{self, Binding, Grounding};
-use provreq::llm::LlmClassifier;
 use provreq::rust_adapter::Resolution;
 use provreq::source::{Classification, Item};
-use provreq::triage::{self, ProseFloorClassifier, TriageState};
+use provreq::triage::{self, TriageState};
 use provreq::verify::VerifyOutcome;
 use std::collections::BTreeMap;
 use std::io::{self, Write};
@@ -471,8 +470,10 @@ async fn run_triage(
     Ok(())
 }
 
-/// Seed the pending backlog using the operator's configured LLM classifier, or
-/// the honest prose-floor default when no `llm:` block is present.
+/// Seed the pending backlog using the operator's configured LLM classifier, or the honest
+/// prose-floor default when none is configured. A thin wrapper over the shared
+/// [`triage::seed_backlog`] machinery (which the web surface also drives), adding only the command
+/// line's interactive consent and its running commentary — so the two never diverge on behaviour.
 async fn seed_backlog(
     subject: &Path,
     companion: &Path,
@@ -481,33 +482,28 @@ async fn seed_backlog(
     reclassify: bool,
     yes: bool,
 ) -> Result<TriageState> {
-    // Let the record answer before a model is asked (#265). An item with a stored verdict, or with
-    // an admitted formalization, has demonstrably been lowered already — that is not a question for
-    // a classifier, and asking one invites it to contradict our own store, which is exactly what
-    // happened to REQ047 in #258's measurement. Applied first so `plan` below sees these entries
-    // and leaves them out of the batch.
-    let verdicts = provreq::verdict_store::load(companion)?;
-    let drafts = provreq::draft::load(companion)?;
-    let demonstrated = |item: &Item| {
-        verdicts.verdicts.contains_key(&item.id)
-            || provreq::draft::admitted_fingerprint(&drafts, &item.id).is_some()
+    // `--yes` skips the prompt; otherwise the operator confirms the destructive reclassify.
+    let confirm_gate = |count: usize| -> Result<bool> {
+        if yes {
+            return Ok(true);
+        }
+        confirm(&format!(
+            "Re-classify all {count} item(s), replacing the existing classifications?"
+        ))
     };
-    let (with_record, read_off_the_record) = triage::apply_demonstrated(state, items, demonstrated);
-    let state = &with_record;
-    if !read_off_the_record.is_empty() {
-        println!(
-            "{} item(s) read off the record as formalizable-now ({}) — each carries a stored \
-             verdict or an admitted formalization, so no classifier was asked about them.",
-            read_off_the_record.len(),
-            read_off_the_record.join(", ")
-        );
-        triage::save(companion, state)?;
-    }
 
-    // Decide the scope BEFORE describing it (REQ053). Announcing a model and then classifying
-    // nothing is output that describes an action rather than reporting one.
-    let pending = match triage::plan(state, items, reclassify) {
-        triage::TriagePlan::Nothing { already } => {
+    match triage::seed_backlog(
+        subject,
+        companion,
+        state,
+        items,
+        reclassify,
+        confirm_gate,
+        print_seed_step,
+    )
+    .await?
+    {
+        triage::SeedRun::Nothing { already } => {
             // The same emptiness means opposite advice by flag (#257): without `--reclassify` the
             // way forward is the flag; with it, everything left is the operator's own choice, and
             // offering the flag again would advertise a run that can never do anything.
@@ -522,105 +518,57 @@ async fn seed_backlog(
                      classifier over them with `--reclassify`."
                 );
             }
-            return Ok(state.clone());
         }
-        triage::TriagePlan::Classify {
+        triage::SeedRun::Aborted => println!("Aborted; nothing written."),
+        triage::SeedRun::Classified { .. } => {}
+    }
+
+    // Re-read the persisted state so the printed table reflects exactly what landed.
+    triage::load(companion)
+}
+
+/// Print one [`triage::SeedStep`] as the shared seed run reports it — the command line's narration
+/// of a run the library orchestrates.
+fn print_seed_step(step: triage::SeedStep<'_>) {
+    use triage::SeedStep;
+    match step {
+        SeedStep::ReadOffRecord(ids) => println!(
+            "{} item(s) read off the record as formalizable-now ({}) — each carries a stored \
+             verdict or an admitted formalization, so no classifier was asked about them.",
+            ids.len(),
+            ids.join(", ")
+        ),
+        SeedStep::OperatorKept(ids) => println!(
+            "keeping {} operator-set item(s) as they are ({}) — `--reclassify` never replaces an \
+             operator's choice; change one with `provreq triage --set`.",
+            ids.len(),
+            ids.join(", ")
+        ),
+        SeedStep::DemonstratedKept(ids) => println!(
+            "keeping {} item(s) the record already answers ({}) — a stored verdict or an admitted \
+             formalization demonstrates these, so `--reclassify` does not re-ask a model about them.",
+            ids.len(),
+            ids.join(", ")
+        ),
+        SeedStep::UsingLlm {
+            model,
+            endpoint,
+            note,
+            batch_size,
             pending,
-            operator_kept,
-            demonstrated_kept,
-        } => {
-            // Said before the consent prompt, so what the operator consents to is what will
-            // happen — a count that quietly included their own entries gated the wrong question.
-            if !operator_kept.is_empty() {
-                println!(
-                    "keeping {} operator-set item(s) as they are ({}) — `--reclassify` never \
-                     replaces an operator's choice; change one with `provreq triage --set`.",
-                    operator_kept.len(),
-                    operator_kept.join(", ")
-                );
-            }
-            // Said apart from the operator's own entries (#257): these were kept because the
-            // record already answers them, which is a different fact and a different remedy.
-            if !demonstrated_kept.is_empty() {
-                println!(
-                    "keeping {} item(s) the record already answers ({}) — a stored verdict or an \
-                     admitted formalization demonstrates these, so `--reclassify` does not re-ask \
-                     a model about them.",
-                    demonstrated_kept.len(),
-                    demonstrated_kept.join(", ")
-                );
-            }
-            pending
-        }
-    };
-    let count = pending.len();
-
-    // Re-classifying replaces the classifier's own judgements, so it is consent-gated like every
-    // other action that overwrites recorded state. Operator-set entries are already out of
-    // `pending` (#257), so the count here is exactly what the run will touch.
-    if reclassify
-        && !yes
-        && !confirm(&format!(
-            "Re-classify all {count} item(s), replacing the existing classifications?"
-        ))?
-    {
-        println!("Aborted; nothing written.");
-        return Ok(state.clone());
+            total,
+        } => println!(
+            "Classifying {pending} of {total} item(s) with {model} via {endpoint}{note}, \
+             {batch_size} at a time …"
+        ),
+        SeedStep::UsingProseFloor { pending, total } => println!(
+            "No LLM configured (System config or provreq.yml `llm:`) — seeding {pending} of {total} \
+             item(s) with the prose-floor default. A seed is recorded as a seed, not as a \
+             classification: configure a provider and re-run `provreq triage` and these are \
+             re-done, with no `--reclassify` and nothing else of yours touched."
+        ),
+        SeedStep::BatchDone { done, total } => println!("  classified {done} of {total} …"),
     }
-
-    // Persisting each batch as it lands is what makes a failure cost one batch instead of the
-    // whole run, and what makes the next run a resume (REQ054).
-    let persist = |state: &TriageState, done: usize, total: usize| -> Result<()> {
-        triage::save(companion, state)?;
-        println!("  classified {done} of {total} …");
-        Ok(())
-    };
-
-    let outcome = match provreq::llm::resolve_llm(subject, companion)? {
-        Some(resolved) => {
-            let batch_size = resolved.batch_size;
-            println!(
-                "Classifying {count} of {} item(s) with {} via {}{}, {batch_size} at a time …",
-                items.len(),
-                resolved.model,
-                resolved.endpoint,
-                resolved.note
-            );
-            // What the subject declares, so the classifier judges bindability rather than
-            // guessing it from prose (REQ072, #259).
-            let parsed = provreq::rust_adapter::ParsedSubject::load(subject, companion);
-            let inv = provreq::rust_adapter::inventory(&parsed);
-            let context = provreq::llm::SubjectContext {
-                predicates: inv.predicates,
-                sorts: inv.sorts,
-            };
-            let classifier = LlmClassifier::new(resolved.into_backend(), context);
-            triage::seed_in_batches(state, &pending, &classifier, batch_size, persist).await?
-        }
-        None => {
-            println!(
-                "No LLM configured (System config or provreq.yml `llm:`) — seeding {count} of {} item(s) with the \
-                 prose-floor default. A seed is recorded as a seed, not as a classification: \
-                 configure a provider and re-run `provreq triage` and these are re-done, with no \
-                 `--reclassify` and nothing else of yours touched.",
-                items.len()
-            );
-            triage::seed_in_batches(state, &pending, &ProseFloorClassifier, count, persist).await?
-        }
-    };
-
-    // A run that stopped early already persisted what it managed; say what did and did not get
-    // classified rather than letting the failure imply nothing happened.
-    if let Some(stopped) = outcome.stopped {
-        return Err(stopped).with_context(|| {
-            format!(
-                "classified {} of {count} item(s); {} not classified and left as they were — \
-                 re-run `provreq triage` to resume from here",
-                outcome.classified, outcome.unclassified
-            )
-        });
-    }
-    Ok(outcome.state)
 }
 
 /// List the backlog with each item's bucket — and, where the bucket is worth less than it looks,
