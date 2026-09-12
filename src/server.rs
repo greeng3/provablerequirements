@@ -13,7 +13,7 @@ use axum::{
     extract::{Path, State},
     http::{StatusCode, Uri, header},
     response::{IntoResponse, Response},
-    routing::{get, post},
+    routing::{delete, get, post},
 };
 use rust_embed::RustEmbed;
 use std::net::SocketAddr;
@@ -80,6 +80,13 @@ pub fn router(state: Shared) -> Router {
         .route("/api/requirements/triage/seed", post(seed_triage))
         .route("/api/requirements/{id}/triage", post(set_triage))
         .route("/api/requirements/{id}/verify", post(verify_requirement))
+        .route(
+            "/api/requirements/{id}/draft/candidate",
+            post(set_draft_candidate),
+        )
+        .route("/api/requirements/{id}/draft/check", post(check_draft))
+        .route("/api/requirements/{id}/draft/ground", post(ground_draft))
+        .route("/api/requirements/{id}/draft", delete(discard_draft))
         .fallback(static_asset)
         .with_state(state.clone());
     crate::http::build_router(state, None).merge(proof)
@@ -377,6 +384,184 @@ async fn run_seed(subject: &std::path::Path, reclassify: bool) -> anyhow::Result
     )
     .await?;
     load_backlog(subject)
+}
+
+/// The mechanical `provreq draft` write-actions over HTTP (REQ086): author a candidate, re-check it,
+/// attach a grounding binding, or discard the draft. Each writes only companion draft state — no
+/// model call, no write to the subject's own source — and returns the item's refreshed formalization
+/// [`crate::detail::Detail`], so the dialog reconciles against authoritative state. They route
+/// through the same `crate::draft` machinery the command line uses, so the two never diverge.
+
+#[derive(serde::Deserialize)]
+struct SetCandidateRequest {
+    prl: String,
+}
+
+#[derive(serde::Deserialize)]
+struct GroundRequest {
+    symbol: String,
+    observable: String,
+    #[serde(default)]
+    fidelity: Option<String>,
+}
+
+/// The three ways a draft write resolves, mapped to a response by [`respond_draft`]: the refreshed
+/// detail (200), an id the subject does not contain (404), or a rejected precondition (400) — a bad
+/// request (no candidate, ungating candidate, unbindable symbol) is never silently written. An
+/// unadopted subject or an IO failure is the outer `Err` and maps to 409.
+enum DraftWrite {
+    // Boxed: `Detail` is far larger than the other variants, so an unboxed payload would bloat every
+    // `DraftWrite` to its size (clippy::large_enum_variant).
+    Ok(Box<crate::detail::Detail>),
+    NotFound,
+    BadRequest(String),
+}
+
+fn respond_draft(result: anyhow::Result<DraftWrite>) -> Response {
+    match result {
+        Ok(DraftWrite::Ok(detail)) => Json(detail).into_response(),
+        Ok(DraftWrite::NotFound) => (
+            StatusCode::NOT_FOUND,
+            Json(serde_json::json!({ "error": "no such requirement in the subject" })),
+        )
+            .into_response(),
+        Ok(DraftWrite::BadRequest(msg)) => (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({ "error": msg })),
+        )
+            .into_response(),
+        Err(e) => (
+            StatusCode::CONFLICT,
+            Json(serde_json::json!({ "error": e.to_string() })),
+        )
+            .into_response(),
+    }
+}
+
+/// Re-read the item's detail after a write, as a [`DraftWrite`] (an id that vanished is a 404).
+fn draft_detail(subject: &std::path::Path, id: &str) -> anyhow::Result<DraftWrite> {
+    Ok(match load_detail(subject, id)? {
+        Some(detail) => DraftWrite::Ok(Box::new(detail)),
+        None => DraftWrite::NotFound,
+    })
+}
+
+/// POST /api/requirements/:id/draft/candidate — author or replace the candidate PRL (REQ086).
+async fn set_draft_candidate(
+    State(state): State<Shared>,
+    Path(id): Path<String>,
+    Json(req): Json<SetCandidateRequest>,
+) -> Response {
+    let subject = match subject_or_conflict(&state) {
+        Ok(s) => s,
+        Err(r) => return r,
+    };
+    respond_draft(apply_set_candidate(&subject, &id, req.prl))
+}
+
+fn apply_set_candidate(
+    subject: &std::path::Path,
+    id: &str,
+    prl: String,
+) -> anyhow::Result<DraftWrite> {
+    let (companion, items) = crate::adopt::resolve(subject)?;
+    let Some(item) = items.iter().find(|i| i.id == id) else {
+        return Ok(DraftWrite::NotFound);
+    };
+    let state = crate::draft::load(&companion)?;
+    let status = crate::draft::gate_to_status(&crate::prl::gate(&prl));
+    let next = crate::draft::set_candidate(&state, item, prl, status);
+    crate::draft::save(&companion, &next)?;
+    draft_detail(subject, id)
+}
+
+/// POST /api/requirements/:id/draft/check — re-run the mechanical gate on the stored candidate.
+async fn check_draft(State(state): State<Shared>, Path(id): Path<String>) -> Response {
+    let subject = match subject_or_conflict(&state) {
+        Ok(s) => s,
+        Err(r) => return r,
+    };
+    respond_draft(apply_check_draft(&subject, &id))
+}
+
+fn apply_check_draft(subject: &std::path::Path, id: &str) -> anyhow::Result<DraftWrite> {
+    let (companion, items) = crate::adopt::resolve(subject)?;
+    if !items.iter().any(|i| i.id == id) {
+        return Ok(DraftWrite::NotFound);
+    }
+    let state = crate::draft::load(&companion)?;
+    let Some(candidate) = state.drafts.get(id).and_then(|d| d.candidate.clone()) else {
+        return Ok(DraftWrite::BadRequest(format!(
+            "draft {id} has no candidate PRL to check yet — set one first"
+        )));
+    };
+    let status = crate::draft::gate_to_status(&crate::prl::gate(&candidate));
+    let next = crate::draft::set_gate(&state, id, status);
+    crate::draft::save(&companion, &next)?;
+    draft_detail(subject, id)
+}
+
+/// POST /api/requirements/:id/draft/ground — attach a grounding binding (REQ086).
+async fn ground_draft(
+    State(state): State<Shared>,
+    Path(id): Path<String>,
+    Json(req): Json<GroundRequest>,
+) -> Response {
+    let subject = match subject_or_conflict(&state) {
+        Ok(s) => s,
+        Err(r) => return r,
+    };
+    respond_draft(apply_ground_draft(
+        &subject,
+        &id,
+        &req.symbol,
+        &req.observable,
+        req.fidelity.as_deref(),
+    ))
+}
+
+fn apply_ground_draft(
+    subject: &std::path::Path,
+    id: &str,
+    symbol: &str,
+    observable: &str,
+    fidelity: Option<&str>,
+) -> anyhow::Result<DraftWrite> {
+    let (companion, items) = crate::adopt::resolve(subject)?;
+    if !items.iter().any(|i| i.id == id) {
+        return Ok(DraftWrite::NotFound);
+    }
+    let state = crate::draft::load(&companion)?;
+    let spec = format!("{symbol}={observable}");
+    // Every bind precondition (no candidate, ungating candidate, unbindable symbol, bad fidelity) is
+    // a 400 from the shared `draft::ground`, not a silent write.
+    match crate::draft::ground(&state, id, &spec, fidelity) {
+        Ok((next, _binding)) => {
+            crate::draft::save(&companion, &next)?;
+            draft_detail(subject, id)
+        }
+        Err(e) => Ok(DraftWrite::BadRequest(e.to_string())),
+    }
+}
+
+/// DELETE /api/requirements/:id/draft — discard the draft entirely (REQ086).
+async fn discard_draft(State(state): State<Shared>, Path(id): Path<String>) -> Response {
+    let subject = match subject_or_conflict(&state) {
+        Ok(s) => s,
+        Err(r) => return r,
+    };
+    respond_draft(apply_discard_draft(&subject, &id))
+}
+
+fn apply_discard_draft(subject: &std::path::Path, id: &str) -> anyhow::Result<DraftWrite> {
+    let (companion, items) = crate::adopt::resolve(subject)?;
+    if !items.iter().any(|i| i.id == id) {
+        return Ok(DraftWrite::NotFound);
+    }
+    let state = crate::draft::load(&companion)?;
+    let next = crate::draft::discard(&state, id);
+    crate::draft::save(&companion, &next)?;
+    draft_detail(subject, id)
 }
 
 /// GET /api/requirements/:id — one item's read-only formalization detail (REQ035).
@@ -840,6 +1025,113 @@ mod tests {
         let bytes = to_bytes(got.into_body(), usize::MAX).await.unwrap();
         let backlog: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
         assert_eq!(backlog["items"][0]["classification"], "stays-prose");
+    }
+
+    async fn delete_path(path: &str, subject: PathBuf) -> Response {
+        router(single_subject_state(subject).await.unwrap())
+            .oneshot(
+                Request::builder()
+                    .method("DELETE")
+                    .uri(path)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap()
+    }
+
+    // Verifies: REQ086 — authoring a candidate PRL from the web surface stores it (with its gate
+    // outcome) and reports the item as drafting; the same `provreq draft --set` reached over HTTP.
+    #[tokio::test]
+    async fn draft_set_candidate_stores_the_prl_and_reports_drafting() {
+        let subject = adopted_subject_with_one_item();
+        let res = post_json(
+            "/api/requirements/REQ001/draft/candidate",
+            subject.path().to_path_buf(),
+            serde_json::json!({ "prl": "forall p . active(p)" }),
+        )
+        .await;
+        assert_eq!(res.status(), StatusCode::OK);
+        let bytes = to_bytes(res.into_body(), usize::MAX).await.unwrap();
+        let body: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(body["candidate"], "forall p . active(p)");
+        assert_eq!(body["formalization"], "drafting");
+
+        // Persisted: a fresh detail GET reflects it.
+        let got = get_path_on("/api/requirements/REQ001", subject.path().to_path_buf()).await;
+        let bytes = to_bytes(got.into_body(), usize::MAX).await.unwrap();
+        let detail: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(detail["candidate"], "forall p . active(p)");
+    }
+
+    // Verifies: REQ086 — re-running the mechanical gate on the stored candidate records a gate
+    // outcome (`provreq draft --check`).
+    #[tokio::test]
+    async fn draft_check_regates_the_stored_candidate() {
+        let subject = adopted_subject_with_one_item();
+        post_json(
+            "/api/requirements/REQ001/draft/candidate",
+            subject.path().to_path_buf(),
+            serde_json::json!({ "prl": "forall p . active(p)" }),
+        )
+        .await;
+        let res = post_empty(
+            "/api/requirements/REQ001/draft/check",
+            subject.path().to_path_buf(),
+        )
+        .await;
+        assert_eq!(res.status(), StatusCode::OK);
+        let bytes = to_bytes(res.into_body(), usize::MAX).await.unwrap();
+        let body: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert!(body["gate"]["status"].is_string(), "gate recorded: {body}");
+    }
+
+    // Verifies: REQ086 — grounding with no candidate to ground is a 400, never a silent write.
+    #[tokio::test]
+    async fn draft_ground_without_a_candidate_is_rejected() {
+        let subject = adopted_subject_with_one_item();
+        let res = post_json(
+            "/api/requirements/REQ001/draft/ground",
+            subject.path().to_path_buf(),
+            serde_json::json!({ "symbol": "x", "observable": "y" }),
+        )
+        .await;
+        assert_eq!(res.status(), StatusCode::BAD_REQUEST);
+    }
+
+    // Verifies: REQ086 — discarding removes the draft; the item reads unformalized again.
+    #[tokio::test]
+    async fn draft_discard_removes_the_draft() {
+        let subject = adopted_subject_with_one_item();
+        post_json(
+            "/api/requirements/REQ001/draft/candidate",
+            subject.path().to_path_buf(),
+            serde_json::json!({ "prl": "forall p . active(p)" }),
+        )
+        .await;
+        let res = delete_path(
+            "/api/requirements/REQ001/draft",
+            subject.path().to_path_buf(),
+        )
+        .await;
+        assert_eq!(res.status(), StatusCode::OK);
+        let bytes = to_bytes(res.into_body(), usize::MAX).await.unwrap();
+        let body: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert!(body["candidate"].is_null(), "candidate cleared: {body}");
+        assert_eq!(body["formalization"], "none");
+    }
+
+    // Verifies: REQ086 — a draft write against an unadopted subject is the same 409 the read uses.
+    #[tokio::test]
+    async fn draft_write_on_unadopted_subject_is_conflict() {
+        let empty = tempfile::tempdir().unwrap();
+        let res = post_json(
+            "/api/requirements/REQ001/draft/candidate",
+            empty.path().to_path_buf(),
+            serde_json::json!({ "prl": "forall p . active(p)" }),
+        )
+        .await;
+        assert_eq!(res.status(), StatusCode::CONFLICT);
     }
 
     /// A minimal adopted subject: a Doorstop document with one item plus the `provreq.yml`

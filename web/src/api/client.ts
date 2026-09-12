@@ -542,6 +542,33 @@ export const api = {
         send<ProofBacklog>("/api/requirements/triage/seed", "POST", {
             reclassify,
         }),
+    setDraftCandidate: (id: string, prl: string) =>
+        send<ProofDetail>(
+            `/api/requirements/${encodeURIComponent(id)}/draft/candidate`,
+            "POST",
+            { prl },
+        ),
+    checkDraft: (id: string) =>
+        send<ProofDetail>(
+            `/api/requirements/${encodeURIComponent(id)}/draft/check`,
+            "POST",
+        ),
+    groundDraft: (
+        id: string,
+        symbol: string,
+        observable: string,
+        fidelity?: string,
+    ) =>
+        send<ProofDetail>(
+            `/api/requirements/${encodeURIComponent(id)}/draft/ground`,
+            "POST",
+            { symbol, observable, fidelity },
+        ),
+    discardDraft: (id: string) =>
+        send<ProofDetail>(
+            `/api/requirements/${encodeURIComponent(id)}/draft`,
+            "DELETE",
+        ),
     verifyRequirement: (id: string) =>
         send<ProofVerifyResponse>(
             `/api/requirements/${encodeURIComponent(id)}/verify`,
