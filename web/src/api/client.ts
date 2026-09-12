@@ -553,6 +553,11 @@ export const api = {
             `/api/requirements/${encodeURIComponent(id)}/draft/check`,
             "POST",
         ),
+    translateDraft: (id: string) =>
+        send<ProofDetail>(
+            `/api/requirements/${encodeURIComponent(id)}/draft/translate`,
+            "POST",
+        ),
     groundDraft: (
         id: string,
         symbol: string,

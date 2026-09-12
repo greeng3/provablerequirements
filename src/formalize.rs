@@ -18,7 +18,7 @@
 use crate::llm::{LlmBackend, user_request};
 use crate::prl::{GateError, GateOutcome, gate};
 use crate::source::Item;
-use anyhow::{Result, bail};
+use anyhow::{Context, Result, bail};
 
 /// Total translate attempts before giving up: one initial proposal plus up to two
 /// gate-driven repairs. Bounded so a model that cannot satisfy the gate does not loop.
@@ -98,6 +98,27 @@ impl<B: LlmBackend> Translator<B> {
         }
         Ok(candidate.to_string())
     }
+}
+
+/// Resolve the configured model and run the full translate-then-gate loop for `item`. Shared by
+/// `provreq draft --translate` and the serve backend so the two never diverge on how a candidate
+/// is proposed or gated (REQ087). `announce` sees the resolved model facts before the (slow)
+/// network call — the CLI prints its banner; the HTTP surface passes a no-op. There is no offline
+/// fallback: a translation with no model configured is an honest error, not an invented candidate.
+pub async fn translate_item(
+    subject: &std::path::Path,
+    companion: &std::path::Path,
+    item: &Item,
+    announce: impl FnOnce(&crate::llm::ResolvedLlm),
+) -> Result<RepairOutcome> {
+    let resolved = crate::llm::resolve_llm(subject, companion)?.context(
+        "no LLM configured (System config or provreq.yml `llm:`) — configure a provider to use \
+         `draft --translate`",
+    )?;
+    announce(&resolved);
+    Translator::new(resolved.into_backend())
+        .translate_gated(item)
+        .await
 }
 
 const PROMPT: &str = "\

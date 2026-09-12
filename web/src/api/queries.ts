@@ -787,6 +787,12 @@ export function useCheckDraft() {
   return useDraftMutation(({ id }: { id: string }) => api.checkDraft(id));
 }
 
+/// Forward-translate the prose into a candidate PRL via the configured model (REQ087). Slow
+/// (a live model call plus repair rounds), so callers surface the mutation's pending state.
+export function useTranslateDraft() {
+  return useDraftMutation(({ id }: { id: string }) => api.translateDraft(id));
+}
+
 export function useGroundDraft() {
   return useDraftMutation(
     ({
