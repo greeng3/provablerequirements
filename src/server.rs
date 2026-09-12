@@ -241,7 +241,7 @@ async fn requirements(State(state): State<Shared>) -> Response {
         Ok(backlog) => Json(backlog).into_response(),
         Err(e) => (
             StatusCode::CONFLICT,
-            Json(serde_json::json!({ "error": e.to_string() })),
+            Json(serde_json::json!({ "error": error_chain(&e) })),
         )
             .into_response(),
     }
@@ -309,7 +309,7 @@ async fn set_triage(
             .into_response(),
         Err(e) => (
             StatusCode::CONFLICT,
-            Json(serde_json::json!({ "error": e.to_string() })),
+            Json(serde_json::json!({ "error": error_chain(&e) })),
         )
             .into_response(),
     }
@@ -368,7 +368,7 @@ async fn seed_triage(State(state): State<Shared>, Json(req): Json<SeedRequest>) 
         Ok(backlog) => Json(backlog).into_response(),
         Err(e) => (
             StatusCode::CONFLICT,
-            Json(serde_json::json!({ "error": e.to_string() })),
+            Json(serde_json::json!({ "error": error_chain(&e) })),
         )
             .into_response(),
     }
@@ -441,6 +441,14 @@ enum DraftWrite {
     BadRequest(String),
 }
 
+/// Render an error for the wire as its full anyhow cause chain (`{:#}`), so the operator sees both
+/// the outer context and the underlying cause. A bare `to_string()` prints only the outermost line —
+/// e.g. a bulk-triage run that stopped shows "classified 0 of N …" but hides the model error that
+/// actually stopped it (#445).
+fn error_chain(e: &anyhow::Error) -> String {
+    format!("{e:#}")
+}
+
 fn respond_draft(result: anyhow::Result<DraftWrite>) -> Response {
     match result {
         Ok(DraftWrite::Ok(detail)) => Json(detail).into_response(),
@@ -456,7 +464,7 @@ fn respond_draft(result: anyhow::Result<DraftWrite>) -> Response {
             .into_response(),
         Err(e) => (
             StatusCode::CONFLICT,
-            Json(serde_json::json!({ "error": e.to_string() })),
+            Json(serde_json::json!({ "error": error_chain(&e) })),
         )
             .into_response(),
     }
@@ -548,7 +556,7 @@ async fn apply_translate_draft(subject: &std::path::Path, id: &str) -> anyhow::R
     // same shape `ground` uses for its preconditions, never a silent write or a guessed candidate.
     let outcome = match crate::formalize::translate_item(subject, &companion, item, |_| {}).await {
         Ok(outcome) => outcome,
-        Err(e) => return Ok(DraftWrite::BadRequest(e.to_string())),
+        Err(e) => return Ok(DraftWrite::BadRequest(error_chain(&e))),
     };
     let status = crate::draft::gate_to_status(&outcome.gate);
     let next = crate::draft::set_candidate(&state, item, outcome.candidate, status);
@@ -595,7 +603,7 @@ fn apply_ground_draft(
             crate::draft::save(&companion, &next)?;
             draft_detail(subject, id)
         }
-        Err(e) => Ok(DraftWrite::BadRequest(e.to_string())),
+        Err(e) => Ok(DraftWrite::BadRequest(error_chain(&e))),
     }
 }
 
@@ -663,7 +671,7 @@ fn apply_admit_draft(
             crate::draft::save(&companion, &next)?;
             draft_detail(subject, id)
         }
-        Err(e) => Ok(DraftWrite::BadRequest(e.to_string())),
+        Err(e) => Ok(DraftWrite::BadRequest(error_chain(&e))),
     }
 }
 
@@ -687,7 +695,7 @@ fn apply_writeback_draft(subject: &std::path::Path, id: &str) -> anyhow::Result<
     let state = crate::draft::load(&companion)?;
     match crate::draft::writeback(subject, &state, item) {
         Ok(()) => draft_detail(subject, id),
-        Err(e) => Ok(DraftWrite::BadRequest(e.to_string())),
+        Err(e) => Ok(DraftWrite::BadRequest(error_chain(&e))),
     }
 }
 
@@ -712,7 +720,7 @@ async fn requirement_detail(State(state): State<Shared>, Path(id): Path<String>)
             .into_response(),
         Err(e) => (
             StatusCode::CONFLICT,
-            Json(serde_json::json!({ "error": e.to_string() })),
+            Json(serde_json::json!({ "error": error_chain(&e) })),
         )
             .into_response(),
     }
@@ -798,7 +806,7 @@ async fn verify_requirement(State(state): State<Shared>, Path(id): Path<String>)
             .into_response(),
         Err(e) => (
             StatusCode::CONFLICT,
-            Json(serde_json::json!({ "error": e.to_string() })),
+            Json(serde_json::json!({ "error": error_chain(&e) })),
         )
             .into_response(),
     }
@@ -873,6 +881,23 @@ mod tests {
             .and_then(|v| v.to_str().ok())
             .unwrap_or("")
             .to_string()
+    }
+
+    // Verifies: #445 — an error rendered for the wire carries its full cause chain, not just the
+    // outermost context. The bulk-triage "classified 0 of N …" wrapper must not swallow the model
+    // error that actually stopped the run.
+    #[test]
+    fn error_chain_surfaces_the_underlying_cause() {
+        let e = anyhow::anyhow!("connection refused (os error 111)").context(
+            "classified 0 of 110 item(s); 110 not classified and left as they were — \
+             re-run bulk triage to resume from here",
+        );
+        let rendered = error_chain(&e);
+        assert!(rendered.contains("re-run bulk triage"), "outer: {rendered}");
+        assert!(
+            rendered.contains("connection refused"),
+            "the underlying cause must survive, not just the wrapper: {rendered}"
+        );
     }
 
     // Verifies: REQ005
