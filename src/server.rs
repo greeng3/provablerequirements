@@ -90,6 +90,8 @@ pub fn router(state: Shared) -> Router {
             post(translate_draft),
         )
         .route("/api/requirements/{id}/draft/ground", post(ground_draft))
+        .route("/api/requirements/{id}/admit", post(admit_draft))
+        .route("/api/requirements/{id}/writeback", post(writeback_draft))
         .route("/api/requirements/{id}/draft", delete(discard_draft))
         .fallback(static_asset)
         .with_state(state.clone());
@@ -409,6 +411,24 @@ struct GroundRequest {
     fidelity: Option<String>,
 }
 
+#[derive(serde::Deserialize)]
+struct AdmitRequest {
+    reviewer: String,
+    /// Confirms the read-back for a mandatory-review (vacuity-flagged) candidate — the UI's
+    /// equivalent of the CLI's stdin prompt. Ignored for an optional-review candidate.
+    #[serde(default)]
+    confirmed: bool,
+}
+
+/// Current wall-clock time as Unix seconds (0 if the clock is before the epoch) — the `at_unix`
+/// stamped on an admission, mirroring the command line's own helper.
+fn now_unix() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0)
+}
+
 /// The three ways a draft write resolves, mapped to a response by [`respond_draft`]: the refreshed
 /// detail (200), an id the subject does not contain (404), or a rejected precondition (400) — a bad
 /// request (no candidate, ungating candidate, unbindable symbol) is never silently written. An
@@ -597,6 +617,78 @@ fn apply_discard_draft(subject: &std::path::Path, id: &str) -> anyhow::Result<Dr
     let next = crate::draft::discard(&state, id);
     crate::draft::save(&companion, &next)?;
     draft_detail(subject, id)
+}
+
+/// POST /api/requirements/:id/admit — admit the draft's formalization after human confirmation
+/// (REQ088). The read API already returns the deterministic read-back and admission provenance, so
+/// the UI shows what is being confirmed; a mandatory-review (vacuity-flagged) candidate admits only
+/// when `confirmed`. Every precondition failure (no candidate, ungating candidate, missing
+/// confirmation, empty reviewer) is a 400 from the shared `draft::admit_gated`, not a silent skip.
+async fn admit_draft(
+    State(state): State<Shared>,
+    Path(id): Path<String>,
+    Json(req): Json<AdmitRequest>,
+) -> Response {
+    let subject = match subject_or_conflict(&state) {
+        Ok(s) => s,
+        Err(r) => return r,
+    };
+    respond_draft(apply_admit_draft(
+        &subject,
+        &id,
+        &req.reviewer,
+        req.confirmed,
+    ))
+}
+
+fn apply_admit_draft(
+    subject: &std::path::Path,
+    id: &str,
+    reviewer: &str,
+    confirmed: bool,
+) -> anyhow::Result<DraftWrite> {
+    let (companion, items) = crate::adopt::resolve(subject)?;
+    if !items.iter().any(|i| i.id == id) {
+        return Ok(DraftWrite::NotFound);
+    }
+    let reviewer = reviewer.trim();
+    if reviewer.is_empty() {
+        return Ok(DraftWrite::BadRequest(
+            "a reviewer name is required to admit a formalization".into(),
+        ));
+    }
+    let state = crate::draft::load(&companion)?;
+    match crate::draft::admit_gated(&state, id, reviewer, confirmed, now_unix()) {
+        Ok((next, _tier)) => {
+            crate::draft::save(&companion, &next)?;
+            draft_detail(subject, id)
+        }
+        Err(e) => Ok(DraftWrite::BadRequest(e.to_string())),
+    }
+}
+
+/// POST /api/requirements/:id/writeback — write the admitted provenance onto the subject source
+/// (REQ088), the only draft action that mutates the subject's own files. Requires an admitted,
+/// non-stale draft; both preconditions are a 400 from the shared `draft::writeback`. The backend
+/// writes the working-tree change but never commits — the operator reviews and commits.
+async fn writeback_draft(State(state): State<Shared>, Path(id): Path<String>) -> Response {
+    let subject = match subject_or_conflict(&state) {
+        Ok(s) => s,
+        Err(r) => return r,
+    };
+    respond_draft(apply_writeback_draft(&subject, &id))
+}
+
+fn apply_writeback_draft(subject: &std::path::Path, id: &str) -> anyhow::Result<DraftWrite> {
+    let (companion, items) = crate::adopt::resolve(subject)?;
+    let Some(item) = items.iter().find(|i| i.id == id) else {
+        return Ok(DraftWrite::NotFound);
+    };
+    let state = crate::draft::load(&companion)?;
+    match crate::draft::writeback(subject, &state, item) {
+        Ok(()) => draft_detail(subject, id),
+        Err(e) => Ok(DraftWrite::BadRequest(e.to_string())),
+    }
 }
 
 /// GET /api/requirements/:id — one item's read-only formalization detail (REQ035).
@@ -1198,6 +1290,157 @@ mod tests {
         )
         .await;
         assert_eq!(res.status(), StatusCode::CONFLICT);
+    }
+
+    /// A candidate PRL that clears the gate with no warnings (optional-review).
+    fn clean_candidate() -> serde_json::Value {
+        serde_json::json!({ "prl": "requirement no_message_lost {\n\
+            category: 2a + 2b\n\
+            vocabulary {\n\
+                event accepted(m: Message)\n\
+                state succeeded(m), dead_lettered(m: Message, reason: String)\n\
+            }\n\
+            assume { retries_bounded(N = 5) }\n\
+            require {\n\
+                each m: Message .\n\
+                    accepted(m) leads_to (succeeded(m) or dead_lettered(m, r) with r != \"\") within 30s\n\
+            }\n\
+            strength: model_checked over Model, monitored(deadline = 30s)\n\
+            evidence: tla+ (bounded: |Message| <= 8), monpoly(stream = queue.events)\n\
+        }" })
+    }
+
+    /// A candidate that gates but warns (self-`leads_to` vacuity) — mandatory review.
+    fn vacuous_candidate() -> serde_json::Value {
+        serde_json::json!({ "prl": "requirement r {\n\
+            vocabulary { state p(x) }\n\
+            require { each m: X . p(m) leads_to p(m) }\n\
+        }" })
+    }
+
+    async fn set_candidate(subject: &std::path::Path, body: serde_json::Value) {
+        post_json(
+            "/api/requirements/REQ001/draft/candidate",
+            subject.to_path_buf(),
+            body,
+        )
+        .await;
+    }
+
+    // Verifies: REQ088 — admitting a clean (optional-review) candidate records the admission and
+    // reports the item admitted; no confirmation is required for a candidate the gate passes clean.
+    #[tokio::test]
+    async fn draft_admit_clean_candidate_records_admission() {
+        let subject = adopted_subject_with_one_item();
+        set_candidate(subject.path(), clean_candidate()).await;
+        let res = post_json(
+            "/api/requirements/REQ001/admit",
+            subject.path().to_path_buf(),
+            serde_json::json!({ "reviewer": "gg", "confirmed": false }),
+        )
+        .await;
+        assert_eq!(res.status(), StatusCode::OK);
+        let bytes = to_bytes(res.into_body(), usize::MAX).await.unwrap();
+        let body: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(body["formalization"], "admitted");
+        assert_eq!(body["admission"]["by"], "gg");
+    }
+
+    // Verifies: REQ088 — a vacuity-flagged (mandatory-review) candidate is not admitted without
+    // explicit confirmation of the read-back, and admits once confirmed.
+    #[tokio::test]
+    async fn draft_admit_vacuous_candidate_needs_confirmation() {
+        let subject = adopted_subject_with_one_item();
+        set_candidate(subject.path(), vacuous_candidate()).await;
+        let unconfirmed = post_json(
+            "/api/requirements/REQ001/admit",
+            subject.path().to_path_buf(),
+            serde_json::json!({ "reviewer": "gg", "confirmed": false }),
+        )
+        .await;
+        assert_eq!(unconfirmed.status(), StatusCode::BAD_REQUEST);
+        let confirmed = post_json(
+            "/api/requirements/REQ001/admit",
+            subject.path().to_path_buf(),
+            serde_json::json!({ "reviewer": "gg", "confirmed": true }),
+        )
+        .await;
+        assert_eq!(confirmed.status(), StatusCode::OK);
+    }
+
+    // Verifies: REQ088 — admitting is refused (not silently skipped) when there is no candidate to
+    // admit, and when a reviewer name is missing.
+    #[tokio::test]
+    async fn draft_admit_without_candidate_or_reviewer_is_rejected() {
+        let subject = adopted_subject_with_one_item();
+        let no_candidate = post_json(
+            "/api/requirements/REQ001/admit",
+            subject.path().to_path_buf(),
+            serde_json::json!({ "reviewer": "gg", "confirmed": true }),
+        )
+        .await;
+        assert_eq!(no_candidate.status(), StatusCode::BAD_REQUEST);
+
+        set_candidate(subject.path(), clean_candidate()).await;
+        let no_reviewer = post_json(
+            "/api/requirements/REQ001/admit",
+            subject.path().to_path_buf(),
+            serde_json::json!({ "reviewer": "  ", "confirmed": true }),
+        )
+        .await;
+        assert_eq!(no_reviewer.status(), StatusCode::BAD_REQUEST);
+    }
+
+    // Verifies: REQ088 — writing back is refused before admission, and writes the provenance once
+    // the draft is admitted (the item stays admitted through the write-back).
+    #[tokio::test]
+    async fn draft_writeback_requires_admission_then_writes() {
+        let subject = adopted_subject_with_one_item();
+        set_candidate(subject.path(), clean_candidate()).await;
+        let before = post_empty(
+            "/api/requirements/REQ001/writeback",
+            subject.path().to_path_buf(),
+        )
+        .await;
+        assert_eq!(before.status(), StatusCode::BAD_REQUEST);
+
+        post_json(
+            "/api/requirements/REQ001/admit",
+            subject.path().to_path_buf(),
+            serde_json::json!({ "reviewer": "gg", "confirmed": false }),
+        )
+        .await;
+        let after = post_empty(
+            "/api/requirements/REQ001/writeback",
+            subject.path().to_path_buf(),
+        )
+        .await;
+        assert_eq!(after.status(), StatusCode::OK);
+        let bytes = to_bytes(after.into_body(), usize::MAX).await.unwrap();
+        let body: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(body["formalization"], "admitted");
+    }
+
+    // Verifies: REQ088 — admit/writeback route the same 404 (unknown id) and 409 (unadopted) the
+    // other draft actions use.
+    #[tokio::test]
+    async fn draft_admit_unknown_id_is_not_found_and_unadopted_is_conflict() {
+        let subject = adopted_subject_with_one_item();
+        let unknown = post_json(
+            "/api/requirements/REQ999/admit",
+            subject.path().to_path_buf(),
+            serde_json::json!({ "reviewer": "gg", "confirmed": true }),
+        )
+        .await;
+        assert_eq!(unknown.status(), StatusCode::NOT_FOUND);
+
+        let empty = tempfile::tempdir().unwrap();
+        let unadopted = post_empty(
+            "/api/requirements/REQ001/writeback",
+            empty.path().to_path_buf(),
+        )
+        .await;
+        assert_eq!(unadopted.status(), StatusCode::CONFLICT);
     }
 
     // Verifies: REQ086 — a draft write against an unadopted subject is the same 409 the read uses.

@@ -1,12 +1,14 @@
 import { useEffect, useId, useState } from "react";
 
 import {
+  useAdmitDraft,
   useCheckDraft,
   useDiscardDraft,
   useGroundDraft,
   useRequirement,
   useSetDraftCandidate,
   useTranslateDraft,
+  useWritebackDraft,
 } from "../../../api/queries";
 import type { ProofDetail, ProofGateStatus } from "../../../api/types";
 import { formalizationLabel, originNote, triageLabel } from "../labels";
@@ -205,6 +207,17 @@ function DetailView({
 
       {d.candidate && <GroundingForm id={d.id} />}
 
+      {d.readback && !d.admission && (
+        <AdmitControl
+          id={d.id}
+          mandatory={
+            d.gate?.status === "passed" && d.gate.warnings.length > 0
+          }
+        />
+      )}
+
+      {d.admission && <WritebackControl id={d.id} stale={d.stale} />}
+
       <DiscardDraft id={d.id} hasCandidate={Boolean(d.candidate)} />
 
       <VerifyPanel id={d.id} stored={d.verdict} />
@@ -401,6 +414,95 @@ function DiscardDraft({
         </p>
       )}
     </div>
+  );
+}
+
+/// Admit the draft's formalization (REQ088). The Read-back field above is what the operator is
+/// confirming; a mandatory-review (vacuity-flagged) candidate requires ticking the confirmation
+/// before Admit enables — the UI's equivalent of the command line's prompt. The reviewer name is
+/// recorded as provenance, so it is required.
+function AdmitControl({ id, mandatory }: { id: string; mandatory: boolean }) {
+  const [reviewer, setReviewer] = useState("");
+  const [confirmed, setConfirmed] = useState(false);
+  const admit = useAdmitDraft();
+  const canAdmit = reviewer.trim().length > 0 && (!mandatory || confirmed);
+  return (
+    <Field label="Admit">
+      <div className="flex flex-wrap items-center gap-2">
+        <input
+          type="text"
+          value={reviewer}
+          onChange={(e) => setReviewer(e.target.value)}
+          placeholder="reviewer"
+          aria-label={`Reviewer admitting ${id}`}
+          className={FIELD_INPUT}
+        />
+        <button
+          type="button"
+          onClick={() =>
+            admit.mutate({ id, reviewer: reviewer.trim(), confirmed })
+          }
+          disabled={!canAdmit || admit.isPending}
+          className={BTN_PRIMARY}
+        >
+          {admit.isPending ? "Admitting…" : "Admit"}
+        </button>
+      </div>
+      {mandatory && (
+        <label className="mt-2 flex items-center gap-2 text-xs text-amber-700 dark:text-amber-300">
+          <input
+            type="checkbox"
+            checked={confirmed}
+            onChange={(e) => setConfirmed(e.target.checked)}
+          />
+          Vacuity-flagged — I confirm the read-back above matches intent.
+        </label>
+      )}
+      {admit.isError && (
+        <p role="alert" className="mt-1 text-xs text-amber-700 dark:text-amber-300">
+          {String(admit.error)}
+        </p>
+      )}
+    </Field>
+  );
+}
+
+/// Write the admitted provenance onto the subject's source file (REQ088) — the only draft action
+/// that mutates the subject. Disabled when the prose has moved since admission (the backend refuses
+/// a stale write-back); the operator re-admits first. Confirmed because it changes tracked files.
+function WritebackControl({ id, stale }: { id: string; stale: boolean }) {
+  const writeback = useWritebackDraft();
+  return (
+    <Field label="Write back to source">
+      <div className="flex flex-wrap items-center gap-2">
+        <button
+          type="button"
+          onClick={() => {
+            if (
+              window.confirm(
+                "Write this formalization's provenance onto the requirement's source file? Review and commit the working-tree change yourself.",
+              )
+            ) {
+              writeback.mutate({ id });
+            }
+          }}
+          disabled={stale || writeback.isPending}
+          className={BTN_PRIMARY}
+        >
+          {writeback.isPending ? "Writing…" : "Write back to source…"}
+        </button>
+        {stale && (
+          <span className="text-xs text-amber-600 dark:text-amber-400">
+            prose moved — re-admit before writing back
+          </span>
+        )}
+      </div>
+      {writeback.isError && (
+        <p role="alert" className="mt-1 text-xs text-amber-700 dark:text-amber-300">
+          {String(writeback.error)}
+        </p>
+      )}
+    </Field>
   );
 }
 

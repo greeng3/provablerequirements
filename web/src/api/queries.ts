@@ -812,3 +812,25 @@ export function useGroundDraft() {
 export function useDiscardDraft() {
   return useDraftMutation(({ id }: { id: string }) => api.discardDraft(id));
 }
+
+/// Admit the draft's formalization after human confirmation (REQ088). A mandatory-review
+/// (vacuity-flagged) candidate requires `confirmed`; the backend refuses otherwise.
+export function useAdmitDraft() {
+  return useDraftMutation(
+    ({
+      id,
+      reviewer,
+      confirmed,
+    }: {
+      id: string;
+      reviewer: string;
+      confirmed: boolean;
+    }) => api.admitDraft(id, reviewer, confirmed),
+  );
+}
+
+/// Write the admitted provenance onto the subject source (REQ088) — the only draft action that
+/// mutates the subject's own files.
+export function useWritebackDraft() {
+  return useDraftMutation(({ id }: { id: string }) => api.writebackDraft(id));
+}

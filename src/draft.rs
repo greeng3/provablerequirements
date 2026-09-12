@@ -12,8 +12,8 @@
 //! Implements: REQ013 (persist resumable draft state), REQ014 (resume drift-check)
 
 use crate::grounding::Binding;
-use crate::source::Item;
-use anyhow::{Context, Result};
+use crate::source::{Annotation, Item};
+use anyhow::{Context, Result, bail};
 use std::collections::BTreeMap;
 use std::path::Path;
 
@@ -325,6 +325,91 @@ pub fn admit(
         schema: state.schema,
         drafts,
     }
+}
+
+/// The D12 admit decision plus its state transition (REQ088), factored out so `provreq draft
+/// --admit` and the web surface never diverge on what may be admitted. Re-runs the mechanical gate
+/// as the source of truth and derives the review tier from it; a clean candidate is optional-review
+/// and admits directly, a vacuity-flagged one is mandatory-review and admits only when `confirmed`
+/// (the command line's stdin prompt and the UI's read-back checkbox both feed it). A candidate that
+/// does not gate, or a draft with no candidate, is refused rather than silently left unadmitted.
+/// Returns the admitted state and the tier for the caller to report; `at_unix` is supplied for purity.
+pub fn admit_gated(
+    state: &DraftState,
+    id: &str,
+    reviewer: &str,
+    confirmed: bool,
+    at_unix: i64,
+) -> Result<(DraftState, ReviewTier)> {
+    let draft = state
+        .drafts
+        .get(id)
+        .with_context(|| format!("no draft for {id} — open one first with `provreq draft {id}`"))?;
+    let candidate = draft.candidate.as_deref().with_context(|| {
+        format!(
+            "draft {id} has no candidate PRL to admit yet — write one with `--set` or `--translate`"
+        )
+    })?;
+    let outcome = crate::prl::gate(candidate).map_err(|errors| {
+        anyhow::anyhow!(
+            "cannot admit {id} — the candidate has {} gate error(s); fix them first (run `--check`)",
+            errors.len()
+        )
+    })?;
+    let tier = if outcome.warnings.is_empty() {
+        ReviewTier::Optional
+    } else {
+        ReviewTier::Mandatory
+    };
+    if tier == ReviewTier::Mandatory && !confirmed {
+        bail!(
+            "admitting {id} is mandatory review (vacuity-flagged) — confirm the read-back to admit"
+        );
+    }
+    Ok((admit(state, id, tier, reviewer, at_unix), tier))
+}
+
+/// The D14 write-back (REQ088), factored out so the command line and the web surface stamp
+/// provenance identically. Requires an admitted draft and refuses a drifted one — an admission made
+/// against prose that has since changed must be re-confirmed before it can be written. Writes the
+/// confirmed formalization's provenance onto the subject item through the source adapter seam,
+/// mutating the working tree; the caller reports it and the operator reviews and commits.
+pub fn writeback(subject: &Path, state: &DraftState, item: &Item) -> Result<()> {
+    let draft = state
+        .drafts
+        .get(&item.id)
+        .with_context(|| format!("no draft for {} — nothing to write back", item.id))?;
+    let Admission::Admitted {
+        review,
+        by,
+        at_unix,
+    } = &draft.admission
+    else {
+        bail!(
+            "draft {} is not admitted yet — admit it first with `--admit`",
+            item.id
+        );
+    };
+    if is_stale(draft, item) {
+        bail!(
+            "draft {} needs reconfirmation — the requirement prose moved since admission; \
+             re-admit against the current text before writing back",
+            item.id
+        );
+    }
+    let annotation = Annotation {
+        status: "admitted-but-ungrounded".into(),
+        prl: draft.candidate.clone().unwrap_or_default(),
+        review: review.as_str().into(),
+        reviewer: by.clone(),
+        reviewed_at_unix: *at_unix,
+        source_revision: draft.revision.clone(),
+    };
+    // Through the seam, not the Doorstop adapter directly: a Provreq-sourced subject must get that
+    // adapter's honest refusal rather than a Doorstop lookup failing for a file that was never going
+    // to be there (#296).
+    crate::adopt::source_for(&crate::adopt::requirements_root(subject))
+        .annotate(&item.id, &annotation)
 }
 
 /// Discard a draft, if one exists. Returns a new state.
