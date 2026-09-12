@@ -1,6 +1,12 @@
-import { useEffect, useId } from "react";
+import { useEffect, useId, useState } from "react";
 
-import { useRequirement } from "../../../api/queries";
+import {
+  useCheckDraft,
+  useDiscardDraft,
+  useGroundDraft,
+  useRequirement,
+  useSetDraftCandidate,
+} from "../../../api/queries";
 import type { ProofDetail, ProofGateStatus } from "../../../api/types";
 import { formalizationLabel, originNote, triageLabel } from "../labels";
 import { Badge } from "./Badge";
@@ -126,17 +132,7 @@ function DetailView({
         <p className="max-w-prose text-sm leading-relaxed">{d.text}</p>
       </Field>
 
-      {d.candidate ? (
-        <Field label="Candidate PRL">
-          <pre className="overflow-x-auto rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs dark:border-slate-800 dark:bg-slate-900">
-            {d.candidate}
-          </pre>
-        </Field>
-      ) : (
-        <p className="text-sm text-slate-500">
-          Not formalized yet — no candidate PRL.
-        </p>
-      )}
+      <CandidateEditor id={d.id} candidate={d.candidate} />
 
       {d.gate && <GateView gate={d.gate} />}
 
@@ -206,7 +202,190 @@ function DetailView({
         )
       )}
 
+      {d.candidate && <GroundingForm id={d.id} />}
+
+      <DiscardDraft id={d.id} hasCandidate={Boolean(d.candidate)} />
+
       <VerifyPanel id={d.id} stored={d.verdict} />
+    </div>
+  );
+}
+
+const BTN_PRIMARY =
+  "rounded-md border border-sky-300 bg-sky-50 px-3 py-1 text-xs font-medium text-sky-800 hover:bg-sky-100 disabled:cursor-not-allowed disabled:opacity-60 dark:border-sky-800 dark:bg-sky-950/40 dark:text-sky-200 dark:hover:bg-sky-900/40";
+const BTN_SECONDARY =
+  "rounded-md border border-slate-300 bg-white px-3 py-1 text-xs font-medium text-slate-700 hover:border-sky-500 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200";
+const FIELD_INPUT =
+  "rounded-md border border-slate-300 bg-white px-2 py-1 text-xs text-slate-700 focus:border-sky-500 focus:outline-none dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200";
+
+/// Author or replace the candidate PRL and re-run the mechanical gate (REQ086) — the write side of
+/// the read-only Candidate/Gate fields above. Saving stores the candidate (recording its gate
+/// outcome and clearing any prior admission and grounding); Re-check re-gates the saved candidate.
+function CandidateEditor({
+  id,
+  candidate,
+}: {
+  id: string;
+  candidate: string | null;
+}) {
+  const [prl, setPrl] = useState(candidate ?? "");
+  const save = useSetDraftCandidate();
+  const check = useCheckDraft();
+  // Re-seed when the selected item (or its stored candidate) changes underneath us.
+  useEffect(() => {
+    setPrl(candidate ?? "");
+  }, [candidate]);
+  const dirty = prl !== (candidate ?? "");
+  return (
+    <Field label="Candidate PRL">
+      <textarea
+        value={prl}
+        onChange={(e) => setPrl(e.target.value)}
+        rows={4}
+        spellCheck={false}
+        aria-label={`Candidate PRL for ${id}`}
+        placeholder="Author the PRL by hand. (Drafting with a model is a later addition.)"
+        className="w-full resize-y rounded-lg border border-slate-200 bg-slate-50 p-3 font-mono text-xs dark:border-slate-800 dark:bg-slate-900"
+      />
+      <div className="mt-2 flex flex-wrap items-center gap-2">
+        <button
+          type="button"
+          onClick={() => save.mutate({ id, prl })}
+          disabled={!prl.trim() || !dirty || save.isPending}
+          className={BTN_PRIMARY}
+        >
+          {save.isPending ? "Saving…" : dirty ? "Save candidate" : "Saved"}
+        </button>
+        <button
+          type="button"
+          onClick={() => check.mutate({ id })}
+          disabled={!candidate || dirty || check.isPending}
+          className={BTN_SECONDARY}
+        >
+          {check.isPending ? "Checking…" : "Re-check gate"}
+        </button>
+        {dirty && (
+          <span className="text-xs text-amber-600 dark:text-amber-400">
+            unsaved edits
+          </span>
+        )}
+      </div>
+      {(save.isError || check.isError) && (
+        <p role="alert" className="mt-1 text-xs text-amber-700 dark:text-amber-300">
+          {String(save.error ?? check.error)}
+        </p>
+      )}
+    </Field>
+  );
+}
+
+/// Attach a grounding binding (REQ086). Shown only once a candidate exists, since the symbol is
+/// validated against the candidate's declared vocabulary — a symbol it does not speak of is rejected.
+function GroundingForm({ id }: { id: string }) {
+  const [symbol, setSymbol] = useState("");
+  const [observable, setObservable] = useState("");
+  const [fidelity, setFidelity] = useState("");
+  const ground = useGroundDraft();
+  const submit = () => {
+    ground.mutate(
+      {
+        id,
+        symbol: symbol.trim(),
+        observable: observable.trim(),
+        fidelity: fidelity || undefined,
+      },
+      {
+        onSuccess: () => {
+          setSymbol("");
+          setObservable("");
+          setFidelity("");
+        },
+      },
+    );
+  };
+  return (
+    <Field label="Add grounding">
+      <div className="flex flex-wrap items-center gap-2">
+        <input
+          value={symbol}
+          onChange={(e) => setSymbol(e.target.value)}
+          placeholder="symbol"
+          aria-label="symbol"
+          className={FIELD_INPUT}
+        />
+        <span aria-hidden className="text-slate-500">
+          →
+        </span>
+        <input
+          value={observable}
+          onChange={(e) => setObservable(e.target.value)}
+          placeholder="observable"
+          aria-label="observable"
+          className={FIELD_INPUT}
+        />
+        <select
+          value={fidelity}
+          onChange={(e) => setFidelity(e.target.value)}
+          aria-label="fidelity"
+          className={FIELD_INPUT}
+        >
+          <option value="">default fidelity</option>
+          <option value="definitional">definitional</option>
+          <option value="observed">observed</option>
+          <option value="probed">probed</option>
+        </select>
+        <button
+          type="button"
+          onClick={submit}
+          disabled={!symbol.trim() || !observable.trim() || ground.isPending}
+          className={BTN_PRIMARY}
+        >
+          {ground.isPending ? "Binding…" : "Bind"}
+        </button>
+      </div>
+      {ground.isError && (
+        <p role="alert" className="mt-1 text-xs text-amber-700 dark:text-amber-300">
+          {String(ground.error)}
+        </p>
+      )}
+    </Field>
+  );
+}
+
+/// Discard the whole draft (REQ086). Only offered when there is a draft to discard; confirmed first
+/// because it drops the candidate, its gate, and every grounding binding.
+function DiscardDraft({
+  id,
+  hasCandidate,
+}: {
+  id: string;
+  hasCandidate: boolean;
+}) {
+  const discard = useDiscardDraft();
+  if (!hasCandidate) return null;
+  return (
+    <div>
+      <button
+        type="button"
+        onClick={() => {
+          if (
+            window.confirm(
+              "Discard this draft? Its candidate PRL, gate, and grounding are removed.",
+            )
+          ) {
+            discard.mutate({ id });
+          }
+        }}
+        disabled={discard.isPending}
+        className="text-xs font-medium text-rose-600 hover:underline disabled:opacity-60 dark:text-rose-400"
+      >
+        {discard.isPending ? "Discarding…" : "Discard draft"}
+      </button>
+      {discard.isError && (
+        <p role="alert" className="mt-1 text-xs text-amber-700 dark:text-amber-300">
+          {String(discard.error)}
+        </p>
+      )}
     </div>
   );
 }

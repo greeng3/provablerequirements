@@ -4,7 +4,7 @@ use provreq::adopt::resolve;
 use provreq::draft::{self, Draft, GateStatus};
 use provreq::engine;
 use provreq::formalize::Translator;
-use provreq::grounding::{self, Binding, Grounding};
+use provreq::grounding::{self, Grounding};
 use provreq::rust_adapter::Resolution;
 use provreq::source::{Classification, Item};
 use provreq::triage::{self, TriageState};
@@ -668,7 +668,7 @@ async fn run_draft(
         // Forward-translate then run the gate, repairing on rejection (the loop
         // returns the final candidate with its verdict either way).
         let outcome = translate_gated_candidate(subject, &companion, item).await?;
-        let status = gate_to_status(&outcome.gate);
+        let status = draft::gate_to_status(&outcome.gate);
         let next = draft::set_candidate(&state, item, &outcome.candidate, status.clone());
         draft::save(&companion, &next)?;
         println!(
@@ -681,7 +681,7 @@ async fn run_draft(
     }
     if let Some(candidate) = set {
         // A hand-authored candidate is gated once (no repair — the operator owns it).
-        let status = gate_to_status(&provreq::prl::gate(candidate));
+        let status = draft::gate_to_status(&provreq::prl::gate(candidate));
         let next = draft::set_candidate(&state, item, candidate, status.clone());
         draft::save(&companion, &next)?;
         println!(
@@ -735,7 +735,7 @@ fn check_candidate(companion: &Path, state: &draft::DraftState, id: &str) -> Res
         );
         return Ok(());
     };
-    let status = gate_to_status(&provreq::prl::gate(candidate));
+    let status = draft::gate_to_status(&provreq::prl::gate(candidate));
     let next = draft::set_gate(state, id, status.clone());
     draft::save(companion, &next)?;
     print_gate(&status);
@@ -912,76 +912,21 @@ fn ground_candidate(
     spec: &str,
     fidelity: Option<&str>,
 ) -> Result<()> {
-    let draft = state
-        .drafts
-        .get(id)
-        .with_context(|| format!("no draft for {id} — open one first with `provreq draft {id}`"))?;
-    let Some(candidate) = &draft.candidate else {
-        println!(
-            "Draft {id} has no candidate PRL to ground yet — write one with `--set` or `--translate`."
-        );
-        return Ok(());
-    };
-    let (symbol, observable) = spec
-        .split_once('=')
-        .with_context(|| format!("--ground expects SYMBOL=OBSERVABLE, got `{spec}`"))?;
-    let (symbol, observable) = (symbol.trim(), observable.trim());
-    if symbol.is_empty() || observable.is_empty() {
-        bail!("--ground expects a non-empty SYMBOL and OBSERVABLE, got `{spec}`");
-    }
-
-    let requirement = match provreq::prl::gate(candidate) {
-        Ok(outcome) => outcome.requirement,
-        Err(errors) => {
-            println!(
-                "Cannot ground {id} — the candidate has {} gate error(s); fix them first (run `--check`):",
-                errors.len()
-            );
-            for e in &errors {
-                println!("  - {e}");
-            }
-            return Ok(());
-        }
-    };
-
-    if !grounding::is_bindable(&requirement, symbol) {
-        let symbols = grounding::bindable_symbols(&requirement);
-        bail!(
-            "'{symbol}' is not a declared vocabulary symbol of {id}; \
-             bindable symbols: {}",
-            if symbols.is_empty() {
-                "(none)".to_string()
-            } else {
-                symbols.join(", ")
-            }
-        );
-    }
-
-    let category = grounding::default_category(&requirement);
-    let fidelity = match fidelity {
-        Some(f) => grounding::Fidelity::parse(f).with_context(|| {
-            format!("unknown fidelity '{f}' (definitional | observed | probed)")
-        })?,
-        None => category.default_fidelity(),
-    };
-
-    let binding = Binding {
-        symbol: symbol.to_string(),
-        category,
-        observable: observable.to_string(),
-        fidelity,
-    };
-    let next = draft::set_binding(state, id, binding);
+    // Shared with the web surface (REQ086): the whole bind-a-symbol operation lives in `draft::ground`
+    // so the two never diverge; the command line adds only the report.
+    let (next, binding) = draft::ground(state, id, spec, fidelity)?;
     draft::save(companion, &next)?;
     // "Bound", not "Grounded": this attached a binding, and whether it *grounds* is a question only
     // the resolvers can answer. The old wording announced "Grounded checkout → `chekout`" for a
     // typo that parks the moment anything looks at it — telling the operator the opposite of what
     // had happened, in the one message they read before moving on.
     println!(
-        "Bound {symbol} → `{observable}` (category {}, {} fidelity). \
+        "Bound {} → `{}` (category {}, {} fidelity). \
          Whether it resolves is what `provreq draft {id} --dry-run` answers.",
-        category.as_label(),
-        fidelity.as_str()
+        binding.symbol,
+        binding.observable,
+        binding.category.as_label(),
+        binding.fidelity.as_str()
     );
     Ok(())
 }
@@ -1089,19 +1034,6 @@ fn now_unix() -> i64 {
 }
 
 /// Render a gate result into the persisted [`GateStatus`] (errors/warnings as strings).
-fn gate_to_status(
-    gate: &std::result::Result<provreq::prl::GateOutcome, Vec<provreq::prl::GateError>>,
-) -> GateStatus {
-    match gate {
-        Ok(outcome) => GateStatus::Passed {
-            warnings: outcome.warnings.iter().map(|w| w.to_string()).collect(),
-        },
-        Err(errors) => GateStatus::Failed {
-            errors: errors.iter().map(|e| e.to_string()).collect(),
-        },
-    }
-}
-
 /// Print a gate outcome for the operator.
 fn print_gate(status: &GateStatus) {
     match status {

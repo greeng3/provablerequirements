@@ -7,6 +7,7 @@ import type {
   AdoptOrphanBlobRequest,
   ProofBacklog,
   ProofClassification,
+  ProofDetail,
   BrowseQueryParams,
   CreateArtifactRequest,
   DoorstopImportRequest,
@@ -758,4 +759,50 @@ export function useVerifyRequirement() {
     onSuccess: () =>
       qc.invalidateQueries({ queryKey: queryKeys.requirements }),
   });
+}
+
+/// The mechanical draft write-actions (REQ086). Each returns the item's refreshed
+/// detail, which we write straight into the detail cache; the backlog coverage is
+/// invalidated too, since authoring or discarding a candidate moves the funnel.
+function useDraftMutation<Args extends { id: string }>(
+  mutationFn: (args: Args) => Promise<ProofDetail>,
+) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn,
+    onSuccess: (detail: ProofDetail, args: Args) => {
+      qc.setQueryData(queryKeys.requirement(args.id), detail);
+      qc.invalidateQueries({ queryKey: queryKeys.requirements });
+    },
+  });
+}
+
+export function useSetDraftCandidate() {
+  return useDraftMutation(({ id, prl }: { id: string; prl: string }) =>
+    api.setDraftCandidate(id, prl),
+  );
+}
+
+export function useCheckDraft() {
+  return useDraftMutation(({ id }: { id: string }) => api.checkDraft(id));
+}
+
+export function useGroundDraft() {
+  return useDraftMutation(
+    ({
+      id,
+      symbol,
+      observable,
+      fidelity,
+    }: {
+      id: string;
+      symbol: string;
+      observable: string;
+      fidelity?: string;
+    }) => api.groundDraft(id, symbol, observable, fidelity),
+  );
+}
+
+export function useDiscardDraft() {
+  return useDraftMutation(({ id }: { id: string }) => api.discardDraft(id));
 }

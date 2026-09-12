@@ -337,6 +337,85 @@ pub fn discard(state: &DraftState, id: &str) -> DraftState {
     }
 }
 
+/// Convert a mechanical gate result into the persisted [`GateStatus`]. Shared by the command line
+/// and the web surface so both record a candidate's gate outcome identically.
+pub fn gate_to_status(
+    gate: &std::result::Result<crate::prl::GateOutcome, Vec<crate::prl::GateError>>,
+) -> GateStatus {
+    match gate {
+        Ok(outcome) => GateStatus::Passed {
+            warnings: outcome.warnings.iter().map(|w| w.to_string()).collect(),
+        },
+        Err(errors) => GateStatus::Failed {
+            errors: errors.iter().map(|e| e.to_string()).collect(),
+        },
+    }
+}
+
+/// Attach a D13 grounding binding to a draft from a `SYMBOL=OBSERVABLE` spec — the whole of
+/// `provreq draft --ground`, factored out so the command line and the web surface bind identically.
+/// The candidate is gated so the symbol is validated against the *declared* vocabulary; category and
+/// default fidelity come from the requirement, and `fidelity` overrides. Returns the new state and
+/// the binding made, for the caller to report. Every precondition failure is an error: no draft, no
+/// candidate, a malformed spec, a candidate that does not gate, an unbindable symbol, or an unknown
+/// fidelity — so a bad request is never silently written.
+pub fn ground(
+    state: &DraftState,
+    id: &str,
+    spec: &str,
+    fidelity: Option<&str>,
+) -> anyhow::Result<(DraftState, Binding)> {
+    use anyhow::{Context, anyhow, bail};
+    let draft = state
+        .drafts
+        .get(id)
+        .with_context(|| format!("no draft for {id} — set a candidate first"))?;
+    let candidate = draft.candidate.as_ref().with_context(|| {
+        format!("draft {id} has no candidate PRL to ground yet — set one with a candidate first")
+    })?;
+    let (symbol, observable) = spec
+        .split_once('=')
+        .with_context(|| format!("expected SYMBOL=OBSERVABLE, got `{spec}`"))?;
+    let (symbol, observable) = (symbol.trim(), observable.trim());
+    if symbol.is_empty() || observable.is_empty() {
+        bail!("expected a non-empty SYMBOL and OBSERVABLE, got `{spec}`");
+    }
+    let requirement = crate::prl::gate(candidate)
+        .map_err(|errors| {
+            anyhow!(
+                "cannot ground {id} — the candidate has {} gate error(s); fix them first (check it)",
+                errors.len()
+            )
+        })?
+        .requirement;
+    if !crate::grounding::is_bindable(&requirement, symbol) {
+        let symbols = crate::grounding::bindable_symbols(&requirement);
+        bail!(
+            "'{symbol}' is not a declared vocabulary symbol of {id}; bindable symbols: {}",
+            if symbols.is_empty() {
+                "(none)".to_string()
+            } else {
+                symbols.join(", ")
+            }
+        );
+    }
+    let category = crate::grounding::default_category(&requirement);
+    let fidelity = match fidelity {
+        Some(f) => crate::grounding::Fidelity::parse(f).with_context(|| {
+            format!("unknown fidelity '{f}' (definitional | observed | probed)")
+        })?,
+        None => category.default_fidelity(),
+    };
+    let binding = Binding {
+        symbol: symbol.to_string(),
+        category,
+        observable: observable.to_string(),
+        fidelity,
+    };
+    let next = set_binding(state, id, binding.clone());
+    Ok((next, binding))
+}
+
 /// Whether the source item has moved since the draft was last touched (R-draft-2).
 /// A stale draft needs human re-confirmation before formalization continues; the
 /// engine never runs off a draft written against a since-changed requirement.
@@ -364,6 +443,31 @@ mod tests {
             verification_hint: None,
             expects_code_trace: None,
         }
+    }
+
+    // Verifies: REQ086 — grounding a symbol the candidate's vocabulary admits attaches a binding
+    // with the requirement's default category/fidelity; a symbol it does not declare is rejected
+    // rather than written. This is the shared machinery the web `--ground` endpoint drives.
+    #[test]
+    fn ground_binds_a_declared_symbol_and_rejects_an_undeclared_one() {
+        let it = item("REQ001", "rev-1");
+        const CANDIDATE: &str = "requirement r {
+            category: 1
+            vocabulary { state logged_in(u), has_session(u) }
+            require { each u: User . always (not logged_in(u) or has_session(u)) }
+        }";
+        let state = set_candidate(&DraftState::new(), &it, CANDIDATE, GateStatus::Ungated);
+
+        let (next, binding) =
+            ground(&state, "REQ001", "logged_in=auth::is_logged_in", None).expect("declared binds");
+        assert_eq!(binding.symbol, "logged_in");
+        assert_eq!(binding.observable, "auth::is_logged_in");
+        assert_eq!(next.drafts["REQ001"].bindings.len(), 1);
+
+        // A symbol the vocabulary does not declare is rejected, not silently written.
+        assert!(ground(&state, "REQ001", "nope=whatever", None).is_err());
+        // No candidate at all is likewise an error, never a no-op write.
+        assert!(ground(&DraftState::new(), "REQ001", "logged_in=x", None).is_err());
     }
 
     // Verifies: REQ013 — opening is additive; it never clobbers an in-progress
