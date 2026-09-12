@@ -85,6 +85,10 @@ pub fn router(state: Shared) -> Router {
             post(set_draft_candidate),
         )
         .route("/api/requirements/{id}/draft/check", post(check_draft))
+        .route(
+            "/api/requirements/{id}/draft/translate",
+            post(translate_draft),
+        )
         .route("/api/requirements/{id}/draft/ground", post(ground_draft))
         .route("/api/requirements/{id}/draft", delete(discard_draft))
         .fallback(static_asset)
@@ -497,6 +501,37 @@ fn apply_check_draft(subject: &std::path::Path, id: &str) -> anyhow::Result<Draf
     };
     let status = crate::draft::gate_to_status(&crate::prl::gate(&candidate));
     let next = crate::draft::set_gate(&state, id, status);
+    crate::draft::save(&companion, &next)?;
+    draft_detail(subject, id)
+}
+
+/// POST /api/requirements/:id/draft/translate — ask the configured model to forward-translate the
+/// prose into a candidate PRL, then run the mechanical gate and repair loop (REQ087). Slow (a live
+/// model call plus up to two repair rounds), so the UI drives it as a pending action. No offline
+/// fallback: with no model configured this is an honest 400, not an invented candidate.
+async fn translate_draft(State(state): State<Shared>, Path(id): Path<String>) -> Response {
+    let subject = match subject_or_conflict(&state) {
+        Ok(s) => s,
+        Err(r) => return r,
+    };
+    respond_draft(apply_translate_draft(&subject, &id).await)
+}
+
+async fn apply_translate_draft(subject: &std::path::Path, id: &str) -> anyhow::Result<DraftWrite> {
+    let (companion, items) = crate::adopt::resolve(subject)?;
+    let Some(item) = items.iter().find(|i| i.id == id) else {
+        return Ok(DraftWrite::NotFound);
+    };
+    let state = crate::draft::load(&companion)?;
+    // The shared translate fn is exactly what the CLI calls; the HTTP surface passes a no-op
+    // announce. A missing model (or an unreachable one) is a 400 naming the config to set — the
+    // same shape `ground` uses for its preconditions, never a silent write or a guessed candidate.
+    let outcome = match crate::formalize::translate_item(subject, &companion, item, |_| {}).await {
+        Ok(outcome) => outcome,
+        Err(e) => return Ok(DraftWrite::BadRequest(e.to_string())),
+    };
+    let status = crate::draft::gate_to_status(&outcome.gate);
+    let next = crate::draft::set_candidate(&state, item, outcome.candidate, status);
     crate::draft::save(&companion, &next)?;
     draft_detail(subject, id)
 }
@@ -1119,6 +1154,50 @@ mod tests {
         let body: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
         assert!(body["candidate"].is_null(), "candidate cleared: {body}");
         assert_eq!(body["formalization"], "none");
+    }
+
+    // Verifies: REQ087 — translate has no offline fallback: with no model configured it is an
+    // honest 400 naming the `llm:` config, never an invented candidate. The test harness writes a
+    // companion with no `llm:` block, so `resolve_llm` finds nothing.
+    #[tokio::test]
+    async fn draft_translate_without_a_model_is_a_named_error() {
+        let subject = adopted_subject_with_one_item();
+        let res = post_empty(
+            "/api/requirements/REQ001/draft/translate",
+            subject.path().to_path_buf(),
+        )
+        .await;
+        assert_eq!(res.status(), StatusCode::BAD_REQUEST);
+        let bytes = to_bytes(res.into_body(), usize::MAX).await.unwrap();
+        let body = String::from_utf8(bytes.to_vec()).unwrap();
+        assert!(
+            body.contains("LLM") || body.contains("llm"),
+            "names config: {body}"
+        );
+    }
+
+    // Verifies: REQ087 — translating an unknown id under an adopted subject is a 404.
+    #[tokio::test]
+    async fn draft_translate_unknown_id_is_not_found() {
+        let subject = adopted_subject_with_one_item();
+        let res = post_empty(
+            "/api/requirements/REQ999/draft/translate",
+            subject.path().to_path_buf(),
+        )
+        .await;
+        assert_eq!(res.status(), StatusCode::NOT_FOUND);
+    }
+
+    // Verifies: REQ087 — a translate request against an unadopted subject is the same 409.
+    #[tokio::test]
+    async fn draft_translate_on_unadopted_subject_is_conflict() {
+        let empty = tempfile::tempdir().unwrap();
+        let res = post_empty(
+            "/api/requirements/REQ001/draft/translate",
+            empty.path().to_path_buf(),
+        )
+        .await;
+        assert_eq!(res.status(), StatusCode::CONFLICT);
     }
 
     // Verifies: REQ086 — a draft write against an unadopted subject is the same 409 the read uses.

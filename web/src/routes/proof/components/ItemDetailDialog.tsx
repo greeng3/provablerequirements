@@ -6,6 +6,7 @@ import {
   useGroundDraft,
   useRequirement,
   useSetDraftCandidate,
+  useTranslateDraft,
 } from "../../../api/queries";
 import type { ProofDetail, ProofGateStatus } from "../../../api/types";
 import { formalizationLabel, originNote, triageLabel } from "../labels";
@@ -218,9 +219,11 @@ const BTN_SECONDARY =
 const FIELD_INPUT =
   "rounded-md border border-slate-300 bg-white px-2 py-1 text-xs text-slate-700 focus:border-sky-500 focus:outline-none dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200";
 
-/// Author or replace the candidate PRL and re-run the mechanical gate (REQ086) — the write side of
+/// Author or replace the candidate PRL and re-run the mechanical gate (REQ086), or ask the
+/// configured model to forward-translate the prose into a candidate (REQ087) — the write side of
 /// the read-only Candidate/Gate fields above. Saving stores the candidate (recording its gate
-/// outcome and clearing any prior admission and grounding); Re-check re-gates the saved candidate.
+/// outcome and clearing any prior admission and grounding); Re-check re-gates the saved candidate;
+/// Draft with a model runs the translate-then-repair loop and stores the result.
 function CandidateEditor({
   id,
   candidate,
@@ -231,7 +234,9 @@ function CandidateEditor({
   const [prl, setPrl] = useState(candidate ?? "");
   const save = useSetDraftCandidate();
   const check = useCheckDraft();
-  // Re-seed when the selected item (or its stored candidate) changes underneath us.
+  const translate = useTranslateDraft();
+  // Re-seed when the selected item (or its stored candidate) changes underneath us — this also
+  // picks up the candidate a successful translate writes into the cache.
   useEffect(() => {
     setPrl(candidate ?? "");
   }, [candidate]);
@@ -244,7 +249,7 @@ function CandidateEditor({
         rows={4}
         spellCheck={false}
         aria-label={`Candidate PRL for ${id}`}
-        placeholder="Author the PRL by hand. (Drafting with a model is a later addition.)"
+        placeholder="Author the PRL by hand, or use “Draft with a model” to translate the prose."
         className="w-full resize-y rounded-lg border border-slate-200 bg-slate-50 p-3 font-mono text-xs dark:border-slate-800 dark:bg-slate-900"
       />
       <div className="mt-2 flex flex-wrap items-center gap-2">
@@ -264,15 +269,24 @@ function CandidateEditor({
         >
           {check.isPending ? "Checking…" : "Re-check gate"}
         </button>
+        {/* Translating replaces the stored candidate, so guard unsaved hand edits like Re-check. */}
+        <button
+          type="button"
+          onClick={() => translate.mutate({ id })}
+          disabled={dirty || translate.isPending}
+          className={BTN_SECONDARY}
+        >
+          {translate.isPending ? "Translating…" : "Draft with a model"}
+        </button>
         {dirty && (
           <span className="text-xs text-amber-600 dark:text-amber-400">
             unsaved edits
           </span>
         )}
       </div>
-      {(save.isError || check.isError) && (
+      {(save.isError || check.isError || translate.isError) && (
         <p role="alert" className="mt-1 text-xs text-amber-700 dark:text-amber-300">
-          {String(save.error ?? check.error)}
+          {String(save.error ?? check.error ?? translate.error)}
         </p>
       )}
     </Field>

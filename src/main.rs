@@ -3,7 +3,6 @@ use clap::{Parser, Subcommand};
 use provreq::adopt::resolve;
 use provreq::draft::{self, Draft, GateStatus};
 use provreq::engine;
-use provreq::formalize::Translator;
 use provreq::grounding::{self, Grounding};
 use provreq::rust_adapter::Resolution;
 use provreq::source::{Classification, Item};
@@ -666,8 +665,15 @@ async fn run_draft(
     }
     if translate {
         // Forward-translate then run the gate, repairing on rejection (the loop
-        // returns the final candidate with its verdict either way).
-        let outcome = translate_gated_candidate(subject, &companion, item).await?;
+        // returns the final candidate with its verdict either way). The shared lib fn
+        // is what the serve backend calls too, so the two never diverge (REQ087).
+        let outcome = provreq::formalize::translate_item(subject, &companion, item, |resolved| {
+            println!(
+                "Translating {} with {} via {}{} …",
+                item.id, resolved.model, resolved.endpoint, resolved.note
+            );
+        })
+        .await?;
         let status = draft::gate_to_status(&outcome.gate);
         let next = draft::set_candidate(&state, item, &outcome.candidate, status.clone());
         draft::save(&companion, &next)?;
@@ -700,26 +706,6 @@ async fn run_draft(
     }
     print_draft(&next.drafts[id], item);
     Ok(())
-}
-
-/// D11: ask the configured LLM to propose a candidate PRL for `item`, then run the
-/// mechanical gate and repair on rejection. Requires an `llm:` block (translate has no
-/// honest offline fallback the way triage does — the prose floor is not a formalization).
-async fn translate_gated_candidate(
-    subject: &Path,
-    companion: &Path,
-    item: &Item,
-) -> Result<provreq::formalize::RepairOutcome> {
-    let resolved = provreq::llm::resolve_llm(subject, companion)?.context(
-        "no LLM configured (System config or provreq.yml `llm:`) — configure a provider to use \
-         `draft --translate`",
-    )?;
-    println!(
-        "Translating {} with {} via {}{} …",
-        item.id, resolved.model, resolved.endpoint, resolved.note
-    );
-    let translator = Translator::new(resolved.into_backend());
-    translator.translate_gated(item).await
 }
 
 /// Re-run the mechanical gate over a draft's stored candidate and persist the fresh
