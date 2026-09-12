@@ -7,6 +7,7 @@ import type {
   AdoptOrphanBlobRequest,
   ProofBacklog,
   ProofClassification,
+  ProofDetail,
   BrowseQueryParams,
   CreateArtifactRequest,
   DoorstopImportRequest,
