@@ -829,7 +829,10 @@ fn admit_candidate(
     let reviewer = reviewer
         .map(str::to_string)
         .unwrap_or_else(default_reviewer);
-    let next = draft::admit(state, id, tier, &reviewer, now_unix());
+    // The gate + tier + confirmation above drive the interactive read-back; `draft::admit_gated`
+    // re-gates as the source of truth and is the same rule the web surface enforces (REQ088). By
+    // here the mandatory candidate is confirmed (or `--yes`), so confirmed is true.
+    let (next, tier) = draft::admit_gated(state, id, &reviewer, true, now_unix())?;
     draft::save(companion, &next)?;
     println!(
         "Admitted {id} (review: {}, by {reviewer}) — admitted-but-ungrounded.",
@@ -843,43 +846,10 @@ fn admit_candidate(
 /// — an admission against since-changed prose must be re-confirmed first. Mutates the
 /// subject working tree; the operator reviews and commits the change.
 fn writeback_candidate(subject: &Path, state: &draft::DraftState, item: &Item) -> Result<()> {
-    let draft = state
-        .drafts
-        .get(&item.id)
-        .with_context(|| format!("no draft for {} — nothing to write back", item.id))?;
-    let draft::Admission::Admitted {
-        review,
-        by,
-        at_unix,
-    } = &draft.admission
-    else {
-        println!(
-            "Draft {} is not admitted yet — admit it first with `--admit`.",
-            item.id
-        );
-        return Ok(());
-    };
-    if draft::is_stale(draft, item) {
-        println!(
-            "Draft {} needs reconfirmation — the requirement prose moved since admission; \
-             re-admit against the current text before writing back.",
-            item.id
-        );
-        return Ok(());
-    }
-    let annotation = provreq::source::Annotation {
-        status: "admitted-but-ungrounded".into(),
-        prl: draft.candidate.clone().unwrap_or_default(),
-        review: review.as_str().into(),
-        reviewer: by.clone(),
-        reviewed_at_unix: *at_unix,
-        source_revision: draft.revision.clone(),
-    };
-    // Through the seam, not the Doorstop adapter directly: a Provreq-sourced subject must get
-    // that adapter's honest refusal rather than a Doorstop lookup failing for a file that was never
-    // going to be there (#296).
-    provreq::adopt::source_for(&provreq::adopt::requirements_root(subject))
-        .annotate(&item.id, &annotation)?;
+    // Shared with the web surface (REQ088): the admitted/not-stale checks and the annotation write
+    // all live in `draft::writeback` so the two never diverge. A not-admitted or drifted draft is
+    // now a hard error (non-zero exit), not a println + exit 0.
+    draft::writeback(subject, state, item)?;
     println!(
         "Wrote formalization provenance onto {} — review the working-tree change and commit it.",
         item.id

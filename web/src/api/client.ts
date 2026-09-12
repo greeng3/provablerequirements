@@ -574,6 +574,17 @@ export const api = {
             `/api/requirements/${encodeURIComponent(id)}/draft`,
             "DELETE",
         ),
+    admitDraft: (id: string, reviewer: string, confirmed: boolean) =>
+        send<ProofDetail>(
+            `/api/requirements/${encodeURIComponent(id)}/admit`,
+            "POST",
+            { reviewer, confirmed },
+        ),
+    writebackDraft: (id: string) =>
+        send<ProofDetail>(
+            `/api/requirements/${encodeURIComponent(id)}/writeback`,
+            "POST",
+        ),
     verifyRequirement: (id: string) =>
         send<ProofVerifyResponse>(
             `/api/requirements/${encodeURIComponent(id)}/verify`,
