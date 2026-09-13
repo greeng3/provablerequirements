@@ -24,11 +24,33 @@ use super::provider::{Adapter, AdapterError, PromptRequest, PromptResponse};
 #[derive(Debug)]
 pub enum SlotOutcome {
     /// Slot was skipped without an attempt because the
-    /// health tracker said so (transient-degraded with an
-    /// open window, or hard-disabled).
-    Skipped { reason: &'static str },
+    /// health tracker said so. The reason names why (hard-
+    /// disabled by an earlier failure, or a still-open
+    /// transient backoff window) so it points at a fix.
+    Skipped { reason: String },
     /// Slot was attempted and the adapter returned an error.
     Failed(AdapterError),
+}
+
+impl std::fmt::Display for SlotOutcome {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            SlotOutcome::Skipped { reason } => write!(f, "skipped ({reason})"),
+            SlotOutcome::Failed(err) => write!(f, "failed: {err}"),
+        }
+    }
+}
+
+/// Render the per-slot outcomes as a readable, provider-numbered list, so the
+/// [`ChainError::AllFailed`] message names *why* each provider did not serve —
+/// the actionable detail the outcomes were collected for.
+fn render_outcomes(outcomes: &[SlotOutcome]) -> String {
+    outcomes
+        .iter()
+        .enumerate()
+        .map(|(i, o)| format!("provider {}: {o}", i + 1))
+        .collect::<Vec<_>>()
+        .join("; ")
 }
 
 /// Failure modes for the chain itself.
@@ -36,11 +58,32 @@ pub enum SlotOutcome {
 pub enum ChainError {
     #[error("no LLM providers are configured")]
     NoProviders,
-    #[error("all {count} configured provider(s) were skipped or failed")]
+    #[error(
+        "all {count} configured provider(s) were skipped or failed: {}",
+        render_outcomes(.outcomes)
+    )]
     AllFailed {
         count: usize,
         outcomes: Vec<SlotOutcome>,
     },
+}
+
+/// Name why a slot the health tracker says to skip is being skipped, so the operator sees whether
+/// it is out for good (retest to re-enable) or just in a backoff window.
+pub(crate) fn skip_reason(state: super::health::HealthState) -> String {
+    use super::health::HealthState;
+    match state {
+        HealthState::HardDisabled => {
+            "hard-disabled by an earlier permanent failure (auth, model-not-found, or HTTP 4xx) — \
+             retest the provider to re-enable it"
+                .to_string()
+        }
+        HealthState::TransientDegraded { retry_after_secs } => format!(
+            "temporarily degraded after a recent failure; retries in ~{retry_after_secs}s (or retest now)"
+        ),
+        // should_skip returned true, so Healthy should not occur; name it rather than assert.
+        HealthState::Healthy => "skipped by the health tracker".to_string(),
+    }
 }
 
 /// Walk the provider chain, trying each eligible slot until
@@ -59,7 +102,7 @@ pub async fn run_chain<C: crate::llm::health::Clock>(
     for (index, adapter) in providers.iter().enumerate() {
         if health.should_skip(index) {
             outcomes.push(SlotOutcome::Skipped {
-                reason: "health tracker says skip",
+                reason: skip_reason(health.state(index)),
             });
             continue;
         }
@@ -255,6 +298,29 @@ mod tests {
             }
             other => panic!("expected AllFailed, got {other:?}"),
         }
+    }
+
+    // The AllFailed message must name each slot's reason (#447), not just the count — the outcomes
+    // are collected precisely so the operator sees why fallback did not help.
+    #[test]
+    fn all_failed_message_renders_each_slot_reason() {
+        let err = ChainError::AllFailed {
+            count: 2,
+            outcomes: vec![
+                SlotOutcome::Failed(auth()),
+                SlotOutcome::Skipped {
+                    reason: "hard-disabled by an earlier permanent failure — retest to re-enable"
+                        .into(),
+                },
+            ],
+        };
+        let s = err.to_string();
+        assert!(s.contains("provider 1"), "numbers the slots: {s}");
+        assert!(
+            s.contains("authentication failed") && s.contains("401"),
+            "renders the adapter error detail: {s}"
+        );
+        assert!(s.contains("hard-disabled"), "renders the skip reason: {s}");
     }
 
     #[tokio::test]

@@ -116,19 +116,21 @@ impl LlmRuntime {
         for (index, adapter) in self.adapters.iter().enumerate() {
             if !self.providers[index].is_enabled() {
                 outcomes.push(SlotOutcome::Skipped {
-                    reason: "provider is disabled in the System config",
+                    reason: "disabled in the model settings — enable it to use it".to_string(),
                 });
                 continue;
             }
             if self.health.should_skip(index) {
                 outcomes.push(SlotOutcome::Skipped {
-                    reason: "provider is transient-degraded or hard-disabled",
+                    reason: super::chain::skip_reason(self.health.state(index)),
                 });
                 continue;
             }
             if self.privacy.requires_ack(index, adapter.endpoint()) {
                 outcomes.push(SlotOutcome::Skipped {
-                    reason: "privacy warning not yet acknowledged for this provider",
+                    reason: "privacy warning not acknowledged — acknowledge it in the model \
+                             settings to allow prompts to leave this host"
+                        .to_string(),
                 });
                 continue;
             }
