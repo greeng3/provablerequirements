@@ -7,7 +7,6 @@
 
 use std::time::Duration;
 
-use reqwest::StatusCode;
 use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
 use serde::{Deserialize, Serialize};
 
@@ -16,7 +15,7 @@ use crate::llm::provider::{
     Adapter, AdapterError, BoxFuture, PromptRequest, PromptResponse, PromptRole, PromptUsage,
 };
 
-use super::common::{HttpEndpoint, classify_reqwest_error};
+use super::common::{HttpEndpoint, classify_reqwest_error, status_to_error};
 
 const FAMILY: &str = "anthropic";
 const DEFAULT_ENDPOINT: &str = "https://api.anthropic.com";
@@ -157,7 +156,11 @@ impl Adapter for AnthropicAdapter {
 
             let status = response.status();
             if !status.is_success() {
-                return Err(status_to_error(FAMILY, status, &self.model));
+                // Read the provider's error body: for a 4xx (an invalid model id, an out-of-range
+                // parameter) it carries the message that names exactly what to fix, which the bare
+                // status hides.
+                let body = response.text().await.unwrap_or_default();
+                return Err(status_to_error(FAMILY, status, &self.model, &body));
             }
             let parsed: MessagesResponse =
                 response.json().await.map_err(|e| AdapterError::Malformed {
@@ -183,27 +186,5 @@ impl Adapter for AnthropicAdapter {
             });
             Ok(PromptResponse { text, usage })
         })
-    }
-}
-
-fn status_to_error(family: &'static str, status: StatusCode, model: &str) -> AdapterError {
-    match status.as_u16() {
-        401 | 403 => AdapterError::Auth {
-            family,
-            detail: format!("HTTP {}", status.as_u16()),
-        },
-        404 => AdapterError::ModelNotFound {
-            family,
-            model: model.to_owned(),
-        },
-        429 => AdapterError::RateLimited { family },
-        500..=599 => AdapterError::ServerError {
-            family,
-            status: status.as_u16(),
-        },
-        _ => AdapterError::Malformed {
-            family,
-            detail: format!("unexpected HTTP {}", status.as_u16()),
-        },
     }
 }
