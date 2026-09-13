@@ -129,6 +129,16 @@ pub enum AdapterError {
         family: &'static str,
         detail: String,
     },
+    /// A non-2xx status that isn't auth (401/403), model-not-found (404), rate-limit (429), or
+    /// 5xx — in practice a 4xx the provider returned because the *request* was bad (an invalid
+    /// model id, an out-of-range parameter). Permanent: the config or request must change, not a
+    /// retry. `detail` carries the provider's own error body, which names what to fix.
+    #[error("{family}: provider rejected the request (HTTP {status}: {detail})")]
+    Rejected {
+        family: &'static str,
+        status: u16,
+        detail: String,
+    },
 }
 
 /// Broad classification of an adapter error, used by the
@@ -152,7 +162,8 @@ impl AdapterError {
             Self::Auth { .. }
             | Self::ModelNotFound { .. }
             | Self::Connection { .. }
-            | Self::Malformed { .. } => AdapterErrorKind::Permanent,
+            | Self::Malformed { .. }
+            | Self::Rejected { .. } => AdapterErrorKind::Permanent,
         }
     }
 
@@ -164,7 +175,8 @@ impl AdapterError {
             | Self::Auth { family, .. }
             | Self::ModelNotFound { family, .. }
             | Self::Connection { family, .. }
-            | Self::Malformed { family, .. } => family,
+            | Self::Malformed { family, .. }
+            | Self::Rejected { family, .. } => family,
         }
     }
 }

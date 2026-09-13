@@ -9,7 +9,6 @@
 
 use std::time::Duration;
 
-use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
 
 use crate::llm::config::ProviderFamily;
@@ -17,7 +16,7 @@ use crate::llm::provider::{
     Adapter, AdapterError, BoxFuture, PromptRequest, PromptResponse, PromptRole, PromptUsage,
 };
 
-use super::common::{HttpEndpoint, classify_reqwest_error};
+use super::common::{HttpEndpoint, classify_reqwest_error, status_to_error};
 
 const FAMILY: &str = "openai-compatible";
 const DEFAULT_TIMEOUT: Duration = Duration::from_secs(30);
@@ -151,7 +150,8 @@ impl Adapter for OpenAiCompatibleAdapter {
 
             let status = response.status();
             if !status.is_success() {
-                return Err(status_to_error(FAMILY, status, &self.model));
+                let body = response.text().await.unwrap_or_default();
+                return Err(status_to_error(FAMILY, status, &self.model, &body));
             }
             let parsed: ChatResponse =
                 response.json().await.map_err(|e| AdapterError::Malformed {
@@ -173,27 +173,5 @@ impl Adapter for OpenAiCompatibleAdapter {
             });
             Ok(PromptResponse { text, usage })
         })
-    }
-}
-
-fn status_to_error(family: &'static str, status: StatusCode, model: &str) -> AdapterError {
-    match status.as_u16() {
-        401 | 403 => AdapterError::Auth {
-            family,
-            detail: format!("HTTP {}", status.as_u16()),
-        },
-        404 => AdapterError::ModelNotFound {
-            family,
-            model: model.to_owned(),
-        },
-        429 => AdapterError::RateLimited { family },
-        500..=599 => AdapterError::ServerError {
-            family,
-            status: status.as_u16(),
-        },
-        _ => AdapterError::Malformed {
-            family,
-            detail: format!("unexpected HTTP {}", status.as_u16()),
-        },
     }
 }
