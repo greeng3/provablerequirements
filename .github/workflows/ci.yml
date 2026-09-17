@@ -96,6 +96,14 @@ jobs:
       # the devcontainer bakes into its image.
       - name: Install Kani
         uses: model-checking/kani-github-action@v1
+        with:
+          # Pin the version explicitly. The action's default `latest` path derives the
+          # "requested" version from `cargo search kani-verifier` and compares it to the
+          # installed `kani --version`; that comparison broke with kani 0.68.0 and fails
+          # the install before "Run Kani" ever executes (#457). An explicit version takes
+          # the `cargo install --version` branch and compares against this literal string.
+          # Bump this in step with the devcontainer's kani when kani upgrades.
+          kani-version: 0.68.0
       # Scoped to the kani module: this job installs Kani but not TLC, so it must not run the
       # cat-2a real-engine tests (that is the `tlc` job's). Each engine's real path is proven
       # by the job that has that engine.
