@@ -59,6 +59,7 @@ pub fn set_single_provider(
     model: &str,
     endpoint: Option<&str>,
     api_key: Option<&str>,
+    transport: Option<&str>,
 ) -> Result<PathBuf> {
     set_single_provider_at(
         &system_config_path(subject),
@@ -66,6 +67,7 @@ pub fn set_single_provider(
         model,
         endpoint,
         api_key,
+        transport,
     )
 }
 
@@ -78,6 +80,7 @@ fn set_single_provider_at(
     model: &str,
     endpoint: Option<&str>,
     api_key: Option<&str>,
+    transport: Option<&str>,
 ) -> Result<PathBuf> {
     // Build the one `llm` array entry, omitting optional fields left unset.
     let mut entry = serde_json::Map::new();
@@ -89,10 +92,14 @@ fn set_single_provider_at(
     if let Some(api_key) = api_key {
         entry.insert("apiKey".into(), serde_json::json!(api_key));
     }
+    if let Some(transport) = transport {
+        entry.insert("transport".into(), serde_json::json!(transport));
+    }
     let llm = serde_json::Value::Array(vec![serde_json::Value::Object(entry)]);
 
     // Validate through the very parser the resolver and UI use, so the CLI enforces exactly the
-    // same rules (known family, endpoint-required-for-openai-compatible) with no duplicated logic.
+    // same rules (known family, endpoint-required-for-openai-compatible, cli-transport-is-
+    // anthropic-only) with no duplicated logic.
     parse_llm(Some(&llm)).map_err(|err| {
         anyhow!("{err} — pass `--provider`/`--model`/`--endpoint` describing a valid provider")
     })?;
@@ -1369,6 +1376,7 @@ mod tests {
             "cli-model",
             Some("http://localhost:11434/v1"),
             None,
+            None,
         )
         .unwrap();
 
@@ -1383,8 +1391,49 @@ mod tests {
     fn set_single_provider_rejects_openai_compatible_without_endpoint() {
         let subject = tempfile::tempdir().unwrap();
         let path = system_json_path(&subject);
-        let err = set_single_provider_at(&path, "openai-compatible", "m", None, None).unwrap_err();
+        let err =
+            set_single_provider_at(&path, "openai-compatible", "m", None, None, None).unwrap_err();
         assert!(err.to_string().contains("endpoint"));
         assert!(!path.exists(), "an invalid provider must not write a file");
+    }
+
+    #[test]
+    fn set_single_provider_writes_cli_transport() {
+        // `--transport cli` on an anthropic provider lands as `transport: "cli"` in the same
+        // system.json, with no apiKey — the subprocess uses the operator's logged-in session.
+        let subject = tempfile::tempdir().unwrap();
+        let path = system_json_path(&subject);
+        set_single_provider_at(
+            &path,
+            "anthropic",
+            "claude-opus-4-8",
+            None,
+            None,
+            Some("cli"),
+        )
+        .unwrap();
+        let raw = std::fs::read_to_string(&path).unwrap();
+        let json: serde_json::Value = serde_json::from_str(&raw).unwrap();
+        assert_eq!(json["llm"][0]["transport"], "cli");
+        assert_eq!(json["llm"][0]["provider"], "anthropic");
+    }
+
+    #[test]
+    fn set_single_provider_rejects_cli_transport_on_non_anthropic() {
+        // The CLI transport is anthropic-only; the shared parser refuses it elsewhere and the
+        // CLI setter inherits that rule rather than duplicating it.
+        let subject = tempfile::tempdir().unwrap();
+        let path = system_json_path(&subject);
+        let err = set_single_provider_at(
+            &path,
+            "openai-compatible",
+            "m",
+            Some("http://x.test"),
+            None,
+            Some("cli"),
+        )
+        .unwrap_err();
+        assert!(err.to_string().contains("anthropic"));
+        assert!(!path.exists(), "a rejected transport must not write a file");
     }
 }

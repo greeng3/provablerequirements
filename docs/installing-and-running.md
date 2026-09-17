@@ -172,6 +172,43 @@ goes to qrusty, not the reverse.
     As a last-resort fallback when no `system.json` exists, the CLI still reads a `provreq.yml`
     `llm:` block.
 
+    **Spend a Claude subscription instead of API credits (Anthropic CLI transport).** An
+    Anthropic provider can generate through the local `claude` CLI (Claude Code) in headless
+    mode instead of the HTTP Messages API. The API bills your Anthropic API _credit_ balance; the
+    CLI runs under your own logged-in `claude` session, so generation draws on your Claude
+    subscription (Pro/Max) instead — the way to keep triage and drafting working when you have a
+    subscription but no API credits.
+
+    Two one-time prerequisites on the host where `provreq serve` runs (i.e. where the subprocess
+    is spawned — the server, not your browser):
+
+    1. **Install the CLI.** It needs Node.js, then `npm install -g @anthropic-ai/claude-code`
+       (`claude` on `PATH`). provreq's own devcontainer bakes this in; on another host, install it
+       yourself.
+    2. **Authenticate once.** Run `claude` and sign in, or `claude setup-token` for a long-lived
+       headless token; credentials persist under `~/.claude`. The devcontainer bind-mounts
+       `.claude-home` there, so a login survives rebuilds.
+
+    Then set the Anthropic provider's transport to `cli` (no `apiKey` is needed — the subprocess
+    uses your session). From the CLI:
+
+    ```sh
+    provreq set-llm --provider anthropic --model claude-opus-4-8 --transport cli
+    ```
+
+    The UI settings screen offers the same toggle, or you can hand-edit the provider entry in
+    `.provreq/system.json`:
+
+    ```json
+    { "provider": "anthropic", "model": "claude-opus-4-8", "transport": "cli" }
+    ```
+
+    Trade-offs, by design: the headless CLI exposes no temperature or output-token ceiling, so
+    those are dropped; and the failure you'll hit at scale is your _subscription's_ usage limits,
+    not a credit balance — surfaced verbatim like any other provider error. If `claude` is absent
+    or unauthenticated, the provider reports itself unavailable and the fallback chain skips it,
+    the same as a missing API key.
+
 Throughout, the trust boundary from A6 holds: provreq stages proof carriers and back-links as
 **uncommitted working-tree edits** in the checked-out subject and stops there. It never runs
 git in qrusty, holds no commit or push rights, and makes no forge assumption — you review the
