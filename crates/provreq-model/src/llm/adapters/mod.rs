@@ -7,14 +7,16 @@
 //! branches on family after this point.
 
 mod anthropic;
+mod claude_code;
 mod common;
 mod gemini;
 mod openai;
 
-use super::config::{ProviderConfig, ProviderFamily};
+use super::config::{ProviderConfig, ProviderFamily, Transport};
 use super::provider::Adapter;
 
 pub use anthropic::AnthropicAdapter;
+pub use claude_code::ClaudeCodeAdapter;
 pub use gemini::GeminiAdapter;
 pub use openai::OpenAiCompatibleAdapter;
 
@@ -48,11 +50,16 @@ pub fn build_adapter(
                 config.api_key.clone(),
             ))
         }
-        ProviderFamily::Anthropic => Box::new(AnthropicAdapter::new(
-            config.endpoint.clone(),
-            config.model.clone(),
-            config.api_key.clone(),
-        )),
+        ProviderFamily::Anthropic => match config.transport {
+            // The subscription-backed CLI transport (REQ089): the config
+            // parse guarantees `Cli` only reaches here for Anthropic.
+            Transport::Cli => Box::new(ClaudeCodeAdapter::new(config.model.clone())),
+            Transport::Http => Box::new(AnthropicAdapter::new(
+                config.endpoint.clone(),
+                config.model.clone(),
+                config.api_key.clone(),
+            )),
+        },
         ProviderFamily::Gemini => Box::new(GeminiAdapter::new(
             config.endpoint.clone(),
             config.model.clone(),

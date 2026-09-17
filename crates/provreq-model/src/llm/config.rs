@@ -36,6 +36,36 @@ pub struct ProviderConfig {
     /// per-entry on/off don't have to carry the noise.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub enabled: Option<bool>,
+    /// How an Anthropic entry reaches the model. `Http` (the
+    /// default) is the native Messages-API call; `Cli` routes
+    /// through the local `claude` binary. Serialised only when
+    /// non-default, so existing configs don't grow noise.
+    #[serde(default, skip_serializing_if = "Transport::is_default")]
+    pub transport: Transport,
+}
+
+/// Which transport an Anthropic provider uses to reach the
+/// model. `Http` (the default) is the native Messages-API call
+/// with an `x-api-key`, billed against the operator's API credit
+/// balance. `Cli` shells out to the local `claude` binary in
+/// headless mode, which authenticates through the operator's own
+/// logged-in session — so generation draws on their Claude
+/// subscription rather than API credits. Only the Anthropic
+/// family may select `Cli`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum Transport {
+    #[default]
+    Http,
+    Cli,
+}
+
+impl Transport {
+    /// The conceptual default — used by `skip_serializing_if` so
+    /// an `http` entry round-trips without an explicit field.
+    fn is_default(&self) -> bool {
+        matches!(self, Self::Http)
+    }
 }
 
 impl ProviderConfig {
@@ -83,6 +113,10 @@ pub enum ParseError {
     UnknownProvider { index: usize, value: String },
     #[error("`llm[{index}].endpoint` is required for the {family} adapter")]
     EndpointRequired { index: usize, family: &'static str },
+    #[error("`llm[{index}].transport` has unknown value '{value}' — expected one of {{http, cli}}")]
+    UnknownTransport { index: usize, value: String },
+    #[error("`llm[{index}].transport` = 'cli' is only supported for the anthropic provider")]
+    CliTransportRequiresAnthropic { index: usize },
 }
 
 /// Parse the opaque `SystemConfig.llm` value into a priority-
@@ -181,12 +215,38 @@ fn parse_entry(index: usize, raw: &serde_json::Value) -> Result<ProviderConfig, 
             });
         }
     };
+    let transport = match obj.get("transport") {
+        Some(serde_json::Value::Null) | None => Transport::Http,
+        Some(serde_json::Value::String(s)) => match s.as_str() {
+            "http" => Transport::Http,
+            "cli" => Transport::Cli,
+            other => {
+                return Err(ParseError::UnknownTransport {
+                    index,
+                    value: other.to_owned(),
+                });
+            }
+        },
+        Some(_) => {
+            return Err(ParseError::WrongType {
+                index,
+                field: "transport",
+            });
+        }
+    };
+    // The CLI transport is an Anthropic-only capability — it shells out to
+    // the `claude` binary, which speaks only to Anthropic. Selecting it on
+    // any other family is a config error that names the offending entry.
+    if matches!(transport, Transport::Cli) && !matches!(family, ProviderFamily::Anthropic) {
+        return Err(ParseError::CliTransportRequiresAnthropic { index });
+    }
     Ok(ProviderConfig {
         provider: family,
         model,
         endpoint,
         api_key,
         enabled,
+        transport,
     })
 }
 
@@ -243,6 +303,66 @@ mod tests {
         assert_eq!(parsed[0].provider, ProviderFamily::Anthropic);
         assert!(parsed[0].endpoint.is_none());
         assert_eq!(parsed[0].api_key.as_deref(), Some("sk-ant-1234"));
+    }
+
+    // --- REQ089: Anthropic CLI transport (#453) --------------------------
+
+    #[test]
+    fn transport_defaults_to_http_when_absent() {
+        // An entry with no `transport` field keeps the existing HTTP
+        // Messages-API behaviour — the default is not an inference from
+        // whether an apiKey is present.
+        let v = serde_json::json!([
+            { "provider": "anthropic", "model": "claude-opus-4-8", "apiKey": "sk-ant-1234" }
+        ]);
+        let parsed = parse_llm(Some(&v)).unwrap();
+        assert_eq!(parsed[0].transport, Transport::Http);
+    }
+
+    #[test]
+    fn anthropic_entry_parses_cli_transport() {
+        // `transport: cli` on the Anthropic family routes generation
+        // through the local `claude` CLI; no apiKey is required because
+        // the subprocess uses the operator's logged-in session.
+        let v = serde_json::json!([
+            { "provider": "anthropic", "model": "claude-opus-4-8", "transport": "cli" }
+        ]);
+        let parsed = parse_llm(Some(&v)).unwrap();
+        assert_eq!(parsed[0].provider, ProviderFamily::Anthropic);
+        assert_eq!(parsed[0].transport, Transport::Cli);
+        assert!(parsed[0].api_key.is_none());
+    }
+
+    #[test]
+    fn cli_transport_on_non_anthropic_is_an_error() {
+        // The CLI transport is only meaningful for Anthropic; asking for
+        // it on another family names the offending entry rather than
+        // silently ignoring the field.
+        let v = serde_json::json!([
+            {
+                "provider": "openai-compatible",
+                "model": "gpt-4o-mini",
+                "endpoint": "https://api.openai.com",
+                "transport": "cli",
+            }
+        ]);
+        let err = parse_llm(Some(&v)).unwrap_err();
+        assert!(matches!(
+            err,
+            ParseError::CliTransportRequiresAnthropic { index: 0 }
+        ));
+    }
+
+    #[test]
+    fn unknown_transport_reports_index_and_value() {
+        let v = serde_json::json!([
+            { "provider": "anthropic", "model": "claude-opus-4-8", "transport": "carrier-pigeon" }
+        ]);
+        let err = parse_llm(Some(&v)).unwrap_err();
+        assert!(matches!(
+            err,
+            ParseError::UnknownTransport { index: 0, ref value } if value == "carrier-pigeon"
+        ));
     }
 
     #[test]

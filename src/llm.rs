@@ -14,7 +14,7 @@
 use crate::source::{Classification, Item};
 use crate::triage::Classifier;
 use anyhow::{Context, Result, anyhow, bail};
-use provreq_model::llm::{LlmRuntime, ProviderConfig, ProviderFamily, parse_llm};
+use provreq_model::llm::{LlmRuntime, ProviderConfig, ProviderFamily, Transport, parse_llm};
 use provreq_model::schema::SystemConfig;
 use provreq_model::system::{LoadedSystem, load_system_config, write_system_config};
 // Re-exported so provreq's LLM features (and their test stubs) build a request and read a response
@@ -456,6 +456,9 @@ fn provider_config_for(config: &LlmConfig, api_key: Option<String>) -> ProviderC
         endpoint: Some(normalize_endpoint(&config.base_url)),
         api_key,
         enabled: None,
+        // This legacy single-provider path never selects the CLI transport;
+        // it maps only Anthropic/OpenAI over HTTP.
+        transport: Transport::Http,
     }
 }
 

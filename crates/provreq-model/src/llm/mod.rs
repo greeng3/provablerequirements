@@ -33,7 +33,7 @@ pub mod runtime;
 
 pub use adapters::{BuildError, build_adapter};
 pub use chain::{ChainError, SlotOutcome, run_chain};
-pub use config::{ParseError, ProviderConfig, ProviderFamily, llm_config, parse_llm};
+pub use config::{ParseError, ProviderConfig, ProviderFamily, Transport, llm_config, parse_llm};
 pub use health::{Clock, HealthState, HealthTracker, SystemClock};
 pub use privacy::{PrivacyTracker, is_local_endpoint};
 pub use provider::{
