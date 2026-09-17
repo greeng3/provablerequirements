@@ -92,10 +92,17 @@ jobs:
           cache-dependency-path: web/package-lock.json
       - name: Build frontend
         run: npm --prefix web ci && npm --prefix web run build
-      # Installs the driver and runs `cargo kani setup` (CBMC + solvers) — the same two steps
-      # the devcontainer bakes into its image.
+      # Install the driver and run `cargo kani setup` (CBMC + solvers) directly — the same two
+      # steps the devcontainer bakes into its image. We deliberately do NOT use
+      # model-checking/kani-github-action: its post-install step asserts `kani --version` against
+      # a version string, and that assertion breaks on kani 0.68.0 (the install itself succeeds),
+      # failing the job before "Run Kani" ever executes (#457). Running the install ourselves drops
+      # the brittle wrapper while keeping exactly the install the action performed. `+stable` builds
+      # the installer with the runner's stable toolchain rather than the repo's pinned toolchain.
       - name: Install Kani
-        uses: model-checking/kani-github-action@v1
+        run: |
+          cargo +stable install --locked kani-verifier
+          cargo kani setup
       # Scoped to the kani module: this job installs Kani but not TLC, so it must not run the
       # cat-2a real-engine tests (that is the `tlc` job's). Each engine's real path is proven
       # by the job that has that engine.
