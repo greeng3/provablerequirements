@@ -9,7 +9,11 @@ import {
     useReplaceLlmProvider,
     useRetestLlmProvider,
 } from "../../api/queries";
-import type { LlmHealthState, LlmProviderEntry } from "../../api/types";
+import type {
+    LlmHealthState,
+    LlmProviderEntry,
+    LlmTransport,
+} from "../../api/types";
 
 type ProviderFamily = "openai-compatible" | "anthropic" | "gemini";
 
@@ -92,6 +96,7 @@ interface ProviderFormProps {
         provider: ProviderFamily;
         model: string;
         endpoint: string;
+        transport: LlmTransport;
     };
     readonly onClose: () => void;
 }
@@ -109,10 +114,20 @@ function ProviderForm({
     );
     const [model, setModel] = useState(initial?.model ?? "");
     const [endpoint, setEndpoint] = useState(initial?.endpoint ?? "");
+    const [transport, setTransport] = useState<LlmTransport>(
+        initial?.transport ?? "http",
+    );
     const [apiKey, setApiKey] = useState("");
     const [keepExistingKey, setKeepExistingKey] = useState(mode === "edit");
     const [errorMsg, setErrorMsg] = useState<string | null>(null);
     const pending = add.isPending || replace.isPending;
+
+    // The transport selector is an Anthropic-only capability. On any
+    // other family the effective transport is always `http`, and the
+    // `cli` transport authenticates through the operator's logged-in
+    // `claude` session, so it needs no API key.
+    const isAnthropic = provider === "anthropic";
+    const useCliTransport = isAnthropic && transport === "cli";
 
     const submit = (e: React.FormEvent) => {
         e.preventDefault();
@@ -145,6 +160,11 @@ function ProviderForm({
                     : apiKey
                       ? apiKey
                       : undefined,
+            // Send the transport explicitly for Anthropic (both
+            // values) so an Edit that switches `cli` back to `http`
+            // overwrites the stored choice; omit it for other
+            // families, where the backend only accepts `http`.
+            transport: isAnthropic ? transport : undefined,
         };
         void apiKeyForRequest; // future hook for explicit-clear UX
         const onSuccess = () => {
@@ -237,38 +257,74 @@ function ProviderForm({
                         className="mt-1 w-full rounded border border-slate-300 bg-white px-2 py-1 font-mono text-sm dark:border-slate-600 dark:bg-slate-800"
                     />
                 </label>
-                <label className="text-sm sm:col-span-2">
-                    <span className="block font-medium text-slate-700 dark:text-slate-300">
-                        API key{" "}
-                        <span className="text-slate-500">
-                            (leave blank for keyless providers)
+                {isAnthropic ? (
+                    <label className="text-sm sm:col-span-2">
+                        <span className="block font-medium text-slate-700 dark:text-slate-300">
+                            Transport
                         </span>
-                    </span>
-                    {mode === "edit" && keepExistingKey ? (
-                        <div className="mt-1 flex items-center gap-2 text-sm">
-                            <span className="rounded bg-slate-100 px-2 py-1 text-xs dark:bg-slate-800">
-                                key on file unchanged
-                            </span>
-                            <button
-                                type="button"
-                                onClick={() => setKeepExistingKey(false)}
-                                data-testid="llm-form-replace-key"
-                                className="text-xs text-slate-500 hover:underline"
+                        <select
+                            value={transport}
+                            onChange={(e) =>
+                                setTransport(e.target.value as LlmTransport)
+                            }
+                            data-testid="llm-form-transport"
+                            className="mt-1 w-full rounded border border-slate-300 bg-white px-2 py-1 text-sm dark:border-slate-600 dark:bg-slate-800"
+                        >
+                            <option value="http">
+                                http — Messages API (uses API credits)
+                            </option>
+                            <option value="cli">
+                                cli — Claude Code CLI (uses subscription)
+                            </option>
+                        </select>
+                        {useCliTransport ? (
+                            <span
+                                data-testid="llm-form-cli-note"
+                                className="mt-1 block text-xs text-amber-700 dark:text-amber-300"
                             >
-                                Replace key
-                            </button>
-                        </div>
-                    ) : (
-                        <input
-                            type="password"
-                            autoComplete="off"
-                            value={apiKey}
-                            onChange={(e) => setApiKey(e.target.value)}
-                            data-testid="llm-form-api-key"
-                            className="mt-1 w-full rounded border border-slate-300 bg-white px-2 py-1 font-mono text-sm dark:border-slate-600 dark:bg-slate-800"
-                        />
-                    )}
-                </label>
+                                Requires{" "}
+                                <span className="font-mono">claude</span>{" "}
+                                installed and authenticated on the server (see
+                                issue #454). Generation runs under that
+                                logged-in session — no API key needed.
+                            </span>
+                        ) : null}
+                    </label>
+                ) : null}
+                {useCliTransport ? null : (
+                    <label className="text-sm sm:col-span-2">
+                        <span className="block font-medium text-slate-700 dark:text-slate-300">
+                            API key{" "}
+                            <span className="text-slate-500">
+                                (leave blank for keyless providers)
+                            </span>
+                        </span>
+                        {mode === "edit" && keepExistingKey ? (
+                            <div className="mt-1 flex items-center gap-2 text-sm">
+                                <span className="rounded bg-slate-100 px-2 py-1 text-xs dark:bg-slate-800">
+                                    key on file unchanged
+                                </span>
+                                <button
+                                    type="button"
+                                    onClick={() => setKeepExistingKey(false)}
+                                    data-testid="llm-form-replace-key"
+                                    className="text-xs text-slate-500 hover:underline"
+                                >
+                                    Replace key
+                                </button>
+                            </div>
+                        ) : (
+                            <input
+                                type="password"
+                                autoComplete="off"
+                                value={apiKey}
+                                onChange={(e) => setApiKey(e.target.value)}
+                                data-testid="llm-form-api-key"
+                                className="mt-1 w-full rounded border border-slate-300 bg-white px-2 py-1 font-mono text-sm dark:border-slate-600 dark:bg-slate-800"
+                            />
+                        )}
+                    </label>
+                )}
             </div>
 
             {errorMsg ? (
@@ -333,6 +389,7 @@ function ProviderRow({ entry }: ProviderRowProps) {
                         provider: entry.provider as ProviderFamily,
                         model: entry.model,
                         endpoint: entry.endpoint,
+                        transport: entry.transport,
                     }}
                     onClose={() => setEditing(false)}
                 />
@@ -363,6 +420,11 @@ function ProviderRow({ entry }: ProviderRowProps) {
                                 local
                             </span>
                         ) : null}
+                        {entry.transport === "cli" ? (
+                            <span className="ml-2 rounded bg-indigo-100 px-1.5 text-[10px] uppercase tracking-wide text-indigo-900 dark:bg-indigo-900/40 dark:text-indigo-100">
+                                cli
+                            </span>
+                        ) : null}
                         {!entry.enabled ? (
                             <span className="ml-2 rounded bg-slate-200 px-1.5 text-[10px] uppercase tracking-wide dark:bg-slate-700">
                                 disabled
@@ -375,15 +437,25 @@ function ProviderRow({ entry }: ProviderRowProps) {
 
             <dl className="mt-3 grid grid-cols-1 gap-2 text-xs sm:grid-cols-2">
                 <div>
-                    <dt className="font-medium text-slate-500">API key</dt>
+                    {/* For a `cli` slot `apiKeyAvailable` means the
+                        `claude` binary is on PATH, not that a key is
+                        stored — auth surfaces at send time either way,
+                        so label it as the binary's presence. */}
+                    <dt className="font-medium text-slate-500">
+                        {entry.transport === "cli" ? "claude CLI" : "API key"}
+                    </dt>
                     <dd>
                         {entry.apiKeyAvailable ? (
                             <span className="text-emerald-700 dark:text-emerald-300">
-                                configured
+                                {entry.transport === "cli"
+                                    ? "present"
+                                    : "configured"}
                             </span>
                         ) : (
                             <span className="text-amber-700 dark:text-amber-300">
-                                not configured
+                                {entry.transport === "cli"
+                                    ? "not found"
+                                    : "not configured"}
                             </span>
                         )}
                     </dd>

@@ -3830,6 +3830,7 @@ pub async fn list_llm_providers(State(state): State<Arc<AppState>>) -> Response 
                 requires_privacy_ack,
                 api_key_available: adapter.api_key_available(),
                 enabled: cfg.is_enabled(),
+                transport: cfg.transport.as_wire().to_owned(),
                 health: runtime.health().state(index),
             }
         })
@@ -5059,5 +5060,64 @@ fn build_provider_entry(
     {
         obj.insert("enabled".into(), existing_enabled.clone());
     }
+    // Transport is rebuilt from the request every time, never
+    // inherited from `existing` — an Edit that switches a slot
+    // from `cli` back to `http` must not leave the stale `cli`
+    // behind. The default (`http`) is written as an absent key so
+    // the persisted object stays clean; a non-default value rides
+    // through verbatim for `parse_llm` to validate (it rejects
+    // `cli` on a non-Anthropic family and any unknown value).
+    if let Some(transport) = &req.transport
+        && transport != "http"
+    {
+        obj.insert(
+            "transport".into(),
+            serde_json::Value::String(transport.clone()),
+        );
+    }
     Ok(serde_json::Value::Object(obj))
+}
+
+#[cfg(test)]
+mod provider_entry_tests {
+    use super::*;
+
+    fn req(provider: &str, transport: Option<&str>) -> ProviderCrudRequest {
+        ProviderCrudRequest {
+            provider: provider.into(),
+            model: "claude-opus-4-8".into(),
+            endpoint: None,
+            api_key: None,
+            enabled: None,
+            transport: transport.map(str::to_owned),
+            position: None,
+        }
+    }
+
+    #[test]
+    fn cli_transport_is_persisted_for_anthropic() {
+        let obj = build_provider_entry(&req("anthropic", Some("cli")), None).unwrap();
+        assert_eq!(obj.get("transport").and_then(|v| v.as_str()), Some("cli"));
+    }
+
+    #[test]
+    fn http_transport_is_written_as_an_absent_key() {
+        // `http` is the default; persisting it as an explicit field
+        // would just be noise, so it is dropped.
+        let obj = build_provider_entry(&req("anthropic", Some("http")), None).unwrap();
+        assert!(obj.get("transport").is_none());
+    }
+
+    #[test]
+    fn editing_cli_back_to_http_clears_the_stale_transport() {
+        // A PUT that switches a slot from `cli` to `http` must not
+        // inherit the old `cli` from the existing object.
+        let existing = serde_json::json!({
+            "provider": "anthropic",
+            "model": "claude-opus-4-8",
+            "transport": "cli",
+        });
+        let obj = build_provider_entry(&req("anthropic", Some("http")), Some(&existing)).unwrap();
+        assert!(obj.get("transport").is_none());
+    }
 }

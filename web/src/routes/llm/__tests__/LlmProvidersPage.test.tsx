@@ -51,6 +51,20 @@ const remoteHealthy = {
   requiresPrivacyAck: true,
   apiKeyAvailable: true,
   enabled: true,
+  transport: "http",
+  health: { kind: "healthy" },
+};
+
+const anthropicCli = {
+  index: 0,
+  provider: "anthropic",
+  model: "claude-opus-4-8",
+  endpoint: "https://api.anthropic.com",
+  isLocal: false,
+  requiresPrivacyAck: true,
+  apiKeyAvailable: true,
+  enabled: true,
+  transport: "cli",
   health: { kind: "healthy" },
 };
 
@@ -63,6 +77,7 @@ const localKeyless = {
   requiresPrivacyAck: false,
   apiKeyAvailable: true,
   enabled: false,
+  transport: "http",
   health: { kind: "hard-disabled" },
 };
 
@@ -243,6 +258,86 @@ describe("LlmProvidersPage", () => {
       // default — server preserves the existing key.
       expect(body.apiKey).toBeUndefined();
     });
+  });
+
+  it("hides the transport selector for non-anthropic providers", async () => {
+    stubFetch((url) => {
+      if (url.endsWith("/api/llm/providers")) {
+        return { status: 200, body: { providers: [] } };
+      }
+      return { status: 404, body: {} };
+    });
+    mount();
+    await userEvent.click(screen.getByTestId("llm-add-toggle"));
+    // Default family is openai-compatible — no transport control.
+    expect(screen.queryByTestId("llm-form-transport")).toBeNull();
+  });
+
+  it("selecting anthropic + cli hides the API key and POSTs transport:cli", async () => {
+    const calls = stubFetch((url, method) => {
+      if (url.endsWith("/api/llm/providers") && method === "GET") {
+        return { status: 200, body: { providers: [] } };
+      }
+      if (url.endsWith("/api/llm/providers") && method === "POST") {
+        return { status: 204, body: undefined };
+      }
+      return { status: 404, body: {} };
+    });
+    mount();
+    await userEvent.click(screen.getByTestId("llm-add-toggle"));
+    await userEvent.selectOptions(
+      screen.getByTestId("llm-form-provider"),
+      "anthropic",
+    );
+    await userEvent.type(
+      screen.getByTestId("llm-form-model"),
+      "claude-opus-4-8",
+    );
+    // http by default: API key field is present.
+    expect(screen.getByTestId("llm-form-api-key")).toBeInTheDocument();
+    await userEvent.selectOptions(
+      screen.getByTestId("llm-form-transport"),
+      "cli",
+    );
+    // Switching to cli hides the key field and shows the prereq note.
+    expect(screen.queryByTestId("llm-form-api-key")).toBeNull();
+    expect(screen.getByTestId("llm-form-cli-note")).toBeInTheDocument();
+    await userEvent.click(screen.getByTestId("llm-form-submit"));
+    await waitFor(() => {
+      const post = calls.find(
+        (c) => c.method === "POST" && c.url.endsWith("/api/llm/providers"),
+      );
+      expect(post).toBeDefined();
+      const body = JSON.parse(post!.body!) as {
+        provider: string;
+        transport?: string;
+        apiKey?: string;
+      };
+      expect(body.provider).toBe("anthropic");
+      expect(body.transport).toBe("cli");
+      expect(body.apiKey).toBeUndefined();
+    });
+  });
+
+  it("prefills the transport selector when editing a cli entry", async () => {
+    stubFetch((url, method) => {
+      if (url.endsWith("/api/llm/providers") && method === "GET") {
+        return { status: 200, body: { providers: [anthropicCli] } };
+      }
+      return { status: 404, body: {} };
+    });
+    mount();
+    // The row shows a cli pill and the CLI-present key label.
+    const row = await screen.findByTestId("llm-provider-0");
+    expect(row).toHaveTextContent("cli");
+    expect(row).toHaveTextContent("claude CLI");
+    await userEvent.click(screen.getByTestId("llm-edit-0"));
+    const transportSelect = screen.getByTestId(
+      "llm-form-transport",
+    ) as HTMLSelectElement;
+    expect(transportSelect.value).toBe("cli");
+    // cli edit form suppresses the API key field.
+    expect(screen.queryByTestId("llm-form-api-key")).toBeNull();
   });
 
   it("DELETEs after a confirm step", async () => {

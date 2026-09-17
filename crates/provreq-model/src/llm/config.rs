@@ -66,6 +66,15 @@ impl Transport {
     fn is_default(&self) -> bool {
         matches!(self, Self::Http)
     }
+
+    /// Wire form the HTTP surface exposes to the UI, matching the
+    /// kebab-case serde values (`http` / `cli`).
+    pub fn as_wire(&self) -> &'static str {
+        match self {
+            Self::Http => "http",
+            Self::Cli => "cli",
+        }
+    }
 }
 
 impl ProviderConfig {
