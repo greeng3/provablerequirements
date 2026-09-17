@@ -975,6 +975,10 @@ pub struct LlmProviderEntry {
     /// Mirrors `ProviderConfig.is_enabled()` so the UI can show
     /// the toggle state without re-reading the System config.
     pub enabled: bool,
+    /// Wire form of the entry's transport (`http` / `cli`). Always
+    /// `http` for non-Anthropic families; lets the UI prefill the
+    /// transport selector and label a `cli` slot's key state.
+    pub transport: String,
     pub health: provreq_model::llm::HealthState,
 }
 
@@ -1226,6 +1230,12 @@ pub struct ProviderCrudRequest {
     pub api_key: Option<String>,
     #[serde(default)]
     pub enabled: Option<bool>,
+    /// Transport wire form (`http` / `cli`) for the Anthropic
+    /// family; ignored (and rejected by `parse_llm`) for others.
+    /// Absent leaves the persisted object without a `transport`
+    /// key, which parses as the `http` default.
+    #[serde(default)]
+    pub transport: Option<String>,
     /// `POST` only: insert at this position rather than the end.
     /// `PUT` ignores this field — use `PATCH` to reorder.
     #[serde(default)]

@@ -1080,8 +1080,17 @@ export interface LlmProviderEntry {
     /// Phase 13: `true` iff the slot is enabled in the System
     /// config. Disabled slots are skipped by the fallback chain.
     enabled: boolean;
+    /// #455: transport this entry reaches the model through.
+    /// Always `"http"` for non-Anthropic families; `"cli"` routes
+    /// an Anthropic entry through the local Claude Code CLI.
+    transport: LlmTransport;
     health: LlmHealthState;
 }
+
+/// #455: which transport an Anthropic provider uses. `http` is the
+/// native Messages-API call; `cli` shells out to the local `claude`
+/// binary (billed against the operator's subscription, not credits).
+export type LlmTransport = "http" | "cli";
 
 /// Phase 13: body for POST/PUT /api/llm/providers.
 export interface ProviderCrudRequest {
@@ -1090,6 +1099,10 @@ export interface ProviderCrudRequest {
     endpoint?: string;
     apiKey?: string;
     enabled?: boolean;
+    /// #455: Anthropic-only transport choice. Omit (or `"http"`) for
+    /// the default HTTP transport; the backend rejects `"cli"` on any
+    /// non-Anthropic family.
+    transport?: LlmTransport;
     /// POST-only: insert at this index instead of appending.
     position?: number;
 }
