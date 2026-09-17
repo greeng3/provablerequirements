@@ -240,6 +240,10 @@ enum Command {
         /// API key the provider needs. Omit for a keyless local endpoint (e.g. Ollama).
         #[arg(long)]
         api_key: Option<String>,
+        /// Transport for an `anthropic` provider: `http` (default, the Messages API, billed to
+        /// API credits) or `cli` (the local `claude` CLI, run on your Claude subscription).
+        #[arg(long)]
+        transport: Option<String>,
         /// Path to the subject repository (defaults to the current directory).
         #[arg(long, default_value = ".")]
         path: PathBuf,
@@ -372,6 +376,7 @@ async fn main() -> Result<()> {
             provider,
             endpoint,
             api_key,
+            transport,
             path,
         } => run_set_llm(
             &path,
@@ -379,6 +384,7 @@ async fn main() -> Result<()> {
             &model,
             endpoint.as_deref(),
             api_key.as_deref(),
+            transport.as_deref(),
         ),
     }
 }
@@ -391,9 +397,13 @@ fn run_set_llm(
     model: &str,
     endpoint: Option<&str>,
     api_key: Option<&str>,
+    transport: Option<&str>,
 ) -> Result<()> {
-    let path = provreq::llm::set_single_provider(subject, provider, model, endpoint, api_key)?;
-    let key_note = if api_key.is_some() {
+    let path =
+        provreq::llm::set_single_provider(subject, provider, model, endpoint, api_key, transport)?;
+    let key_note = if transport == Some("cli") {
+        " via the local claude CLI"
+    } else if api_key.is_some() {
         " with an API key"
     } else {
         " (keyless)"
