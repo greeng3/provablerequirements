@@ -5117,8 +5117,7 @@ mod provider_entry_tests {
             "model": "claude-opus-4-8",
             "transport": "cli",
         });
-        let obj =
-            build_provider_entry(&req("anthropic", Some("http")), Some(&existing)).unwrap();
+        let obj = build_provider_entry(&req("anthropic", Some("http")), Some(&existing)).unwrap();
         assert!(obj.get("transport").is_none());
     }
 }
