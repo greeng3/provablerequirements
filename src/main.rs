@@ -65,6 +65,12 @@ enum Command {
         /// alone — so this is the way back out of a seeding you no longer want.
         #[arg(long)]
         reclassify: bool,
+        /// Keep re-asking the still-untriaged items round after round until the backlog converges,
+        /// instead of one pass. A classifier may decline an item and model nondeterminism declines
+        /// a different subset each pass, so one pass rarely reaches zero; this stops when nothing is
+        /// left untriaged, when a round places nothing new, or after a safety ceiling of rounds.
+        #[arg(long)]
+        repeat: bool,
         /// Skip the confirmation prompt for `--reclassify` (for scripting).
         #[arg(long)]
         yes: bool,
@@ -309,8 +315,9 @@ async fn main() -> Result<()> {
             path,
             set,
             reclassify,
+            repeat,
             yes,
-        } => run_triage(&path, set, reclassify, yes).await,
+        } => run_triage(&path, set, reclassify, repeat, yes).await,
         Command::Draft {
             id,
             path,
@@ -449,6 +456,7 @@ async fn run_triage(
     subject: &Path,
     set: Option<Vec<String>>,
     reclassify: bool,
+    repeat: bool,
     yes: bool,
 ) -> Result<()> {
     let (companion, items) = resolve(subject)?;
@@ -472,7 +480,7 @@ async fn run_triage(
             println!("Set {id} = {}", classification.as_str());
             next
         }
-        None => seed_backlog(subject, &companion, &state, &items, reclassify, yes).await?,
+        None => seed_backlog(subject, &companion, &state, &items, reclassify, repeat, yes).await?,
     };
 
     print_triage(&items, &state);
@@ -489,6 +497,7 @@ async fn seed_backlog(
     state: &TriageState,
     items: &[Item],
     reclassify: bool,
+    repeat: bool,
     yes: bool,
 ) -> Result<TriageState> {
     // `--yes` skips the prompt; otherwise the operator confirms the destructive reclassify.
@@ -507,6 +516,7 @@ async fn seed_backlog(
         state,
         items,
         reclassify,
+        repeat,
         confirm_gate,
         print_seed_step,
     )
@@ -577,6 +587,20 @@ fn print_seed_step(step: triage::SeedStep<'_>) {
              re-done, with no `--reclassify` and nothing else of yours touched."
         ),
         SeedStep::BatchDone { done, total } => println!("  classified {done} of {total} …"),
+        SeedStep::RoundDone { round, remaining } => {
+            println!("  round {round} done — {remaining} still untriaged")
+        }
+        SeedStep::Converged { rounds, remaining } => {
+            if remaining == 0 {
+                println!("Converged in {rounds} round(s); the backlog is fully triaged.");
+            } else {
+                println!(
+                    "Stopped after {rounds} round(s); {remaining} item(s) still untriaged — the \
+                     classifier placed nothing new for them, so they are left as they are rather \
+                     than given a bucket they didn't earn. Re-run to try again."
+                );
+            }
+        }
     }
 }
 

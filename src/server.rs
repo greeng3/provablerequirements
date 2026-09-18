@@ -341,11 +341,14 @@ fn apply_triage(
     }))
 }
 
-/// The body of a bulk-triage write: whether to re-classify items a classifier already judged.
+/// The body of a bulk-triage write: whether to re-classify items a classifier already judged, and
+/// whether to keep re-asking the untriaged residue until it converges (REQ090).
 #[derive(serde::Deserialize)]
 struct SeedRequest {
     #[serde(default)]
     reclassify: bool,
+    #[serde(default)]
+    repeat: bool,
 }
 
 /// POST /api/requirements/triage/seed — bulk-classify the whole backlog (REQ085).
@@ -364,7 +367,7 @@ async fn seed_triage(State(state): State<Shared>, Json(req): Json<SeedRequest>) 
         Ok(s) => s,
         Err(r) => return r,
     };
-    match run_seed(&subject, req.reclassify).await {
+    match run_seed(&subject, req.reclassify, req.repeat).await {
         Ok(backlog) => Json(backlog).into_response(),
         Err(e) => (
             StatusCode::CONFLICT,
@@ -376,7 +379,11 @@ async fn seed_triage(State(state): State<Shared>, Json(req): Json<SeedRequest>) 
 
 /// Run the shared bulk-triage seed, then re-read the backlog. The UI narrates nothing, so the
 /// announce sink is a no-op; the run persists each batch itself, so the fresh read is authoritative.
-async fn run_seed(subject: &std::path::Path, reclassify: bool) -> anyhow::Result<Backlog> {
+async fn run_seed(
+    subject: &std::path::Path,
+    reclassify: bool,
+    repeat: bool,
+) -> anyhow::Result<Backlog> {
     let (companion, items) = crate::adopt::resolve(subject)?;
     let state = crate::triage::load(&companion)?;
     crate::triage::seed_backlog(
@@ -385,6 +392,7 @@ async fn run_seed(subject: &std::path::Path, reclassify: bool) -> anyhow::Result
         &state,
         &items,
         reclassify,
+        repeat,
         |_count| Ok(true),
         |_step| {},
     )

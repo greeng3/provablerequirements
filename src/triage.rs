@@ -280,6 +280,121 @@ pub async fn seed_in_batches<C: Classifier>(
     })
 }
 
+/// The ceiling on convergence rounds (REQ090). A classifier that declines the same residue forever —
+/// or a provider that fails every round — must not loop without end; the run stops here and reports
+/// what is still untriaged, exactly as a single pass does. Generous, because the normal stop is
+/// "a round placed nothing new", reached long before this.
+pub const MAX_CONVERGE_ROUNDS: usize = 20;
+
+/// What a converged (repeated) seed run left behind (REQ090).
+pub struct ConvergeOutcome {
+    /// The merged state after the last round — already persisted by the per-batch `persist` sink.
+    pub state: TriageState,
+    /// How many rounds actually ran (at least one; at most `max_rounds`).
+    pub rounds: usize,
+    /// Items still untriaged at the end — zero on a clean convergence, non-zero when the classifier
+    /// stably declines the rest or the round ceiling was hit.
+    pub remaining: usize,
+    /// Why the last round stopped early, when a round failed before finishing (the same resume
+    /// signal a single pass gives). `None` when every round that ran completed.
+    pub stopped: Option<anyhow::Error>,
+}
+
+/// How many planned items are still untriaged — the residue a further round would re-ask about.
+fn pending_count(state: &TriageState, items: &[Item]) -> usize {
+    match plan(state, items, false) {
+        TriagePlan::Nothing { .. } => 0,
+        TriagePlan::Classify { pending, .. } => pending.len(),
+    }
+}
+
+/// Run [`seed_in_batches`] round after round until the untriaged backlog converges (REQ090). A
+/// classifier may decline an item (REQ052 / #226), which leaves it untriaged, and model
+/// nondeterminism means a different subset declines each pass — so one pass rarely drives the
+/// residue to zero. This re-asks only the still-untriaged items each round and stops when:
+/// - nothing is left untriaged (the goal), or
+/// - a round placed nothing new (the classifier is stably declining the rest, so re-asking won't
+///   help), or
+/// - `max_rounds` rounds have run (a ceiling so a flaky provider or a genuinely un-classifiable
+///   item can't loop forever).
+///
+/// The first round honours `reclassify` (a full replacement is a round-one act); later rounds only
+/// mop up the residue with `reclassify = false`, so a bucket that already landed is never re-asked
+/// and the loop can only shrink the untriaged set. Each batch persists as it lands (via `persist`),
+/// so a mid-round failure stops the run with the same resume semantics a single pass has.
+/// `max_rounds = 1` reproduces one pass exactly.
+// The parameters are the run's state, its inputs, the classifier, its two numeric bounds, and its
+// two output sinks — all independent and all needed; bundling closures behind a struct to satisfy
+// the arity heuristic would only obscure them.
+#[allow(clippy::too_many_arguments)]
+pub async fn seed_until_converged<C: Classifier>(
+    state: &TriageState,
+    items: &[Item],
+    classifier: &C,
+    batch_size: usize,
+    reclassify: bool,
+    max_rounds: usize,
+    mut save_state: impl FnMut(&TriageState) -> Result<()>,
+    mut report: impl FnMut(SeedStep<'_>),
+) -> Result<ConvergeOutcome> {
+    let cap = max_rounds.max(1);
+    let mut next = state.clone();
+    let mut rounds = 0;
+    let mut remaining;
+    loop {
+        // Round one honours the operator's reclassify; the residue rounds only re-ask untriaged items.
+        let this_reclassify = reclassify && rounds == 0;
+        let TriagePlan::Classify { pending, .. } = plan(&next, items, this_reclassify) else {
+            remaining = 0;
+            break;
+        };
+        let before = pending.len();
+        // Reborrow both sinks so the per-batch closure holds them only for this round; the borrows
+        // end when `seed_in_batches` returns, freeing `report` for the round-level step below.
+        let outcome = {
+            let save_state = &mut save_state;
+            let report = &mut report;
+            seed_in_batches(
+                &next,
+                &pending,
+                classifier,
+                batch_size,
+                move |s, done, total| {
+                    save_state(s)?;
+                    report(SeedStep::BatchDone { done, total });
+                    Ok(())
+                },
+            )
+            .await?
+        };
+        next = outcome.state;
+        rounds += 1;
+        remaining = pending_count(&next, items);
+        report(SeedStep::RoundDone {
+            round: rounds,
+            remaining,
+        });
+        if outcome.stopped.is_some() {
+            return Ok(ConvergeOutcome {
+                state: next,
+                rounds,
+                remaining,
+                stopped: outcome.stopped,
+            });
+        }
+        // Converged, stalled (this round shrank nothing), or out of rounds.
+        if remaining == 0 || remaining >= before || rounds >= cap {
+            break;
+        }
+    }
+    Ok(ConvergeOutcome {
+        state: next,
+        rounds,
+        remaining,
+        stopped: None,
+    })
+}
+
 /// A step of a [`seed_backlog`] run, reported as it happens so a caller can narrate the run in its
 /// own medium. The command line prints each one; the web handler ignores them. They are emitted
 /// interleaved with the run, so ordering is preserved — the reason this is a callback and not a
@@ -304,6 +419,13 @@ pub enum SeedStep<'a> {
     UsingProseFloor { pending: usize, total: usize },
     /// A batch landed and was persisted.
     BatchDone { done: usize, total: usize },
+    /// A convergence round finished (REQ090); `remaining` item(s) are still untriaged. Emitted only
+    /// on a repeated run.
+    RoundDone { round: usize, remaining: usize },
+    /// A repeated run converged (REQ090): it ran `rounds` round(s) and left `remaining` untriaged
+    /// (zero on a clean convergence, non-zero when the classifier stably declined the rest or the
+    /// round ceiling was hit).
+    Converged { rounds: usize, remaining: usize },
 }
 
 /// What a [`seed_backlog`] run decided and did. The final state is persisted to the companion as the
@@ -329,12 +451,16 @@ pub enum SeedRun {
 /// batch is persisted as it lands (REQ054), so a failure costs one batch and the next run resumes.
 ///
 /// `announce` receives each [`SeedStep`] as it happens; callers that do not narrate pass a no-op.
+// Orchestration entry point: subject + companion + state + items, the two run flags, the consent
+// gate, and the narration sink. All independent; a struct would not make the call sites clearer.
+#[allow(clippy::too_many_arguments)]
 pub async fn seed_backlog(
     subject: &Path,
     companion: &Path,
     state: &TriageState,
     items: &[Item],
     reclassify: bool,
+    repeat: bool,
     confirm: impl FnOnce(usize) -> Result<bool>,
     mut announce: impl FnMut(SeedStep<'_>),
 ) -> Result<SeedRun> {
@@ -378,6 +504,8 @@ pub async fn seed_backlog(
         return Ok(SeedRun::Aborted);
     }
 
+    // A repeated run re-asks the residue until it converges; a single run is one round (REQ090).
+    let max_rounds = if repeat { MAX_CONVERGE_ROUNDS } else { 1 };
     let total = items.len();
     let outcome = match crate::llm::resolve_llm(subject, companion)? {
         Some(resolved) => {
@@ -403,16 +531,15 @@ pub async fn seed_backlog(
                 }
             };
             let classifier = crate::llm::LlmClassifier::new(resolved.into_backend(), context);
-            seed_in_batches(
+            seed_until_converged(
                 state,
-                &pending,
+                items,
                 &classifier,
                 batch_size,
-                |s, done, total| {
-                    save(companion, s)?;
-                    announce(SeedStep::BatchDone { done, total });
-                    Ok(())
-                },
+                reclassify,
+                max_rounds,
+                |s| save(companion, s),
+                &mut announce,
             )
             .await?
         }
@@ -421,16 +548,15 @@ pub async fn seed_backlog(
                 pending: count,
                 total,
             });
-            seed_in_batches(
+            seed_until_converged(
                 state,
-                &pending,
+                items,
                 &ProseFloorClassifier,
                 count,
-                |s, done, total| {
-                    save(companion, s)?;
-                    announce(SeedStep::BatchDone { done, total });
-                    Ok(())
-                },
+                reclassify,
+                max_rounds,
+                |s| save(companion, s),
+                &mut announce,
             )
             .await?
         }
@@ -439,16 +565,23 @@ pub async fn seed_backlog(
     // A run that stopped early already persisted what it managed; report what did and did not get
     // classified rather than letting the failure imply nothing happened (REQ054).
     if let Some(stopped) = outcome.stopped {
+        let placed = count.saturating_sub(outcome.remaining);
         return Err(stopped).with_context(|| {
             format!(
-                "classified {} of {count} item(s); {} not classified and left as they were — \
+                "classified {placed} of {count} item(s); {} not classified and left as they were — \
                  re-run bulk triage to resume from here",
-                outcome.classified, outcome.unclassified
+                outcome.remaining
             )
         });
     }
+    if repeat {
+        announce(SeedStep::Converged {
+            rounds: outcome.rounds,
+            remaining: outcome.remaining,
+        });
+    }
     Ok(SeedRun::Classified {
-        classified: outcome.classified,
+        classified: count.saturating_sub(outcome.remaining),
     })
 }
 
@@ -677,6 +810,110 @@ mod tests {
         async fn classify(&self, items: &[Item]) -> Result<Vec<Option<Classification>>> {
             Ok(vec![None; items.len()])
         }
+    }
+
+    /// Commits exactly the first item of each batch and declines the rest — the shape of a model
+    /// that inches forward one item per pass. Since a committed item leaves the untriaged residue,
+    /// re-asking the residue shrinks it by one each round, so a backlog of N converges in N rounds.
+    struct GradualClassifier;
+
+    impl Classifier for GradualClassifier {
+        async fn classify(&self, items: &[Item]) -> Result<Vec<Option<Classification>>> {
+            Ok(items
+                .iter()
+                .enumerate()
+                .map(|(i, _)| (i == 0).then_some(Classification::FormalizableNow))
+                .collect())
+        }
+    }
+
+    fn untriaged(ids: &[&str]) -> Vec<Item> {
+        ids.iter().map(|id| item(id, None)).collect()
+    }
+
+    // Verifies: REQ090 — repeating drives a stochastically-declining classifier to zero untriaged,
+    // one item per round here, and reports the round count. A single pass would leave four behind.
+    #[tokio::test]
+    async fn repeating_converges_a_gradually_classifying_backlog() {
+        let items = untriaged(&["A", "B", "C", "D", "E"]);
+        let out = seed_until_converged(
+            &TriageState::new(),
+            &items,
+            &GradualClassifier,
+            100,
+            false,
+            MAX_CONVERGE_ROUNDS,
+            |_s| Ok(()),
+            |_step| {},
+        )
+        .await
+        .unwrap();
+        assert_eq!(out.remaining, 0, "every item ends triaged");
+        assert_eq!(out.rounds, 5, "one item placed per round, five items");
+        assert!(out.stopped.is_none());
+    }
+
+    // Verifies: REQ090 — a round that places nothing new stops the loop instead of spinning; the
+    // residue is left untriaged, never coerced into a bucket (REQ052).
+    #[tokio::test]
+    async fn repeating_stops_when_a_round_makes_no_progress() {
+        let items = untriaged(&["A", "B", "C"]);
+        let out = seed_until_converged(
+            &TriageState::new(),
+            &items,
+            &DecliningClassifier,
+            100,
+            false,
+            MAX_CONVERGE_ROUNDS,
+            |_s| Ok(()),
+            |_step| {},
+        )
+        .await
+        .unwrap();
+        assert_eq!(out.rounds, 1, "the first no-progress round is the last");
+        assert_eq!(out.remaining, 3, "all three stay untriaged, not defaulted");
+    }
+
+    // Verifies: REQ090 — the round ceiling bounds a classifier that would otherwise inch forever;
+    // the run stops with a real residue rather than looping without end.
+    #[tokio::test]
+    async fn repeating_is_bounded_by_the_round_ceiling() {
+        let items = untriaged(&["A", "B", "C", "D", "E"]);
+        let out = seed_until_converged(
+            &TriageState::new(),
+            &items,
+            &GradualClassifier,
+            100,
+            false,
+            2,
+            |_s| Ok(()),
+            |_step| {},
+        )
+        .await
+        .unwrap();
+        assert_eq!(out.rounds, 2, "stopped at the ceiling");
+        assert_eq!(out.remaining, 3, "two placed in two rounds, three left");
+    }
+
+    // Verifies: REQ090 — max_rounds = 1 is exactly one pass, the pre-REQ090 behaviour, so a
+    // non-repeated seed is unchanged.
+    #[tokio::test]
+    async fn a_single_round_is_one_pass() {
+        let items = untriaged(&["A", "B", "C"]);
+        let out = seed_until_converged(
+            &TriageState::new(),
+            &items,
+            &GradualClassifier,
+            100,
+            false,
+            1,
+            |_s| Ok(()),
+            |_step| {},
+        )
+        .await
+        .unwrap();
+        assert_eq!(out.rounds, 1);
+        assert_eq!(out.remaining, 2, "one placed, the rest wait for a re-run");
     }
 
     // Verifies: REQ052 (#226) — a classifier that declines to place an item leaves it un-triaged,

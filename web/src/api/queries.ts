@@ -742,7 +742,8 @@ export function useTriageRequirement() {
 export function useSeedTriage() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (reclassify: boolean) => api.seedTriage(reclassify),
+    mutationFn: (vars: { reclassify: boolean; repeat: boolean }) =>
+      api.seedTriage(vars.reclassify, vars.repeat),
     onSuccess: (backlog) => {
       qc.setQueryData(queryKeys.requirements, backlog);
     },
