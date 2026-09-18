@@ -176,7 +176,9 @@ function BacklogView({ backlog }: { backlog: ProofBacklog }) {
                     <div className="mt-4 flex flex-wrap items-center gap-3 border-t border-slate-200 pt-4 dark:border-slate-800">
                         <button
                             type="button"
-                            onClick={() => seed.mutate(false)}
+                            onClick={() =>
+                                seed.mutate({ reclassify: false, repeat: true })
+                            }
                             disabled={seed.isPending}
                             className="rounded-md border border-sky-300 bg-sky-50 px-3 py-1 text-sm font-medium text-sky-800 hover:bg-sky-100 disabled:cursor-not-allowed disabled:opacity-60 dark:border-sky-800 dark:bg-sky-950/40 dark:text-sky-200 dark:hover:bg-sky-900/40"
                         >
@@ -187,7 +189,9 @@ function BacklogView({ backlog }: { backlog: ProofBacklog }) {
                         <span className="text-xs text-slate-500">
                             Classifies every untriaged item with the configured
                             model, or the honest prose-floor default when none is
-                            set — the same as <code>provreq triage</code>.
+                            set — the same as <code>provreq triage --repeat</code>.
+                            Keeps re-asking the still-untriaged items until the
+                            backlog converges, so one click finishes it.
                         </span>
                     </div>
                 )}

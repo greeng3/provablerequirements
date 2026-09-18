@@ -538,9 +538,10 @@ export const api = {
             "POST",
             { classification },
         ),
-    seedTriage: (reclassify: boolean) =>
+    seedTriage: (reclassify: boolean, repeat: boolean) =>
         send<ProofBacklog>("/api/requirements/triage/seed", "POST", {
             reclassify,
+            repeat,
         }),
     setDraftCandidate: (id: string, prl: string) =>
         send<ProofDetail>(
