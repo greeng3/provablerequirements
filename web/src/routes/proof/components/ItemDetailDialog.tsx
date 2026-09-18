@@ -13,6 +13,7 @@ import {
 import type { ProofDetail, ProofGateStatus } from "../../../api/types";
 import { formalizationLabel, originNote, triageLabel } from "../labels";
 import { Badge } from "./Badge";
+import { PrlSyntaxReference } from "./PrlSyntaxReference";
 import { VerifyPanel } from "./VerifyPanel";
 
 type Props = {
@@ -302,6 +303,9 @@ function CandidateEditor({
           {String(save.error ?? check.error ?? translate.error)}
         </p>
       )}
+      <div className="mt-2">
+        <PrlSyntaxReference />
+      </div>
     </Field>
   );
 }
