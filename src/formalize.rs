@@ -144,6 +144,18 @@ Scopes: globally; before R; after Q; between Q and R. \
 Quantify over collections with: each m: Message . <claim about m>. \
 Possibility (branching): can_reach P.
 
+Structure rules — the ones most drafts get wrong:
+- A `require` property is exactly one pattern. `and`, `or`, `not` and parentheses \
+combine the predicate/event *expressions inside* one pattern's slots (e.g. \
+`(a and b) leads_to c`); they do NOT combine whole patterns. Patterns do not combine.
+- To require several things, write several properties — one per line in `require`, \
+each with its own `each …` quantifier. Never wrap patterns in parentheses and join \
+them with `and`.
+- Category must fit the patterns: a liveness pattern (`leads_to`, `eventually`) is a \
+future-time obligation and can never be `category: 1` (code is temporal-free \
+pre/post/invariants) — use 2a (model) or 2b (runtime), or restate it as an \
+`always`/`never` invariant for a category-1 claim.
+
 Example — prose \"every accepted message eventually succeeds or is dead-lettered, \
 with at most 5 retries\" becomes:
 
@@ -161,6 +173,18 @@ with at most 5 retries\" becomes:
     strength: model_checked over Model, monitored(deadline = 30s)
     evidence: tla+ (bounded: |Message| <= 8), monpoly(stream = queue.events)
   }
+
+Multiple obligations become multiple properties — NOT one combined pattern. Prose \
+\"creating a queue that already exists returns 409, otherwise it is created and \
+returns 200\" becomes two properties:
+
+  require {
+    each q: Queue . (create_request(q) and queue_exists(q)) leads_to responds(q, 409)
+    each q: Queue . (create_request(q) and not queue_exists(q)) leads_to responds(q, 200)
+  }
+
+Do NOT write `each q: Queue . ((… leads_to …) and (… leads_to …))` — that combines \
+patterns, which is not allowed.
 
 Translate the requirement below. Respond with ONLY the PRL requirement block, no \
 prose and no code fences.
@@ -293,6 +317,32 @@ mod tests {
         assert!(p.contains("REQ042"));
         assert!(p.contains("the system shall respond quickly"));
         assert!(p.contains("leads_to"));
+    }
+
+    // Verifies: REQ015/REQ017 (#463) — the prompt tells the model the two rules the pilot's
+    // gate-invalid drafts broke: a property is one pattern (multiple obligations are separate
+    // property lines, never `and`/paren-combined), and a liveness pattern can't be category 1.
+    #[test]
+    fn prompt_forbids_combining_patterns_and_warns_on_liveness_category() {
+        let p = build_prompt(&item("REQ001", "x")).to_lowercase();
+        assert!(
+            p.contains("exactly one pattern"),
+            "must state a property is one pattern"
+        );
+        assert!(
+            p.contains("patterns do not combine"),
+            "must forbid and/paren-combining patterns"
+        );
+        assert!(
+            p.contains("liveness"),
+            "must warn liveness patterns are not category 1"
+        );
+        // A worked multi-property example so the model has a template for the common case:
+        // more than the single leads_to in the pattern list + the single-property example.
+        assert!(
+            p.matches("leads_to").count() >= 3,
+            "must show a multi-property example"
+        );
     }
 
     #[test]
