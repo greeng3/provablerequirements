@@ -22,6 +22,7 @@ pub mod draft;
 pub mod engine;
 pub mod formalize;
 pub mod grounding;
+pub mod guide;
 pub mod http;
 pub mod kani;
 pub mod llm;

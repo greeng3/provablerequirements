@@ -66,6 +66,7 @@ jobs:
           dir="provreq-${ver}-${{ matrix.target }}"
           mkdir "$dir"
           cp "target/${{ matrix.target }}/release/provreq" "$dir/"
+          cp docs/end-to-end-guide.md "$dir/GUIDE.md"
           tar czf "${dir}.tar.gz" "$dir"
           sha "${dir}.tar.gz" > "${dir}.tar.gz.sha256"
       - name: Package (windows)
@@ -77,6 +78,7 @@ jobs:
           dir="provreq-${ver}-${{ matrix.target }}"
           mkdir "$dir"
           cp "target/${{ matrix.target }}/release/provreq.exe" "$dir/"
+          cp docs/end-to-end-guide.md "$dir/GUIDE.md"
           7z a "${dir}.zip" "$dir" >/dev/null
           sha256sum "${dir}.zip" > "${dir}.zip.sha256"
 
