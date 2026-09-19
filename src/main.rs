@@ -254,6 +254,14 @@ enum Command {
         #[arg(long, default_value = ".")]
         path: PathBuf,
     },
+    /// Print the end-to-end formalization guide (embedded in the binary), or write it to a
+    /// file with `--out`. Self-contained: it explains the whole pipeline so a user or an
+    /// assisting LLM can follow it without this repository or the web UI.
+    Guide {
+        /// Write the guide to this file instead of printing it to stdout.
+        #[arg(long, value_name = "FILE")]
+        out: Option<PathBuf>,
+    },
 }
 
 /// Whether an argument reads as a subject path rather than a mistyped flag or a bad id (REQ056).
@@ -393,6 +401,7 @@ async fn main() -> Result<()> {
             api_key.as_deref(),
             transport.as_deref(),
         ),
+        Command::Guide { out } => provreq::guide::run_guide(out.as_deref()),
     }
 }
 
