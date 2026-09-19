@@ -37,7 +37,7 @@ at all. Engines only enter at the final `verify` step.
 
 ## The pipeline
 
-```
+```text
 init → triage → draft (set|translate) → check(gate) → readback → ground → admit → writeback → verify
 ```
 
@@ -53,7 +53,7 @@ an assisting LLM can read its output.
 
 ## Step 0 — Adopt the subject (`init`)
 
-```
+```text
 provreq init            # scaffold the companion tree next to the subject's requirements
 ```
 
@@ -68,7 +68,7 @@ project loads cleanly, `check`.
 
 ## Step 1 — Triage the backlog (`triage`)
 
-```
+```text
 provreq triage                        # classify items (advisory) and print the list
 provreq triage --repeat               # keep re-asking until the backlog converges
 provreq triage --set REQ001 formalizable-now
@@ -88,7 +88,7 @@ already-triaged items (this replaces their classifications; `--yes` skips the pr
 
 A **draft** is the working formalization of one requirement. Open or resume it by id:
 
-```
+```text
 provreq draft REQ001                                  # show the draft (omit id to list all)
 provreq draft REQ001 --set 'require { never bad_state() }'   # author the PRL by hand
 provreq draft REQ001 --translate                      # let the configured LLM propose it
@@ -96,17 +96,17 @@ provreq draft REQ001 --translate                      # let the configured LLM p
 
 `--set` writes the candidate PRL you supply (and re-baselines it against the current item
 prose). `--translate` asks the configured LLM to forward-translate the prose into a
-candidate (needs an `llm:` provider — see *Configuring an LLM* below). Translate replaces
+candidate (needs an `llm:` provider — see _Configuring an LLM_ below). Translate replaces
 the stored candidate, so save hand edits first.
 
-Write the PRL against the grammar in *PRL quick reference* at the end of this guide (the
+Write the PRL against the grammar in _PRL quick reference_ at the end of this guide (the
 web UI shows the same reference next to the editor). The single most common mistake: a
 `require` **property is exactly one pattern**; you do not combine whole patterns with
 `and`. Multiple obligations are multiple property lines.
 
 ## Step 3 — Run the mechanical gate (`draft --check`)
 
-```
+```text
 provreq draft REQ001 --check
 ```
 
@@ -119,22 +119,22 @@ re-check, until it passes. This is the same loop that gets a hand-authored claim
 
 ## Step 4 — Confirm the read-back (`draft --readback`)
 
-```
+```text
 provreq draft REQ001 --readback        # requires a gate pass
 ```
 
 The read-back is a deterministic, controlled-natural-language surfacing of what the formal
-claim actually *means*. Read it and confirm it matches the intent of the prose. This is
+claim actually _means_. Read it and confirm it matches the intent of the prose. This is
 your defense against a claim that parses and type-checks but says the wrong thing (for
 instance, a vacuously-true claim). If the read-back is wrong, go back to Step 2.
 
 ## Step 5 — Ground the vocabulary (`draft --ground`, `--fidelity`, `--dry-run`)
 
 Grounding binds each **vocabulary symbol** in the claim to a concrete **observable** in
-the real world, then dry-runs the binding so you can confirm *"here is what your binding
-resolves to — is that what you meant?"* before any engine is trusted.
+the real world, then dry-runs the binding so you can confirm _"here is what your binding
+resolves to — is that what you meant?"_ before any engine is trusted.
 
-```
+```text
 provreq draft REQ001 --ground 'bad_state=compute_state'          # symbol = observable
 provreq draft REQ001 --ground 'User=crate::model::User' --fidelity definitional
 provreq draft REQ001 --dry-run                                    # resolve bindings, report grounded/parked
@@ -145,7 +145,7 @@ provreq draft REQ001 --dry-run                                    # resolve bind
 - A **predicate** symbol (an event or state name declared in the claim's vocabulary)
   binds to a concrete anchor. **For category 1 (code), the observable is the name of a
   function that stands for the predicate** — resolved against the subject's real syntax
-  tree, *not* a string to grep for. Give the function's name (path-qualified if needed),
+  tree, _not_ a string to grep for. Give the function's name (path-qualified if needed),
   not its body and not a description.
 - A **sort** (a type a quantified variable ranges over, e.g. `each u: User`) binds to a
   real **type**. A predicate binds to a function; a sort binds to a type; they are bound
@@ -160,11 +160,11 @@ so it parks exactly as an unbound predicate does.
 Fidelity records how strong a binding's evidence is, because **a verdict is never
 stronger than its weakest binding.** Three values:
 
-| Fidelity        | Meaning                                                        | Default for category |
-| --------------- | ------------------------------------------------------------- | -------------------- |
-| `definitional`  | True by construction — a static structural fact, or a model variable. No live observation needed. | 1 (code), 2a (model) |
-| `observed`      | A runtime observation that can be wrong.                       | 2b (runtime)         |
-| `probed`        | A flaky UI probe.                                              | 3 (UI)               |
+| Fidelity       | Meaning                                                                                           | Default for category |
+| -------------- | ------------------------------------------------------------------------------------------------- | -------------------- |
+| `definitional` | True by construction — a static structural fact, or a model variable. No live observation needed. | 1 (code), 2a (model) |
+| `observed`     | A runtime observation that can be wrong.                                                          | 2b (runtime)         |
+| `probed`       | A flaky UI probe.                                                                                 | 3 (UI)               |
 
 You usually do not pass `--fidelity` at all: the default comes from the requirement's
 category, and the defaults are the right answer for almost every binding. Override only
@@ -189,7 +189,7 @@ tool: bind, dry-run, read the resolution or the rejection, adjust. It will tell 
 
 ## Step 6 — Admit the formalization (`draft --admit`)
 
-```
+```text
 provreq draft REQ001 --admit --reviewer "Your Name"
 ```
 
@@ -200,7 +200,7 @@ scripting.
 
 ## Step 7 — Write provenance back to the subject (`draft --writeback`)
 
-```
+```text
 provreq draft REQ001 --writeback
 ```
 
@@ -212,7 +212,7 @@ current prose first.
 
 ## Step 8 — Produce the verdict (`verify`)
 
-```
+```text
 provreq verify REQ001                         # honest three-valued verdict + provenance
 provreq verify REQ001 --draft-contracts       # stage #[logic]/#[pure] markers for review
 provreq verify REQ001 --draft-semantic        # LLM-draft #[requires]/#[ensures], staged
@@ -224,7 +224,7 @@ with provenance (what implements and verifies the requirement, in which environm
 the category's engine is not installed, the verdict is honestly `not-determined`/parked,
 never a fabricated pass.
 
-The optional contract-drafting flags stage *uncommitted working-tree edits* for you to
+The optional contract-drafting flags stage _uncommitted working-tree edits_ for you to
 review — `--draft-contracts` adds deductive markers onto opaque predicate functions;
 `--draft-semantic` asks the LLM to draft `#[requires]`/`#[ensures]` clauses (an untrusted
 proposal the verifier re-checks); `--repair` runs the engine and repairs the drafted
@@ -243,7 +243,7 @@ coverage funnel.
 Triage, `draft --translate`, and `verify --draft-semantic` use a configured LLM; the rest
 of the pipeline does not. Configure one without the UI:
 
-```
+```text
 provreq set-llm --model qwen2.5-coder:14b --endpoint http://localhost:11434   # local Ollama
 provreq set-llm --model gpt-4o-mini --provider openai-compatible --endpoint <url> --api-key <key>
 provreq set-llm --model claude-... --provider anthropic --transport cli       # via local claude CLI
@@ -256,7 +256,7 @@ connection / model-not-found), so a bad model id or endpoint tells you what to f
 
 ## The web UI (`serve`)
 
-```
+```text
 provreq serve                 # http://127.0.0.1:17869, single subject, loopback only
 ```
 
@@ -269,12 +269,12 @@ single-operator by design — one subject, loopback, no auth.
 
 Each requirement has a category that decides its observable world and its engine:
 
-| Category | World    | Grounds against            | Default fidelity | Example engines        |
-| -------- | -------- | -------------------------- | ---------------- | ---------------------- |
-| 1        | code     | the subject's syntax tree  | `definitional`   | Kani, Creusot, Prusti  |
-| 2a       | model    | a TLA+ spec definition     | `definitional`   | TLC                    |
-| 2b       | runtime  | a runtime event/telemetry  | `observed`       | MonPoly                |
-| 3        | UI       | declared UI steps          | `probed`         | WebDriver              |
+| Category | World   | Grounds against           | Default fidelity | Example engines       |
+| -------- | ------- | ------------------------- | ---------------- | --------------------- |
+| 1        | code    | the subject's syntax tree | `definitional`   | Kani, Creusot, Prusti |
+| 2a       | model   | a TLA+ spec definition    | `definitional`   | TLC                   |
+| 2b       | runtime | a runtime event/telemetry | `observed`       | MonPoly               |
+| 3        | UI      | declared UI steps         | `probed`         | WebDriver             |
 
 A liveness pattern (`leads_to`, `eventually`) needs a runtime or model category (2a/2b) —
 category 1 is temporal-free and takes only state predicates under `always`/`never`.
