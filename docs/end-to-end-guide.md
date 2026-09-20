@@ -236,6 +236,32 @@ are checkable, and `provreq install <tlc|kani> --yes` to provision the light-tie
 natively. `provreq report` prints the full traceability report; `provreq status` shows the
 coverage funnel.
 
+### The asserted route: `Verifies:`-tagged tests
+
+Besides the deductive/model/runtime engines, `verify` runs the **asserted** route: a test
+your source tags with `Verifies: REQ001` is run and rated. A passing tagged test earns a
+`not-falsified` (asserted) verdict — honest, and marked so it never reads as a mechanical
+proof. This is often the most practical path to a real verdict for behavioural requirements.
+
+If those tests need a cargo feature or other build input (a common case — test-only helpers
+gated behind a `#[cfg(feature = "…")]`), tell `verify` in the companion `provreq.yml` so the
+asserted route builds them the way your project does. Without this the test target may fail
+to compile and the honest verdict stays `unknown` (the harness did not run):
+
+```yaml
+verify:
+    cargo:
+        features: [test-helpers] # → cargo test --features test-helpers
+        # all_features: false
+        # no_default_features: false
+        # extra_args: [--release] # passthrough before the test name
+        # harness_args: [--nocapture] # after `--`
+        # env: { RUST_LOG: debug }
+```
+
+The exact command a configured run used is recorded in the verdict provenance. An
+unconfigured subject runs a bare `cargo test <name>`, exactly as before.
+
 ---
 
 ## Configuring an LLM (optional)
