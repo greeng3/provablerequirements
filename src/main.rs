@@ -163,8 +163,12 @@ enum Command {
         #[arg(long, default_value = ".")]
         path: PathBuf,
     },
-    /// Produce the verdict for an admitted requirement (Step 4). Runs no engine yet —
-    /// reports the honest three-valued verdict (always `unknown`) with provenance.
+    /// Produce the honest three-valued verdict — proven / not-determined / disproven — for an
+    /// admitted requirement (Step 4). Re-gates, re-runs the category-1 grounding dry-run, and,
+    /// when the requirement is grounded, runs the category's engine ensemble (Kani+Creusot+Prusti
+    /// for code, TLC for a model, MonPoly for runtime, WebDriver for UI). An ungrounded claim, a
+    /// wired engine that is not installed here, or a test tag that resolves to no runnable symbol
+    /// yields an honest `unknown` carrying its reason — never a fabricated pass.
     Verify {
         /// Requirement item id (e.g. REQ001).
         id: String,
@@ -1423,9 +1427,9 @@ async fn run_install(engine: &str, yes: bool, subject: &Path) -> Result<()> {
 }
 
 /// Step 4: produce the honest verdict for an admitted requirement. Re-gates, re-runs the
-/// live category-1 grounding dry-run, pins provenance, and renders the verdict. Runs no
-/// engine yet, so the verdict is always `unknown` (no-engine when grounded,
-/// missing-grounding when not).
+/// live category-1 grounding dry-run, pins provenance, runs the category's engine ensemble
+/// when the requirement is grounded, and renders the verdict. An `unknown` carries its reason
+/// — no-engine when grounded but the wired engine is not installed, missing-grounding when not.
 async fn run_verify(
     subject: &Path,
     id: &str,
