@@ -133,11 +133,7 @@ impl CargoTestConfig {
         let env_prefix = if self.env.is_empty() {
             String::new()
         } else {
-            let kv: Vec<String> = self
-                .env
-                .iter()
-                .map(|(k, v)| format!("{k}={v}"))
-                .collect();
+            let kv: Vec<String> = self.env.iter().map(|(k, v)| format!("{k}={v}")).collect();
             format!("{} ", kv.join(" "))
         };
         format!("{env_prefix}{}", parts.join(" "))
@@ -266,7 +262,10 @@ pub fn run_test(subject: &Path, test_name: &str, cfg: &CargoTestConfig) -> TestO
             test_name,
         ),
         Err(err) => TestOutcome::Inconclusive {
-            detail: vec![format!("could not run `{}`: {err}", cfg.invocation(test_name))],
+            detail: vec![format!(
+                "could not run `{}`: {err}",
+                cfg.invocation(test_name)
+            )],
         },
     }
 }
@@ -328,7 +327,9 @@ pub fn evidence_for(subject: &Path, tag: &super::Tag, cfg: &CargoTestConfig) -> 
     // Record the exact command a configured run used, so the asserted verdict is reproducible.
     // An unconfigured subject adds nothing, keeping its provenance identical to before #475.
     if cfg.is_configured() {
-        evidence.detail.push(format!("ran: {}", cfg.invocation(symbol)));
+        evidence
+            .detail
+            .push(format!("ran: {}", cfg.invocation(symbol)));
     }
     evidence
 }
