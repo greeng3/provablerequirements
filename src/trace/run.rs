@@ -16,8 +16,133 @@
 //! Implements: REQ076
 
 use crate::verdict::{Evidence, SourceLocation};
+use std::collections::BTreeMap;
 use std::path::Path;
 use std::process::Command;
+
+/// Per-subject configuration for the asserted `cargo test` route, read from the `verify.cargo`
+/// block of the companion `provreq.yml` (#475). It exists because a subject's tests can need
+/// build inputs provreq cannot guess — a cargo feature that gates test-only helpers, a release
+/// profile, an env var. Without it a bare `cargo test <name>` fails to compile and the honest
+/// verdict is a permanent `unknown`, even though the test passes under the subject's own command.
+///
+/// Every field defaults to empty/false, which is a real fallback and not a placeholder: an
+/// unconfigured subject runs exactly the bare `cargo test <name>` provreq shipped with, with no
+/// features, no extra args, and no env — the behaviour before this block existed.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct CargoTestConfig {
+    /// `--features a,b` — the cargo features to enable (compile and run both, since `cargo test`
+    /// takes features once for the whole build).
+    pub features: Vec<String>,
+    /// `--all-features`.
+    pub all_features: bool,
+    /// `--no-default-features`.
+    pub no_default_features: bool,
+    /// Arbitrary passthrough before the test name, e.g. `["--release"]`.
+    pub extra_args: Vec<String>,
+    /// Args after `--`, handed to the test harness rather than to cargo.
+    pub harness_args: Vec<String>,
+    /// Environment variables set on the `cargo test` process.
+    pub env: BTreeMap<String, String>,
+}
+
+impl CargoTestConfig {
+    /// Read the `verify.cargo` block from the companion manifest. A manifest that is missing,
+    /// unparseable, or silent on it yields the defaults — a subject that never configured it is
+    /// the normal case, not an error (the same tolerance [`crate::kani::Bounds::load`] takes).
+    pub fn load(companion_root: &Path) -> CargoTestConfig {
+        #[derive(serde::Deserialize)]
+        struct Manifest {
+            #[serde(default)]
+            verify: Option<VerifyBlock>,
+        }
+        #[derive(serde::Deserialize)]
+        struct VerifyBlock {
+            #[serde(default)]
+            cargo: Option<Cargo_>,
+        }
+        #[derive(serde::Deserialize)]
+        struct Cargo_ {
+            #[serde(default)]
+            features: Vec<String>,
+            #[serde(default)]
+            all_features: bool,
+            #[serde(default)]
+            no_default_features: bool,
+            #[serde(default)]
+            extra_args: Vec<String>,
+            #[serde(default)]
+            harness_args: Vec<String>,
+            #[serde(default)]
+            env: BTreeMap<String, String>,
+        }
+        let Ok(text) = std::fs::read_to_string(companion_root.join(crate::adopt::MANIFEST_FILE))
+        else {
+            return CargoTestConfig::default();
+        };
+        let Ok(manifest) = serde_yaml::from_str::<Manifest>(&text) else {
+            return CargoTestConfig::default();
+        };
+        manifest
+            .verify
+            .and_then(|v| v.cargo)
+            .map(|c| CargoTestConfig {
+                features: c.features,
+                all_features: c.all_features,
+                no_default_features: c.no_default_features,
+                extra_args: c.extra_args,
+                harness_args: c.harness_args,
+                env: c.env,
+            })
+            .unwrap_or_default()
+    }
+
+    /// Whether the subject configured anything — an unconfigured subject stays on the exact bare
+    /// command, and its provenance stays byte-for-byte what it was before this block existed.
+    fn is_configured(&self) -> bool {
+        *self != CargoTestConfig::default()
+    }
+
+    /// The cargo-test arguments that go *before* the test name. Empty when nothing is configured.
+    fn cargo_args(&self) -> Vec<String> {
+        let mut args = Vec::new();
+        if self.all_features {
+            args.push("--all-features".to_string());
+        }
+        if self.no_default_features {
+            args.push("--no-default-features".to_string());
+        }
+        if !self.features.is_empty() {
+            args.push("--features".to_string());
+            args.push(self.features.join(","));
+        }
+        args.extend(self.extra_args.iter().cloned());
+        args
+    }
+
+    /// The exact command this config runs for `test_name`, recorded in provenance so an asserted
+    /// verdict is reproducible. Shell-ish, for reading — not meant to be re-parsed.
+    fn invocation(&self, test_name: &str) -> String {
+        let mut parts = vec!["cargo".to_string(), "test".to_string()];
+        parts.extend(self.cargo_args());
+        parts.push(test_name.to_string());
+        if !self.harness_args.is_empty() {
+            parts.push("--".to_string());
+            parts.extend(self.harness_args.iter().cloned());
+        }
+        let env_prefix = if self.env.is_empty() {
+            String::new()
+        } else {
+            let kv: Vec<String> = self
+                .env
+                .iter()
+                .map(|(k, v)| format!("{k}={v}"))
+                .collect();
+            format!("{} ", kv.join(" "))
+        };
+        format!("{env_prefix}{}", parts.join(" "))
+    }
+}
 
 /// What running a tagged test showed. Deliberately three-valued like the verdict it becomes: a
 /// pass is `not-falsified` (asserted), a failure is a refutation, and anything that did not
@@ -123,13 +248,17 @@ fn significant_lines(stderr: &str) -> Vec<String> {
 /// the test path; a resolved leaf name is normally unique, and the rating tolerates extra passing
 /// matches (they include the target). `// ponytail: substring match; exact path if a collision
 /// ever mis-attributes a run.`
-pub fn run_test(subject: &Path, test_name: &str) -> TestOutcome {
-    let output = Command::new("cargo")
-        .arg("test")
-        .arg(test_name)
-        .current_dir(subject)
-        .output();
-    match output {
+pub fn run_test(subject: &Path, test_name: &str, cfg: &CargoTestConfig) -> TestOutcome {
+    let mut command = Command::new("cargo");
+    command.arg("test").args(cfg.cargo_args()).arg(test_name);
+    if !cfg.harness_args.is_empty() {
+        command.arg("--").args(&cfg.harness_args);
+    }
+    for (key, value) in &cfg.env {
+        command.env(key, value);
+    }
+    command.current_dir(subject);
+    match command.output() {
         Ok(out) => rate(
             out.status.success(),
             &String::from_utf8_lossy(&out.stdout),
@@ -137,7 +266,7 @@ pub fn run_test(subject: &Path, test_name: &str) -> TestOutcome {
             test_name,
         ),
         Err(err) => TestOutcome::Inconclusive {
-            detail: vec![format!("could not run `cargo test {test_name}`: {err}")],
+            detail: vec![format!("could not run `{}`: {err}", cfg.invocation(test_name))],
         },
     }
 }
@@ -171,7 +300,7 @@ impl TestOutcome {
 /// resolved to no symbol, or one in a language provreq has no runner for yet, is honestly
 /// `inconclusive` — never a pass. Rust-only for now (the run command is a per-language concern,
 /// like the resolver's declaration table).
-pub fn evidence_for(subject: &Path, tag: &super::Tag) -> Evidence {
+pub fn evidence_for(subject: &Path, tag: &super::Tag, cfg: &CargoTestConfig) -> Evidence {
     let location = SourceLocation {
         file: tag.file.clone(),
         line: tag.line,
@@ -195,7 +324,13 @@ pub fn evidence_for(subject: &Path, tag: &super::Tag) -> Evidence {
         }
         .into_evidence(location);
     };
-    run_test(subject, symbol).into_evidence(location)
+    let mut evidence = run_test(subject, symbol, cfg).into_evidence(location);
+    // Record the exact command a configured run used, so the asserted verdict is reproducible.
+    // An unconfigured subject adds nothing, keeping its provenance identical to before #475.
+    if cfg.is_configured() {
+        evidence.detail.push(format!("ran: {}", cfg.invocation(symbol)));
+    }
+    evidence
 }
 
 #[cfg(test)]
@@ -210,6 +345,80 @@ mod tests {
             line: 10,
             symbol: Some("the_test".to_string()),
         }
+    }
+
+    // The whole point of #475: features must reach the cargo invocation so a test gated behind a
+    // feature can compile and run, instead of parking on a permanent unknown.
+    #[test]
+    fn features_and_flags_become_cargo_args() {
+        let cfg = CargoTestConfig {
+            features: vec!["test-helpers".into(), "extra".into()],
+            no_default_features: true,
+            extra_args: vec!["--release".into()],
+            ..Default::default()
+        };
+        assert_eq!(
+            cfg.cargo_args(),
+            vec![
+                "--no-default-features",
+                "--features",
+                "test-helpers,extra",
+                "--release",
+            ]
+        );
+    }
+
+    #[test]
+    fn unconfigured_config_adds_nothing() {
+        let cfg = CargoTestConfig::default();
+        assert!(cfg.cargo_args().is_empty());
+        assert!(!cfg.is_configured());
+        // The bare invocation is exactly what provreq ran before this block existed.
+        assert_eq!(cfg.invocation("t_conflict"), "cargo test t_conflict");
+    }
+
+    #[test]
+    fn invocation_records_env_features_and_harness_args() {
+        let mut env = BTreeMap::new();
+        env.insert("RUST_LOG".to_string(), "debug".to_string());
+        let cfg = CargoTestConfig {
+            features: vec!["test-helpers".into()],
+            harness_args: vec!["--nocapture".into()],
+            env,
+            ..Default::default()
+        };
+        assert!(cfg.is_configured());
+        assert_eq!(
+            cfg.invocation("t_conflict"),
+            "RUST_LOG=debug cargo test --features test-helpers t_conflict -- --nocapture"
+        );
+    }
+
+    #[test]
+    fn loads_verify_cargo_block_from_manifest() {
+        let dir = std::env::temp_dir().join(format!("provreq-cargocfg-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join(crate::adopt::MANIFEST_FILE),
+            "verify:\n  cargo:\n    features: [test-helpers]\n    extra_args: [--release]\n",
+        )
+        .unwrap();
+        let cfg = CargoTestConfig::load(&dir);
+        assert_eq!(cfg.features, vec!["test-helpers".to_string()]);
+        assert_eq!(cfg.extra_args, vec!["--release".to_string()]);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn absent_manifest_or_block_is_default() {
+        let dir = std::env::temp_dir().join(format!("provreq-nocfg-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        // No manifest at all.
+        assert_eq!(CargoTestConfig::load(&dir), CargoTestConfig::default());
+        // A manifest with no verify block.
+        std::fs::write(dir.join(crate::adopt::MANIFEST_FILE), "documents: {}\n").unwrap();
+        assert_eq!(CargoTestConfig::load(&dir), CargoTestConfig::default());
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     // A named test that ran and passed → Passed. The count decides, not the exit code.

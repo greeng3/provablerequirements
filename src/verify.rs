@@ -254,10 +254,11 @@ fn tagged_evidence(
     prefixes: &BTreeSet<String>,
 ) -> Vec<verdict::Evidence> {
     let want = canonical_id(id);
+    let cargo = crate::trace::run::CargoTestConfig::load(companion);
     crate::trace::scan(subject, companion, prefixes)
         .iter()
         .filter(|t| t.kind == crate::trace::TraceKind::Verifies && canonical_id(&t.req_id) == want)
-        .map(|t| crate::trace::run::evidence_for(subject, t))
+        .map(|t| crate::trace::run::evidence_for(subject, t, &cargo))
         .collect()
 }
 
