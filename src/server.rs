@@ -130,6 +130,13 @@ pub async fn serve(port: u16, subject: PathBuf) -> std::io::Result<()> {
             crate::llm::SUBJECT_CONFIG_DIR,
         );
     }
+    // The inverse reminder, and a louder one: drafts must NOT be gitignored — they are not
+    // regenerable, and a silently-ignored `drafts.yml` is lost on the next rebuild (#477).
+    if let Ok((companion, _)) = crate::adopt::resolve(&subject)
+        && let Some(warning) = crate::draft::drafts_at_loss_risk(&subject, &companion)
+    {
+        eprintln!("  {warning}");
+    }
     let state = single_subject_state(subject)
         .await
         .map_err(|e| std::io::Error::other(e.to_string()))?;

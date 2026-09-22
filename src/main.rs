@@ -662,6 +662,9 @@ async fn run_draft(
     actions: DraftActions,
 ) -> Result<()> {
     let (companion, items) = resolve(subject)?;
+    if let Some(warning) = draft::drafts_at_loss_risk(subject, &companion) {
+        eprintln!("{warning}");
+    }
     let state = draft::load(&companion)?;
 
     let Some(id) = id else {
@@ -1437,6 +1440,11 @@ async fn run_verify(
     draft_semantic: bool,
     repair: bool,
 ) -> Result<()> {
+    if let Ok((companion, _)) = provreq::adopt::resolve(subject)
+        && let Some(warning) = provreq::draft::drafts_at_loss_risk(subject, &companion)
+    {
+        eprintln!("{warning}");
+    }
     let Some(outcome) = provreq::verify::verify(subject, id)? else {
         bail!("no requirement item '{id}' in the subject");
     };
