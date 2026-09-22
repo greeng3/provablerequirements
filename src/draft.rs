@@ -21,6 +21,40 @@ use std::path::Path;
 /// keyed by source id) — the draft peer of `triage.yml`.
 pub const DRAFT_FILE: &str = "drafts.yml";
 
+/// Warn when the draft store is gitignored. Drafts hold candidate PRLs, groundings, and
+/// admissions — human keystrokes and LLM proposals that are **not regenerable** (R-draft-1):
+/// `verify` consumes drafts, it never produces them. So a gitignored `drafts.yml` is lost, and
+/// lost silently, on the next clean checkout or container rebuild — the failure that cost a
+/// pilot ~530 formalizations while its (also-ignored, but separate) verdicts survived and hid it.
+///
+/// Returns the warning to surface, or `None` when the drafts are safe — or when provreq cannot
+/// tell (a non-git subject, or git absent). It never cries wolf: `git check-ignore` is asked, and
+/// only a definite "ignored" answer warns.
+pub fn drafts_at_loss_risk(subject: &Path, companion_root: &Path) -> Option<String> {
+    let drafts = companion_root.join(DRAFT_FILE);
+    // Silence git's own stderr ("fatal: not a git repository") — a non-git subject is an expected,
+    // silent "cannot tell", not console noise.
+    let ignored = std::process::Command::new("git")
+        .arg("-C")
+        .arg(subject)
+        .args(["check-ignore", "-q"])
+        .arg(&drafts)
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .ok()?
+        .success();
+    if !ignored {
+        return None;
+    }
+    Some(format!(
+        "WARNING: {} is gitignored — candidate PRLs, groundings, and admissions live only here \
+         and are NOT regenerable (verify consumes drafts, it does not create them). A clean \
+         checkout or container rebuild will lose them. Remove it from .gitignore and commit it.",
+        drafts.display()
+    ))
+}
+
 /// The mechanical-gate outcome recorded on a draft (R-draft-1). Rendered to strings
 /// because a draft is a snapshot for the human, not something re-processed — the
 /// structured [`crate::prl::GateError`]/`GateWarning` don't need to round-trip YAML.
@@ -518,6 +552,41 @@ pub fn needs_reconfirmation(draft: &Draft, item: &Item) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // Verifies #477 — a gitignored drafts.yml is caught (it is not regenerable), a tracked one is
+    // silent, and a non-git subject never triggers a false alarm.
+    #[test]
+    fn drafts_at_loss_risk_flags_a_gitignored_store_only() {
+        let run_git = |dir: &Path, args: &[&str]| {
+            std::process::Command::new("git")
+                .arg("-C")
+                .arg(dir)
+                .args(args)
+                .output()
+                .expect("git");
+        };
+        let base = std::env::temp_dir().join(format!("provreq-draftguard-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let repo = base.join("repo");
+        let companion = repo.join("ProvableRequirements");
+        std::fs::create_dir_all(&companion).unwrap();
+        run_git(&repo, &["init", "-q"]);
+
+        // Ignored → warns.
+        std::fs::write(repo.join(".gitignore"), "ProvableRequirements/drafts.yml\n").unwrap();
+        assert!(drafts_at_loss_risk(&repo, &companion).is_some());
+
+        // Tracked (not ignored) → silent.
+        std::fs::write(repo.join(".gitignore"), "target/\n").unwrap();
+        assert!(drafts_at_loss_risk(&repo, &companion).is_none());
+
+        // Not a git subject → cannot tell, so never cries wolf.
+        let plain = base.join("plain");
+        std::fs::create_dir_all(plain.join("ProvableRequirements")).unwrap();
+        assert!(drafts_at_loss_risk(&plain, &plain.join("ProvableRequirements")).is_none());
+
+        std::fs::remove_dir_all(&base).ok();
+    }
 
     fn item(id: &str, revision: &str) -> Item {
         Item {
