@@ -192,6 +192,43 @@ impl RequirementsSource for ProvreqSource {
             },
         )
     }
+
+    /// Read back the most recent admission from the append-only review log (the counterpart of
+    /// [`annotate`]). The log is an event stream, so the *last* `provreq-formalized` entry is the
+    /// live one; its namespaced `provreq` overflow carries the structured fields `annotate` wrote,
+    /// and the entry itself carries the reviewer and admission time.
+    fn annotation(&self, id: &str) -> Result<Option<Annotation>> {
+        let path = self.artifact_path(id)?;
+        let loaded = provreq_model::load::artifact::load_content_artifact(&path)
+            .with_context(|| format!("loading {}", path.display()))?;
+        let Some(entry) = loaded
+            .metadata
+            .review_log
+            .iter()
+            .rev()
+            .find(|e| e.outcome == "provreq-formalized")
+        else {
+            return Ok(None);
+        };
+        let provreq = entry.overflow.get("provreq").with_context(|| {
+            format!("provreq-formalized entry on {id} is missing its provreq data")
+        })?;
+        let field = |key: &str| -> Result<String> {
+            provreq
+                .get(key)
+                .and_then(|v| v.as_str())
+                .map(str::to_string)
+                .with_context(|| format!("provreq annotation on {id} is missing `{key}`"))
+        };
+        Ok(Some(Annotation {
+            status: field("status")?,
+            prl: field("prl")?,
+            review: field("review")?,
+            reviewer: entry.reviewer.clone(),
+            reviewed_at_unix: entry.timestamp.timestamp(),
+            source_revision: field("sourceRevision")?,
+        }))
+    }
 }
 
 impl ProvreqSource {
@@ -555,6 +592,32 @@ mod tests {
         .review_log
         .len();
         assert_eq!(after, before + 2, "each write-back appends one entry");
+    }
+
+    // Verifies: #479 — the reader reconstructs the annotation from its review-log entry, and on an
+    // append-only log returns the *latest* admission (the live one). `None` when nothing is
+    // formalized. The counterpart of `annotate`, so a written-back formalization survives to the
+    // detail view even after the working draft is gone.
+    #[test]
+    fn annotation_reads_back_the_latest_formalized_entry() {
+        let (_tmp, root) = subject_with_fixture_artifact();
+        let src = ProvreqSource::new(&root);
+        assert_eq!(
+            src.annotation("REQ-queueIsDrained").unwrap(),
+            None,
+            "no formalization admitted yet"
+        );
+
+        let first = sample_annotation();
+        src.annotate("REQ-queueIsDrained", &first).unwrap();
+        let latest = Annotation {
+            reviewer: "second-reviewer".into(),
+            source_revision: "def".into(),
+            ..first.clone()
+        };
+        src.annotate("REQ-queueIsDrained", &latest).unwrap();
+
+        assert_eq!(src.annotation("REQ-queueIsDrained").unwrap(), Some(latest));
     }
 
     fn sample_breadcrumb() -> VerdictBreadcrumb {

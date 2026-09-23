@@ -172,6 +172,21 @@ impl RequirementsSource for DoorstopSource {
         let out = serde_yaml::to_string(&doc).context("serializing item")?;
         std::fs::write(&path, out).with_context(|| format!("writing {}", path.display()))
     }
+
+    /// Read the single `provreq:` block back off the item file (the counterpart of [`annotate`]).
+    fn annotation(&self, id: &str) -> Result<Option<Annotation>> {
+        let path = self.item_path(id)?;
+        let raw = std::fs::read_to_string(&path)
+            .with_context(|| format!("reading {}", path.display()))?;
+        let doc: serde_yaml::Value =
+            serde_yaml::from_str(&raw).with_context(|| format!("parsing {}", path.display()))?;
+        match doc.get("provreq") {
+            None => Ok(None),
+            Some(value) => Ok(Some(serde_yaml::from_value(value.clone()).with_context(
+                || format!("parsing provreq annotation in {}", path.display()),
+            )?)),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -285,6 +300,30 @@ mod tests {
             .annotate("REQ999", &sample_annotation())
             .unwrap_err();
         assert!(err.to_string().contains("REQ999"));
+    }
+
+    // Verifies: #479 — the reader is the exact counterpart of the writer: `annotation` reads back
+    // what `annotate` stamped, and reports `None` on an item that carries no `provreq:` block.
+    #[test]
+    fn annotation_reads_back_the_written_block() {
+        let tmp = tempfile::tempdir().unwrap();
+        let doc = tmp.path().join("reqs");
+        std::fs::create_dir(&doc).unwrap();
+        std::fs::write(doc.join(".doorstop.yml"), "settings:\n  prefix: REQ\n").unwrap();
+        std::fs::write(doc.join("REQ001.yml"), "text: |\n  the item\n").unwrap();
+        std::fs::write(doc.join("REQ002.yml"), "text: |\n  un-annotated\n").unwrap();
+
+        let src = DoorstopSource::new(tmp.path());
+        assert_eq!(src.annotation("REQ001").unwrap(), None, "no block yet");
+
+        let ann = sample_annotation();
+        src.annotate("REQ001", &ann).unwrap();
+        assert_eq!(src.annotation("REQ001").unwrap(), Some(ann));
+        assert_eq!(
+            src.annotation("REQ002").unwrap(),
+            None,
+            "an item with no provreq block reads back as None"
+        );
     }
 
     fn sample_annotation() -> Annotation {

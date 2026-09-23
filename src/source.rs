@@ -124,6 +124,13 @@ pub trait RequirementsSource {
     /// way (R-src-6) — for Doorstop, a `provreq:` attribute on the item file. Replaces
     /// any prior annotation. Mutates the subject working tree; the operator commits it.
     fn annotate(&self, id: &str, annotation: &Annotation) -> Result<()>;
+
+    /// Read back the formalization annotation [`annotate`](Self::annotate) last wrote onto item
+    /// `id`, or `None` when the item carries none. The read counterpart of the write, so the detail
+    /// view can recover a written-back formalization when the working draft is gone — the #477
+    /// data-loss case, where `drafts.yml` was wiped but the admission had been stamped onto source.
+    /// Provreq keeps an append-only review log, so its adapter returns the most recent admission.
+    fn annotation(&self, id: &str) -> Result<Option<Annotation>>;
 }
 
 #[cfg(test)]
