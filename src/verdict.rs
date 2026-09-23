@@ -350,7 +350,14 @@ pub fn no_engine(id: &str, detail: Vec<String>, provenance: Provenance) -> Verdi
 /// - Otherwise every engine was inconclusive → `unknown / inconclusive`.
 ///
 /// Implements: REQ030
-pub fn aggregate(id: &str, evidence: Vec<Evidence>, provenance: Provenance) -> Verdict {
+pub fn aggregate(id: &str, mut evidence: Vec<Evidence>, provenance: Provenance) -> Verdict {
+    // Strongest-first, so every surface listing this evidence — the CLI `detail`, the web
+    // VerifyPanel, the stored verdict — leads with the most decisive result and none can show a
+    // weaker `holds` above a stronger one (#481). Stable, so engines within a tier keep their
+    // ensemble order; the witness pick below stays "first refutation", since refutations sort
+    // first. This orders the list; the *combined* basis is still the strongest rung (below).
+    evidence.sort_by_key(|e| std::cmp::Reverse(evidence_rank(e)));
+
     let any_holds = evidence.iter().any(|e| e.status == Status::Holds);
     let any_fails = evidence.iter().any(|e| e.status == Status::Fails);
     let detail: Vec<String> = evidence.iter().flat_map(describe_evidence).collect();
@@ -405,6 +412,22 @@ pub(crate) fn basis_rank(basis: &Basis) -> u8 {
         Basis::Proven => 2,
         Basis::ModelCheckedBounded => 1,
         Basis::NotFalsified => 0,
+    }
+}
+
+/// Display ordering for one piece of evidence — higher sorts earlier in the aggregated list. A
+/// refutation leads (the most decisive result, a re-checkable counterexample), then a holding
+/// engine by the [`basis_rank`] it earned, then an engine that could not decide. This orders how
+/// evidence is *listed*; it is not the soundness combination [`aggregate`] uses to pick the
+/// verdict's own basis (that is `max_by_key(basis_rank)` over the holding engines).
+fn evidence_rank(e: &Evidence) -> u8 {
+    match (e.status, e.basis) {
+        (Status::Fails, _) => 10,
+        (Status::Holds, Some(basis)) => 1 + basis_rank(&basis),
+        // A holding engine records a basis; the arm is here so an unexpected bare `holds` still
+        // outranks an inconclusive rather than sorting beneath it.
+        (Status::Holds, None) => 1,
+        (Status::Unknown, _) => 0,
     }
 }
 
@@ -1020,6 +1043,58 @@ mod tests {
             text.contains("TLC (TLA+): holds (model-checked (bounded))"),
             "{text}"
         );
+    }
+
+    // Verifies: REQ030 / #481 — aggregated evidence is ordered strongest-first regardless of the
+    // order engines ran, so every surface (the CLI `detail`, the web VerifyPanel) shows a proof
+    // above a bounded check above an empirical observation, and `detail` follows the same order so
+    // the two surfaces cannot drift.
+    #[test]
+    fn aggregated_evidence_is_ordered_strongest_first() {
+        let v = aggregate(
+            "SR033",
+            vec![
+                Evidence::not_falsified("MonPoly", "logs/events.jsonl — 10 events"),
+                Evidence::holds("Kani", Basis::ModelCheckedBounded),
+                Evidence::holds("Creusot", Basis::Proven),
+            ],
+            prov(),
+        );
+        let bases: Vec<Option<Basis>> = v.evidence.iter().map(|e| e.basis).collect();
+        assert_eq!(
+            bases,
+            vec![
+                Some(Basis::Proven),
+                Some(Basis::ModelCheckedBounded),
+                Some(Basis::NotFalsified),
+            ],
+            "strongest basis leads the evidence list"
+        );
+        let creusot = v.detail.iter().position(|d| d.contains("Creusot")).unwrap();
+        let monpoly = v.detail.iter().position(|d| d.contains("MonPoly")).unwrap();
+        assert!(
+            creusot < monpoly,
+            "the proof leads the empirical observation in `detail` too: {:?}",
+            v.detail
+        );
+    }
+
+    // Verifies: #481 — a refutation is the most decisive evidence and leads the list, ahead of a
+    // holding engine, so the counterexample is never buried below a `holds`.
+    #[test]
+    fn a_refutation_leads_the_evidence_list() {
+        let v = aggregate(
+            "SR034",
+            vec![
+                Evidence::holds("Creusot", Basis::Proven),
+                Evidence::fails("Kani", Some("cex".into()), vec!["counterexample".into()]),
+            ],
+            prov(),
+        );
+        // holds + fails is a divergence, but the ordering of the recorded evidence still leads
+        // with the refutation.
+        assert_eq!(v.evidence[0].engine, "Kani");
+        assert_eq!(v.evidence[0].status, Status::Fails);
     }
 
     // Verifies: REQ030 — every engine inconclusive yields unknown/inconclusive, not a fake
