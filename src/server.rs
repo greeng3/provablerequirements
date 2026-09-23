@@ -753,7 +753,16 @@ fn load_detail(
     let triage = crate::triage::load(&companion)?;
     let drafts = crate::draft::load(&companion)?;
     let draft = drafts.drafts.get(id);
-    let base = crate::detail::build(item, triage.items.get(id), draft);
+    // No working draft? Fall back to the formalization written back onto the source item, so a
+    // draft lost to the #477 `drafts.yml` wipe still shows its admitted PRL rather than reading as
+    // unformalized. A live draft wins, so the read is skipped when one exists.
+    let annotation = match draft {
+        Some(_) => None,
+        None => {
+            crate::adopt::source_for(&crate::adopt::requirements_root(subject)).annotation(id)?
+        }
+    };
+    let base = crate::detail::build(item, triage.items.get(id), draft, annotation.as_ref());
     // Live D13 grounding dry-run: only meaningful when the candidate gates and has bindings.
     let grounding = draft.and_then(|d| grounding_report(subject, &companion, d));
     // Living loop (REQ039): the last stored verdict + whether it has drifted since it was produced.

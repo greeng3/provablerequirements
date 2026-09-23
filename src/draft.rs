@@ -91,6 +91,16 @@ impl ReviewTier {
             ReviewTier::Optional => "optional",
         }
     }
+
+    /// Parse a stored tier string (round-trips with [`as_str`](Self::as_str)); `None` on anything
+    /// else. The read-back counterpart for a tier persisted as a plain string in an annotation.
+    pub fn parse(s: &str) -> Option<Self> {
+        match s {
+            "mandatory" => Some(ReviewTier::Mandatory),
+            "optional" => Some(ReviewTier::Optional),
+            _ => None,
+        }
+    }
 }
 
 /// The formalization-admission state of a draft (D12). `Pending` is the in-progress

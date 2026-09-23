@@ -126,21 +126,40 @@ pub fn build(
     item: &Item,
     triage: Option<&crate::triage::TriageEntry>,
     draft: Option<&Draft>,
+    annotation: Option<&crate::source::Annotation>,
 ) -> Detail {
-    let stale = draft.map(|d| draft::is_stale(d, item)).unwrap_or(false);
-    let formalization = match draft {
-        Some(d) if d.is_admitted() => Formalization::Admitted,
-        Some(_) => Formalization::Drafting,
-        None => Formalization::None,
+    // A live working draft always wins; the written-back annotation is the fallback for the
+    // no-draft case — a formalization stamped onto the source item whose draft is gone (the #477
+    // `drafts.yml` loss). An annotation exists only for an admitted formalization.
+    let annotation = draft.is_none().then_some(annotation).flatten();
+
+    let stale = match (draft, annotation) {
+        (Some(d), _) => draft::is_stale(d, item),
+        (None, Some(a)) => a.source_revision != item.revision,
+        (None, None) => false,
     };
-    let admission = match draft.map(|d| &d.admission) {
-        Some(Admission::Admitted { review, by, .. }) => Some(AdmissionInfo {
+    let formalization = match (draft, annotation) {
+        (Some(d), _) if d.is_admitted() => Formalization::Admitted,
+        (Some(_), _) => Formalization::Drafting,
+        (None, Some(_)) => Formalization::Admitted,
+        (None, None) => Formalization::None,
+    };
+    let admission = match (draft.map(|d| &d.admission), annotation) {
+        (Some(Admission::Admitted { review, by, .. }), _) => Some(AdmissionInfo {
             review: *review,
             by: by.clone(),
         }),
+        (_, Some(a)) => Some(AdmissionInfo {
+            review: ReviewTier::parse(&a.review).unwrap_or(ReviewTier::Mandatory),
+            by: a.reviewer.clone(),
+        }),
         _ => None,
     };
-    let candidate = draft.and_then(|d| d.candidate.clone());
+    let candidate = match (draft, annotation) {
+        (Some(d), _) => d.candidate.clone(),
+        (None, Some(a)) => Some(a.prl.clone()),
+        (None, None) => None,
+    };
     // Re-gate the candidate to render the read-back — the read-back needs the parsed AST, and a
     // deterministic re-render is the honest D12 surface (independent of the forward LLM).
     let readback = candidate
@@ -193,7 +212,7 @@ mod tests {
     // and an unformalized state — never a fabricated one.
     #[test]
     fn item_without_a_draft_has_no_formalization() {
-        let d = build(&item("REQ001"), None, None);
+        let d = build(&item("REQ001"), None, None, None);
         assert_eq!(d.formalization, Formalization::None);
         assert!(d.candidate.is_none());
         assert!(d.gate.is_none());
@@ -224,6 +243,7 @@ mod tests {
             &it,
             judged.items.get("REQ001"),
             admitted.drafts.get("REQ001"),
+            None,
         );
         assert_eq!(d.formalization, Formalization::Admitted);
         assert_eq!(d.classification, Some(Classification::FormalizableNow));
@@ -233,6 +253,65 @@ mod tests {
         let readback = d.readback.expect("a gated candidate renders a read-back");
         assert!(!readback.is_empty());
         assert_eq!(d.admission.map(|a| a.by), Some("gg".to_string()));
+    }
+
+    fn admitted_annotation(prl: &str, source_revision: &str) -> crate::source::Annotation {
+        crate::source::Annotation {
+            status: "admitted-but-ungrounded".into(),
+            prl: prl.into(),
+            review: "mandatory".into(),
+            reviewer: "gg".into(),
+            reviewed_at_unix: 1,
+            source_revision: source_revision.into(),
+        }
+    }
+
+    // Verifies: REQ035 / #479 — with no working draft but an admitted formalization written back
+    // to the source item, the detail recovers the candidate, its admission provenance, and the
+    // read-back from that annotation rather than reporting the item as unformalized.
+    #[test]
+    fn falls_back_to_source_annotation_when_no_draft() {
+        let it = item("REQ001");
+        let ann = admitted_annotation(CANDIDATE, &it.revision);
+        let d = build(&it, None, None, Some(&ann));
+        assert_eq!(d.formalization, Formalization::Admitted);
+        assert_eq!(d.candidate.as_deref(), Some(CANDIDATE));
+        assert_eq!(d.admission.map(|a| a.by), Some("gg".to_string()));
+        assert!(
+            d.readback.is_some(),
+            "the read-back re-renders deterministically from the annotation's PRL"
+        );
+        assert!(
+            !d.stale,
+            "an annotation confirmed against the item's current revision is not stale"
+        );
+    }
+
+    // Verifies: #479 — the annotation carries the source revision it was confirmed against, so a
+    // recovered formalization shows NL drift the same way a stale draft does.
+    #[test]
+    fn source_annotation_is_stale_when_prose_moved_since_confirmation() {
+        let it = item("REQ001");
+        let ann = admitted_annotation(CANDIDATE, "an-older-revision");
+        let d = build(&it, None, None, Some(&ann));
+        assert!(d.stale, "prose moved since the annotation was confirmed");
+    }
+
+    // Verifies: #479 — a live working draft takes precedence over the written-back annotation; the
+    // annotation is only a fallback for the no-draft case.
+    #[test]
+    fn live_draft_wins_over_source_annotation() {
+        let it = item("REQ001");
+        let drafts = draft::set_candidate(
+            &draft::open(&DraftState::new(), &it),
+            &it,
+            CANDIDATE,
+            GateStatus::Passed { warnings: vec![] },
+        );
+        let ann = admitted_annotation("requirement stale { category: 1 }", &it.revision);
+        let d = build(&it, None, drafts.drafts.get("REQ001"), Some(&ann));
+        assert_eq!(d.formalization, Formalization::Drafting);
+        assert_eq!(d.candidate.as_deref(), Some(CANDIDATE));
     }
 
     // Verifies: #180 — the detail carries what produced the classification, not just the bucket.
@@ -247,7 +326,7 @@ mod tests {
             revision: it.revision.clone(),
             origin: crate::triage::Origin::Seeded,
         };
-        let d = build(&it, Some(&seeded), None);
+        let d = build(&it, Some(&seeded), None, None);
         assert_eq!(d.classification, Some(Classification::StaysProse));
         assert_eq!(
             d.classified_by,
@@ -255,7 +334,7 @@ mod tests {
             "a bucket nothing judged must not read as one a classifier decided"
         );
 
-        let untriaged = build(&it, None, None);
+        let untriaged = build(&it, None, None, None);
         assert_eq!(untriaged.classification, None);
         assert_eq!(
             untriaged.classified_by, None,
