@@ -764,7 +764,7 @@ fn load_detail(
     };
     let base = crate::detail::build(item, triage.items.get(id), draft, annotation.as_ref());
     // Live D13 grounding dry-run: only meaningful when the candidate gates and has bindings.
-    let grounding = draft.and_then(|d| grounding_report(subject, &companion, d));
+    let grounding = draft.and_then(|d| grounding_report(subject, &companion, id, d));
     // Living loop (REQ039): the last stored verdict + whether it has drifted since it was produced.
     let anchor = crate::verdict_store::DriftAnchor::current(
         crate::verify::subject_head_commit(subject),
@@ -790,6 +790,7 @@ fn load_detail(
 fn grounding_report(
     subject: &std::path::Path,
     companion: &std::path::Path,
+    id: &str,
     draft: &crate::draft::Draft,
 ) -> Option<crate::detail::GroundingReport> {
     let candidate = draft.candidate.as_deref()?;
@@ -797,9 +798,9 @@ fn grounding_report(
         return None;
     }
     let requirement = crate::prl::gate(candidate).ok()?.requirement;
-    // Resolve against the same cat-1 code root `verify` will use (#484), so the live dry-run and
-    // the verdict agree on where a code predicate resolves (the #241 no-drift rule).
-    let code_root = crate::verify::cat1_code_root(subject, companion);
+    // Resolve against the same cat-1 code root `verify` will use (#484/#483), so the live dry-run
+    // and the verdict agree on where a code predicate resolves (the #241 no-drift rule).
+    let code_root = crate::verify::cat1_code_root(subject, companion, id);
     let resolved = crate::grounding::resolve_bindings(
         subject,
         &code_root,
