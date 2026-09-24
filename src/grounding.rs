@@ -403,6 +403,7 @@ impl Resolutions {
 
 pub fn resolve_bindings(
     subject: &Path,
+    code_root: &Path,
     companion: &Path,
     requirement: &Requirement,
     bindings: &[Binding],
@@ -413,10 +414,12 @@ pub fn resolve_bindings(
             .filter(move |b| b.category == cat)
             .collect::<Vec<_>>()
     };
-    // Walk and parse the subject ONCE for the whole binding set: every code lookup below reads this
-    // one tree instead of starting its own walk, which is where a four-binding requirement's ten
-    // full parses of the same source went (#144).
-    let parsed = crate::rust_adapter::ParsedSubject::load(subject, companion);
+    // Walk and parse the code crate ONCE for the whole binding set: every code lookup below reads
+    // this one tree instead of starting its own walk, which is where a four-binding requirement's
+    // ten full parses of the same source went (#144). `code_root` is the subject by default, or a
+    // configured member crate (#484) — only the code world moves; model/runtime/UI stay on the
+    // subject, which is why they load from `subject` below and only this parse uses `code_root`.
+    let parsed = crate::rust_adapter::ParsedSubject::load(code_root, companion);
     // Where the model lives is the operator's choice (#120): the subject tree, plus any root
     // `provreq.yml` names. Read here rather than passed in, because every caller of this already
     // has exactly the two paths it needs and none of them has an opinion about the manifest.
@@ -681,6 +684,57 @@ mod tests {
             sort_binding("User", "User"),
         ];
         assert!(unbound_symbols(&r, &all).is_empty());
+    }
+
+    // Verifies: #484 — code-category resolution runs against the configured code root, not the
+    // subject. A predicate that lives only in a member crate resolves when `code_root` points at
+    // that crate, and does not resolve against the subject — whose own `src/` lacks it and whose
+    // walk treats the member's `src/` as a separate crate target it does not import. This is the
+    // seam `verify.crate` verification rests on: grounding follows the code root the cat-1 engines
+    // build.
+    #[test]
+    fn resolve_bindings_resolves_code_against_the_code_root_not_the_subject() {
+        let dir = tempfile::tempdir().unwrap();
+        let subject = dir.path();
+        std::fs::create_dir_all(subject.join("src")).unwrap();
+        std::fs::write(subject.join("src/lib.rs"), "// no predicate here\n").unwrap();
+        let member = subject.join("crates/core");
+        std::fs::create_dir_all(member.join("src")).unwrap();
+        std::fs::write(
+            member.join("src/lib.rs"),
+            "pub fn key_ok() -> bool { true }\n",
+        )
+        .unwrap();
+
+        let requirement = req("requirement r {
+            category: 1
+            vocabulary { state key_ok }
+            require { always key_ok }
+        }");
+        let bindings = vec![code_binding("key_ok", "key_ok")];
+
+        // code_root == subject: the predicate is not in the subject's own `src/`, and the member's
+        // `src/` is a separate crate target the walk does not import → unresolved.
+        let against_subject = resolve_bindings(subject, subject, subject, &requirement, &bindings);
+        assert!(
+            !matches!(
+                against_subject.code.get("key_ok"),
+                Some(Resolution::Resolved { .. })
+            ),
+            "the subject does not contain the predicate: {:?}",
+            against_subject.code.get("key_ok")
+        );
+
+        // code_root == the member crate: resolved to its function.
+        let against_member = resolve_bindings(subject, &member, subject, &requirement, &bindings);
+        assert!(
+            matches!(
+                against_member.code.get("key_ok"),
+                Some(Resolution::Resolved { .. })
+            ),
+            "the member crate contains the predicate: {:?}",
+            against_member.code.get("key_ok")
+        );
     }
 
     fn code_binding(symbol: &str, observable: &str) -> Binding {

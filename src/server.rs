@@ -797,8 +797,16 @@ fn grounding_report(
         return None;
     }
     let requirement = crate::prl::gate(candidate).ok()?.requirement;
-    let resolved =
-        crate::grounding::resolve_bindings(subject, companion, &requirement, &draft.bindings);
+    // Resolve against the same cat-1 code root `verify` will use (#484), so the live dry-run and
+    // the verdict agree on where a code predicate resolves (the #241 no-drift rule).
+    let code_root = crate::verify::cat1_code_root(subject, companion);
+    let resolved = crate::grounding::resolve_bindings(
+        subject,
+        &code_root,
+        companion,
+        &requirement,
+        &draft.bindings,
+    );
     Some(crate::detail::grounding_report(
         &requirement,
         &draft.bindings,

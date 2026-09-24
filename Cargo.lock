@@ -2672,7 +2672,7 @@ dependencies = [
 
 [[package]]
 name = "provreq"
-version = "0.0.29"
+version = "0.0.30"
 dependencies = [
  "anyhow",
  "async-stream",

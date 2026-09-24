@@ -19,7 +19,43 @@ use crate::rust_adapter::Resolution;
 use crate::verdict::{self, Provenance, Verdict};
 use anyhow::Result;
 use std::collections::{BTreeMap, BTreeSet};
-use std::path::Path;
+use std::path::{Path, PathBuf};
+
+/// The crate whose code the category-1 engines verify and whose functions code-category grounding
+/// resolves against. Defaults to the subject itself; a subject whose dependency graph Kani cannot
+/// codegen whole (an FFI-saturated server) can point cat-1 at a C-free member crate with
+/// `verify.crate` in `provreq.yml` while keeping its requirements in the umbrella subject (#484).
+///
+/// Only the code world moves: model, runtime, and UI resolution stay on the subject, because a
+/// leaf crate carries no TLA+ spec, trace, or live deployment — those live with the subject.
+/// Returned as a path so an unset key is byte-for-byte the pre-#484 behaviour (the subject itself).
+pub fn cat1_code_root(subject: &Path, companion: &Path) -> PathBuf {
+    match read_verify_crate(companion) {
+        Some(rel) => subject.join(rel),
+        None => subject.to_path_buf(),
+    }
+}
+
+/// The `verify.crate` value from the companion `provreq.yml`, or `None` when the manifest is
+/// missing, unparseable, or silent on it — the same tolerance [`crate::kani::Bounds::load`] and
+/// [`crate::trace::run::CargoTestConfig::load`] take, since an unconfigured subject is the norm.
+fn read_verify_crate(companion: &Path) -> Option<String> {
+    #[derive(serde::Deserialize)]
+    struct Manifest {
+        verify: Option<VerifyBlock>,
+    }
+    #[derive(serde::Deserialize)]
+    struct VerifyBlock {
+        #[serde(rename = "crate")]
+        krate: Option<String>,
+    }
+    let text = std::fs::read_to_string(companion.join(crate::adopt::MANIFEST_FILE)).ok()?;
+    let manifest = serde_yaml::from_str::<Manifest>(&text).ok()?;
+    manifest
+        .verify
+        .and_then(|v| v.krate)
+        .filter(|c| !c.trim().is_empty())
+}
 
 /// The result of asking to verify one requirement. Every non-verdict variant is an honest
 /// "why there is no verdict yet" the operator can act on — never an error, never a fabricated
@@ -113,8 +149,26 @@ pub fn verify(subject: &Path, id: &str) -> Result<Option<VerifyOutcome>> {
         }
     };
 
+    // The cat-1 code root (#484): the subject, or a configured member crate for an FFI-heavy
+    // subject. A configured-but-absent path is an operator misconfiguration, surfaced clearly
+    // rather than left to look like an ungrounded requirement.
+    let code_root = cat1_code_root(subject, &companion);
+    if code_root != subject && !code_root.is_dir() {
+        anyhow::bail!(
+            "verify.crate points at {}, which does not exist — check the path in provreq.yml \
+             (it is relative to the subject)",
+            code_root.display()
+        );
+    }
+
     // Live grounding dry-run against every wired observable world (code + model) → verdict.
-    let resolved = grounding::resolve_bindings(subject, &companion, &requirement, &draft.bindings);
+    let resolved = grounding::resolve_bindings(
+        subject,
+        &code_root,
+        &companion,
+        &requirement,
+        &draft.bindings,
+    );
     let grounding_result = grounding::verdict(&requirement, &draft.bindings, &resolved);
 
     let provenance = Provenance {
@@ -130,6 +184,7 @@ pub fn verify(subject: &Path, id: &str) -> Result<Option<VerifyOutcome>> {
     let verdict = if grounded {
         match ensemble_evidence(
             subject,
+            &code_root,
             &companion,
             id,
             &requirement,
@@ -315,7 +370,16 @@ pub fn run_ensemble(
     resolved: &grounding::Resolutions,
     provenance: Provenance,
 ) -> Verdict {
-    match ensemble_evidence(subject, companion, id, requirement, bindings, resolved) {
+    let code_root = cat1_code_root(subject, companion);
+    match ensemble_evidence(
+        subject,
+        &code_root,
+        companion,
+        id,
+        requirement,
+        bindings,
+        resolved,
+    ) {
         Ensemble::Ran(evidence) => verdict::aggregate(id, evidence, provenance),
         Ensemble::NoEngine(detail) => verdict::no_engine(id, detail, provenance),
     }
@@ -333,6 +397,7 @@ enum Ensemble {
 /// can join first).
 fn ensemble_evidence(
     subject: &Path,
+    code_root: &Path,
     companion: &Path,
     id: &str,
     requirement: &Requirement,
@@ -342,12 +407,22 @@ fn ensemble_evidence(
     let category = grounding::default_category(requirement);
     let engines = crate::engine::engines_for(category);
 
+    // The code world can be a member crate (#484); every other world lives with the subject. Only
+    // the category-1 engines run against `code_root` — its cargo crate is what Kani codegens and
+    // whose `creusot-contracts` dependency Creusot's readiness reads — so detection and evidence for
+    // this category use it, while model/runtime/UI engines stay on the subject.
+    let engine_root = if category == crate::grounding::BindCategory::Code {
+        code_root
+    } else {
+        subject
+    };
+
     // The ensemble runs every engine that is ready; the others are reported but do not block,
     // as long as one can answer (D2b). No engine ready means nothing checked the property — an
     // honest no-engine that names who must act (wiring is ours, installing is the operator's).
     let ready: Vec<&crate::engine::Engine> = engines
         .iter()
-        .filter(|e| crate::engine::detect_for_subject(e, subject, Some(companion)).is_ready())
+        .filter(|e| crate::engine::detect_for_subject(e, engine_root, Some(companion)).is_ready())
         .collect();
     if ready.is_empty() {
         let detail = engines
@@ -357,7 +432,7 @@ fn ensemble_evidence(
                     "category {} routes to {} — {}",
                     category.as_label(),
                     e.name,
-                    crate::engine::detect_for_subject(e, subject, Some(companion)).describe()
+                    crate::engine::detect_for_subject(e, engine_root, Some(companion)).describe()
                 )
             })
             .collect();
@@ -367,9 +442,9 @@ fn ensemble_evidence(
     let evidence = ready
         .iter()
         .map(|e| match e.name {
-            "Kani" => kani_evidence(subject, companion, id, requirement, bindings, resolved),
-            "Creusot" => creusot_evidence(subject, id, requirement, bindings, resolved),
-            "Prusti" => prusti_evidence(subject, id, requirement, bindings, resolved),
+            "Kani" => kani_evidence(engine_root, companion, id, requirement, bindings, resolved),
+            "Creusot" => creusot_evidence(engine_root, id, requirement, bindings, resolved),
+            "Prusti" => prusti_evidence(engine_root, id, requirement, bindings, resolved),
             "TLC (TLA+)" => tlc_evidence(subject, companion, id, requirement, bindings),
             "MonPoly" => monpoly_evidence(subject, companion, requirement, bindings),
             "Selenium (WebDriver)" => ui_evidence(companion, requirement, bindings),
@@ -764,6 +839,30 @@ mod tests {
         let subject = adopted_subject_with_one_item();
         let out = verify(subject.path(), "REQ999").unwrap();
         assert!(out.is_none());
+    }
+
+    // Verifies: #484 — the cat-1 code root defaults to the subject, and a `verify.crate` in the
+    // companion manifest points it at a member crate (joined onto the subject). An unset key or an
+    // unrelated `verify.cargo` block leaves it on the subject.
+    #[test]
+    fn cat1_code_root_defaults_to_subject_and_honours_verify_crate() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+
+        // No manifest at all → the subject itself.
+        assert_eq!(cat1_code_root(root, root), root);
+
+        // verify.crate set → subject joined with the member path.
+        std::fs::write(root.join("provreq.yml"), "verify:\n  crate: crates/core\n").unwrap();
+        assert_eq!(cat1_code_root(root, root), root.join("crates/core"));
+
+        // A verify block without `crate` (only cargo) → still the subject.
+        std::fs::write(
+            root.join("provreq.yml"),
+            "verify:\n  cargo:\n    features: [proof]\n",
+        )
+        .unwrap();
+        assert_eq!(cat1_code_root(root, root), root);
     }
 
     // Verifies: REQ038 — an item with no draft is an honest NoDraft, never an error and never a
