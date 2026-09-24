@@ -272,15 +272,20 @@ the umbrella subject:
 
 ```yaml
 verify:
-    crate: crates/qrusty_core # relative to the subject root
+    crate: crates/qrusty_core # subject default, relative to the subject root
+    crates: # optional per-requirement overrides
+        PER-0007: crates/qrusty_proto
 ```
 
 When set, category-1 verification — Kani, Creusot, and the code-world grounding that resolves a
 predicate to its function — runs against that crate instead of the subject. Every other world
 (model/TLA+, runtime/trace, UI) stays with the subject, and the asserted route is unaffected.
-The path is relative to the subject; a path that does not exist is reported as a configuration
-error rather than an ungrounded requirement. Creusot still needs the member crate to declare
-`creusot-contracts` (which brings `creusot-std`) pinned to the installed Creusot.
+`crate` is the subject-wide default; `crates` overrides it for named requirements, so requirements
+whose verifiable logic lives in different member crates each verify against the right one. A
+requirement with no entry uses the default, and no default at all means the subject itself. Paths
+are relative to the subject; a path that does not exist is reported as a configuration error rather
+than an ungrounded requirement. Creusot still needs the target crate to declare `creusot-contracts`
+(which brings `creusot-std`) pinned to the installed Creusot.
 
 ---
 

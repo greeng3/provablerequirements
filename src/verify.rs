@@ -29,17 +29,20 @@ use std::path::{Path, PathBuf};
 /// Only the code world moves: model, runtime, and UI resolution stay on the subject, because a
 /// leaf crate carries no TLA+ spec, trace, or live deployment — those live with the subject.
 /// Returned as a path so an unset key is byte-for-byte the pre-#484 behaviour (the subject itself).
-pub fn cat1_code_root(subject: &Path, companion: &Path) -> PathBuf {
-    match read_verify_crate(companion) {
+pub fn cat1_code_root(subject: &Path, companion: &Path, id: &str) -> PathBuf {
+    match read_verify_crate(companion, id) {
         Some(rel) => subject.join(rel),
         None => subject.to_path_buf(),
     }
 }
 
-/// The `verify.crate` value from the companion `provreq.yml`, or `None` when the manifest is
-/// missing, unparseable, or silent on it — the same tolerance [`crate::kani::Bounds::load`] and
-/// [`crate::trace::run::CargoTestConfig::load`] take, since an unconfigured subject is the norm.
-fn read_verify_crate(companion: &Path) -> Option<String> {
+/// The member crate requirement `id` verifies against, or `None` for the subject itself. A
+/// per-requirement `verify.crates` entry wins (#483) so requirements whose logic lives in different
+/// member crates each target the right one; otherwise the subject-wide `verify.crate` default
+/// (#484) applies. A manifest that is missing, unparseable, or silent on both yields `None` — the
+/// same tolerance [`crate::kani::Bounds::load`] and [`crate::trace::run::CargoTestConfig::load`]
+/// take, since an unconfigured subject is the norm.
+fn read_verify_crate(companion: &Path, id: &str) -> Option<String> {
     #[derive(serde::Deserialize)]
     struct Manifest {
         verify: Option<VerifyBlock>,
@@ -48,12 +51,17 @@ fn read_verify_crate(companion: &Path) -> Option<String> {
     struct VerifyBlock {
         #[serde(rename = "crate")]
         krate: Option<String>,
+        #[serde(default)]
+        crates: BTreeMap<String, String>,
     }
     let text = std::fs::read_to_string(companion.join(crate::adopt::MANIFEST_FILE)).ok()?;
     let manifest = serde_yaml::from_str::<Manifest>(&text).ok()?;
-    manifest
-        .verify
-        .and_then(|v| v.krate)
+    let verify = manifest.verify?;
+    verify
+        .crates
+        .get(id)
+        .cloned()
+        .or(verify.krate)
         .filter(|c| !c.trim().is_empty())
 }
 
@@ -152,7 +160,7 @@ pub fn verify(subject: &Path, id: &str) -> Result<Option<VerifyOutcome>> {
     // The cat-1 code root (#484): the subject, or a configured member crate for an FFI-heavy
     // subject. A configured-but-absent path is an operator misconfiguration, surfaced clearly
     // rather than left to look like an ungrounded requirement.
-    let code_root = cat1_code_root(subject, &companion);
+    let code_root = cat1_code_root(subject, &companion, id);
     if code_root != subject && !code_root.is_dir() {
         anyhow::bail!(
             "verify.crate points at {}, which does not exist — check the path in provreq.yml \
@@ -370,7 +378,7 @@ pub fn run_ensemble(
     resolved: &grounding::Resolutions,
     provenance: Provenance,
 ) -> Verdict {
-    let code_root = cat1_code_root(subject, companion);
+    let code_root = cat1_code_root(subject, companion, id);
     match ensemble_evidence(
         subject,
         &code_root,
@@ -850,11 +858,14 @@ mod tests {
         let root = dir.path();
 
         // No manifest at all → the subject itself.
-        assert_eq!(cat1_code_root(root, root), root);
+        assert_eq!(cat1_code_root(root, root, "REQ001"), root);
 
         // verify.crate set → subject joined with the member path.
         std::fs::write(root.join("provreq.yml"), "verify:\n  crate: crates/core\n").unwrap();
-        assert_eq!(cat1_code_root(root, root), root.join("crates/core"));
+        assert_eq!(
+            cat1_code_root(root, root, "REQ001"),
+            root.join("crates/core")
+        );
 
         // A verify block without `crate` (only cargo) → still the subject.
         std::fs::write(
@@ -862,7 +873,44 @@ mod tests {
             "verify:\n  cargo:\n    features: [proof]\n",
         )
         .unwrap();
-        assert_eq!(cat1_code_root(root, root), root);
+        assert_eq!(cat1_code_root(root, root, "REQ001"), root);
+    }
+
+    // Verifies: #483 — a per-requirement `verify.crates` entry overrides the subject-wide default
+    // for that requirement, requirements without an entry fall back to the default, and with no
+    // default a requirement with no entry is the subject itself.
+    #[test]
+    fn cat1_code_root_honours_per_requirement_override() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+
+        std::fs::write(
+            root.join("provreq.yml"),
+            "verify:\n  crate: crates/core\n  crates:\n    PER-0007: crates/proto\n",
+        )
+        .unwrap();
+        // The named requirement uses its override.
+        assert_eq!(
+            cat1_code_root(root, root, "PER-0007"),
+            root.join("crates/proto")
+        );
+        // A requirement with no entry falls back to the subject default.
+        assert_eq!(
+            cat1_code_root(root, root, "PER-0002"),
+            root.join("crates/core")
+        );
+
+        // A per-requirement map with no subject default: named req overrides, others are the subject.
+        std::fs::write(
+            root.join("provreq.yml"),
+            "verify:\n  crates:\n    PER-0007: crates/proto\n",
+        )
+        .unwrap();
+        assert_eq!(
+            cat1_code_root(root, root, "PER-0007"),
+            root.join("crates/proto")
+        );
+        assert_eq!(cat1_code_root(root, root, "PER-0002"), root);
     }
 
     // Verifies: REQ038 — an item with no draft is an honest NoDraft, never an error and never a

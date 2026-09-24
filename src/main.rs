@@ -998,9 +998,9 @@ fn dry_run_candidate(
     // Live dry-run: categories 1 (code) and 2a (model) have real observable worlds. Each
     // binding reports what it resolved to (D13's "is that what you meant?"), which the
     // operator can only answer against a named observable at a named line.
-    // Resolve code predicates against the same cat-1 code root `verify` uses (#484), so the CLI
-    // dry-run and the verdict agree on where a predicate resolves.
-    let code_root = provreq::verify::cat1_code_root(subject, companion);
+    // Resolve code predicates against the same cat-1 code root `verify` uses (#484/#483), so the
+    // CLI dry-run and the verdict agree on where a predicate resolves.
+    let code_root = provreq::verify::cat1_code_root(subject, companion, id);
     let resolved = grounding::resolve_bindings(
         subject,
         &code_root,
