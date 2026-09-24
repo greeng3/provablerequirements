@@ -262,6 +262,26 @@ verify:
 The exact command a configured run used is recorded in the verdict provenance. An
 unconfigured subject runs a bare `cargo test <name>`, exactly as before.
 
+### Verifying a leaf crate of an FFI-heavy subject: `verify.crate`
+
+The category-1 engines codegen the crate under verification. If your subject's dependency
+graph is FFI-saturated — `*-sys` crates pulling `cc`/`bindgen`/`clang` — Kani may fail to
+build the whole graph at all. Extract the pure, verifiable logic (key schemes, comparators,
+encoders) into a C-free member crate, and point cat-1 at it while keeping your requirements in
+the umbrella subject:
+
+```yaml
+verify:
+    crate: crates/qrusty_core # relative to the subject root
+```
+
+When set, category-1 verification — Kani, Creusot, and the code-world grounding that resolves a
+predicate to its function — runs against that crate instead of the subject. Every other world
+(model/TLA+, runtime/trace, UI) stays with the subject, and the asserted route is unaffected.
+The path is relative to the subject; a path that does not exist is reported as a configuration
+error rather than an ungrounded requirement. Creusot still needs the member crate to declare
+`creusot-contracts` (which brings `creusot-std`) pinned to the installed Creusot.
+
 ---
 
 ## Configuring an LLM (optional)
