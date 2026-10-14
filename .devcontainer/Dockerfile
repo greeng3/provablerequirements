@@ -222,44 +222,36 @@ RUN apt-get update \
 # reason as Kani/TLC/Prusti: a runtime install evaporates on rebuild, and `provreq engines` then
 # reports category 1 short an engine — indistinguishable from a bug in our own code.
 #
-# Creusot's installer did not build on arm64 at all: `creusot-setup`'s URLS table is gated per
-# platform and only ever defined linux/x86_64 and macos/aarch64, so on linux/aarch64 the binary
-# failed to compile with `error[E0425]: cannot find value URLS in this scope`. Our patch (vendored
-# below, also on greeng3/creusot@linux-aarch64-provers for upstreaming) adds the linux/aarch64
-# block and makes each prover URL an Option, so a prover with no release for the platform is
-# SKIPPED with a message instead of breaking the build. Consequences on arm64:
-#   - Z3 and CVC5 have real aarch64 Linux releases and are downloaded normally.
-#   - Alt-Ergo has none, but is an OCaml program: we install it into Creusot's own opam switch
-#     and hand it to the installer with `--external alt-ergo`.
-#   - CVC4 is archived upstream (last release 2020, x86_64 only) and is simply absent. CVC5
-#     supersedes it; `cargo creusot` tolerates it missing from why3find.json's prover list.
+# This stage used to carry two vendored patches against the Creusot source; v0.14.0 makes BOTH
+# unnecessary, because the fixes they backported have since landed upstream and shipped in a tag:
+#   1. aarch64-Linux installer (creusot-rs/creusot#2225, commit ba9732b3, ancestor of v0.14.0).
+#      `creusot-setup`'s URLS table used to define only linux/x86_64 and macos/aarch64, so on
+#      linux/aarch64 the binary failed to compile (`cannot find value URLS in this scope`). v0.14.0
+#      ships the `#[cfg(all(target_os = "linux", target_arch = "aarch64"))]` block itself (Z3 and
+#      CVC5 have real aarch64-Linux releases and download normally; Alt-Ergo has none but is OCaml,
+#      installed into Creusot's own opam switch and handed over with `--external alt-ergo`; CVC4 is
+#      x86_64-only and simply absent, which `cargo creusot` tolerates).
+#   2. the async-coroutine ICE (creusot-rs/creusot#2214, commit 7ea7c4d9, ancestor of v0.14.0).
+#      `pre_sig_of` selected the closure path on `DefKind::Closure`, which also covers coroutines —
+#      an `async fn` body answers that def-kind while its `TyKind` is `Coroutine`, so a bare
+#      `let TyKind::Closure(..) = ... else { unreachable!() }` aborted the compiler on any crate
+#      with an `async fn`. v0.14.0 matches `TyKind::Coroutine(..) | TyKind::CoroutineClosure(..)`
+#      explicitly. (This was the async ceiling of issue #153. It is not the whole story: provreq
+#      still cannot be its own Creusot subject, because a live `format!` interpolating a non-integer
+#      hits a separate, still-incomplete format-string path — REQ047 stays `holds` under Kani.)
+# So the install below applies NO patches. Both ancestries were checked with
+# `gh api repos/creusot-rs/creusot/compare/<fix>...v0.14.0` (status behind/behind_by=0). Closes #153.
 #
-# There used to be a SECOND patch here (creusot-coroutine-ice.patch) for an upstream ICE
-# (creusot-rs/creusot#2212, reported by us with the fix): `pre_sig_of` selected the closure path on
-# `DefKind::Closure`, which also covers COROUTINES — an `async fn` body answers that def-kind while
-# its `TyKind` is `Coroutine`, so a bare `let TyKind::Closure(..) = ... else { unreachable!() }`
-# fired and aborted the compiler. One `async fn` anywhere in a crate was enough to make Creusot
-# unusable on it. Upstream landed the fix in creusot-rs/creusot#2214 ("Properly error on async"),
-# which now matches `TyKind::Coroutine(..) | TyKind::CoroutineClosure(..)` explicitly. The fix first
-# ships in a tag at v0.14.0 (verified: #2214's commit is an ancestor of v0.14.0), so at the tag
-# below the vendored patch is both redundant and no longer applies — it was dropped with the bump
-# to v0.14.0. That closed issue #153. (The async ceiling is not the whole story: provreq still
-# cannot be its own Creusot subject, because a live `format!` interpolating a non-integer hits a
-# separate, still-incomplete format-string path — REQ047 stays `holds` under Kani, bounded.)
-#
-# The tag is v0.14.0 (issue #153). Its predecessor v0.13.0 (issue #278) cleared two v0.12.0 defects
-# we hit in real measurement — `std::env::consts::OS` ICEing the Why3 backend (fixed by
-# creusot-rs/creusot#2076) and a tuple-variant constructor used as a function value
-# (creusot-rs/creusot#2223) — and v0.14.0 adds the async fix above.
+# The tag is v0.14.0. Its predecessor v0.13.0 (issue #278) cleared two v0.12.0 defects we hit in
+# real measurement — `std::env::consts::OS` ICEing the Why3 backend (creusot-rs/creusot#2076) and a
+# tuple-variant constructor used as a function value (creusot-rs/creusot#2223).
 # The tag does not move alone: `cargo-creusot` refuses outright with `creusot-std is out of date`
 # unless `Cargo.toml`'s `creusot-std` moves with it. That lockstep is pinned by
 # `creusot_std_moves_in_lockstep_with_the_installed_tag` in `src/creusot.rs`, so a half-move fails
-# in `cargo test` rather than an hour into a CI image build. The remaining patch was re-checked
-# against v0.14.0 (`git apply --check`, clean) before the bump.
+# in `cargo test` rather than an hour into a CI image build.
 ARG CREUSOT_TAG=v0.14.0
 ENV CREUSOT_DATA=/root/.local/share/creusot
 ENV PATH="${CREUSOT_DATA}/bin:${CREUSOT_DATA}/_opam/bin:${PATH}"
-COPY .devcontainer/patches/creusot-linux-aarch64-provers.patch /tmp/creusot.patch
 # `autoconf` is why3's depext and `zlib1g-dev`/`libgmp-dev` back camlzip/zarith; installing them
 # with apt up front keeps opam from trying to shell out to the system package manager mid-build.
 # `in-creusot-ci=true` is the variable Creusot's own CI sets to drop why3-ide from the dependency
@@ -277,8 +269,6 @@ RUN apt-get update \
     && git clone --depth 1 --branch "$CREUSOT_TAG" \
       https://github.com/creusot-rs/creusot /opt/creusot-src \
     && cd /opt/creusot-src \
-    && git apply /tmp/creusot.patch \
-    && rm -f /tmp/creusot.patch \
     # 1. The opam switch (OCaml 5.3.0, Why3, why3find). Must come first: it is the switch that
     #    the Alt-Ergo install below lands in.
     && OPAMYES=1 cargo run --bin creusot-install -- why3 </dev/null \
