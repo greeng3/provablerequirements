@@ -223,6 +223,7 @@ mod tests {
             evidence: vec![],
             correspondence: "mechanical".into(),
             provenance: ProvenanceReport {
+                verified_scope: None,
                 spec_fingerprint: None,
                 trace_fingerprint: None,
                 ui_fingerprint: None,

@@ -65,12 +65,81 @@ fn read_verify_crate(companion: &Path, id: &str) -> Option<String> {
         .filter(|c| !c.trim().is_empty())
 }
 
+/// A per-requirement cat-2a model target (#489): the standalone TLA+ module and the spec operator
+/// `verify` should check instead of the composed `Spec`. Lets a requirement whose property is
+/// decidable over a tractable sub-machine earn a verdict where the composed model explodes.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ModelTarget {
+    /// The `.tla` file, relative to the subject, holding the standalone model.
+    pub file: String,
+    /// The behaviour-spec operator in that module (e.g. `ScanSpec`), used where provreq would
+    /// otherwise use the global `Spec`.
+    pub spec: String,
+}
+
+/// The cat-2a model target declared for requirement `id` in `verify.models`, or `None` when none
+/// is declared (the composed-`Spec` default). Same manifest tolerance as the other `verify.*`
+/// readers.
+pub fn verify_model(companion: &Path, id: &str) -> Option<ModelTarget> {
+    #[derive(serde::Deserialize)]
+    struct Manifest {
+        verify: Option<VerifyBlock>,
+    }
+    #[derive(serde::Deserialize)]
+    struct VerifyBlock {
+        #[serde(default)]
+        models: BTreeMap<String, ModelEntry>,
+    }
+    #[derive(serde::Deserialize)]
+    struct ModelEntry {
+        file: String,
+        spec: String,
+    }
+    let text = std::fs::read_to_string(companion.join(crate::adopt::MANIFEST_FILE)).ok()?;
+    let manifest = serde_yaml::from_str::<Manifest>(&text).ok()?;
+    let entry = manifest.verify?.models.remove(id)?;
+    if entry.file.trim().is_empty() || entry.spec.trim().is_empty() {
+        return None;
+    }
+    Some(ModelTarget {
+        file: entry.file,
+        spec: entry.spec,
+    })
+}
+
+/// The narrowed unit a verdict for `id` was checked against, for provenance (#489 / #484), or
+/// `None` when it is the whole subject. The code world can be a member crate; the model world can
+/// be a standalone module+spec. Recorded so a sub-unit proof is never read as a whole-subject one.
+fn verified_scope(
+    companion: &Path,
+    id: &str,
+    requirement: &Requirement,
+    subject: &Path,
+    code_root: &Path,
+) -> Option<String> {
+    match grounding::default_category(requirement) {
+        crate::grounding::BindCategory::Code if code_root != subject => {
+            let rel = code_root.strip_prefix(subject).unwrap_or(code_root);
+            Some(format!("crate {}", rel.display()))
+        }
+        crate::grounding::BindCategory::Model => {
+            verify_model(companion, id).map(|t| format!("model {} in {}", t.spec, t.file))
+        }
+        _ => None,
+    }
+}
+
 /// The result of asking to verify one requirement. Every non-verdict variant is an honest
 /// "why there is no verdict yet" the operator can act on — never an error, never a fabricated
 /// pass. Only [`VerifyOutcome::Verdict`] carries a real answer.
 ///
 /// An *unknown id* is not a variant here: [`verify`] returns `Ok(None)` for it, so the server
 /// can answer 404 (distinct from a 409 unadopted subject), mirroring the detail read.
+// The `Verdict` variant is much larger than the honest-not-yet-verifiable ones, but this enum is a
+// one-shot return value — built once per `verify` call and immediately consumed or serialized,
+// never held in a collection — so boxing would buy no memory and only add deref noise at every
+// match site. `large_enum_variant` targets types stored in quantity, which this is not.
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug)]
 pub enum VerifyOutcome {
     /// The item has no draft at all — it has not been formalized. Verify has nothing to run.
@@ -126,6 +195,10 @@ pub fn verify(subject: &Path, id: &str) -> Result<Option<VerifyOutcome>> {
             requirement_revision: item.revision.clone(),
             subject_commit: subject_head_commit(subject),
             tool_version: env!("CARGO_PKG_VERSION").to_string(),
+            // The asserted route runs the subject's own tests against the subject; member-crate /
+            // standalone-model targeting is a formal-path concern, so an asserted-only verdict is
+            // always whole-subject.
+            verified_scope: None,
         };
         let verdict = verdict::aggregate(id, tagged, provenance);
         return finish(
@@ -183,6 +256,7 @@ pub fn verify(subject: &Path, id: &str) -> Result<Option<VerifyOutcome>> {
         requirement_revision: draft.revision.clone(),
         subject_commit: subject_head_commit(subject),
         tool_version: env!("CARGO_PKG_VERSION").to_string(),
+        verified_scope: verified_scope(&companion, id, &requirement, subject, &code_root),
     };
     // Only a GROUNDED requirement reaches an engine: an unresolved binding means there is nothing
     // to check the claim through (R-ground-1). Tagged evidence needs no grounding — it is a test a
@@ -689,7 +763,13 @@ fn tlc_evidence(
     bindings: &[Binding],
 ) -> verdict::Evidence {
     let spec_paths = crate::spec_paths::SpecPaths::load(subject, companion);
-    let site = match crate::tlc::locate_spec(subject, companion, &spec_paths) {
+    // A cat-2a requirement may target a standalone sub-machine (#489): its own module + spec
+    // operator, checked instead of the composed `Spec`, for a property that is decidable there but
+    // explodes on the whole model. Absent a target, the global `Spec` is located as before.
+    let spec_operator = verify_model(companion, id)
+        .map(|t| t.spec)
+        .unwrap_or_else(|| crate::tlc::SPEC_OPERATOR.to_string());
+    let site = match crate::tlc::locate_operator(subject, companion, &spec_paths, &spec_operator) {
         Ok(site) => site,
         Err(reason) => return verdict::Evidence::inconclusive("TLC (TLA+)", vec![reason]),
     };
@@ -703,12 +783,13 @@ fn tlc_evidence(
     if let Err(reason) = constants.check_declared(&site.declared_constants) {
         return verdict::Evidence::inconclusive("TLC (TLA+)", vec![reason]);
     }
-    let check = match crate::tlc::lower(
+    let check = match crate::tlc::lower_with_spec(
         requirement,
         &site.module,
         bindings,
         &constants,
         &crate::tlc::module_name(id),
+        &spec_operator,
     ) {
         Ok(c) => c,
         Err(e) => return verdict::Evidence::inconclusive("TLC (TLA+)", vec![e.reason]),
@@ -911,6 +992,72 @@ mod tests {
             root.join("crates/proto")
         );
         assert_eq!(cat1_code_root(root, root, "PER-0002"), root);
+    }
+
+    // Verifies: #489 — a per-requirement `verify.models` entry is read as a model target, and a
+    // requirement with no entry (or no manifest) has none.
+    #[test]
+    fn verify_model_reads_a_per_requirement_target() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        assert_eq!(verify_model(root, "PER-0022"), None);
+
+        std::fs::write(
+            root.join("provreq.yml"),
+            "verify:\n  models:\n    PER-0022: { file: specs/ScanLivenessModel.tla, spec: ScanSpec }\n",
+        )
+        .unwrap();
+        assert_eq!(
+            verify_model(root, "PER-0022"),
+            Some(ModelTarget {
+                file: "specs/ScanLivenessModel.tla".into(),
+                spec: "ScanSpec".into(),
+            })
+        );
+        assert_eq!(
+            verify_model(root, "OTHER"),
+            None,
+            "a requirement with no entry has no target"
+        );
+    }
+
+    // Verifies: #489 / #484 — the provenance scope names the narrowed unit a verdict was checked
+    // against (a member crate for cat-1, a standalone model+spec for cat-2a), or nothing when it is
+    // the whole subject.
+    #[test]
+    fn verified_scope_names_the_crate_the_model_or_nothing() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        let code_req = crate::prl::gate(
+            "requirement r { category: 1 vocabulary { state ok } require { always ok } }",
+        )
+        .unwrap()
+        .requirement;
+
+        // cat-1: whole subject → None; a member crate → "crate <rel>".
+        assert_eq!(verified_scope(root, "R1", &code_req, root, root), None);
+        assert_eq!(
+            verified_scope(root, "R1", &code_req, root, &root.join("crates/core")),
+            Some("crate crates/core".to_string())
+        );
+
+        // cat-2a: a declared model target → "model <spec> in <file>"; no entry → None.
+        std::fs::write(
+            root.join("provreq.yml"),
+            "verify:\n  models:\n    R2: { file: specs/M.tla, spec: ScanSpec }\n",
+        )
+        .unwrap();
+        let model_req = crate::prl::gate(
+            "requirement r { category: 2a vocabulary { state accepted(m), succeeded(m) } \
+             require { each m: Message . accepted(m) leads_to succeeded(m) } }",
+        )
+        .unwrap()
+        .requirement;
+        assert_eq!(
+            verified_scope(root, "R2", &model_req, root, root),
+            Some("model ScanSpec in specs/M.tla".to_string())
+        );
+        assert_eq!(verified_scope(root, "RX", &model_req, root, root), None);
     }
 
     // Verifies: REQ038 — an item with no draft is an honest NoDraft, never an error and never a
