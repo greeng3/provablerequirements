@@ -13,7 +13,15 @@
 name: Build devcontainer image
 
 "on":
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      # The tag to publish. Defaults to `latest` (the shared image everything pulls), so a manual
+      # run with no input behaves exactly like the push trigger. Set a scoped tag (e.g. `pr-153`)
+      # to build a throwaway image for validating an unmerged branch WITHOUT overwriting `latest`.
+      image_tag:
+        description: "Published tag (default: latest)"
+        required: false
+        default: "latest"
   # Refresh the image when an INPUT to the image changes on main (rare; it's a long build).
   # Deliberately NOT .devcontainer/**: devcontainer.json, the README, and anything else in that
   # directory are consumed by the editor, not baked in, so matching them would spend 1-2 hours
@@ -101,8 +109,11 @@ jobs:
         working-directory: /tmp/digests
         run: |
           docker buildx imagetools create \
-            -t "${IMAGE}:latest" \
+            -t "${IMAGE}:${IMAGE_TAG}" \
             -t "${IMAGE}:${GITHUB_SHA}" \
             $(printf "${IMAGE}@sha256:%s " *)
+        env:
+          # `inputs` is empty on a push event, so this is `latest` there — identical to before.
+          IMAGE_TAG: ${{ inputs.image_tag || 'latest' }}
       - name: Show the published manifest
         run: docker buildx imagetools inspect "${IMAGE}:latest"
