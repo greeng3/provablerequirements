@@ -287,6 +287,30 @@ are relative to the subject; a path that does not exist is reported as a configu
 than an ungrounded requirement. Creusot still needs the target crate to declare `creusot-contracts`
 (which brings `creusot-std`) pinned to the installed Creusot.
 
+### Checking a cat-2a requirement over a standalone model: `verify.models`
+
+The category-2a (TLA+) engine checks a property against the subject's single behaviour spec,
+`Spec`. As a composed model accumulates disjoint sub-machines its state space explodes and TLC can
+no longer finish within budget — an honest but useless `unknown` for a property that is true and
+decidable over a smaller, standalone sub-machine. Point a requirement at that sub-machine instead:
+
+```yaml
+verify:
+    models:
+        PER-0022: { file: specs/ScanLivenessModel.tla, spec: ScanSpec }
+        SYS-0030: { file: specs/InitGateModel.tla, spec: GateSpec }
+```
+
+For a requirement with a target, `verify` checks the named behaviour operator (`ScanSpec`) in that
+module rather than the global `Spec` — so a standalone model names its behaviour `ScanSpec`/`GateSpec`
+(any unique name) rather than colliding on `Spec`. The property is lowered and checked exactly as
+before; only the behaviour it is checked against changes. The verdict's provenance records which
+module and spec it was checked over, so a reader sees it was established against a sub-machine, not
+the composed system — **the soundness of that abstraction (that the sub-machine's result transfers
+to the whole) is yours to argue**, exactly as it is for a model you check by hand. A named operator
+that does not resolve, or a TLC run that still cannot decide, is an honest `unknown`; removing the
+entry reverts to the composed `Spec`.
+
 ---
 
 ## Configuring an LLM (optional)

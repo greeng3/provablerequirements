@@ -50,7 +50,7 @@ use std::path::{Path, PathBuf};
 /// The behaviour-spec operator provreq checks against. TLA+ convention names the full
 /// behaviour `Spec == Init /\ [][Next]_vars`; provreq requires that name rather than guessing
 /// `Init`/`Next`, so a resolved `Spec` is the operator's explicit "this is the system".
-const SPEC_OPERATOR: &str = "Spec";
+pub(crate) const SPEC_OPERATOR: &str = "Spec";
 
 /// The property name provreq's generated module defines and the `.cfg` checks. Prefixed so it
 /// cannot collide with a definition already in the subject's spec.
@@ -373,6 +373,26 @@ pub fn lower(
     constants: &Constants,
     name: &str,
 ) -> Result<Check, NotLowerable> {
+    lower_with_spec(
+        req,
+        extends_module,
+        bindings,
+        constants,
+        name,
+        SPEC_OPERATOR,
+    )
+}
+
+/// [`lower`] against a named behaviour-spec operator rather than the global `Spec` — the cat-2a
+/// `verify.models` path (#489), where the `.cfg` names the standalone sub-machine's operator.
+pub fn lower_with_spec(
+    req: &Requirement,
+    extends_module: &str,
+    bindings: &[Binding],
+    constants: &Constants,
+    name: &str,
+    spec_operator: &str,
+) -> Result<Check, NotLowerable> {
     if req.require.is_empty() {
         return Err(NotLowerable::new(
             "the requirement claims nothing — there is no property to check",
@@ -399,7 +419,7 @@ pub fn lower(
     // hand-written TLC config puts them; a spec that declares none contributes no lines and the
     // `.cfg` is what it always was.
     let cfg = format!(
-        "SPECIFICATION {SPEC_OPERATOR}\n{}PROPERTY {PROPERTY_NAME}\n",
+        "SPECIFICATION {spec_operator}\n{}PROPERTY {PROPERTY_NAME}\n",
         constants.cfg_lines()
     );
     Ok(Check {
@@ -606,25 +626,39 @@ pub fn locate_spec(
     companion_root: &Path,
     extra: &crate::spec_paths::SpecPaths,
 ) -> Result<SpecSite, String> {
+    locate_operator(subject_root, companion_root, extra, SPEC_OPERATOR)
+}
+
+/// Locate the module defining the named behaviour-spec `operator`, so a check can be generated
+/// against it. [`locate_spec`] is this with the global `Spec`; a cat-2a `verify.models` target
+/// (#489) passes its own operator (e.g. `ScanSpec`) to check a standalone sub-machine instead of
+/// the composed model. `Err` is an honest `inconclusive` reason — a missing, wrong-arity, or
+/// ambiguous operator — never a guess.
+pub fn locate_operator(
+    subject_root: &Path,
+    companion_root: &Path,
+    extra: &crate::spec_paths::SpecPaths,
+    operator: &str,
+) -> Result<SpecSite, String> {
     // One lookup, so this loads the specs for itself rather than taking a shared read (#144) — the
     // sharing that matters is a binding set's many symbols, which is `grounding::resolve_bindings`.
     let specs = tla_adapter::SubjectSpecs::load(subject_root, companion_root, extra);
-    // A behaviour definition takes no arguments: the `.cfg` names `SPECIFICATION Spec`, which
+    // A behaviour definition takes no arguments: the `.cfg` names `SPECIFICATION <operator>`, which
     // TLC reads as a formula, not as something to apply.
-    let at = match tla_adapter::resolve(&specs, SPEC_OPERATOR, 0) {
+    let at = match tla_adapter::resolve(&specs, operator, 0) {
         ModelResolution::Resolved(at) => at,
         ModelResolution::WrongArity { at, declared, .. } => {
             return Err(format!(
-                "`{SPEC_OPERATOR}` at {}:{} takes {declared} argument(s) — provreq checks a \
-                 behaviour formula `{SPEC_OPERATOR} == Init /\\ [][Next]_vars`, and a \
+                "`{operator}` at {}:{} takes {declared} argument(s) — provreq checks a \
+                 behaviour formula `{operator} == Init /\\ [][Next]_vars`, and a \
                  `SPECIFICATION` TLC can use takes none",
                 at.file, at.line
             ));
         }
         ModelResolution::NotFound => {
             return Err(format!(
-                "no `{SPEC_OPERATOR}` behaviour definition in the subject's TLA+ — provreq \
-                 checks a named `{SPEC_OPERATOR} == Init /\\ [][Next]_vars`; define one so the \
+                "no `{operator}` behaviour definition in the subject's TLA+ — provreq \
+                 checks a named `{operator} == Init /\\ [][Next]_vars`; define one so the \
                  model has a behaviour to check the property against"
             ));
         }
@@ -635,8 +669,8 @@ pub fn locate_spec(
                 .collect::<Vec<_>>()
                 .join(", ");
             return Err(format!(
-                "`{SPEC_OPERATOR}` is defined in several specs ({places}) — provreq cannot tell \
-                 which behaviour to check; keep one `{SPEC_OPERATOR}` in the subject"
+                "`{operator}` is defined in several specs ({places}) — provreq cannot tell \
+                 which behaviour to check; keep one `{operator}` in the subject"
             ));
         }
     };
@@ -1097,6 +1131,44 @@ mod tests {
             &Constants::default(),
             "provreq_req001",
         )
+    }
+
+    // Verifies: #489 — `lower` names the global `Spec` in the `.cfg`, and `lower_with_spec` names
+    // the configured behaviour operator instead, so a cat-2a `verify.models` target is checked over
+    // its standalone sub-machine rather than the composed model.
+    #[test]
+    fn lower_with_spec_names_the_configured_behaviour_operator() {
+        let default = lower_standard().expect("should lower");
+        assert!(
+            default.cfg.contains("SPECIFICATION Spec"),
+            "{}",
+            default.cfg
+        );
+
+        let custom = lower_with_spec(
+            &req(MODEL_REQ),
+            "ScanLivenessModel",
+            &standard_bindings(),
+            &Constants::default(),
+            "provreq_req001",
+            "ScanSpec",
+        )
+        .expect("should lower");
+        assert!(
+            custom.cfg.contains("SPECIFICATION ScanSpec"),
+            "the .cfg names the configured operator: {}",
+            custom.cfg
+        );
+        assert!(
+            !custom.cfg.contains("SPECIFICATION Spec\n"),
+            "it must not also name the global Spec: {}",
+            custom.cfg
+        );
+        assert!(
+            custom.module.contains("EXTENDS ScanLivenessModel"),
+            "the generated module extends the standalone model: {}",
+            custom.module
+        );
     }
 
     // Verifies: REQ029 — a quantified 2a `leads_to` lowers to an additive module that EXTENDS
@@ -1768,6 +1840,7 @@ Residual stack trace follows:
             requirement_revision: "rev-1".into(),
             subject_commit: Some("abc123".into()),
             tool_version: "0.0.1".into(),
+            verified_scope: None,
         }
     }
 

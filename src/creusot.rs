@@ -1208,6 +1208,7 @@ mod tests {
             requirement_revision: "rev-1".into(),
             subject_commit: Some("abc123".into()),
             tool_version: "0.0.1".into(),
+            verified_scope: None,
         }
     }
 

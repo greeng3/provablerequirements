@@ -164,6 +164,13 @@ pub struct Provenance {
     pub requirement_revision: String,
     pub subject_commit: Option<String>,
     pub tool_version: String,
+    /// The narrowed unit this verdict was actually checked against, when it is **not** the whole
+    /// subject: a member crate for a cat-1 `verify.crate`, or a standalone module+spec for a cat-2a
+    /// `verify.models` (#489). `None` means the verdict was checked against the subject as a whole,
+    /// as every verdict was before this existed. Recorded so a reader can never mistake a proof
+    /// over a tractable sub-unit for a proof over the composed system — the soundness of the
+    /// abstraction is the author's, and this names what was abstracted to.
+    pub verified_scope: Option<String>,
 }
 
 /// One engine's contribution to a requirement's verdict (D2b). The core aggregates a
@@ -579,6 +586,12 @@ pub struct ProvenanceReport {
     pub requirement_revision: String,
     pub subject_commit: Option<String>,
     pub tool_version: String,
+    /// The narrowed unit this verdict was checked against when it is not the whole subject — a
+    /// member crate (cat-1 `verify.crate`) or a standalone module+spec (cat-2a `verify.models`,
+    /// #489). `#[serde(default)]` so a verdict persisted before this field existed loads as `None`
+    /// (checked against the subject as a whole). Surfaced so a reader sees a sub-unit proof as one.
+    #[serde(default)]
+    pub verified_scope: Option<String>,
     /// The formalization fingerprint (REQ045). `#[serde(default)]` so a verdict persisted before
     /// this field existed loads as `None` and simply skips the formalization drift axis.
     #[serde(default)]
@@ -675,6 +688,7 @@ pub fn report(v: &Verdict) -> VerdictReport {
             requirement_revision: v.provenance.requirement_revision.clone(),
             subject_commit: v.provenance.subject_commit.clone(),
             tool_version: v.provenance.tool_version.clone(),
+            verified_scope: v.provenance.verified_scope.clone(),
             // The formalization fingerprint, the proving environment, the out-of-subject spec
             // fingerprint, the monitor trace's, the UI check's, and the source fingerprint are
             // persistence concerns, not part of the in-memory verdict's identity — the verify flow
@@ -700,6 +714,7 @@ mod tests {
             requirement_revision: "rev-1".into(),
             subject_commit: Some("abc123".into()),
             tool_version: "0.0.1".into(),
+            verified_scope: None,
         }
     }
 

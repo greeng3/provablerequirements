@@ -2246,6 +2246,7 @@ mod tests {
             requirement_revision: "r".into(),
             subject_commit: None,
             tool_version: "t".into(),
+            verified_scope: None,
         }
     }
 
