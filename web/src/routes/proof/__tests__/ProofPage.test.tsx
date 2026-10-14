@@ -363,6 +363,7 @@ describe("ProofPage", () => {
           requirement_revision: "r1",
           subject_commit: "abc123",
           tool_version: "0.0.8",
+          verified_scope: "model ScanSpec in specs/Scan.tla",
         },
       },
     };
@@ -384,6 +385,11 @@ describe("ProofPage", () => {
     expect(within(dialog).getByText("Kani")).toBeInTheDocument();
     expect(
       within(dialog).getByText("harness would not compile"),
+    ).toBeInTheDocument();
+    // #492: a verdict checked against a sub-unit (not the whole subject) says so.
+    expect(within(dialog).getByText("checked over:")).toBeInTheDocument();
+    expect(
+      within(dialog).getByText("model ScanSpec in specs/Scan.tla"),
     ).toBeInTheDocument();
     expect(verified).toEqual(["REQ001"]);
   });
