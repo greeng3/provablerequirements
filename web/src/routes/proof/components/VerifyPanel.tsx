@@ -212,6 +212,16 @@ function VerdictResult({
 
       <Grounds verdict={verdict} />
 
+      {verdict.provenance.verified_scope && (
+        <p className="text-[0.7rem] leading-snug text-slate-500">
+          checked over:{" "}
+          <span className="font-medium text-slate-600 dark:text-slate-400">
+            {verdict.provenance.verified_scope}
+          </span>{" "}
+          <span className="text-slate-400">(not the whole subject)</span>
+        </p>
+      )}
+
       <p className="text-[0.7rem] leading-snug text-slate-500">
         requirement@{verdict.provenance.requirement_revision} · subject@
         {verdict.provenance.subject_commit ?? "(not a git subject)"} · provreq@

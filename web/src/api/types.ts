@@ -1333,6 +1333,12 @@ export interface ProofProvenanceReport {
     requirement_revision: string;
     subject_commit: string | null;
     tool_version: string;
+    /**
+     * The narrowed unit this verdict was checked against when it is not the whole
+     * subject — e.g. "crate <rel>" (cat-1) or "model <spec> in <file>" (cat-2a).
+     * null when checked against the subject as a whole, or for a verdict predating it.
+     */
+    verified_scope: string | null;
 }
 
 export interface ProofVerdictReport {
