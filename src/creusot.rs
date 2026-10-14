@@ -396,7 +396,7 @@ pub fn run(subject_root: &Path, harness: &Harness) -> Outcome {
 /// prover tried and could not decide, which is false (#279).
 ///
 /// Compared on major.minor, because that is the pair `cargo-creusot` accepts: our own manifest says
-/// `creusot-std = "0.13"` against a 0.13.0 tool and is fine. Read from the manifest rather than
+/// `creusot-std = "0.14"` against a 0.14.0 tool and is fine. Read from the manifest rather than
 /// matched against the refusal text: the two phrasings are a REQ070 trap, and a version comparison
 /// does not have to know either of them.
 pub fn unusable_for_subject(cargo_toml: &str, tool_version: &str) -> Option<String> {
@@ -1286,7 +1286,7 @@ mod tests {
     /// The `creusot-std` every fixture below depends on. Not free to differ from the installed
     /// tool: `cargo-creusot` refuses before running any subcommand when they disagree
     /// (`creusot-std is out of date. creusot-std 0.12.0 / creusot 0.13.0`).
-    const CREUSOT_STD_VERSION: &str = "0.13.0";
+    const CREUSOT_STD_VERSION: &str = "0.14.0";
 
     /// The manifest every real-engine fixture writes. One place, because the version in it is
     /// locked to the Dockerfile's tag.

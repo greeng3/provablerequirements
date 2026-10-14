@@ -52,7 +52,7 @@ tempfile = "3"
 # unaffected and `#[logic]`/`proof_assert!` remain available only under `cfg(creusot)`.
 # Locked to `ARG CREUSOT_TAG` in `.devcontainer/Dockerfile` — cargo-creusot refuses a mismatched
 # pair outright. `creusot_std_moves_in_lockstep_with_the_installed_tag` fails if they drift.
-creusot-std = "0.13"
+creusot-std = "0.14"
 sha2 = "0.11"
 provreq-model = { version = "0.1.0", path = "crates/provreq-model" }
 # The Provreq adapter writes provenance back as a review-log entry, whose `timestamp` is a
