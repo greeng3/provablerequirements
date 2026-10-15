@@ -116,4 +116,6 @@ jobs:
           # `inputs` is empty on a push event, so this is `latest` there — identical to before.
           IMAGE_TAG: ${{ inputs.image_tag || 'latest' }}
       - name: Show the published manifest
-        run: docker buildx imagetools inspect "${IMAGE}:latest"
+        run: docker buildx imagetools inspect "${IMAGE}:${IMAGE_TAG}"
+        env:
+          IMAGE_TAG: ${{ inputs.image_tag || 'latest' }}
