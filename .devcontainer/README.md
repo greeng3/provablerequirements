@@ -19,8 +19,8 @@ on this repo.
 - **Verification engines, baked into the image** so `provreq engines` never reports a
   category missing on a fresh container: **Kani** (cargo kani + CBMC), **TLC**
   (`tla2tools.jar`, path in `TLA2TOOLS_JAR`), **Prusti** (source-built at a pinned
-  commit), and **Creusot** (installed via `creusot-setup`, with two local patches — an
-  arm64 provers table and the coroutine-ICE fix, both documented in the Dockerfile).
+  commit), and **Creusot** (installed via `creusot-setup`, no local patches as of v0.14.0 —
+  the arm64 provers table and the async-coroutine fix are both upstream now; see the Dockerfile).
   MonPoly (category 2b) and a Selenium grid (category 3) are external — MonPoly builds
   from source on demand; Selenium runs as a service on port 4444, not a PATH binary.
 - **Provreq's gate tools** — `cargo-llvm-cov` (with the `llvm-tools-preview` component),
