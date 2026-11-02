@@ -224,6 +224,29 @@ enum Command {
         #[arg(default_value = ".")]
         path: PathBuf,
     },
+    /// Block on verdict regression (REQ092) — the enforcement boundary. Re-verifies every
+    /// requirement the committed baseline recorded as passing and exits non-zero if any no longer
+    /// does (proven → unknown/refuted, or a draft that no longer admits/gates). The re-verify is
+    /// cache-accelerated (REQ091), so an unchanged requirement is served from its stored verdict and
+    /// the gate is fast enough for a commit hook or a CI step. Reports, and blocks; it never
+    /// auto-fixes.
+    Gate {
+        /// Path to the subject repository (defaults to the current directory).
+        #[arg(long, default_value = ".")]
+        path: PathBuf,
+        /// The git ref whose committed `verdicts.yml` is the baseline (defaults to `HEAD`). In CI,
+        /// point it at the base branch (e.g. `origin/main`) to gate a whole branch's change.
+        #[arg(long, default_value = "HEAD")]
+        base: String,
+        /// Also fail on a trust-tier downgrade that still holds: a weaker basis (proven →
+        /// model-checked → not-falsified) or a mechanical result replaced by an asserted one.
+        #[arg(long)]
+        strict_tier: bool,
+        /// Re-verify from scratch instead of serving unchanged requirements from the cache (REQ091).
+        /// Slower; use when you do not trust the recorded verdicts the cache would serve.
+        #[arg(long)]
+        no_cache: bool,
+    },
     /// Author a new requirement into the subject's Provreq collection (#325). The artifact arrives
     /// unreviewed — authored prose passes through the review workflow like any other.
     New {
@@ -401,6 +424,12 @@ async fn main() -> Result<()> {
             name,
         } => run_migrate_doorstop(&source, &target, &slug, &name),
         Command::Check { path } => run_check(&path),
+        Command::Gate {
+            path,
+            base,
+            strict_tier,
+            no_cache,
+        } => run_gate(&path, &base, strict_tier, no_cache),
         Command::New {
             id,
             title,
@@ -460,6 +489,77 @@ fn run_check(subject: &Path) -> Result<()> {
     let count = provreq::check::check(subject)?;
     println!("Requirements project OK — {count} artifact(s) validated.");
     Ok(())
+}
+
+/// Step: `provreq gate` (REQ092). Re-verify every requirement the committed baseline recorded as
+/// passing, compare each against its baseline, and exit non-zero if any regressed. The re-verify is
+/// cache-accelerated, so an unchanged requirement costs a stored-verdict read, not an engine run.
+/// Prints a readable summary either way; the non-zero exit is what a commit hook or CI blocks on.
+fn run_gate(subject: &Path, base: &str, strict_tier: bool, no_cache: bool) -> Result<()> {
+    let (companion, _) = provreq::adopt::resolve(subject)?;
+    let (baseline, source) = provreq::gate::load_baseline(subject, &companion, base)?;
+
+    // Only a requirement the baseline recorded as passing can regress — exactly the set worth
+    // re-verifying. Everything else (never verified, or recorded unknown/fails) has no proof to lose.
+    let passing: Vec<&provreq::verdict::VerdictReport> = baseline
+        .verdicts
+        .values()
+        .filter(|v| v.status == "holds")
+        .collect();
+
+    println!(
+        "Gating {} passing requirement(s) against {source}{}.",
+        passing.len(),
+        if strict_tier {
+            " (strict-tier: tier downgrades also fail)"
+        } else {
+            ""
+        }
+    );
+
+    let mut regressions = Vec::new();
+    let mut vanished = Vec::new();
+    for base_verdict in passing {
+        let id = &base_verdict.id;
+        let Some(outcome) = provreq::verify::verify(subject, id, !no_cache)? else {
+            // The baseline proved a requirement the subject no longer contains. Its proof is moot,
+            // not regressed — reported so the drift is visible, but not a hard failure.
+            vanished.push(id.clone());
+            continue;
+        };
+        let current = provreq::gate::current_outcome(&outcome);
+        if let Some(r) = provreq::gate::regression(base_verdict, &current, strict_tier) {
+            regressions.push(r);
+        }
+    }
+
+    for id in &vanished {
+        println!("  · {id}: recorded as passing but no longer in the subject — skipped");
+    }
+
+    if regressions.is_empty() {
+        println!("✓ no regressions — every previously-proven requirement still holds.");
+        return Ok(());
+    }
+
+    eprintln!("\n✗ {} requirement(s) regressed:", regressions.len());
+    for r in &regressions {
+        let basis = |b: &Option<String>| b.clone().unwrap_or_else(|| "—".to_string());
+        match r.kind {
+            provreq::gate::RegressionKind::Outcome => eprintln!(
+                "  {}: {} → {} — a previously-proven requirement no longer holds",
+                r.id, r.old_status, r.new_status
+            ),
+            provreq::gate::RegressionKind::Tier => eprintln!(
+                "  {}: still holds, but trust dropped ({} → {}) — a weaker basis replaced the recorded one",
+                r.id,
+                basis(&r.old_basis),
+                basis(&r.new_basis),
+            ),
+        }
+    }
+    eprintln!("\nRe-verify and restore the proof, or re-admit the formalization, before this lands.");
+    std::process::exit(1);
 }
 
 fn run_new(subject: &Path, id: &str, title: &str, text: &str) -> Result<()> {

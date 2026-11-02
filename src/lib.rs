@@ -21,6 +21,7 @@ pub mod doorstop;
 pub mod draft;
 pub mod engine;
 pub mod formalize;
+pub mod gate;
 pub mod grounding;
 pub mod guide;
 pub mod http;
