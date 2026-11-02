@@ -1245,6 +1245,9 @@ export interface ProofEvidenceReport {
     basis: string | null;
     witness: string | null;
     detail: string[];
+    /** "mechanical" (a provreq-generated harness) or "asserted" (a human-tagged
+     * test). Carried so an asserted row never reads as strong as a mechanical one. */
+    correspondence: string;
 }
 
 /// A stored verdict paired with whether it still holds against the current
@@ -1257,6 +1260,9 @@ export interface ProofVerdictView {
     detail: string[];
     witness: string | null;
     evidence: ProofEvidenceReport[];
+    /** Verdict-level "mechanical" or "asserted" — "asserted" when the verdict
+     * rests only on human-tagged tests. Mirrors the CLI's `[…]` masquerade guard. */
+    correspondence: string;
     fresh: boolean;
     stale_reasons: string[];
     /** Where this verdict was proved, or null when it predates recording. */
@@ -1349,6 +1355,8 @@ export interface ProofVerdictReport {
     witness: string | null;
     detail: string[];
     evidence: ProofEvidenceReport[];
+    /** Verdict-level "mechanical" or "asserted" — see ProofVerdictView. */
+    correspondence: string;
     provenance: ProofProvenanceReport;
 }
 

@@ -8,6 +8,7 @@ import type {
 import type { Tone } from "../labels";
 import { Badge } from "./Badge";
 import { BasisLabel } from "./BasisLabel";
+import { CorrespondenceLabel } from "./CorrespondenceLabel";
 import { VerdictBadge } from "./VerdictBadge";
 
 type Props = {
@@ -83,6 +84,7 @@ function StoredVerdict({ verdict }: { verdict: ProofVerdictView }) {
         <span className="text-xs text-slate-500">Last verdict:</span>
         <VerdictBadge verdict={verdict} />
         {verdict.basis && <BasisLabel basis={verdict.basis} />}
+        <CorrespondenceLabel correspondence={verdict.correspondence} />
       </div>
       {!verdict.fresh && (
         <ul className="ml-1 list-inside list-disc text-xs text-amber-700 dark:text-amber-300">
@@ -204,6 +206,7 @@ function VerdictResult({
       <div className="flex flex-wrap items-center gap-2">
         <Badge label={verdict.status} tone={statusTone(verdict.status)} />
         {verdict.basis && <BasisLabel basis={verdict.basis} />}
+        <CorrespondenceLabel correspondence={verdict.correspondence} />
         {verdict.reason && (
           <span className="text-xs text-slate-500">({verdict.reason})</span>
         )}
@@ -240,6 +243,7 @@ function EvidenceRow({ evidence }: { evidence: ProofEvidenceReport }) {
           {evidence.engine}
         </code>
         {evidence.basis && <BasisLabel basis={evidence.basis} />}
+        <CorrespondenceLabel correspondence={evidence.correspondence} />
       </div>
       {evidence.detail.length > 0 && (
         <ul className="ml-2 list-inside list-disc text-xs text-slate-500">
