@@ -244,7 +244,10 @@ mod tests {
         let now = current("unknown", None, "");
         let r = regression(&base, &now, false).expect("a fall from holds is a regression");
         assert_eq!(r.kind, RegressionKind::Outcome);
-        assert_eq!((r.old_status.as_str(), r.new_status.as_str()), ("holds", "unknown"));
+        assert_eq!(
+            (r.old_status.as_str(), r.new_status.as_str()),
+            ("holds", "unknown")
+        );
     }
 
     // Verifies: REQ092 — a proven requirement refuted (`fails`) is a regression too; any non-holds
@@ -319,7 +322,9 @@ mod tests {
         assert_eq!(now.status, "not-admitted");
         let base = baseline("holds", Some("proven"), "mechanical");
         assert_eq!(
-            regression(&base, &now, false).expect("a lost proof is a regression").kind,
+            regression(&base, &now, false)
+                .expect("a lost proof is a regression")
+                .kind,
             RegressionKind::Outcome
         );
     }

@@ -558,7 +558,9 @@ fn run_gate(subject: &Path, base: &str, strict_tier: bool, no_cache: bool) -> Re
             ),
         }
     }
-    eprintln!("\nRe-verify and restore the proof, or re-admit the formalization, before this lands.");
+    eprintln!(
+        "\nRe-verify and restore the proof, or re-admit the formalization, before this lands."
+    );
     std::process::exit(1);
 }
 
