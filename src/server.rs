@@ -830,7 +830,10 @@ async fn verify_requirement(State(state): State<Shared>, Path(id): Path<String>)
         Ok(s) => s,
         Err(r) => return r,
     };
-    match crate::verify::verify(&subject, &id) {
+    // The web Verify button is an explicit "run it now" action, and the surface already shows the
+    // stored verdict as "last verdict" until it is pressed — so it always re-runs (no cache). The
+    // incremental cache (REQ091) is the CLI / gate path, where skipping unchanged work is the point.
+    match crate::verify::verify(&subject, &id, false) {
         Ok(Some(outcome)) => Json(verify_payload(&outcome)).into_response(),
         Ok(None) => (
             StatusCode::NOT_FOUND,
@@ -862,6 +865,14 @@ fn verify_payload(outcome: &crate::verify::VerifyOutcome) -> serde_json::Value {
             "state": "verdict",
             "stale": stale,
             "verdict": crate::verdict::report(verdict),
+        }),
+        // The server never asks for a cached verdict (it always re-runs, above), but a cached
+        // verdict is still a verdict — serialize it as one so the wire shape never depends on which
+        // path produced it.
+        O::Cached(report) => serde_json::json!({
+            "state": "verdict",
+            "stale": false,
+            "verdict": report,
         }),
     }
 }

@@ -228,6 +228,7 @@ mod tests {
                 trace_fingerprint: None,
                 ui_fingerprint: None,
                 tagged_source_fingerprint: None,
+                scope_fingerprint: None,
                 environment: None,
                 requirement_revision: revision.into(),
                 subject_commit: Some("head".into()),

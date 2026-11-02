@@ -639,6 +639,16 @@ pub struct ProvenanceReport {
     /// this field existed. It does not replace `source_fingerprint`; it refines it for the report.
     #[serde(default)]
     pub tagged_source_fingerprint: Option<String>,
+    /// A fingerprint of the code the verdict covers, taken over the **working tree** (REQ091) — the
+    /// verified-scope unit (`verify.crate` member crate, else the whole subject) hashed from the
+    /// files on disk, not from HEAD. This is the cache key the incremental `verify` compares: an
+    /// uncommitted edit to that code changes it, so a cached verdict is never served against code
+    /// the working tree already contradicts. It is deliberately distinct from `source_fingerprint`,
+    /// which reads HEAD for *display* drift; this one reads the working tree for *skip-the-work*
+    /// soundness. `None`, and never a cache hit, when the code cannot be read. `#[serde(default)]`
+    /// so a verdict persisted before this field existed simply never matches as a hit.
+    #[serde(default)]
+    pub scope_fingerprint: Option<String>,
 }
 
 /// A JSON-serializable view of a [`Verdict`] for the web surface (REQ038). The domain types are
@@ -692,8 +702,9 @@ pub fn report(v: &Verdict) -> VerdictReport {
             // The formalization fingerprint, the proving environment, the out-of-subject spec
             // fingerprint, the monitor trace's, the UI check's, and the source fingerprint are
             // persistence concerns, not part of the in-memory verdict's identity — the verify flow
-            // stamps all six on the stored copy (REQ045, REQ049, #120, #230, #239, #271). A live
-            // (unpersisted) report carries none of them; nothing reads them off the wire.
+            // stamps all of them on the stored copy (REQ045, REQ049, #120, #230, #239, #271,
+            // REQ091). A live (unpersisted) report carries none of them; nothing reads them off
+            // the wire.
             formalization: None,
             environment: None,
             spec_fingerprint: None,
@@ -701,6 +712,7 @@ pub fn report(v: &Verdict) -> VerdictReport {
             ui_fingerprint: None,
             source_fingerprint: None,
             tagged_source_fingerprint: None,
+            scope_fingerprint: None,
         },
     }
 }

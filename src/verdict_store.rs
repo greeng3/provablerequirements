@@ -342,6 +342,48 @@ pub fn view(
     }
 }
 
+/// Whether a stored verdict can be served without re-running the ensemble (REQ091): true when a
+/// fresh run would reach the identical verdict, because every axis that *determines* the verdict is
+/// unchanged. Pure over the two provenances — no filesystem — so the incremental `verify` path is
+/// testable without a subject.
+///
+/// This is deliberately a *stricter and narrower* comparison than [`view`]'s display-staleness:
+///
+/// - The **code axis is `scope_fingerprint`** (a working-tree hash), not the HEAD `source_fingerprint`
+///   `view` uses. A cache that skips engine runs must see an uncommitted edit; display staleness is
+///   allowed its documented HEAD blind spot, a served verdict is not. Both sides must carry a scope
+///   fingerprint and they must match — a verdict with none (persisted before this axis, or code that
+///   could not be read) is never a hit, so the ensemble runs.
+/// - The **subject commit and HEAD `source_fingerprint` are ignored**: both move when the verdict
+///   record itself is committed, and the working-tree scope hash already decides the code axis.
+/// - The **environment is compared by its engine set only**, not its declared name: *where* a verdict
+///   was proved does not change *what* was proved, but a different engine or version can.
+///
+/// Every other determining axis (requirement revision, formalization, out-of-subject spec/trace/UI,
+/// tool version) must match exactly. `tagged_source_fingerprint` is not compared on its own: a tagged
+/// test is a file under the scope, so a change to it already moves `scope_fingerprint`.
+pub fn reusable(stored: &VerdictReport, current: &crate::verdict::ProvenanceReport) -> bool {
+    let s = &stored.provenance;
+    // The code axis: both sides must carry a working-tree scope hash and agree. A missing hash on
+    // either side (pre-axis record, or code that could not be read now) forces a re-run — never a
+    // hit on a basis that cannot be established, the same rule every drift axis in `view` follows.
+    let scope_match = matches!(
+        (&s.scope_fingerprint, &current.scope_fingerprint),
+        (Some(was), Some(now)) if was == now
+    );
+    let engines =
+        |p: &crate::verdict::ProvenanceReport| p.environment.as_ref().map(|e| e.engines.clone());
+
+    scope_match
+        && s.requirement_revision == current.requirement_revision
+        && s.formalization == current.formalization
+        && s.spec_fingerprint == current.spec_fingerprint
+        && s.trace_fingerprint == current.trace_fingerprint
+        && s.ui_fingerprint == current.ui_fingerprint
+        && s.tool_version == current.tool_version
+        && engines(s) == engines(current)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -363,6 +405,7 @@ mod tests {
                 trace_fingerprint: None,
                 ui_fingerprint: None,
                 tagged_source_fingerprint: None,
+                scope_fingerprint: None,
                 environment: None,
                 requirement_revision: revision.into(),
                 subject_commit: commit.map(str::to_string),
@@ -881,5 +924,84 @@ mod tests {
     fn missing_file_is_empty_store() {
         let dir = tempfile::tempdir().unwrap();
         assert!(load(dir.path()).unwrap().verdicts.is_empty());
+    }
+
+    /// A stored verdict and the current provenance, both pinned to the same unchanged world —
+    /// the baseline a cache hit is asserted against. Carries a working-tree scope fingerprint,
+    /// since that is the code axis the incremental `verify` compares (REQ091).
+    fn reusable_pair() -> (VerdictReport, ProvenanceReport) {
+        let mut v = stored("r1", Some("abc"), "0.0.1");
+        v.provenance.scope_fingerprint = Some("scope-1".into());
+        v.provenance.formalization = Some("fp-1".into());
+        v.provenance.environment = Some(env(Some("lab-1"), &["Kani 0.67.0"]));
+        (v.clone(), v.provenance)
+    }
+
+    // Verifies: REQ091 — nothing that determines the verdict moved, so the stored verdict is served
+    // without re-running the ensemble.
+    #[test]
+    fn an_unchanged_world_is_a_cache_hit() {
+        let (stored, current) = reusable_pair();
+        assert!(reusable(&stored, &current));
+    }
+
+    // Verifies: REQ091 — a working-tree edit to the code the verdict covers moves `scope_fingerprint`,
+    // so the verdict is re-run rather than served. This is the axis that keeps a cached verdict from
+    // being served against code the working tree already contradicts.
+    #[test]
+    fn a_scope_edit_is_a_cache_miss() {
+        let (stored, mut current) = reusable_pair();
+        current.scope_fingerprint = Some("scope-2".into());
+        assert!(!reusable(&stored, &current));
+    }
+
+    // Verifies: REQ091 — a verdict carrying no scope fingerprint (persisted before this axis, or code
+    // that could not be read) is never a hit: the ensemble runs rather than trust a basis that cannot
+    // be established, even when every other axis matches.
+    #[test]
+    fn a_missing_scope_fingerprint_is_never_a_hit() {
+        let (mut stored, current) = reusable_pair();
+        stored.provenance.scope_fingerprint = None;
+        assert!(!reusable(&stored, &current));
+
+        let (stored, mut current) = reusable_pair();
+        current.scope_fingerprint = None;
+        assert!(!reusable(&stored, &current));
+    }
+
+    // Verifies: REQ091 — each determining axis that moves is a miss: prose, formalization, engines,
+    // tool version, and the out-of-subject spec/trace/UI axes.
+    #[test]
+    fn any_determining_axis_moving_is_a_miss() {
+        let axes: Vec<fn(&mut ProvenanceReport)> = vec![
+            |c| c.requirement_revision = "r2".into(),
+            |c| c.formalization = Some("fp-2".into()),
+            |c| c.tool_version = "0.0.2".into(),
+            |c| c.environment = Some(env(Some("lab-1"), &["Kani 0.68.0"])),
+            |c| c.spec_fingerprint = Some("spec-x".into()),
+            |c| c.trace_fingerprint = Some("trace-x".into()),
+            |c| c.ui_fingerprint = Some("ui-x".into()),
+        ];
+        for apply in axes {
+            let (stored, mut current) = reusable_pair();
+            apply(&mut current);
+            assert!(!reusable(&stored, &current), "a moved axis must re-run");
+        }
+    }
+
+    // Verifies: REQ091 — the axes that move merely because the verdict record was committed do not
+    // force a re-run: the subject commit and the HEAD source fingerprint are ignored, and so is the
+    // environment's declared *name* (where it was proved, not what was proved). The working-tree
+    // scope hash is the code axis, so none of these is needed to keep a hit honest.
+    #[test]
+    fn record_keeping_churn_is_still_a_hit() {
+        let (stored, mut current) = reusable_pair();
+        current.subject_commit = Some("def".into());
+        current.source_fingerprint = Some("head-moved".into());
+        current.environment = Some(env(Some("ci-runner"), &["Kani 0.67.0"]));
+        assert!(
+            reusable(&stored, &current),
+            "committing the record or re-proving in a renamed environment is not verdict drift"
+        );
     }
 }
