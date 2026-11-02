@@ -17,6 +17,7 @@ function storedVerdict(
     detail: [],
     witness: null,
     evidence: [],
+    correspondence: "mechanical",
     fresh: true,
     stale_reasons: [],
     environment: "declared `lab-2`; Kani 0.67.0",
@@ -49,5 +50,26 @@ describe("VerifyPanel stored-verdict provenance", () => {
 
     expect(screen.getByText("Environment not recorded")).toBeInTheDocument();
     expect(screen.queryByText("Proved in:")).not.toBeInTheDocument();
+  });
+});
+
+describe("VerifyPanel verdict correspondence (#498)", () => {
+  // An asserted verdict must read as weaker than a mechanical one — the web
+  // surface carries the same masquerade guard the CLI prints as `[asserted]`.
+  it("flags an asserted verdict as a tagged test, not a proof", () => {
+    renderPanel(storedVerdict({ correspondence: "asserted" }));
+
+    expect(
+      screen.getByText(/\[asserted\] — a tagged test, not a proof/),
+    ).toBeInTheDocument();
+  });
+
+  // A mechanical verdict is marked too (not left blank), so the two are never
+  // confused by one carrying a marker and the other carrying none.
+  it("marks a mechanical verdict and does not call it asserted", () => {
+    renderPanel(storedVerdict({ correspondence: "mechanical" }));
+
+    expect(screen.getByText("[mechanical]")).toBeInTheDocument();
+    expect(screen.queryByText(/asserted/)).not.toBeInTheDocument();
   });
 });
