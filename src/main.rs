@@ -191,6 +191,12 @@ enum Command {
         /// (slower, needs it installed); degrades to the one-shot draft when no engine is ready.
         #[arg(long, requires = "draft_semantic")]
         repair: bool,
+        /// Re-run the engine ensemble even when a stored verdict is still good (REQ091). By default
+        /// `verify` serves the stored verdict when nothing that determines it has moved — including
+        /// an uncommitted edit to the code it covers; this forces a fresh run against the unchanged
+        /// world.
+        #[arg(long)]
+        no_cache: bool,
     },
     /// Convert a Doorstop requirements tree into a Provreq project (#317). Reads `source` only and
     /// writes a `provreq.json` + an `artifacts/` collection under `target`, which
@@ -376,7 +382,18 @@ async fn main() -> Result<()> {
             draft_contracts,
             draft_semantic,
             repair,
-        } => run_verify(&path, &id, draft_contracts, draft_semantic, repair).await,
+            no_cache,
+        } => {
+            run_verify(
+                &path,
+                &id,
+                draft_contracts,
+                draft_semantic,
+                repair,
+                no_cache,
+            )
+            .await
+        }
         Command::MigrateDoorstop {
             source,
             target,
@@ -1448,13 +1465,19 @@ async fn run_verify(
     draft_contracts: bool,
     draft_semantic: bool,
     repair: bool,
+    no_cache: bool,
 ) -> Result<()> {
     if let Ok((companion, _)) = provreq::adopt::resolve(subject)
         && let Some(warning) = provreq::draft::drafts_at_loss_risk(subject, &companion)
     {
         eprintln!("{warning}");
     }
-    let Some(outcome) = provreq::verify::verify(subject, id)? else {
+    // The cache serves a stored verdict without re-running (REQ091), but only on a plain `verify`:
+    // a draft/repair pass is an active workflow that wants a fresh run (and its staged edits and
+    // repair rounds need the resolution context a cached verdict does not carry), and `--no-cache`
+    // is the explicit opt-out.
+    let use_cache = !no_cache && !draft_contracts && !draft_semantic && !repair;
+    let Some(outcome) = provreq::verify::verify(subject, id, use_cache)? else {
         bail!("no requirement item '{id}' in the subject");
     };
     let (verdict, stale, grounded, resolutions) = match outcome {
@@ -1479,6 +1502,27 @@ async fn run_verify(
             for e in &errors {
                 println!("  - {e}");
             }
+            return Ok(());
+        }
+        VerifyOutcome::Cached(report) => {
+            // Served from cache (REQ091): nothing that determines the verdict moved, so the stored
+            // one is exactly what a re-run would reach. Say so plainly and render the stored verdict
+            // from its own labels, never dressed up as a fresh run. `--no-cache` forces the run.
+            let basis = report
+                .basis
+                .as_deref()
+                .map(|b| format!(" ({b})"))
+                .unwrap_or_default();
+            println!("{}{basis} [{}]", report.status, report.correspondence);
+            if let Some(reason) = &report.reason {
+                println!("  {reason}");
+            }
+            for line in &report.detail {
+                println!("  {line}");
+            }
+            println!(
+                "  · served from cache — nothing it depends on changed; re-run with `--no-cache`"
+            );
             return Ok(());
         }
         VerifyOutcome::Verdict {
@@ -1796,7 +1840,8 @@ async fn stage_semantic_drafts(
         // half. ponytail: each round re-persists a verdict via verify::verify — the final one wins.
         let verify_round = |drafts: &[ContractDraft]| -> Result<ProofStep> {
             stage(drafts)?;
-            match provreq::verify::verify(subject, id)? {
+            // No cache here: this re-runs against the just-staged working tree and must see it.
+            match provreq::verify::verify(subject, id, false)? {
                 Some(VerifyOutcome::Verdict { verdict, .. }) => {
                     Ok(verdict_to_proof_step(&verdict, engine))
                 }
@@ -1846,7 +1891,8 @@ fn report_mirrors_are_the_whole_draft(
         );
         return Ok(());
     }
-    let step = match provreq::verify::verify(subject, id)? {
+    // No cache here: this re-runs against the just-staged mirrors and must see them.
+    let step = match provreq::verify::verify(subject, id, false)? {
         Some(VerifyOutcome::Verdict { verdict, .. }) => verdict_to_proof_step(&verdict, engine),
         other => ProofStep::Inconclusive {
             reason: format!("re-verify produced no verdict ({other:?})"),

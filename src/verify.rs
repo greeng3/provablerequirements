@@ -161,13 +161,18 @@ pub enum VerifyOutcome {
         grounded: bool,
         resolutions: BTreeMap<String, Resolution>,
     },
+    /// The stored verdict, served without re-running the ensemble because nothing that determines
+    /// it has moved (REQ091). The incremental path: a fresh run would reach this exact verdict, so
+    /// the minutes a real run costs are skipped. Distinct from `Verdict` so a caller can say the
+    /// verdict was served from cache rather than freshly produced — it is never dressed up as a run.
+    Cached(crate::verdict::VerdictReport),
 }
 
 /// Verify one requirement in `subject` by id. `Ok(None)` when the id is not in the subject (a
 /// 404 for the server); `Err` when the subject is not adopted or the companion cannot be read
 /// (a 409). Runs the engine ensemble when the requirement is grounded, else records an honest
 /// unknown — it never fabricates a pass and never mutates the subject.
-pub fn verify(subject: &Path, id: &str) -> Result<Option<VerifyOutcome>> {
+pub fn verify(subject: &Path, id: &str, use_cache: bool) -> Result<Option<VerifyOutcome>> {
     let (companion, items) = resolve(subject)?;
     let state = draft::load(&companion)?;
     let Some(item) = items.iter().find(|i| i.id == id) else {
@@ -204,6 +209,9 @@ pub fn verify(subject: &Path, id: &str) -> Result<Option<VerifyOutcome>> {
         return finish(
             subject,
             &companion,
+            // An asserted-only verdict is whole-subject (the member-crate / model targeting is a
+            // formal-path concern), so its scope is the subject itself.
+            subject,
             verdict,
             false,
             false,
@@ -258,6 +266,28 @@ pub fn verify(subject: &Path, id: &str) -> Result<Option<VerifyOutcome>> {
         tool_version: env!("CARGO_PKG_VERSION").to_string(),
         verified_scope: verified_scope(&companion, id, &requirement, subject, &code_root),
     };
+
+    // Incremental verify (REQ091): the grounding dry-run above is cheap, but the ensemble below is
+    // the minutes-long part. When a stored verdict exists and every axis that determines it is
+    // unchanged — judged against the same fingerprints `finish` stamps, with the code axis read from
+    // the *working tree* so an uncommitted edit is a miss — serve it instead of re-running.
+    if use_cache {
+        let current = current_provenance(
+            subject,
+            &companion,
+            &code_root,
+            &provenance,
+            draft,
+            &resolved,
+        );
+        let store = crate::verdict_store::load(&companion)?;
+        if let Some(stored) = store.verdicts.get(id)
+            && crate::verdict_store::reusable(stored, &current)
+        {
+            return Ok(Some(VerifyOutcome::Cached(stored.clone())));
+        }
+    }
+
     // Only a GROUNDED requirement reaches an engine: an unresolved binding means there is nothing
     // to check the claim through (R-ground-1). Tagged evidence needs no grounding — it is a test a
     // human vouched for — so it is merged whether or not the formal claim grounded, and can rescue
@@ -295,6 +325,7 @@ pub fn verify(subject: &Path, id: &str) -> Result<Option<VerifyOutcome>> {
     finish(
         subject,
         &companion,
+        &code_root,
         verdict,
         grounded,
         stale,
@@ -303,6 +334,35 @@ pub fn verify(subject: &Path, id: &str) -> Result<Option<VerifyOutcome>> {
         Some(&resolved),
     )
     .map(Some)
+}
+
+/// The provenance a fresh run *would* stamp, built up front so the incremental path can compare it
+/// to the stored verdict's before deciding to run (REQ091). Every field here is computed by the
+/// same function [`finish`] uses, so a cache hit means the stored verdict is byte-for-byte what a
+/// re-run would record. Only the axes [`crate::verdict_store::reusable`] consults are populated
+/// honestly; the rest are left at the report default it ignores.
+fn current_provenance(
+    subject: &Path,
+    companion: &Path,
+    code_root: &Path,
+    base: &Provenance,
+    draft: &draft::Draft,
+    resolved: &grounding::Resolutions,
+) -> crate::verdict::ProvenanceReport {
+    crate::verdict::ProvenanceReport {
+        requirement_revision: base.requirement_revision.clone(),
+        subject_commit: base.subject_commit.clone(),
+        tool_version: base.tool_version.clone(),
+        verified_scope: base.verified_scope.clone(),
+        formalization: draft::formal_fingerprint(draft),
+        environment: Some(crate::proving_env::ProvingEnv::current(companion)),
+        spec_fingerprint: resolved.spec_fingerprint.clone(),
+        trace_fingerprint: crate::monitor::current_fingerprint(subject, companion),
+        ui_fingerprint: crate::ui::current_fingerprint(companion),
+        source_fingerprint: None,
+        tagged_source_fingerprint: None,
+        scope_fingerprint: scope_fingerprint(subject, code_root),
+    }
 }
 
 /// Stamp the drift fingerprints on the verdict's stored copy, persist it (REQ039 — the verdict
@@ -314,6 +374,7 @@ pub fn verify(subject: &Path, id: &str) -> Result<Option<VerifyOutcome>> {
 fn finish(
     subject: &Path,
     companion: &Path,
+    code_root: &Path,
     verdict: Verdict,
     grounded: bool,
     stale: bool,
@@ -331,6 +392,9 @@ fn finish(
     // The precise tagged-source axis (Phase 4c): the whole-tree source fingerprint already stales
     // this verdict when a tagged file changes, but this pins exactly which tagged source backed it.
     report.provenance.tagged_source_fingerprint = tagged_source_fingerprint(subject, &verdict);
+    // The working-tree code hash is the incremental cache key (REQ091) — stamped the same way the
+    // cache check reads it, so the next `verify` can tell an unchanged scope from a moved one.
+    report.provenance.scope_fingerprint = scope_fingerprint(subject, code_root);
     let store = crate::verdict_store::load(companion)?;
     // The prior stored status, read before the record overwrites it, is what makes the artifact
     // breadcrumb (below) an event and not a per-run trace.
@@ -836,30 +900,7 @@ pub fn subject_source_fingerprint(subject: &Path) -> Option<String> {
         .ok()
         .filter(|o| o.status.success())?;
 
-    // The records whose drift other axes own, relative to the subject root. Best-effort like the
-    // listing itself: an unadopted subject simply has no companion to exclude.
-    let mut excluded: Vec<std::path::PathBuf> = Vec::new();
-    if let Ok(Some(companion)) = crate::adopt::find_companion(subject)
-        && let Ok(rel) = companion.strip_prefix(subject)
-    {
-        excluded.push(rel.to_path_buf());
-    }
-    if let Ok(docs) = crate::doorstop::discover(subject) {
-        for doc in docs {
-            if let Ok(rel) = doc.dir.strip_prefix(subject) {
-                excluded.push(rel.to_path_buf());
-            }
-        }
-    }
-    // Requirement prose belongs to the per-item revision axis whatever format it is stored in, so
-    // the exclusion follows the requirements rather than one storage layout. Asked of both sources
-    // rather than of the resolved one: a subject part-way through a migration holds both, and a
-    // requirement left out of this list stales every verdict the moment it is edited (#296).
-    for dir in crate::provreq::discover(subject) {
-        if let Ok(rel) = dir.strip_prefix(subject) {
-            excluded.push(rel.to_path_buf());
-        }
-    }
+    let excluded = subject_record_dirs(subject);
 
     let text = String::from_utf8_lossy(&listing.stdout);
     let filtered: Vec<&str> = text
@@ -872,6 +913,94 @@ pub fn subject_source_fingerprint(subject: &Path) -> Option<String> {
         })
         .collect();
     hash_lines(&filtered)
+}
+
+/// The subject-relative directories whose contents belong to another drift axis, not to the code:
+/// the companion tree (the store's own persistence), the doorstop document dirs, and the Provreq
+/// requirement collections (the per-item revision axis owns their prose). Shared by the HEAD source
+/// fingerprint and the working-tree [`scope_fingerprint`] so the two exclude exactly the same records
+/// — a file in this set must never move either fingerprint, or storing a verdict would stale it.
+fn subject_record_dirs(subject: &Path) -> Vec<PathBuf> {
+    let mut excluded: Vec<PathBuf> = Vec::new();
+    if let Ok(Some(companion)) = crate::adopt::find_companion(subject)
+        && let Ok(rel) = companion.strip_prefix(subject)
+    {
+        excluded.push(rel.to_path_buf());
+    }
+    if let Ok(docs) = crate::doorstop::discover(subject) {
+        for doc in docs {
+            if let Ok(rel) = doc.dir.strip_prefix(subject) {
+                excluded.push(rel.to_path_buf());
+            }
+        }
+    }
+    // Asked of both sources rather than the resolved one: a subject part-way through a migration
+    // holds both, and a requirement left out of this list stales every verdict the moment it is
+    // edited (#296).
+    for dir in crate::provreq::discover(subject) {
+        if let Ok(rel) = dir.strip_prefix(subject) {
+            excluded.push(rel.to_path_buf());
+        }
+    }
+    excluded
+}
+
+/// A fingerprint of the code a verdict covers, taken over the **working tree** (REQ091) — the cache
+/// key the incremental `verify` compares. Walks `code_root` on disk (not HEAD), applying the one
+/// shared pruning rule ([`crate::subject_tree`]) and excluding the record dirs
+/// ([`subject_record_dirs`]) exactly as the HEAD source fingerprint does, then content-hashes the
+/// surviving files' paths and bytes. Reading the working tree is the whole point: an uncommitted
+/// edit to the covered code must be a cache miss, so a stored verdict is never served against code
+/// the tree already contradicts. `None` — and so never a cache hit — when `code_root` cannot be
+/// walked.
+///
+/// The scope is `code_root`, which on today's single-crate subjects is the whole subject; a
+/// `verify.crate` member crate (#484) narrows it. ponytail: this over-approximates — it covers the
+/// whole scope unit, not only the exact items `verified_scope` names. Narrowing it to those items
+/// would skip more re-runs, but demands call-graph analysis to stay sound (a changed helper outside
+/// the named set still affects the proof); it is a safe refinement, not a correctness fix, and waits
+/// for a subject where crate-level scoping is not already the whole subject (#483).
+fn scope_fingerprint(subject: &Path, code_root: &Path) -> Option<String> {
+    if !code_root.is_dir() {
+        return None;
+    }
+    let excluded = subject_record_dirs(subject);
+    let is_excluded = |path: &Path| {
+        path.strip_prefix(subject)
+            .map(|rel| excluded.iter().any(|ex| rel.starts_with(ex)))
+            .unwrap_or(false)
+    };
+
+    let mut files: Vec<PathBuf> = walkdir::WalkDir::new(code_root)
+        .sort_by_file_name()
+        .into_iter()
+        .filter_entry(|e| {
+            if e.file_type().is_dir() {
+                !crate::subject_tree::is_pruned_dir(e.path(), e.depth()) && !is_excluded(e.path())
+            } else {
+                !crate::subject_tree::is_pruned_file(e.path())
+            }
+        })
+        .filter_map(|e| e.ok())
+        .filter(|e| e.file_type().is_file() && !is_excluded(e.path()))
+        .map(|e| e.into_path())
+        .collect();
+    files.sort();
+
+    // The same blob shape `tagged_source_fingerprint` uses: each file's scope-relative path then its
+    // bytes, NUL-separated, through the shared content hash. Path-relative to `code_root` so moving
+    // the subject on disk does not change the fingerprint.
+    let mut blob = String::new();
+    for file in &files {
+        let rel = file.strip_prefix(code_root).unwrap_or(file);
+        blob.push_str(&rel.to_string_lossy());
+        blob.push('\0');
+        if let Ok(bytes) = std::fs::read(file) {
+            blob.push_str(&String::from_utf8_lossy(&bytes));
+        }
+        blob.push('\0');
+    }
+    Some(crate::source::content_hash(&blob))
 }
 
 /// Hash a listing through `git hash-object --stdin` — content-addressed and stable across runs,
@@ -926,7 +1055,7 @@ mod tests {
     #[test]
     fn unknown_id_is_none() {
         let subject = adopted_subject_with_one_item();
-        let out = verify(subject.path(), "REQ999").unwrap();
+        let out = verify(subject.path(), "REQ999", false).unwrap();
         assert!(out.is_none());
     }
 
@@ -1065,7 +1194,7 @@ mod tests {
     #[test]
     fn undrafted_item_is_no_draft() {
         let subject = adopted_subject_with_one_item();
-        let out = verify(subject.path(), "REQ001").unwrap().unwrap();
+        let out = verify(subject.path(), "REQ001", false).unwrap().unwrap();
         assert!(matches!(out, VerifyOutcome::NoDraft), "got {out:?}");
     }
 
@@ -1073,7 +1202,7 @@ mod tests {
     #[test]
     fn unadopted_subject_is_error() {
         let empty = tempfile::tempdir().unwrap();
-        assert!(verify(empty.path(), "REQ001").is_err());
+        assert!(verify(empty.path(), "REQ001", false).is_err());
     }
 
     // Verifies: REQ071 / #271 — the fingerprint covers the tracked source and nothing the other
@@ -1143,6 +1272,46 @@ mod tests {
             Some(&base),
             "source movement must be visible"
         );
+    }
+
+    // Verifies: REQ091 — the scope fingerprint reads the working tree (so an uncommitted edit is a
+    // cache miss, unlike the HEAD source fingerprint), prunes the build/OS-record trees by the one
+    // shared rule, and is stable when nothing under the scope changed. No git: it is deliberately
+    // blind to commits and alive to the files on disk.
+    #[test]
+    fn scope_fingerprint_tracks_the_working_tree_and_prunes_noise() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        std::fs::create_dir_all(root.join("src")).unwrap();
+        std::fs::write(root.join("src/lib.rs"), "fn a() {}\n").unwrap();
+
+        let base = scope_fingerprint(root, root).expect("a readable dir has a fingerprint");
+        assert_eq!(
+            scope_fingerprint(root, root).as_ref(),
+            Some(&base),
+            "stable when nothing changed"
+        );
+
+        // A pruned build tree and an OS record file are not the subject's code.
+        std::fs::create_dir_all(root.join("target")).unwrap();
+        std::fs::write(root.join("target/junk"), "artifact\n").unwrap();
+        std::fs::write(root.join("src/.DS_Store"), "junk").unwrap();
+        assert_eq!(
+            scope_fingerprint(root, root).as_ref(),
+            Some(&base),
+            "pruned build output and OS records do not move the scope hash"
+        );
+
+        // An UNCOMMITTED edit to covered code moves it — the reason the cache reads the tree, not HEAD.
+        std::fs::write(root.join("src/lib.rs"), "fn a() { let _ = 1; }\n").unwrap();
+        assert_ne!(
+            scope_fingerprint(root, root).as_ref(),
+            Some(&base),
+            "an uncommitted source edit must be a cache miss"
+        );
+
+        // A scope that cannot be read is None — never a stale hit.
+        assert_eq!(scope_fingerprint(root, &root.join("nope")), None);
     }
 
     // Verifies: REQ071 / #296 — the same exemption, for a subject storing requirements as Provreq
