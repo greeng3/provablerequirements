@@ -360,8 +360,10 @@ pub fn view(
 ///   was proved does not change *what* was proved, but a different engine or version can.
 ///
 /// Every other determining axis (requirement revision, formalization, out-of-subject spec/trace/UI,
-/// tool version) must match exactly. `tagged_source_fingerprint` is not compared on its own: a tagged
-/// test is a file under the scope, so a change to it already moves `scope_fingerprint`.
+/// tool version) must match exactly. `tagged_source_fingerprint` is compared too (#508): under
+/// `verify.crate` narrowing a tagged test can live outside the scoped crate, so `scope_fingerprint`
+/// does not always cover it — a plain `==` catches an edited or removed tagged test while leaving a
+/// formal-only verdict (no tagged source on either side, both `None`) cacheable.
 pub fn reusable(stored: &VerdictReport, current: &crate::verdict::ProvenanceReport) -> bool {
     let s = &stored.provenance;
     // The code axis: both sides must carry a working-tree scope hash and agree. A missing hash on
@@ -380,6 +382,7 @@ pub fn reusable(stored: &VerdictReport, current: &crate::verdict::ProvenanceRepo
         && s.spec_fingerprint == current.spec_fingerprint
         && s.trace_fingerprint == current.trace_fingerprint
         && s.ui_fingerprint == current.ui_fingerprint
+        && s.tagged_source_fingerprint == current.tagged_source_fingerprint
         && s.tool_version == current.tool_version
         && engines(s) == engines(current)
 }
@@ -932,6 +935,7 @@ mod tests {
     fn reusable_pair() -> (VerdictReport, ProvenanceReport) {
         let mut v = stored("r1", Some("abc"), "0.0.1");
         v.provenance.scope_fingerprint = Some("scope-1".into());
+        v.provenance.tagged_source_fingerprint = Some("tagged-1".into());
         v.provenance.formalization = Some("fp-1".into());
         v.provenance.environment = Some(env(Some("lab-1"), &["Kani 0.67.0"]));
         (v.clone(), v.provenance)
@@ -987,6 +991,32 @@ mod tests {
             apply(&mut current);
             assert!(!reusable(&stored, &current), "a moved axis must re-run");
         }
+    }
+
+    // Verifies: REQ091 / #508 — a change to a tagged test the asserted evidence rests on is a miss,
+    // even when `scope_fingerprint` is unchanged. Under `verify.crate` narrowing a tagged test can
+    // live outside the scoped crate, so the scope hash does not move when it changes; the cache must
+    // not serve the old (passing) verdict a fresh run of that test could contradict.
+    #[test]
+    fn a_tagged_source_edit_is_a_cache_miss() {
+        let (stored, mut current) = reusable_pair();
+        current.tagged_source_fingerprint = Some("tagged-2".into());
+        assert!(!reusable(&stored, &current));
+
+        // A tagged test removed since the verdict (Some → None) is likewise a miss.
+        let (stored, mut current) = reusable_pair();
+        current.tagged_source_fingerprint = None;
+        assert!(!reusable(&stored, &current));
+    }
+
+    // Verifies: REQ091 — a verdict with no tagged evidence on either side (both None) is unaffected
+    // by this axis and stays cacheable: a formal-only verdict has no tagged source to drift.
+    #[test]
+    fn no_tagged_evidence_is_still_a_hit() {
+        let (mut stored, mut current) = reusable_pair();
+        stored.provenance.tagged_source_fingerprint = None;
+        current.tagged_source_fingerprint = None;
+        assert!(reusable(&stored, &current));
     }
 
     // Verifies: REQ091 — the axes that move merely because the verdict record was committed do not
