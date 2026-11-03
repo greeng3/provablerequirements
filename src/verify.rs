@@ -173,6 +173,18 @@ pub enum VerifyOutcome {
 /// (a 409). Runs the engine ensemble when the requirement is grounded, else records an honest
 /// unknown — it never fabricates a pass and never mutates the subject.
 pub fn verify(subject: &Path, id: &str, use_cache: bool) -> Result<Option<VerifyOutcome>> {
+    verify_with(subject, id, use_cache, true)
+}
+
+/// As [`verify`], but `persist` chooses whether a fresh run records its verdict. `provreq gate`
+/// (REQ092) re-verifies with `persist = false` so checking for a regression never mutates the
+/// working-tree `verdicts.yml` it compares against (#510); every other caller records.
+pub fn verify_with(
+    subject: &Path,
+    id: &str,
+    use_cache: bool,
+    persist: bool,
+) -> Result<Option<VerifyOutcome>> {
     let (companion, items) = resolve(subject)?;
     let state = draft::load(&companion)?;
     let Some(item) = items.iter().find(|i| i.id == id) else {
@@ -218,6 +230,7 @@ pub fn verify(subject: &Path, id: &str, use_cache: bool) -> Result<Option<Verify
             BTreeMap::new(),
             None,
             None,
+            persist,
         )
         .map(Some);
     };
@@ -333,6 +346,7 @@ pub fn verify(subject: &Path, id: &str, use_cache: bool) -> Result<Option<Verify
         resolved.code.clone(),
         Some(draft),
         Some(&resolved),
+        persist,
     )
     .map(Some)
 }
@@ -385,34 +399,41 @@ fn finish(
     resolutions: BTreeMap<String, Resolution>,
     draft: Option<&draft::Draft>,
     resolved: Option<&grounding::Resolutions>,
+    persist: bool,
 ) -> Result<VerifyOutcome> {
-    let mut report = verdict::report(&verdict);
-    report.provenance.formalization = draft.and_then(draft::formal_fingerprint);
-    report.provenance.environment = Some(crate::proving_env::ProvingEnv::current(companion));
-    report.provenance.spec_fingerprint = resolved.and_then(|r| r.spec_fingerprint.clone());
-    report.provenance.trace_fingerprint = crate::monitor::current_fingerprint(subject, companion);
-    report.provenance.ui_fingerprint = crate::ui::current_fingerprint(companion);
-    report.provenance.source_fingerprint = subject_source_fingerprint(subject);
-    // The precise tagged-source axis (Phase 4c): the whole-tree source fingerprint already stales
-    // this verdict when a tagged file changes, but this pins exactly which tagged source backed it.
-    report.provenance.tagged_source_fingerprint = tagged_source_fingerprint(subject, &verdict);
-    // The working-tree code hash is the incremental cache key (REQ091) — stamped the same way the
-    // cache check reads it, so the next `verify` can tell an unchanged scope from a moved one.
-    report.provenance.scope_fingerprint = scope_fingerprint(subject, code_root);
-    let store = crate::verdict_store::load(companion)?;
-    // The prior stored status, read before the record overwrites it, is what makes the artifact
-    // breadcrumb (below) an event and not a per-run trace.
-    let prior_status = store.verdicts.get(&report.id).map(|v| v.status.clone());
-    let breadcrumb = crate::provreq::VerdictBreadcrumb {
-        status: report.status.clone(),
-        basis: report.basis.clone(),
-        correspondence: report.correspondence.clone(),
-        at_unix: chrono::Utc::now().timestamp(),
-    };
-    let id = report.id.clone();
-    let recorded = crate::verdict_store::record(&store, report);
-    crate::verdict_store::save(companion, &recorded)?;
-    record_verdict_breadcrumb(subject, &id, prior_status.as_deref(), &breadcrumb)?;
+    // The gate re-verifies with `persist = false` (#510): compute the outcome and write nothing, so
+    // checking for a regression never mutates the `verdicts.yml` it compares against. The fingerprint
+    // stamping and store write are the only side effects, so both live inside this guard.
+    if persist {
+        let mut report = verdict::report(&verdict);
+        report.provenance.formalization = draft.and_then(draft::formal_fingerprint);
+        report.provenance.environment = Some(crate::proving_env::ProvingEnv::current(companion));
+        report.provenance.spec_fingerprint = resolved.and_then(|r| r.spec_fingerprint.clone());
+        report.provenance.trace_fingerprint =
+            crate::monitor::current_fingerprint(subject, companion);
+        report.provenance.ui_fingerprint = crate::ui::current_fingerprint(companion);
+        report.provenance.source_fingerprint = subject_source_fingerprint(subject);
+        // The precise tagged-source axis (Phase 4c): the whole-tree source fingerprint already stales
+        // this verdict when a tagged file changes, but this pins exactly which tagged source backed it.
+        report.provenance.tagged_source_fingerprint = tagged_source_fingerprint(subject, &verdict);
+        // The working-tree code hash is the incremental cache key (REQ091) — stamped the same way the
+        // cache check reads it, so the next `verify` can tell an unchanged scope from a moved one.
+        report.provenance.scope_fingerprint = scope_fingerprint(subject, code_root);
+        let store = crate::verdict_store::load(companion)?;
+        // The prior stored status, read before the record overwrites it, is what makes the artifact
+        // breadcrumb (below) an event and not a per-run trace.
+        let prior_status = store.verdicts.get(&report.id).map(|v| v.status.clone());
+        let breadcrumb = crate::provreq::VerdictBreadcrumb {
+            status: report.status.clone(),
+            basis: report.basis.clone(),
+            correspondence: report.correspondence.clone(),
+            at_unix: chrono::Utc::now().timestamp(),
+        };
+        let id = report.id.clone();
+        let recorded = crate::verdict_store::record(&store, report);
+        crate::verdict_store::save(companion, &recorded)?;
+        record_verdict_breadcrumb(subject, &id, prior_status.as_deref(), &breadcrumb)?;
+    }
     Ok(VerifyOutcome::Verdict {
         verdict,
         stale,
@@ -1424,6 +1445,64 @@ mod tests {
     }
 
     /// A minimal adopted subject with one item and no drafts — mirrors the server test fixture.
+    // Verifies: REQ092 / #510 — the gate's re-verify mode (`persist = false`) computes a verdict
+    // without writing the store, so gating a regression never mutates the working-tree `verdicts.yml`
+    // it checks against. The persisting mode (`persist = true`, the default `verify`) still records.
+    #[test]
+    fn finish_persist_flag_controls_whether_the_store_is_written() {
+        let subject = adopted_subject_with_one_item();
+        let (companion, _) = resolve(subject.path()).unwrap();
+        let provenance = Provenance {
+            requirement_revision: "r1".into(),
+            subject_commit: None,
+            tool_version: "0.0.0".into(),
+            verified_scope: None,
+        };
+        let verdict = verdict::no_engine("REQ001", vec!["no engine here".into()], provenance);
+
+        finish(
+            subject.path(),
+            &companion,
+            subject.path(),
+            verdict.clone(),
+            false,
+            false,
+            BTreeMap::new(),
+            None,
+            None,
+            false,
+        )
+        .unwrap();
+        assert!(
+            crate::verdict_store::load(&companion)
+                .unwrap()
+                .verdicts
+                .is_empty(),
+            "persist = false must not write the store"
+        );
+
+        finish(
+            subject.path(),
+            &companion,
+            subject.path(),
+            verdict,
+            false,
+            false,
+            BTreeMap::new(),
+            None,
+            None,
+            true,
+        )
+        .unwrap();
+        assert!(
+            crate::verdict_store::load(&companion)
+                .unwrap()
+                .verdicts
+                .contains_key("REQ001"),
+            "persist = true records the verdict"
+        );
+    }
+
     fn adopted_subject_with_one_item() -> tempfile::TempDir {
         use std::fs;
         let dir = tempfile::tempdir().unwrap();

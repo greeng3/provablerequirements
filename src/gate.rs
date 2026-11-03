@@ -51,9 +51,12 @@ pub struct Regression {
 }
 
 /// The trust rungs ranked strongest-first (REQ091/#498 tier), so a downgrade is a strict drop. An
-/// absent or unrecognised basis is 0 — a record written by a future rung is never *mis-ranked* as a
-/// downgrade, it simply ranks lowest and a `holds→holds` with an unreadable new basis is caught only
-/// if it actually scores lower.
+/// absent or unrecognised basis ranks 0 — the lowest. Under `--strict-tier` this means a
+/// `holds→holds` whose *current* basis this binary does not recognise (e.g. a rung added by a newer
+/// provreq that wrote the verdict) scores below a known baseline rung and is reported as a downgrade,
+/// even if it is in fact stronger. That is the safe direction for an enforcement gate — it
+/// over-blocks rather than letting an unreadable tier through — and clears once the gate runs with
+/// tooling new enough to rank the basis.
 fn basis_rank(basis: Option<&str>) -> u8 {
     match basis {
         Some("proven") => 3,

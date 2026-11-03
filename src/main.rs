@@ -521,7 +521,10 @@ fn run_gate(subject: &Path, base: &str, strict_tier: bool, no_cache: bool) -> Re
     let mut vanished = Vec::new();
     for base_verdict in passing {
         let id = &base_verdict.id;
-        let Some(outcome) = provreq::verify::verify(subject, id, !no_cache)? else {
+        // Re-verify without recording (#510): the gate is a check, not a writer — it must not mutate
+        // the `verdicts.yml` it compares against, or a blocked run could leave a regressed verdict on
+        // disk to be committed and silently baked into the next run's baseline.
+        let Some(outcome) = provreq::verify::verify_with(subject, id, !no_cache, false)? else {
             // The baseline proved a requirement the subject no longer contains. Its proof is moot,
             // not regressed — reported so the drift is visible, but not a hard failure.
             vanished.push(id.clone());
