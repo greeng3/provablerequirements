@@ -279,6 +279,7 @@ pub fn verify(subject: &Path, id: &str, use_cache: bool) -> Result<Option<Verify
             &provenance,
             draft,
             &resolved,
+            &tagged,
         );
         let store = crate::verdict_store::load(&companion)?;
         if let Some(stored) = store.verdicts.get(id)
@@ -348,6 +349,7 @@ fn current_provenance(
     base: &Provenance,
     draft: &draft::Draft,
     resolved: &grounding::Resolutions,
+    tagged: &[verdict::Evidence],
 ) -> crate::verdict::ProvenanceReport {
     crate::verdict::ProvenanceReport {
         requirement_revision: base.requirement_revision.clone(),
@@ -360,7 +362,9 @@ fn current_provenance(
         trace_fingerprint: crate::monitor::current_fingerprint(subject, companion),
         ui_fingerprint: crate::ui::current_fingerprint(companion),
         source_fingerprint: None,
-        tagged_source_fingerprint: None,
+        // The tagged-source axis a `verify.crate`-narrowed scope hash does not always cover (#508):
+        // computed from the freshly-collected tagged evidence so it equals what `finish` stamps.
+        tagged_source_fingerprint: tagged_source_fingerprint_of(subject, tagged),
         scope_fingerprint: scope_fingerprint(subject, code_root),
     }
 }
@@ -477,8 +481,16 @@ fn canonical_id(id: &str) -> String {
 /// subject-relative locations; a file that cannot be read contributes its path but no content, so
 /// the axis still moves if the file later appears or disappears.
 fn tagged_source_fingerprint(subject: &Path, verdict: &Verdict) -> Option<String> {
-    let mut files: Vec<&std::path::PathBuf> = verdict
-        .evidence
+    tagged_source_fingerprint_of(subject, &verdict.evidence)
+}
+
+/// The tagged-source fingerprint over a slice of evidence — the shared core of
+/// [`tagged_source_fingerprint`], so the incremental cache check can compute the *current* value
+/// from the freshly-collected tagged evidence before a verdict exists (#508), matching byte-for-byte
+/// what `finish` later stamps from the full verdict. Only asserted (tagged) evidence carries a
+/// `source_location`, so taking the whole verdict or just the tagged vec yields the same hash.
+fn tagged_source_fingerprint_of(subject: &Path, evidence: &[verdict::Evidence]) -> Option<String> {
+    let mut files: Vec<&std::path::PathBuf> = evidence
         .iter()
         .filter_map(|e| e.source_location.as_ref().map(|l| &l.file))
         .collect();
