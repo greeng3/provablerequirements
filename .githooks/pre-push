@@ -1,0 +1,9 @@
+#!/bin/sh
+# Pre-push gate — the Rust checks the CI `test` job runs (cargo fmt --check,
+# clippy -D warnings, cargo test --all), so a push cannot land a failure the
+# pre-commit gate does not cover. These are too slow for every commit, which is
+# why they run here at push time rather than in pre-commit.
+# Enable with: make setup-hooks
+set -e
+
+make --no-print-directory rust-check

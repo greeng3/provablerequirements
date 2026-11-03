@@ -161,4 +161,6 @@ pre-merge:
 
 setup-hooks:
 	@git config core.hooksPath .githooks
-	@echo "Installed: core.hooksPath -> .githooks (pre-commit runs fmt-check, lint, check-requirements)"
+	@echo "Installed: core.hooksPath -> .githooks"
+	@echo "  pre-commit: fmt-check, lint, check-requirements"
+	@echo "  pre-push:   rust-check (cargo fmt --check, clippy -D warnings, cargo test --all)"
