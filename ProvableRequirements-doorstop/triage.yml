@@ -1,5 +1,41 @@
 schema: 1
 items:
+  ART001:
+    classification: formalizable-now
+    revision: 9d2321a4f5c29fcf194e312b09c8d5cfa42bb5e8c89d3942a903164ac187d367
+    origin: classified
+  ART002:
+    classification: formalizable-now
+    revision: 819eee56d3e08a78abbfd675e9d52434b67c3b8be2c29de799c2d132e201acf0
+    origin: classified
+  ART003:
+    classification: formalizable-now
+    revision: da32b82bf0d1e0ca2cb2bd20da88f61b7b8466f4ca99ef95c79f0d69abed8a56
+    origin: classified
+  ART004:
+    classification: formalizable-now
+    revision: 02224be154f65de9f2db9443505bc1af889e419a4086fa06e4e94cf2d746a8f0
+    origin: classified
+  ART005:
+    classification: falsifiable-only
+    revision: 5b3ae94bed756ab91202c6d63ccf1fad6de7881bc9b015e80cdbde6540fb79a3
+    origin: classified
+  ART006:
+    classification: falsifiable-only
+    revision: 046d968b773afcf0073ffe28fc7a2fcd43626c9f61148e439c552544f885becc
+    origin: classified
+  ART007:
+    classification: formalizable-now
+    revision: 1b9d8ac3a510935f43b6a7e74bc6ea741c358f4f8caee3b6f2be223cf7664c70
+    origin: classified
+  ART008:
+    classification: formalizable-now
+    revision: c5be9bb92b46c6abe974e2bbfc7da6f8d269fefa22278b6d6f0469b22fd6775c
+    origin: classified
+  ART009:
+    classification: stays-prose
+    revision: 25f35c25931fb80f875f600ed4aa84d4a7de4c0040a978083bb20d729901151d
+    origin: classified
   REQ001:
     classification: stays-prose
     revision: 7d7977514f3dcda1
@@ -186,7 +222,7 @@ items:
     origin: classified
   REQ047:
     classification: formalizable-now
-    revision: 17cf6ac844159fbe
+    revision: 13410d4f1074780cffb1f7dbfb176884579227de5576b494c9b73fcc5f3a5fec
     origin: demonstrated
   REQ048:
     classification: formalizable-now
@@ -283,4 +319,88 @@ items:
   REQ071:
     classification: formalizable-now
     revision: e3e80250573d5c99
+    origin: classified
+  REQ072:
+    classification: formalizable-now
+    revision: 66d3de0592be3e68fee44f5dd705e978b7a33cf754e494e13c784126adeebc19
+    origin: classified
+  REQ073:
+    classification: formalizable-now
+    revision: 604fa9d1a1f51be4f3c74b94d1fb4ed1ead445a3ab8a57c035a01e6114428e58
+    origin: classified
+  REQ074:
+    classification: formalizable-now
+    revision: c9685dd5e0fde367f38e976bf5445833f122b7c2bc0651a5e09001e05704d111
+    origin: classified
+  REQ075:
+    classification: formalizable-now
+    revision: 4e06e4dba43b3b587b2261c3b3e0eae1829bf8b2e93d2d51c823fc37ea5d5ff0
+    origin: classified
+  REQ076:
+    classification: formalizable-now
+    revision: fa8b0dc2ec423538fbd417a50416388e7aa772ecbfad6f622372156946ed4c9a
+    origin: classified
+  REQ077:
+    classification: formalizable-now
+    revision: 1dd009c568ce9894640778252017dc75ce47f448a829bae54b832596e3ee222e
+    origin: classified
+  REQ078:
+    classification: formalizable-now
+    revision: cc065379d103e4b80faea7f0b7bfa79d3fe338c91b45329c073868f44cc71d03
+    origin: classified
+  REQ079:
+    classification: formalizable-now
+    revision: d9e0aba34a9ca4958eb05c417bf525b822952b9ccdfaf2e69fd85f6d08c537a5
+    origin: classified
+  REQ080:
+    classification: formalizable-now
+    revision: fa4191ae8cb104c99fce5defa3059662c76e28cc2af6c3397e8d6a21efc7a08e
+    origin: classified
+  REQ081:
+    classification: formalizable-now
+    revision: 38376473b6f8280c88a83df0e7a7ace1358a089f91a26dd1a0efd5c474010cfd
+    origin: classified
+  REQ082:
+    classification: falsifiable-only
+    revision: d9c4d2eb5e6cd1d20d3b1bf4a062a1014e1d06c768fab918d60c945d1a1357f2
+    origin: classified
+  REQ083:
+    classification: formalizable-now
+    revision: 542a3001a3bfc280f73c515e909b3c3c789d58e8414b4a2752a1235ca42c17d0
+    origin: classified
+  REQ084:
+    classification: falsifiable-only
+    revision: 2e7504bdd53d0d7eb8c0f3e8816334777b9564e1a48f38c0108ae6a702515c8c
+    origin: classified
+  REQ085:
+    classification: falsifiable-only
+    revision: 17801e26ead7d2ff46bddbc4e441ff98ef0c30594a19a6472c4cf9b76ac7e1a4
+    origin: classified
+  REQ086:
+    classification: formalizable-now
+    revision: 1fde46175e04d73bbd7d5874e987873e4e2a29eb043d5f74085ed471bc086e9d
+    origin: classified
+  REQ087:
+    classification: formalizable-now
+    revision: c7fc817b53db96f19e1f1791eb86bb7831814b54c8b5d21fdcc1fa4a89848794
+    origin: classified
+  REQ088:
+    classification: formalizable-now
+    revision: e9611f4159b5a7a1d63c8762d08aaa7e569c7e7f9d24d56ccba59a8ace020c38
+    origin: classified
+  REQ089:
+    classification: formalizable-now
+    revision: 02db6dca531f1d008e65ada0e75568826d100499ab1d72594aaeb7f15681b671
+    origin: classified
+  REQ090:
+    classification: formalizable-now
+    revision: 69b1b86b602f28bbf932d9a0dc935a5fac6e3f28d95b3ec6ddd50362be55b925
+    origin: classified
+  REQ091:
+    classification: formalizable-now
+    revision: c4f610a02e87d7064a0d39c9fef788c9af434637a22facd0e92902cd93db96d5
+    origin: classified
+  REQ092:
+    classification: formalizable-now
+    revision: 38e46c8fc056c6535f80f5a93a5fccf3bc4e2fbf1354039c75d9f7c7ac365b77
     origin: classified
