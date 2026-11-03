@@ -1,9 +1,14 @@
 #!/bin/sh
-# Pre-push gate — the Rust checks the CI `test` job runs (cargo fmt --check,
-# clippy -D warnings, cargo test --all), so a push cannot land a failure the
-# pre-commit gate does not cover. These are too slow for every commit, which is
+# Pre-push gate — mirror the CI checks that most often reject a push, so a
+# failure is caught here rather than in CI:
+#   - the `test` job's Rust checks (cargo fmt --check, clippy -D warnings, test)
+#   - the `gate` job's docs checks (prettier --check + markdownlint + yamllint)
+# The docs gate was the one that kept slipping through: committing provreq's
+# machine-written companion YAML re-reds `prettier --check` (#517), and
+# rust-check alone never ran it. Both are too slow for every commit, which is
 # why they run here at push time rather than in pre-commit.
 # Enable with: make setup-hooks
 set -e
 
 make --no-print-directory rust-check
+make --no-print-directory fmt-check lint
