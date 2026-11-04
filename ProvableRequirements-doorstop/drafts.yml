@@ -37,6 +37,29 @@ drafts:
       category: code
       observable: needs_reconfirmation
       fidelity: definitional
+  REQ030:
+    revision: 467e7570a79795b132e67f5862bdd3ada08ba90a67925565493152cbe4af9033
+    candidate: |-
+      requirement REQ030 { category: 1
+        vocabulary { state combine_is_sound(e: ProofEnsemble) }
+        require { always (combine_is_sound(e)) } }
+    gate:
+      status: passed
+      warnings: []
+    admission:
+      state: admitted
+      review: optional
+      by: greeng3
+      at_unix: 1793763069
+    bindings:
+    - symbol: ProofEnsemble
+      category: code
+      observable: ProofEnsemble
+      fidelity: definitional
+    - symbol: combine_is_sound
+      category: code
+      observable: combine_is_sound
+      fidelity: definitional
   REQ039:
     revision: 22aa2e3d49492502d368e1e988b2c218a035ae5e54259f00f96c4c7cecfe3833
     candidate: |-
