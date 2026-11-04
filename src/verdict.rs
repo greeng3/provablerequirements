@@ -357,6 +357,57 @@ pub fn no_engine(id: &str, detail: Vec<String>, provenance: Provenance) -> Verdi
 /// - Otherwise every engine was inconclusive → `unknown / inconclusive`.
 ///
 /// Implements: REQ030
+/// The pure outcome fold at the heart of [`aggregate`] (REQ030): from each engine's polarity and,
+/// for a holding engine, the rung it earned, decide the combined `(status, unknown-reason, basis)`.
+/// A refutation and a hold together are a divergence; any refutation refutes; otherwise a hold
+/// reports the strongest basis any holding engine earned; no evidence at all is inconclusive. There
+/// is deliberately no majority vote. Pure over the small verdict enums — no `Evidence`, no
+/// `String`s — so a bounded Kani harness can prove REQ030 against the real combiner.
+pub(crate) fn combine_outcome(
+    outcomes: &[(Status, Option<Basis>)],
+) -> (Status, Option<UnknownReason>, Option<Basis>) {
+    let any_holds = outcomes.iter().any(|(s, _)| *s == Status::Holds);
+    let any_fails = outcomes.iter().any(|(s, _)| *s == Status::Fails);
+    if any_holds && any_fails {
+        (Status::Unknown, Some(UnknownReason::Divergence), None)
+    } else if any_fails {
+        (Status::Fails, None, None)
+    } else if any_holds {
+        let basis = outcomes
+            .iter()
+            .filter_map(|(_, b)| *b)
+            .max_by_key(basis_rank);
+        (Status::Holds, None, basis)
+    } else {
+        (Status::Unknown, Some(UnknownReason::Inconclusive), None)
+    }
+}
+
+// Adoption step (REQ030): the quantified sorts a Kani harness for `combine_outcome` enumerates.
+// `#[cfg(kani)]` keeps them out of every ordinary build, test, and clippy run — they exist only
+// under `cargo kani`.
+#[cfg(kani)]
+impl kani::Arbitrary for Status {
+    fn any() -> Self {
+        match kani::any::<u8>() % 3 {
+            0 => Status::Holds,
+            1 => Status::Fails,
+            _ => Status::Unknown,
+        }
+    }
+}
+
+#[cfg(kani)]
+impl kani::Arbitrary for Basis {
+    fn any() -> Self {
+        match kani::any::<u8>() % 3 {
+            0 => Basis::Proven,
+            1 => Basis::ModelCheckedBounded,
+            _ => Basis::NotFalsified,
+        }
+    }
+}
+
 pub fn aggregate(id: &str, mut evidence: Vec<Evidence>, provenance: Provenance) -> Verdict {
     // Strongest-first, so every surface listing this evidence — the CLI `detail`, the web
     // VerifyPanel, the stored verdict — leads with the most decisive result and none can show a
@@ -365,32 +416,18 @@ pub fn aggregate(id: &str, mut evidence: Vec<Evidence>, provenance: Provenance) 
     // first. This orders the list; the *combined* basis is still the strongest rung (below).
     evidence.sort_by_key(|e| std::cmp::Reverse(evidence_rank(e)));
 
-    let any_holds = evidence.iter().any(|e| e.status == Status::Holds);
-    let any_fails = evidence.iter().any(|e| e.status == Status::Fails);
     let detail: Vec<String> = evidence.iter().flat_map(describe_evidence).collect();
 
-    let (status, reason, basis, witness) = if any_holds && any_fails {
-        (Status::Unknown, Some(UnknownReason::Divergence), None, None)
-    } else if any_fails {
-        (
-            Status::Fails,
-            None,
-            None,
-            evidence.iter().find_map(|e| e.witness.clone()),
-        )
-    } else if any_holds {
-        let basis = evidence
-            .iter()
-            .filter_map(|e| e.basis)
-            .max_by_key(basis_rank);
-        (Status::Holds, None, basis, None)
+    // The polarity/basis decision is the pure fold `combine_outcome` (REQ030) — extracted so a Kani
+    // harness proves the real combination, not a copy. The witness is a `String` the combiner does
+    // not touch: it is picked here from the first refutation (evidence is sorted refutations-first).
+    let outcomes: Vec<(Status, Option<Basis>)> =
+        evidence.iter().map(|e| (e.status, e.basis)).collect();
+    let (status, reason, basis) = combine_outcome(&outcomes);
+    let witness = if status == Status::Fails {
+        evidence.iter().find_map(|e| e.witness.clone())
     } else {
-        (
-            Status::Unknown,
-            Some(UnknownReason::Inconclusive),
-            None,
-            None,
-        )
+        None
     };
 
     let correspondence = decisive_correspondence(status, reason, &evidence);
@@ -1075,6 +1112,42 @@ mod tests {
     // Verifies: REQ030 / #481 — aggregated evidence is ordered strongest-first regardless of the
     // order engines ran, so every surface (the CLI `detail`, the web VerifyPanel) shows a proof
     // above a bounded check above an empirical observation, and `detail` follows the same order so
+    // Verifies: REQ030 — the pure combiner the Kani harness proves. Refutation+hold is a divergence
+    // (unknown), any refutation refutes, a hold reports the strongest basis, no evidence is
+    // inconclusive, and there is never a majority vote (two holds + one fail is NOT a hold).
+    #[test]
+    fn combine_outcome_is_refutation_wins_and_strongest_basis() {
+        use Status::*;
+        let h = |b| (Holds, Some(b));
+        // Divergence: a hold and a refutation together.
+        assert_eq!(
+            combine_outcome(&[h(Basis::Proven), (Fails, None)]),
+            (Unknown, Some(UnknownReason::Divergence), None)
+        );
+        // No majority vote: two holds do not outvote one refutation.
+        assert_eq!(
+            combine_outcome(&[
+                h(Basis::Proven),
+                h(Basis::ModelCheckedBounded),
+                (Fails, None)
+            ])
+            .0,
+            Unknown
+        );
+        // All holding: the strongest basis any engine earned.
+        assert_eq!(
+            combine_outcome(&[h(Basis::NotFalsified), h(Basis::Proven)]),
+            (Holds, None, Some(Basis::Proven))
+        );
+        // A bare refutation refutes.
+        assert_eq!(combine_outcome(&[(Fails, None)]).0, Fails);
+        // No evidence at all is inconclusive, never a silent hold.
+        assert_eq!(
+            combine_outcome(&[]),
+            (Unknown, Some(UnknownReason::Inconclusive), None)
+        );
+    }
+
     // the two surfaces cannot drift.
     #[test]
     fn aggregated_evidence_is_ordered_strongest_first() {
