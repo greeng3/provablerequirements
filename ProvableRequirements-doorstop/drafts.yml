@@ -17,26 +17,86 @@ drafts:
       by: greeng3
       at_unix: 1786054424
     bindings:
-      - symbol: Draft
-        category: code
-        observable: Draft
-        fidelity: definitional
-      - symbol: Item
-        category: code
-        observable: Item
-        fidelity: definitional
-      - symbol: is_stale
-        category: code
-        observable: is_stale
-        fidelity: definitional
-      - symbol: is_admitted
-        category: code
-        observable: Draft::is_admitted
-        fidelity: definitional
-      - symbol: needs_reconfirmation
-        category: code
-        observable: needs_reconfirmation
-        fidelity: definitional
+    - symbol: Draft
+      category: code
+      observable: Draft
+      fidelity: definitional
+    - symbol: Item
+      category: code
+      observable: Item
+      fidelity: definitional
+    - symbol: is_stale
+      category: code
+      observable: is_stale
+      fidelity: definitional
+    - symbol: is_admitted
+      category: code
+      observable: Draft::is_admitted
+      fidelity: definitional
+    - symbol: needs_reconfirmation
+      category: code
+      observable: needs_reconfirmation
+      fidelity: definitional
+  REQ039:
+    revision: 22aa2e3d49492502d368e1e988b2c218a035ae5e54259f00f96c4c7cecfe3833
+    candidate: |-
+      requirement verdict_freshness_tracks_provenance {
+        category: 2a
+        vocabulary {
+          state stored(i: Item)
+          state fresh(i: Item)
+          state drifted(i: Item)
+          state discarded(i: Item)
+          state hold(i: Item)
+          state counted_verified(i: Item)
+        }
+        assume { provenance_recorded(requirement_revision, subject_commit, tool_version) }
+        require {
+          each i: Item . never (drifted(i) and discarded(i))
+          each i: Item . never (counted_verified(i) and not stored(i))
+          each i: Item . never (counted_verified(i) and not (hold(i) and fresh(i)))
+        }
+        strength: model_checked over Model
+        evidence: tla+ (bounded: |Item| <= 4)
+      }
+    gate:
+      status: passed
+      warnings: []
+    admission:
+      state: admitted
+      review: optional
+      by: gg
+      at_unix: 1793749900
+    bindings: []
+  REQ045:
+    revision: f1566735a2241b3023f3e767e722f7bc0678796bca26f4bde7d6c8312dbb14ad
+    candidate: |-
+      requirement verdict_formalization_drift {
+        category: 2a
+        vocabulary {
+          state has_fingerprint(v: Verdict)
+          state admitted_fingerprint_matches(v: Verdict)
+          state drift_flagged(v: Verdict, reason: String)
+        }
+        assume { formalization_admission_is_authoritative }
+        require {
+          each v: Verdict .
+            never (has_fingerprint(v) and not admitted_fingerprint_matches(v) and not drift_flagged(v, "formalization_drift"))
+          each v: Verdict .
+            never (not has_fingerprint(v) and drift_flagged(v, "formalization_drift"))
+        }
+        strength: model_checked over Model
+        evidence: tla+ (bounded: |Verdict| <= 4)
+      }
+    gate:
+      status: passed
+      warnings: []
+    admission:
+      state: admitted
+      review: optional
+      by: gg
+      at_unix: 1793749856
+    bindings: []
   REQ047:
     revision: 17cf6ac844159fbe
     candidate: |-
@@ -53,19 +113,108 @@ drafts:
       by: greeng3
       at_unix: 1785439058
     bindings:
-      - symbol: EngineState
-        category: code
-        observable: EngineStatus
-        fidelity: definitional
-      - symbol: Flag
-        category: code
-        observable: bool
-        fidelity: definitional
-      - symbol: ready
-        category: code
-        observable: EngineStatus::is_ready
-        fidelity: definitional
-      - symbol: install_proceeds
-        category: code
-        observable: decide_install::Proceed
-        fidelity: definitional
+    - symbol: EngineState
+      category: code
+      observable: EngineStatus
+      fidelity: definitional
+    - symbol: Flag
+      category: code
+      observable: bool
+      fidelity: definitional
+    - symbol: ready
+      category: code
+      observable: EngineStatus::is_ready
+      fidelity: definitional
+    - symbol: install_proceeds
+      category: code
+      observable: decide_install::Proceed
+      fidelity: definitional
+  REQ049:
+    revision: 4f85143f954c0f55888bbc6c2d9c74e8b71d55dc0d105f6a92f42916acd95f6c
+    candidate: |-
+      requirement verdict_environment_drift {
+        category: 2a
+        vocabulary {
+          state has_environment(v: Verdict)
+          state environment_matches(v: Verdict)
+          state reported_drifted(v: Verdict)
+          state environment_from_declaration(v: Verdict)
+        }
+        require {
+          each v: Verdict . never (has_environment(v) and not environment_matches(v) and not reported_drifted(v))
+          each v: Verdict . never (not has_environment(v) and reported_drifted(v))
+          each v: Verdict . never (environment_from_declaration(v))
+        }
+        strength: model_checked over Model
+        evidence: tla+ (bounded: |Verdict| <= 4)
+      }
+    gate:
+      status: passed
+      warnings: []
+    admission:
+      state: admitted
+      review: optional
+      by: gg
+      at_unix: 1793749900
+    bindings: []
+  REQ091:
+    revision: c4f610a02e87d7064a0d39c9fef788c9af434637a22facd0e92902cd93db96d5
+    candidate: |-
+      requirement verdict_cache_sound {
+        category: 2a + 2b
+        vocabulary {
+          event verify_requested(r: Requirement)
+          event engine_run(r: Requirement)
+          event served_from_cache(r: Requirement)
+          event no_cache_flag(r: Requirement)
+          state provenance_unchanged(r: Requirement)
+          state provenance_moved(r: Requirement)
+        }
+        assume { fingerprint_covers_verified_scope(over_approximates = true) }
+        require {
+          each r: Requirement . never (served_from_cache(r) and provenance_moved(r))
+          each r: Requirement . never (served_from_cache(r) and no_cache_flag(r))
+          each r: Requirement . (verify_requested(r) and provenance_unchanged(r) and not no_cache_flag(r)) leads_to served_from_cache(r)
+          each r: Requirement . (verify_requested(r) and no_cache_flag(r)) leads_to engine_run(r)
+        }
+        strength: model_checked over Model, monitored(deadline = 30s)
+        evidence: tla+ (bounded: |Requirement| <= 3), monpoly(stream = verify.events)
+      }
+    gate:
+      status: passed
+      warnings: []
+    admission:
+      state: admitted
+      review: optional
+      by: gg
+      at_unix: 1793749646
+    bindings: []
+  REQ092:
+    revision: 38e46c8fc056c6535f80f5a93a5fccf3bc4e2fbf1354039c75d9f7c7ac365b77
+    candidate: |-
+      requirement gate_blocks_proven_regression {
+        category: 2b
+        vocabulary {
+          state proven_at_baseline(r: Requirement)
+          state holds_on_reverify(r: Requirement)
+          state fails_gate(r: Requirement)
+        }
+        assume { reverify_cache_served(REQ091), baseline_read_from_git_ref(HEAD) }
+        require {
+          each r: Requirement .
+            (proven_at_baseline(r) and not holds_on_reverify(r)) leads_to fails_gate(r)
+          each r: Requirement .
+            never (not proven_at_baseline(r) and fails_gate(r))
+        }
+        strength: monitored(deadline = 60s)
+        evidence: monpoly(stream = gate.events)
+      }
+    gate:
+      status: passed
+      warnings: []
+    admission:
+      state: admitted
+      review: optional
+      by: gg
+      at_unix: 1793749646
+    bindings: []
