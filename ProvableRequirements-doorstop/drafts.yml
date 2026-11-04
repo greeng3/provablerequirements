@@ -180,6 +180,52 @@ drafts:
       by: gg
       at_unix: 1793749900
     bindings: []
+  REQ051:
+    revision: 3e39701569a3dbb552aca202ae601b3917cf20e553430b4a5cbefb7ba256e491
+    candidate: |-
+      requirement REQ051_readiness_never_overclaims { category: 1
+        vocabulary { state readiness_is_honest(e: EngineStatus) }
+        require { always (readiness_is_honest(e)) } }
+    gate:
+      status: passed
+      warnings: []
+    admission:
+      state: admitted
+      review: optional
+      by: greeng3
+      at_unix: 1793828175
+    bindings:
+    - symbol: EngineStatus
+      category: code
+      observable: EngineStatus
+      fidelity: definitional
+    - symbol: readiness_is_honest
+      category: code
+      observable: readiness_is_honest
+      fidelity: definitional
+  REQ076:
+    revision: fa8b0dc2ec423538fbd417a50416388e7aa772ecbfad6f622372156946ed4c9a
+    candidate: |-
+      requirement REQ076_asserted_never_masquerades { category: 1
+        vocabulary { state decisive_correspondence_is_sound(d: ProofDecisive) }
+        require { always (decisive_correspondence_is_sound(d)) } }
+    gate:
+      status: passed
+      warnings: []
+    admission:
+      state: admitted
+      review: optional
+      by: greeng3
+      at_unix: 1793826751
+    bindings:
+    - symbol: ProofDecisive
+      category: code
+      observable: ProofDecisive
+      fidelity: definitional
+    - symbol: decisive_correspondence_is_sound
+      category: code
+      observable: decisive_correspondence_is_sound
+      fidelity: definitional
   REQ091:
     revision: c4f610a02e87d7064a0d39c9fef788c9af434637a22facd0e92902cd93db96d5
     candidate: |-
