@@ -272,7 +272,32 @@ pub fn subject_crate_name(subject_root: &Path) -> Option<String> {
         return None;
     }
     let meta: serde_json::Value = serde_json::from_slice(&output.stdout).ok()?;
-    let name = meta.get("packages")?.get(0)?.get("name")?.as_str()?;
+    // `cargo metadata` reports absolute, canonical `manifest_path`s, but `subject_root` reaches here
+    // relative (the CLI's default `.`). Canonicalize it so the match below compares like with like —
+    // without this the root never matches and selection silently falls back to `packages[0]` (#521).
+    let root = std::fs::canonicalize(subject_root).unwrap_or_else(|_| subject_root.to_path_buf());
+    select_crate_name(&meta, &root)
+}
+
+/// Pick the subject crate out of `cargo metadata`'s package list. The crate the harness must import
+/// is the one **at the verified root** — the package whose `manifest_path` is `<root>/Cargo.toml` —
+/// not `packages[0]`, whose order follows cargo's own sort and in a multi-member workspace is some
+/// other member (this repo's is `provreq-model`, sorted ahead of the subject `provreq`). Falls back
+/// to the first package when no manifest sits at the root (a single-crate subject, or a virtual
+/// workspace manifest), preserving the original behaviour there. Pure over the parsed metadata so it
+/// is testable without a `cargo metadata` invocation.
+fn select_crate_name(meta: &serde_json::Value, subject_root: &Path) -> Option<String> {
+    let packages = meta.get("packages")?.as_array()?;
+    let root_manifest = subject_root.join("Cargo.toml");
+    let at_root = packages.iter().find(|p| {
+        p.get("manifest_path")
+            .and_then(|m| m.as_str())
+            .is_some_and(|m| Path::new(m) == root_manifest)
+    });
+    let name = at_root
+        .or_else(|| packages.first())?
+        .get("name")?
+        .as_str()?;
     Some(name.replace('-', "_"))
 }
 
@@ -1189,5 +1214,78 @@ For more information about this error, try `rustc --explain E0277`.
         let text = crate::verdict::render(&v);
         assert!(text.contains("not evidence either way"), "{text}");
         assert!(text.contains("Arbitrary"), "{text}");
+    }
+
+    // A workspace whose `packages[0]` is NOT the crate at the verified root (the real provreq
+    // layout: provreq-model sorts first, the subject `provreq` is last). The harness must import
+    // the subject crate, so selection keys on the package whose manifest is `<root>/Cargo.toml`,
+    // never the metadata order. Regression for #521.
+    #[test]
+    fn selects_the_crate_at_the_verified_root_not_packages_zero() {
+        let meta = serde_json::json!({
+            "packages": [
+                { "name": "provreq-model", "manifest_path": "/ws/crates/provreq-model/Cargo.toml" },
+                { "name": "provreq-mcp",   "manifest_path": "/ws/crates/provreq-mcp/Cargo.toml" },
+                { "name": "provreq",       "manifest_path": "/ws/Cargo.toml" },
+            ]
+        });
+        assert_eq!(
+            select_crate_name(&meta, Path::new("/ws")).as_deref(),
+            Some("provreq"),
+            "must pick the package at <root>/Cargo.toml, not packages[0]"
+        );
+        // A verify.crate member dir selects that member.
+        assert_eq!(
+            select_crate_name(&meta, Path::new("/ws/crates/provreq-model")).as_deref(),
+            Some("provreq_model"),
+        );
+    }
+
+    // When no package manifest is at the root (e.g. a virtual workspace manifest), fall back to
+    // the first package rather than failing — preserves the old behaviour for the single-crate case.
+    #[test]
+    fn falls_back_to_first_package_when_root_has_no_package() {
+        let meta = serde_json::json!({
+            "packages": [{ "name": "only-crate", "manifest_path": "/elsewhere/Cargo.toml" }]
+        });
+        assert_eq!(
+            select_crate_name(&meta, Path::new("/ws")).as_deref(),
+            Some("only_crate"),
+        );
+    }
+
+    // End-to-end guard for #521 over a real `cargo metadata`: a workspace whose member sorts ahead
+    // of the root package (so `packages[0]` is the member), queried through a NON-canonical `.`-
+    // suffixed root path — the shape the CLI passes (`subject_root = "."`). Without the canonicalize
+    // step in `subject_crate_name`, `<root>/Cargo.toml` is `…/./Cargo.toml`, never equals cargo's
+    // canonical `manifest_path`, and selection falls back to the member — the exact self-verify bug.
+    #[test]
+    fn subject_crate_name_resolves_the_root_crate_over_real_cargo_metadata() {
+        use std::fs;
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        // Root package "zsubject-root" sorts AFTER member "amember", so cargo lists the member first.
+        fs::write(
+            root.join("Cargo.toml"),
+            "[package]\nname = \"zsubject-root\"\nversion = \"0.0.0\"\nedition = \"2021\"\n\n\
+             [workspace]\nmembers = [\"amember\"]\n",
+        )
+        .unwrap();
+        fs::create_dir_all(root.join("src")).unwrap();
+        fs::write(root.join("src/lib.rs"), "").unwrap();
+        fs::create_dir_all(root.join("amember/src")).unwrap();
+        fs::write(
+            root.join("amember/Cargo.toml"),
+            "[package]\nname = \"amember\"\nversion = \"0.0.0\"\nedition = \"2021\"\n",
+        )
+        .unwrap();
+        fs::write(root.join("amember/src/lib.rs"), "").unwrap();
+
+        let name = subject_crate_name(&root.join("."));
+        assert_eq!(
+            name.as_deref(),
+            Some("zsubject_root"),
+            "must resolve the crate at the (non-canonical) root, not cargo's packages[0] member"
+        );
     }
 }
