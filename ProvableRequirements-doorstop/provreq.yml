@@ -13,3 +13,11 @@ llm:
   provider: openai-compatible
   base_url: http://localhost:11434/v1
   model: qwen3:32b
+# Kani bounds for the category-1 ensemble (#117). REQ030's harness folds over a length-3
+# `ProofEnsemble`, so every loop exits by the fourth iteration — `default_unwind: 4` is the
+# tightest bound that discharges the unwinding assertions (verified: 0/513 checks fail in ~4s).
+# Without it CBMC unwinds those iterators unbounded and never returns; the timeout is the backstop
+# so a future claim that blows up is cut off instead of running for hours.
+kani:
+  default_unwind: 4
+  timeout_seconds: 300

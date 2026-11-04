@@ -408,6 +408,63 @@ impl kani::Arbitrary for Basis {
     }
 }
 
+/// A bounded ensemble of engine outcomes — the sort REQ030's category-1 harness ranges over. Wrapping
+/// the array in a named type lets the formal sort `ProofEnsemble` resolve to a subject type the way
+/// REQ014's `Draft` does (the sort resolver reads named items, not array types); Kani derives
+/// `Arbitrary` for the array of `Arbitrary` outcomes inside. Three is the ensemble bound the cat-2a
+/// model also uses (`|Engine| <= 3`) — enough to exercise divergence, corroboration, and ordering.
+///
+/// Gated for every prover, not just Kani: the deductive engines generate their own harness against
+/// this same sort, and a sort that existed only under `cfg(kani)` left their harness referencing a
+/// type that is not there — a raw `E0425` that reads like a provreq defect rather than the honest
+/// "this engine cannot discharge it" the ensemble means to record.
+#[cfg(any(kani, creusot, prusti))]
+pub struct ProofEnsemble(pub [(Status, Option<Basis>); 3]);
+
+#[cfg(kani)]
+impl kani::Arbitrary for ProofEnsemble {
+    fn any() -> Self {
+        ProofEnsemble(kani::any())
+    }
+}
+
+/// REQ030 stated as a property and checked against the real [`combine_outcome`]: a hold and a
+/// refutation together are a divergence; any refutation refutes; otherwise the combined basis is the
+/// strongest any present evidence earned (the maximum, stated as *present and dominating* rather than
+/// re-running the fold); no evidence is inconclusive — and never a majority vote. The harness ranges
+/// `e` over every bounded ensemble, so a pass means `combine_outcome` meets this over the whole
+/// (bounded) space, not a spot check.
+#[cfg(any(kani, creusot, prusti))]
+pub fn combine_is_sound(e: &ProofEnsemble) -> bool {
+    let outcomes = &e.0;
+    let (status, reason, basis) = combine_outcome(outcomes);
+    let any_holds = outcomes.iter().any(|(s, _)| *s == Status::Holds);
+    let any_fails = outcomes.iter().any(|(s, _)| *s == Status::Fails);
+    if any_holds && any_fails {
+        status == Status::Unknown && reason == Some(UnknownReason::Divergence) && basis.is_none()
+    } else if any_fails {
+        status == Status::Fails && basis.is_none()
+    } else if any_holds {
+        // Strongest basis among every present basis: the result is a present basis that dominates
+        // all of them, or None exactly when no evidence carried a basis. This is the defining
+        // property of the maximum, written independently of `combine_outcome`'s own fold.
+        let present = |want: Basis| outcomes.iter().any(|(_, b)| *b == Some(want));
+        let dominates = |top: Basis| {
+            outcomes
+                .iter()
+                .filter_map(|(_, b)| *b)
+                .all(|other| basis_rank(&top) >= basis_rank(&other))
+        };
+        let strongest_ok = match basis {
+            Some(top) => present(top) && dominates(top),
+            None => outcomes.iter().all(|(_, b)| b.is_none()),
+        };
+        status == Status::Holds && strongest_ok
+    } else {
+        status == Status::Unknown && reason == Some(UnknownReason::Inconclusive) && basis.is_none()
+    }
+}
+
 pub fn aggregate(id: &str, mut evidence: Vec<Evidence>, provenance: Provenance) -> Verdict {
     // Strongest-first, so every surface listing this evidence — the CLI `detail`, the web
     // VerifyPanel, the stored verdict — leads with the most decisive result and none can show a
