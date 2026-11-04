@@ -141,6 +141,23 @@ impl kani::Arbitrary for EngineStatus {
     }
 }
 
+/// REQ051 stated as a property and checked against the real [`EngineStatus::is_ready`]: an engine
+/// backs a verdict only when it is actually present and runnable (`Available`); every other state —
+/// not wired, missing, cannot-start (`Unusable`), or too old — must never count as readiness, so a
+/// readiness answer can never overclaim what provreq can check. The per-variant expectation is
+/// written out independently of `is_ready`'s own `matches!`, so the two agree only if readiness is
+/// honest. Gated for every prover (like REQ030's `ProofEnsemble`); inert in an ordinary build.
+#[cfg(any(kani, creusot, prusti))]
+pub fn readiness_is_honest(e: &EngineStatus) -> bool {
+    match e {
+        EngineStatus::Available { .. } => e.is_ready(),
+        EngineStatus::NotWired
+        | EngineStatus::Missing
+        | EngineStatus::Unusable { .. }
+        | EngineStatus::Incompatible { .. } => !e.is_ready(),
+    }
+}
+
 impl EngineStatus {
     /// Whether an engine in this state can back a verdict (R-eng-3 gate).
     ///

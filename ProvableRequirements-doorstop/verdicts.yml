@@ -346,3 +346,320 @@ verdicts:
       ui_fingerprint: null
       tagged_source_fingerprint: d65f18c6d6aedce9523d149a159763194918ab0c0d9f55d7bc8de6cc114e6adb
       scope_fingerprint: e922102803bd5ea5835f2c0e397a3185222d1f78dbfbca60800ce53c0c053918
+  REQ051:
+    id: REQ051
+    status: holds
+    basis: model-checked (bounded)
+    reason: null
+    witness: null
+    detail:
+    - 'Kani: holds (model-checked (bounded))'
+    - bounded by — unwind 4 (`kani.default_unwind` in provreq.yml); timeout 300s (`kani.timeout_seconds` in provreq.yml)
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `a_subject_whose_creusot_std_cannot_work_with_the_tool_is_unusable` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `a_usable_pair_and_an_uninvolved_subject_are_left_alone` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `a_binary_that_cannot_start_is_not_available` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `an_installed_creusot_is_not_ready_for_a_subject_it_would_refuse_to_start_on` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `unusable_is_distinct_from_missing` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `an_engine_that_ran_and_objected_to_its_input_is_still_present` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `an_engine_that_cannot_start_is_not_part_of_the_proving_environment` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `engines_route_reports_every_engine_with_a_toneable_state` passed
+    - 'Creusot: inconclusive'
+    - 'the proof harness provreq generated did not compile — error: called program function `engine::readiness_is_honest` in logic context (src/provreq_req051.rs:11:60). Pearlite may only call `#[logic]` functions, and that is an ordinary program function — marking it `#[logic]` is not the fix either, because that removes the item from the program and breaks every call site. Reach it through a `#[logic]` mirror instead, which leaves the function untouched: re-run `verify` with `--draft-semantic`'
+    - 'Prusti: inconclusive'
+    - 'Prusti''s pinned toolchain predates this subject''s dependency graph — its 2023 cargo cannot read a v4 lock file or a dependency declaring `edition = "2024"`. This is a toolchain ceiling, not a missing annotation: Prusti can only verify a subject whose whole dependency graph builds on a 2023 nightly, and upstream has published nothing newer'
+    evidence:
+    - engine: Kani
+      status: holds
+      basis: model-checked (bounded)
+      witness: null
+      detail:
+      - bounded by — unwind 4 (`kani.default_unwind` in provreq.yml); timeout 300s (`kani.timeout_seconds` in provreq.yml)
+      correspondence: mechanical
+      source_location: null
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `a_subject_whose_creusot_std_cannot_work_with_the_tool_is_unusable` passed
+      correspondence: asserted
+      source_location:
+        file: src/creusot.rs
+        line: 1240
+        symbol: a_subject_whose_creusot_std_cannot_work_with_the_tool_is_unusable
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `a_usable_pair_and_an_uninvolved_subject_are_left_alone` passed
+      correspondence: asserted
+      source_location:
+        file: src/creusot.rs
+        line: 1264
+        symbol: a_usable_pair_and_an_uninvolved_subject_are_left_alone
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `a_binary_that_cannot_start_is_not_available` passed
+      correspondence: asserted
+      source_location:
+        file: src/engine.rs
+        line: 707
+        symbol: a_binary_that_cannot_start_is_not_available
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `an_installed_creusot_is_not_ready_for_a_subject_it_would_refuse_to_start_on` passed
+      correspondence: asserted
+      source_location:
+        file: src/engine.rs
+        line: 731
+        symbol: an_installed_creusot_is_not_ready_for_a_subject_it_would_refuse_to_start_on
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `unusable_is_distinct_from_missing` passed
+      correspondence: asserted
+      source_location:
+        file: src/engine.rs
+        line: 781
+        symbol: unusable_is_distinct_from_missing
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `an_engine_that_ran_and_objected_to_its_input_is_still_present` passed
+      correspondence: asserted
+      source_location:
+        file: src/engine.rs
+        line: 793
+        symbol: an_engine_that_ran_and_objected_to_its_input_is_still_present
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `an_engine_that_cannot_start_is_not_part_of_the_proving_environment` passed
+      correspondence: asserted
+      source_location:
+        file: src/proving_env.rs
+        line: 223
+        symbol: an_engine_that_cannot_start_is_not_part_of_the_proving_environment
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `engines_route_reports_every_engine_with_a_toneable_state` passed
+      correspondence: asserted
+      source_location:
+        file: src/server.rs
+        line: 1002
+        symbol: engines_route_reports_every_engine_with_a_toneable_state
+    - engine: Creusot
+      status: unknown
+      basis: null
+      witness: null
+      detail:
+      - 'the proof harness provreq generated did not compile — error: called program function `engine::readiness_is_honest` in logic context (src/provreq_req051.rs:11:60). Pearlite may only call `#[logic]` functions, and that is an ordinary program function — marking it `#[logic]` is not the fix either, because that removes the item from the program and breaks every call site. Reach it through a `#[logic]` mirror instead, which leaves the function untouched: re-run `verify` with `--draft-semantic`'
+      correspondence: mechanical
+      source_location: null
+    - engine: Prusti
+      status: unknown
+      basis: null
+      witness: null
+      detail:
+      - 'Prusti''s pinned toolchain predates this subject''s dependency graph — its 2023 cargo cannot read a v4 lock file or a dependency declaring `edition = "2024"`. This is a toolchain ceiling, not a missing annotation: Prusti can only verify a subject whose whole dependency graph builds on a 2023 nightly, and upstream has published nothing newer'
+      correspondence: mechanical
+      source_location: null
+    correspondence: mechanical
+    provenance:
+      requirement_revision: 3e39701569a3dbb552aca202ae601b3917cf20e553430b4a5cbefb7ba256e491
+      subject_commit: 780e4a6b3d8f8b73b5f5b0a2e1e6df43a98dcbf5
+      tool_version: 0.0.37
+      verified_scope: null
+      formalization: 365409e1f73aea45
+      environment:
+        declared: provreq-devcontainer
+        engines:
+        - Creusot 0.14.0
+        - Kani 0.68.0
+        - TLC (TLA+) 2.19
+        unversioned:
+        - MonPoly
+        - Prusti
+        container: true
+      spec_fingerprint: null
+      trace_fingerprint: null
+      source_fingerprint: 9199fcb0bfd40c38350688b5b31cd7461a183196
+      ui_fingerprint: null
+      tagged_source_fingerprint: d28e01949b585d4b98182acbd661abc7a09c91a04860eefb5f24ac298f415fc2
+      scope_fingerprint: 52773f7cf4fa8570329b74bd96443aceda50f208031138453ca89590fd676714
+  REQ076:
+    id: REQ076
+    status: holds
+    basis: model-checked (bounded)
+    reason: null
+    witness: null
+    detail:
+    - 'Kani: holds (model-checked (bounded))'
+    - bounded by — unwind 4 (`kani.default_unwind` in provreq.yml); timeout 300s (`kani.timeout_seconds` in provreq.yml)
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `decisive_correspondence_of_is_the_masquerade_guard` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `a_verdict_from_a_tagged_test_alone_is_asserted` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `a_mechanical_proof_dominates_the_verdict_correspondence` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `a_mechanical_inconclusive_does_not_make_an_asserted_holds_mechanical` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `a_tagged_fail_against_a_proof_is_divergence` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `correspondence_is_surfaced_in_report_and_render` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `an_engine_verdict_stays_mechanical` passed
+    - 'Creusot: inconclusive'
+    - 'the proof harness provreq generated did not compile — error: called program function `verdict::decisive_correspondence_is_sound` in logic context (src/provreq_req076.rs:11:62). Pearlite may only call `#[logic]` functions, and that is an ordinary program function — marking it `#[logic]` is not the fix either, because that removes the item from the program and breaks every call site. Reach it through a `#[logic]` mirror instead, which leaves the function untouched: re-run `verify` with `--draft-semantic`'
+    - 'Prusti: inconclusive'
+    - 'Prusti''s pinned toolchain predates this subject''s dependency graph — its 2023 cargo cannot read a v4 lock file or a dependency declaring `edition = "2024"`. This is a toolchain ceiling, not a missing annotation: Prusti can only verify a subject whose whole dependency graph builds on a 2023 nightly, and upstream has published nothing newer'
+    evidence:
+    - engine: Kani
+      status: holds
+      basis: model-checked (bounded)
+      witness: null
+      detail:
+      - bounded by — unwind 4 (`kani.default_unwind` in provreq.yml); timeout 300s (`kani.timeout_seconds` in provreq.yml)
+      correspondence: mechanical
+      source_location: null
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `decisive_correspondence_of_is_the_masquerade_guard` passed
+      correspondence: asserted
+      source_location:
+        file: src/verdict.rs
+        line: 1306
+        symbol: decisive_correspondence_of_is_the_masquerade_guard
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `a_verdict_from_a_tagged_test_alone_is_asserted` passed
+      correspondence: asserted
+      source_location:
+        file: src/verdict.rs
+        line: 1411
+        symbol: a_verdict_from_a_tagged_test_alone_is_asserted
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `a_mechanical_proof_dominates_the_verdict_correspondence` passed
+      correspondence: asserted
+      source_location:
+        file: src/verdict.rs
+        line: 1421
+        symbol: a_mechanical_proof_dominates_the_verdict_correspondence
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `a_mechanical_inconclusive_does_not_make_an_asserted_holds_mechanical` passed
+      correspondence: asserted
+      source_location:
+        file: src/verdict.rs
+        line: 1438
+        symbol: a_mechanical_inconclusive_does_not_make_an_asserted_holds_mechanical
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `a_tagged_fail_against_a_proof_is_divergence` passed
+      correspondence: asserted
+      source_location:
+        file: src/verdict.rs
+        line: 1455
+        symbol: a_tagged_fail_against_a_proof_is_divergence
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `correspondence_is_surfaced_in_report_and_render` passed
+      correspondence: asserted
+      source_location:
+        file: src/verdict.rs
+        line: 1471
+        symbol: correspondence_is_surfaced_in_report_and_render
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `an_engine_verdict_stays_mechanical` passed
+      correspondence: asserted
+      source_location:
+        file: src/verdict.rs
+        line: 1482
+        symbol: an_engine_verdict_stays_mechanical
+    - engine: Creusot
+      status: unknown
+      basis: null
+      witness: null
+      detail:
+      - 'the proof harness provreq generated did not compile — error: called program function `verdict::decisive_correspondence_is_sound` in logic context (src/provreq_req076.rs:11:62). Pearlite may only call `#[logic]` functions, and that is an ordinary program function — marking it `#[logic]` is not the fix either, because that removes the item from the program and breaks every call site. Reach it through a `#[logic]` mirror instead, which leaves the function untouched: re-run `verify` with `--draft-semantic`'
+      correspondence: mechanical
+      source_location: null
+    - engine: Prusti
+      status: unknown
+      basis: null
+      witness: null
+      detail:
+      - 'Prusti''s pinned toolchain predates this subject''s dependency graph — its 2023 cargo cannot read a v4 lock file or a dependency declaring `edition = "2024"`. This is a toolchain ceiling, not a missing annotation: Prusti can only verify a subject whose whole dependency graph builds on a 2023 nightly, and upstream has published nothing newer'
+      correspondence: mechanical
+      source_location: null
+    correspondence: mechanical
+    provenance:
+      requirement_revision: fa8b0dc2ec423538fbd417a50416388e7aa772ecbfad6f622372156946ed4c9a
+      subject_commit: 780e4a6b3d8f8b73b5f5b0a2e1e6df43a98dcbf5
+      tool_version: 0.0.37
+      verified_scope: null
+      formalization: 85ddb1e9b7bedb72
+      environment:
+        declared: provreq-devcontainer
+        engines:
+        - Creusot 0.14.0
+        - Kani 0.68.0
+        - TLC (TLA+) 2.19
+        unversioned:
+        - MonPoly
+        - Prusti
+        container: true
+      spec_fingerprint: null
+      trace_fingerprint: null
+      source_fingerprint: 9199fcb0bfd40c38350688b5b31cd7461a183196
+      ui_fingerprint: null
+      tagged_source_fingerprint: 34317b05ccf75b605329b98039e729c42b8ac6f5edcaf529b132dd525af03948
+      scope_fingerprint: b0b9747397b6ecda70fc579953934e4b995cff1446c3eacab38a6830c57f066d
