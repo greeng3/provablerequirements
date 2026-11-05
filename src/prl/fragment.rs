@@ -39,7 +39,7 @@ use super::error::GateError;
 /// A category-less candidate is not checked — the gate does not guess a category (D3
 /// inference is a later slice), and an undeclared category is reported as unroutable
 /// downstream rather than silently assumed here.
-pub fn check(req: &Requirement) -> Vec<GateError> {
+pub(crate) fn check(req: &Requirement) -> Vec<GateError> {
     let mut errors = Vec::new();
     for category in &req.category {
         for prop in &req.require {
@@ -77,34 +77,69 @@ pub fn check(req: &Requirement) -> Vec<GateError> {
 /// is decidable there — but that is a real design question, so 2b/3 stay permissive until
 /// it is settled rather than silently narrowed.
 fn out_of_fragment(category: Category, pattern: &Pattern) -> Option<(&'static str, &'static str)> {
+    fragment_rule(category, pattern.kind())
+}
+
+/// A `Pattern` with its `Expr` payloads stripped — the only thing the fragment rule reads is the
+/// shape. Payload-free (no heap), so a bounded harness ranges over it directly instead of building
+/// a `Pattern` full of `String`s and `Vec`s that a bounded model checker cannot model.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum PatternKind {
+    Never,
+    Always,
+    Eventually,
+    LeadsTo,
+    Precedes,
+    OccursAtMost,
+    CanReach,
+}
+
+impl Pattern {
+    pub(crate) fn kind(&self) -> PatternKind {
+        match self {
+            Pattern::Never(_) => PatternKind::Never,
+            Pattern::Always(_) => PatternKind::Always,
+            Pattern::Eventually(_) => PatternKind::Eventually,
+            Pattern::LeadsTo { .. } => PatternKind::LeadsTo,
+            Pattern::Precedes { .. } => PatternKind::Precedes,
+            Pattern::OccursAtMost { .. } => PatternKind::OccursAtMost,
+            Pattern::CanReach(_) => PatternKind::CanReach,
+        }
+    }
+}
+
+/// The fragment rule over the pattern *shape* alone: `Some((why, remedy))` when `category`'s engine
+/// cannot express a pattern of that kind. Pure and total, so the boundary lives in exactly one
+/// place — and payload-free, so [`fragment_is_sound`] can prove it over every `(category, kind)`.
+fn fragment_rule(category: Category, kind: PatternKind) -> Option<(&'static str, &'static str)> {
     const RESTATE: &str =
         "declare category 2a (model) or 2b (runtime), or restate the claim as an invariant";
     const NEEDS_MODEL: &str =
         "declare category 2a (model) — reachability is checked over a model's state graph";
 
-    match (category, pattern) {
+    match (category, kind) {
         // Rule 1 — the code fragment is temporal-free; only invariants survive.
-        (Category::Code, Pattern::Always(_) | Pattern::Never(_)) => None,
-        (Category::Code, Pattern::Eventually(_) | Pattern::LeadsTo { .. }) => Some((
+        (Category::Code, PatternKind::Always | PatternKind::Never) => None,
+        (Category::Code, PatternKind::Eventually | PatternKind::LeadsTo) => Some((
             "it is a liveness pattern, and the code fragment is temporal-free \
              (pre/post/invariants): a deductive prover checks a state predicate, not a \
              future-time obligation",
             RESTATE,
         )),
-        (Category::Code, Pattern::Precedes { .. }) => Some((
+        (Category::Code, PatternKind::Precedes) => Some((
             "it orders two claims over time, and the code fragment is temporal-free \
              (pre/post/invariants): a deductive prover sees one state, not a history",
             RESTATE,
         )),
-        (Category::Code, Pattern::OccursAtMost { .. }) => Some((
+        (Category::Code, PatternKind::OccursAtMost) => Some((
             "it counts occurrences over time, and the code fragment is temporal-free \
              (pre/post/invariants): a deductive prover has no trace to count over",
             RESTATE,
         )),
 
         // Rule 2 — reachability is branching-time; only a model checker has the state graph.
-        (Category::Model, Pattern::CanReach(_)) => None,
-        (_, Pattern::CanReach(_)) => Some((
+        (Category::Model, PatternKind::CanReach) => None,
+        (_, PatternKind::CanReach) => Some((
             "it is a branching-time (CTL `EF`) claim needing a model's state graph, which a \
              deductive prover, a linear trace monitor, and a UI probe all lack",
             NEEDS_MODEL,
@@ -195,6 +230,81 @@ fn pattern_verb(pattern: &Pattern) -> &'static str {
         Pattern::OccursAtMost { .. } => "occurs at most",
         Pattern::CanReach(_) => "can_reach",
     }
+}
+
+/// REQ024's fragment rule stated as a proof sort: a declared category paired with one pattern
+/// kind. Both are payload-free enums, so the sort is prover-`Arbitrary` with no heap, where a real
+/// `Pattern` (with its nested `Expr`'s `String`s and `Vec`s) is not — a bounded model checker
+/// cannot model that heap. Named and `pub` like REQ030's `ProofEnsemble` so the sort resolver reads
+/// it as a plain subject type.
+///
+/// Gated for every prover, not just Kani: the deductive engines generate their own harness against
+/// this same sort, and a sort that existed only under `cfg(kani)` would leave their harness
+/// referencing a type that is not there.
+#[cfg(any(kani, creusot, prusti))]
+pub struct FragmentCase {
+    pub category: Category,
+    pub kind: PatternKind,
+}
+
+#[cfg(kani)]
+impl kani::Arbitrary for Category {
+    fn any() -> Self {
+        match kani::any::<u8>() % 4 {
+            0 => Category::Code,
+            1 => Category::Model,
+            2 => Category::Runtime,
+            _ => Category::Ui,
+        }
+    }
+}
+
+#[cfg(kani)]
+impl kani::Arbitrary for PatternKind {
+    fn any() -> Self {
+        match kani::any::<u8>() % 7 {
+            0 => PatternKind::Never,
+            1 => PatternKind::Always,
+            2 => PatternKind::Eventually,
+            3 => PatternKind::LeadsTo,
+            4 => PatternKind::Precedes,
+            5 => PatternKind::OccursAtMost,
+            _ => PatternKind::CanReach,
+        }
+    }
+}
+
+#[cfg(kani)]
+impl kani::Arbitrary for FragmentCase {
+    fn any() -> Self {
+        FragmentCase {
+            category: kani::any(),
+            kind: kani::any(),
+        }
+    }
+}
+
+/// REQ024 stated as a property and checked against the real [`fragment_rule`] (what
+/// [`out_of_fragment`] delegates to): the code fragment (category 1) is temporal-free, so it
+/// refuses every pattern except the safety ones (`always`/`never`); `can_reach` is branching-time
+/// and refused everywhere except category 2a (the model). The expected answer is rebuilt from those
+/// two rules alone — not from `fragment_rule`'s match arms — so the two agree only if the real gate
+/// is right. The harness ranges over every category and pattern kind, so a pass means the gate
+/// meets this over the whole space.
+#[cfg(any(kani, creusot, prusti))]
+pub fn fragment_is_sound(case: &FragmentCase) -> bool {
+    let refused = fragment_rule(case.category, case.kind).is_some();
+    let is_safety = matches!(case.kind, PatternKind::Always | PatternKind::Never);
+    let is_can_reach = matches!(case.kind, PatternKind::CanReach);
+    let expected_refused = match case.category {
+        // Rule 1: the code fragment is temporal-free — only safety (always/never) survives.
+        Category::Code => !is_safety,
+        // 2a (the model) admits every pattern, reachability included.
+        Category::Model => false,
+        // Rule 2: everywhere else, reachability alone is out of fragment.
+        Category::Runtime | Category::Ui => is_can_reach,
+    };
+    refused == expected_refused
 }
 
 #[cfg(test)]

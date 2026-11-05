@@ -15,7 +15,10 @@
 pub mod ast;
 mod check;
 pub mod error;
-mod fragment;
+// `pub` so the prover-only proof sort and predicate (`FragmentCase`, `fragment_is_sound`) are
+// reachable at `prl::fragment::…`, the path the generated category-1 harness emits — the same
+// reason `verdict`/`engine` are public modules. The gate's own `check` stays crate-private.
+pub mod fragment;
 pub use fragment::{CategoryBoundary, triage_boundaries};
 mod lexer;
 pub(crate) mod parser;
