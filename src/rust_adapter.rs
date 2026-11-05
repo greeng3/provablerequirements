@@ -1490,6 +1490,55 @@ fn file_module_path(rel: &str) -> Option<Vec<String>> {
         .then_some(parts)
 }
 
+/// Every `mod` declaration in the subject, keyed by the module path it introduces, mapped to
+/// whether it is declared `pub`. A `mod foo;`/`mod foo { … }` in the file at module path `P`
+/// introduces `P + [foo]`; inline modules nest further. Built once from the already-parsed files.
+fn declared_module_visibility(
+    subject: &ParsedSubject,
+) -> std::collections::HashMap<Vec<String>, bool> {
+    fn walk(
+        items: &[syn::Item],
+        base: &[String],
+        out: &mut std::collections::HashMap<Vec<String>, bool>,
+    ) {
+        for item in items {
+            if let syn::Item::Mod(m) = item {
+                let mut path = base.to_vec();
+                path.push(m.ident.to_string());
+                out.insert(path.clone(), matches!(m.vis, syn::Visibility::Public(_)));
+                if let Some((_, inner)) = &m.content {
+                    walk(inner, &path, out);
+                }
+            }
+        }
+    }
+    let mut out = std::collections::HashMap::new();
+    subject.each(|ast, _rel, _text, module| {
+        let base = module.clone().unwrap_or_default();
+        walk(&ast.items, &base, &mut out);
+    });
+    out
+}
+
+/// The first module in `module_path` that a generated harness cannot reach by a fully public path
+/// from the crate root — the standard a Kani harness needs, since it is a separate `tests/` crate
+/// and sees only `pub` items (this is exactly the E0603 that an otherwise-GROUNDED binding hit in
+/// REQ024: a `pub` predicate inside a private module). `None` when every ancestor module is `pub`.
+///
+/// Conservative: a `mod` the scan did not find (declared in a form this does not capture) is left
+/// alone rather than reported, so the warning never fires on a false positive. Only the **module
+/// chain** is checked here, not the item's own visibility (#528).
+pub fn private_ancestor_module(subject: &ParsedSubject, module_path: &[String]) -> Option<String> {
+    let vis = declared_module_visibility(subject);
+    for i in 1..=module_path.len() {
+        let prefix = &module_path[..i];
+        if vis.get(prefix) == Some(&false) {
+            return Some(prefix.join("::"));
+        }
+    }
+    None
+}
+
 /// Every parseable `.rs` file under the subject, walked and parsed **once**.
 ///
 /// The single walk every resolver uses, so a predicate and a sort can never disagree about
@@ -2101,6 +2150,41 @@ mod tests {
     /// The subject, walked and parsed — what every resolver now takes.
     fn parsed(tmp: &tempfile::TempDir) -> ParsedSubject {
         ParsedSubject::load(tmp.path(), &tmp.path().join("ProvableRequirements"))
+    }
+
+    #[test]
+    fn private_ancestor_module_names_the_first_non_pub_module_on_the_path() {
+        let tmp = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(tmp.path().join("src")).unwrap();
+        std::fs::write(
+            tmp.path().join("src/lib.rs"),
+            "pub mod a { pub mod b {} }\n\
+             mod c { pub mod d {} }\n\
+             pub mod e { mod f {} }\n",
+        )
+        .unwrap();
+        let p = parsed(&tmp);
+        let path = |segs: &[&str]| segs.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+
+        // A fully public chain reaches the crate root — nothing to warn about.
+        assert_eq!(private_ancestor_module(&p, &path(&["a"])), None);
+        assert_eq!(private_ancestor_module(&p, &path(&["a", "b"])), None);
+        // Crate-root items (empty path) are always reachable.
+        assert_eq!(private_ancestor_module(&p, &[]), None);
+
+        // A private module anywhere on the path is reported — the first one.
+        assert_eq!(private_ancestor_module(&p, &path(&["c"])), Some("c".into()));
+        assert_eq!(
+            private_ancestor_module(&p, &path(&["c", "d"])),
+            Some("c".into())
+        );
+        assert_eq!(
+            private_ancestor_module(&p, &path(&["e", "f"])),
+            Some("e::f".into())
+        );
+
+        // A module the scan never saw is left alone (conservative — no false positive).
+        assert_eq!(private_ancestor_module(&p, &path(&["unknown"])), None);
     }
 
     fn want(ty: &str) -> Option<String> {

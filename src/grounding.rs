@@ -372,6 +372,19 @@ impl Resolutions {
     ///
     /// A symbol in none of the maps is reported as unresolved, never as absent: the resolver not
     /// having answered is not evidence that it grounds, the same rule [`verdict`] applies.
+    /// The module path a resolved code binding (predicate or sort) sits in, for the
+    /// harness-reachability check (#528). `None` when the symbol is not a resolved code/sort
+    /// observable, or its module could not be determined (a crate-root item is `Some(vec![])`).
+    pub fn resolved_code_module(&self, symbol: &str) -> Option<Vec<String>> {
+        if let Some(TypeResolution::Resolved(at)) = self.sorts.get(symbol) {
+            return at.module.clone();
+        }
+        if let Some(Resolution::Resolved { at, .. }) = self.code.get(symbol) {
+            return at.module.clone();
+        }
+        None
+    }
+
     pub fn describe(&self, binding: &Binding) -> (bool, String) {
         let symbol = &binding.symbol;
         let observable = &binding.observable;

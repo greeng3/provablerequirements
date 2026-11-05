@@ -1130,8 +1130,27 @@ fn dry_run_candidate(
         &requirement,
         &draft.bindings,
     );
+    // Parsed once for the reachability warning below, over the same cat-1 code root the harness is
+    // generated against.
+    let parsed = provreq::rust_adapter::ParsedSubject::load(&code_root, companion);
     for b in &draft.bindings {
-        println!("  {}", resolved.describe(b).1);
+        let (ok, line) = resolved.describe(b);
+        println!("  {line}");
+        // #528: a `pub` item in a private module resolves, but a generated harness cannot reach it
+        // (`crate::private_mod::item` → E0603). Warn at dry-run so the operator fixes the module
+        // visibility before a verify compiles the harness and fails — not block it, since an
+        // in-crate engine (Creusot/Prusti) can still reach a `pub(crate)` path.
+        if ok
+            && let Some(module) = resolved.resolved_code_module(&b.symbol)
+            && let Some(private) = provreq::rust_adapter::private_ancestor_module(&parsed, &module)
+        {
+            println!(
+                "    ! module `{private}` is private — a generated proof harness reaches this as \
+                 `crate::{}::…`, and a Kani harness (a separate `tests/` crate) needs every module \
+                 on the path `pub`. Make it `pub`, or the harness will not compile.",
+                module.join("::")
+            );
+        }
     }
 
     print_monitor_claim(subject, companion, &requirement, &draft.bindings);
