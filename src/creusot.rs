@@ -283,12 +283,17 @@ pub fn run(subject_root: &Path, harness: &Harness) -> Outcome {
         .join("src")
         .join(format!("{}.rs", harness.name));
     if harness_path.exists() {
-        return Outcome::Inconclusive {
-            reason: format!(
-                "{} already exists — refusing to overwrite a file provreq did not write",
-                harness_path.display()
-            ),
-        };
+        // Overwrite only provreq's own harness, left by a prior `verify` that was killed before
+        // cleanup ran (#527); never clobber an operator's own file at this path.
+        let existing = std::fs::read_to_string(&harness_path).unwrap_or_default();
+        if !crate::lowering::reclaimable_harness(&existing) {
+            return Outcome::Inconclusive {
+                reason: format!(
+                    "{} already exists — refusing to overwrite a file provreq did not write",
+                    harness_path.display()
+                ),
+            };
+        }
     }
     let original_root = match std::fs::read_to_string(&root_file) {
         Ok(s) => s,
@@ -764,6 +769,15 @@ mod tests {
             &sorts(),
             "provreq_req001",
         )
+    }
+
+    #[test]
+    fn the_generated_harness_identifies_itself_for_reclaim() {
+        // Ties the Creusot template to the marker the overwrite guard reclaims by (#527): if the
+        // header ever drifts from `GENERATED_HARNESS_MARKER`, a stale harness would silently stop
+        // being reclaimable and wedge the next run.
+        let h = lower_standard().expect("should lower");
+        assert!(crate::lowering::reclaimable_harness(&h.source));
     }
 
     // Verifies: REQ031 — a quantified cat-1 invariant lowers to a `proof_assert!` with a
