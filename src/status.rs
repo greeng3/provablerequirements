@@ -56,11 +56,11 @@ pub fn coverage(
         stale: 0,
     };
     for item in items {
-        match triage.items.get(&item.id).map(|e| e.classification) {
-            None => cov.untriaged += 1,
-            Some(Classification::FormalizableNow) => cov.formalizable_now += 1,
-            Some(Classification::FalsifiableOnly) => cov.falsifiable_only += 1,
-            Some(Classification::StaysProse) => cov.stays_prose += 1,
+        match triage_bucket(triage.items.get(&item.id).map(|e| e.classification)) {
+            TriageBucket::Untriaged => cov.untriaged += 1,
+            TriageBucket::FormalizableNow => cov.formalizable_now += 1,
+            TriageBucket::FalsifiableOnly => cov.falsifiable_only += 1,
+            TriageBucket::StaysProse => cov.stays_prose += 1,
         }
         match drafts.drafts.get(&item.id) {
             Some(d) if d.is_admitted() => cov.formalized += 1,
@@ -76,6 +76,87 @@ pub fn coverage(
         }
     }
     cov
+}
+
+/// Which triage bucket one item falls in. The four buckets are the honest states REQ011 keeps
+/// distinct: untriaged (no classification yet) is its own state, not folded into stays-prose or
+/// formalizable-but-not-yet. Pure and total over the classification alone — every item lands in
+/// exactly one bucket — so [`triage_partition_is_honest`] can prove the funnel's triage counts
+/// partition the discovered items.
+pub(crate) fn triage_bucket(classification: Option<Classification>) -> TriageBucket {
+    match classification {
+        None => TriageBucket::Untriaged,
+        Some(Classification::FormalizableNow) => TriageBucket::FormalizableNow,
+        Some(Classification::FalsifiableOnly) => TriageBucket::FalsifiableOnly,
+        Some(Classification::StaysProse) => TriageBucket::StaysProse,
+    }
+}
+
+/// The four honest triage buckets of the coverage funnel (REQ011) — the payload-free peer of
+/// `Coverage`'s `untriaged`/`formalizable_now`/`falsifiable_only`/`stays_prose` counts.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum TriageBucket {
+    Untriaged,
+    FormalizableNow,
+    FalsifiableOnly,
+    StaysProse,
+}
+
+/// REQ011's honest-funnel rule as a proof sort: one item's triage classification (`None` =
+/// untriaged). Payload-free (`Classification` is a plain enum), so a bounded harness ranges over it
+/// without the heap-backed `Item`/`TriageState` the real [`coverage`] walks. Named and `pub` like
+/// REQ030's `ProofEnsemble` so the sort resolver reads it as a plain subject type; gated for every
+/// prover so each engine's generated harness can reach it.
+#[cfg(any(kani, creusot, prusti))]
+pub struct FunnelCase {
+    pub classification: Option<Classification>,
+}
+
+#[cfg(kani)]
+impl kani::Arbitrary for Classification {
+    fn any() -> Self {
+        match kani::any::<u8>() % 3 {
+            0 => Classification::FormalizableNow,
+            1 => Classification::FalsifiableOnly,
+            _ => Classification::StaysProse,
+        }
+    }
+}
+
+#[cfg(kani)]
+impl kani::Arbitrary for FunnelCase {
+    fn any() -> Self {
+        FunnelCase {
+            classification: if kani::any() { Some(kani::any()) } else { None },
+        }
+    }
+}
+
+/// REQ011 stated as a property and checked against the real [`triage_bucket`]: the four triage
+/// buckets are mutually exclusive and exhaustive, so they partition the discovered items (their
+/// counts sum to the total, and no item is dropped or double-counted). The membership predicates are
+/// written straight off the classification — not off `triage_bucket`'s arms — so the two agree only
+/// if the real classifier keeps the honest states distinct: untriaged never collapses into
+/// stays-prose or either formalizable bucket.
+#[cfg(any(kani, creusot, prusti))]
+pub fn triage_partition_is_honest(case: &FunnelCase) -> bool {
+    let c = case.classification;
+    let untriaged = c.is_none();
+    let formalizable = c == Some(Classification::FormalizableNow);
+    let falsifiable = c == Some(Classification::FalsifiableOnly);
+    let prose = c == Some(Classification::StaysProse);
+    // Exactly one honest state holds for any item (exhaustive + mutually exclusive). Counted with
+    // arithmetic, not an iterator: a 4-element loop would exceed `kani.default_unwind` (4) and trip
+    // an unwinding assertion, where this is loop-free.
+    let exactly_one = untriaged as u8 + formalizable as u8 + falsifiable as u8 + prose as u8 == 1;
+    // ...and the bucket the funnel counts under is that same state.
+    let bucket_matches = match triage_bucket(c) {
+        TriageBucket::Untriaged => untriaged,
+        TriageBucket::FormalizableNow => formalizable,
+        TriageBucket::FalsifiableOnly => falsifiable,
+        TriageBucket::StaysProse => prose,
+    };
+    exactly_one && bucket_matches
 }
 
 /// The stored verdict for one item paired with its freshness against `anchor`, or `None` when the

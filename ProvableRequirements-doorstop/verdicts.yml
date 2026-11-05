@@ -1,4 +1,78 @@
 verdicts:
+  REQ011:
+    id: REQ011
+    status: holds
+    basis: model-checked (bounded)
+    reason: null
+    witness: null
+    detail:
+    - 'Kani: holds (model-checked (bounded))'
+    - bounded by — unwind 4 (`kani.default_unwind` in provreq.yml); timeout 300s (`kani.timeout_seconds` in provreq.yml)
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `funnel_keeps_states_distinct` passed
+    - 'Creusot: inconclusive'
+    - 'the proof harness provreq generated did not compile — error: called program function `status::triage_partition_is_honest` in logic context (src/provreq_req011.rs:11:61). Pearlite may only call `#[logic]` functions, and that is an ordinary program function — marking it `#[logic]` is not the fix either, because that removes the item from the program and breaks every call site. Reach it through a `#[logic]` mirror instead, which leaves the function untouched: re-run `verify` with `--draft-semantic`'
+    - 'Prusti: inconclusive'
+    - 'Prusti''s pinned toolchain predates this subject''s dependency graph — its 2023 cargo cannot read a v4 lock file or a dependency declaring `edition = "2024"`. This is a toolchain ceiling, not a missing annotation: Prusti can only verify a subject whose whole dependency graph builds on a 2023 nightly, and upstream has published nothing newer'
+    evidence:
+    - engine: Kani
+      status: holds
+      basis: model-checked (bounded)
+      witness: null
+      detail:
+      - bounded by — unwind 4 (`kani.default_unwind` in provreq.yml); timeout 300s (`kani.timeout_seconds` in provreq.yml)
+      correspondence: mechanical
+      source_location: null
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `funnel_keeps_states_distinct` passed
+      correspondence: asserted
+      source_location:
+        file: src/status.rs
+        line: 336
+        symbol: funnel_keeps_states_distinct
+    - engine: Creusot
+      status: unknown
+      basis: null
+      witness: null
+      detail:
+      - 'the proof harness provreq generated did not compile — error: called program function `status::triage_partition_is_honest` in logic context (src/provreq_req011.rs:11:61). Pearlite may only call `#[logic]` functions, and that is an ordinary program function — marking it `#[logic]` is not the fix either, because that removes the item from the program and breaks every call site. Reach it through a `#[logic]` mirror instead, which leaves the function untouched: re-run `verify` with `--draft-semantic`'
+      correspondence: mechanical
+      source_location: null
+    - engine: Prusti
+      status: unknown
+      basis: null
+      witness: null
+      detail:
+      - 'Prusti''s pinned toolchain predates this subject''s dependency graph — its 2023 cargo cannot read a v4 lock file or a dependency declaring `edition = "2024"`. This is a toolchain ceiling, not a missing annotation: Prusti can only verify a subject whose whole dependency graph builds on a 2023 nightly, and upstream has published nothing newer'
+      correspondence: mechanical
+      source_location: null
+    correspondence: mechanical
+    provenance:
+      requirement_revision: 7cd86b495a6a9f166fbe0b5815604b8388be871441224d91a217823da891fdd3
+      subject_commit: a9639000619239cd11b4e54834ca8135230f32c0
+      tool_version: 0.0.39
+      verified_scope: null
+      formalization: fa903f765b817c3b
+      environment:
+        declared: provreq-devcontainer
+        engines:
+        - Creusot 0.14.0
+        - Kani 0.68.0
+        - TLC (TLA+) 2.19
+        unversioned:
+        - MonPoly
+        - Prusti
+        container: true
+      spec_fingerprint: null
+      trace_fingerprint: null
+      source_fingerprint: 62e051f97aaa8df2e5199abe85bedaeb8d41006a
+      ui_fingerprint: null
+      tagged_source_fingerprint: f72960aa23b89a8483a27fcdaed64311e218e8f03c20b2b133df031075142067
+      scope_fingerprint: 27eef0624a11cea480bad157ec1011546ded6b86e0fdea4d5818ad71d8796bfe
   REQ014:
     id: REQ014
     status: holds
