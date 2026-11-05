@@ -37,6 +37,52 @@ drafts:
       category: code
       observable: needs_reconfirmation
       fidelity: definitional
+  REQ024:
+    revision: a7af373762be623f5fd8a56c8f46e7a66479c292722ac1b84298c584569f3660
+    candidate: |-
+      requirement REQ024_fragment_is_sound { category: 1
+        vocabulary { state fragment_is_sound(case: FragmentCase) }
+        require { always (fragment_is_sound(case)) } }
+    gate:
+      status: passed
+      warnings: []
+    admission:
+      state: admitted
+      review: optional
+      by: greeng3
+      at_unix: 1793833666
+    bindings:
+    - symbol: FragmentCase
+      category: code
+      observable: FragmentCase
+      fidelity: definitional
+    - symbol: fragment_is_sound
+      category: code
+      observable: fragment_is_sound
+      fidelity: definitional
+  REQ028:
+    revision: 5c60f23e493018ce2b850e669d956c3280da8ae443b0b8e4590a7389a0b8d495
+    candidate: |-
+      requirement REQ028_model_binding_is_sound { category: 1
+        vocabulary { state model_binding_is_sound(case: ModelBindingCase) }
+        require { always (model_binding_is_sound(case)) } }
+    gate:
+      status: passed
+      warnings: []
+    admission:
+      state: admitted
+      review: optional
+      by: greeng3
+      at_unix: 1793836545
+    bindings:
+    - symbol: ModelBindingCase
+      category: code
+      observable: ModelBindingCase
+      fidelity: definitional
+    - symbol: model_binding_is_sound
+      category: code
+      observable: model_binding_is_sound
+      fidelity: definitional
   REQ030:
     revision: 467e7570a79795b132e67f5862bdd3ada08ba90a67925565493152cbe4af9033
     candidate: |-
