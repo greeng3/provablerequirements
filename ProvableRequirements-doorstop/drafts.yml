@@ -1,5 +1,28 @@
 schema: 1
 drafts:
+  REQ011:
+    revision: 7cd86b495a6a9f166fbe0b5815604b8388be871441224d91a217823da891fdd3
+    candidate: |-
+      requirement REQ011_funnel_is_honest { category: 1
+        vocabulary { state triage_partition_is_honest(case: FunnelCase) }
+        require { always (triage_partition_is_honest(case)) } }
+    gate:
+      status: passed
+      warnings: []
+    admission:
+      state: admitted
+      review: optional
+      by: greeng3
+      at_unix: 1793908854
+    bindings:
+    - symbol: FunnelCase
+      category: code
+      observable: FunnelCase
+      fidelity: definitional
+    - symbol: triage_partition_is_honest
+      category: code
+      observable: triage_partition_is_honest
+      fidelity: definitional
   REQ014:
     revision: 19597bc0d12ed865
     candidate: |-
