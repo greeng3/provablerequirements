@@ -320,12 +320,18 @@ pub fn run(subject_root: &Path, harness: &Harness, bounds: &Bounds) -> Outcome {
     }
     let path = tests_dir.join(format!("{}.rs", harness.name));
     if path.exists() {
-        return Outcome::Inconclusive {
-            reason: format!(
-                "{} already exists — refusing to overwrite a file provreq did not write",
-                path.display()
-            ),
-        };
+        // A file is already here. Overwrite it only if it is provreq's own harness, left by a prior
+        // `verify` that was killed (e.g. at the OS timeout) before its cleanup ran (#527); never
+        // clobber an operator's own file at this path.
+        let existing = std::fs::read_to_string(&path).unwrap_or_default();
+        if !crate::lowering::reclaimable_harness(&existing) {
+            return Outcome::Inconclusive {
+                reason: format!(
+                    "{} already exists — refusing to overwrite a file provreq did not write",
+                    path.display()
+                ),
+            };
+        }
     }
     if let Err(e) = std::fs::write(&path, &harness.source) {
         return Outcome::Inconclusive {
@@ -897,6 +903,16 @@ For more information about this error, try `rustc --explain E0277`.
             "provreq_smoke",
         )
         .expect("the fixture must lower")
+    }
+
+    #[test]
+    fn the_generated_harness_identifies_itself_for_reclaim() {
+        // Ties the Kani template to the marker the overwrite guard reclaims by (#527): if the
+        // header ever drifts from `GENERATED_HARNESS_MARKER`, a stale harness would silently stop
+        // being reclaimable and wedge the next run.
+        assert!(crate::lowering::reclaimable_harness(
+            &smoke_harness().source
+        ));
     }
 
     // Verifies: REQ027 — THE REAL ENGINE, end to end: a true invariant over a real cargo
