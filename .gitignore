@@ -18,3 +18,9 @@
 .claude/
 .claude-home/
 /web/*.tsbuildinfo
+
+# provreq operator-local state: `set-llm` writes the chosen LLM provider/model/transport here
+# (the serve UI persists to it too). It is per-operator, per-machine — the `cli` transport needs a
+# local `claude` binary not every environment has — so it is never committed. Project-wide LLM
+# config lives in the subject's `provreq.yml` instead.
+.provreq/
