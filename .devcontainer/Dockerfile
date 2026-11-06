@@ -292,7 +292,16 @@ RUN apt-get update \
     # installed fine and only died at RUN time on a missing libstd.so. So run it, don't just stat
     # it. Outside a Creusot project it exits non-zero with "creusot-std not found in dependencies",
     # which is a perfectly good liveness signal — what must NOT appear is a loader error.
-    && ! cargo-creusot --help 2>&1 | grep -q "error while loading shared libraries"
+    && ! cargo-creusot --help 2>&1 | grep -q "error while loading shared libraries" \
+    # Complete the CVC4 -> CVC5 migration (again). CVC5 supersedes CVC4 (EOL 2020, no aarch64-linux
+    # binary), so we run on CVC5 — but upstream v0.14.0 still lists `cvc4` in `PROVERS` and in the
+    # `why3find.json` template that `why3-conf` writes and this image copies into every subject. A
+    # config naming a prover we do not run makes `why3find prove` die at calibration ("can not
+    # calibrate prover cvc4@") instead of returning a clean unproved, sinking every Creusot verdict
+    # to inconclusive. Commit 55ec353 did this inside the vendored aarch64 patch; dropping that patch
+    # for v0.14.0 (which carries only the download fix) silently reverted it, and we no longer patch
+    # Creusot — so drop CVC4 from the canonical config here. CVC5 is asserted present above.
+    && python3 -c 'import json,os; p=os.path.join(os.environ["CREUSOT_DATA"],"why3find.json"); c=json.load(open(p)); c["provers"]=[x for x in c.get("provers",[]) if x.split("@")[0]!="cvc4"]; c["profile"]=[x for x in c.get("profile",[]) if x.get("prover","").split("@")[0]!="cvc4"]; json.dump(c,open(p,"w"),indent=2); open(p,"a").write("\n")'
 
 # MonPoly — the category-2b verification engine (runtime monitoring, MFOTL). Baked into the image
 # for the same reason as Kani/TLC/Prusti/Creusot: a runtime install evaporates on rebuild and
