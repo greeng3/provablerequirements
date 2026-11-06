@@ -15,9 +15,10 @@
 pub mod ast;
 mod check;
 pub mod error;
-// `pub` so the prover-only proof sort and predicate (`FragmentCase`, `fragment_is_sound`) are
-// reachable at `prl::fragment::…`, the path the generated category-1 harness emits — the same
-// reason `verdict`/`engine` are public modules. The gate's own `check` stays crate-private.
+// `pub` for the re-exported triage-boundary view below (`CategoryBoundary`, `triage_boundaries`).
+// REQ024's proof sort and predicate moved to the `provreq-proofs` leaf crate (#531/#537), so the
+// generated category-1 harness now emits `provreq_proofs::fragment::…` rather than a path here. The
+// gate's own `check` stays crate-private.
 pub mod fragment;
 pub use fragment::{CategoryBoundary, triage_boundaries};
 mod lexer;

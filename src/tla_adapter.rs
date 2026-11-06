@@ -41,6 +41,10 @@
 use std::path::Path;
 use walkdir::{DirEntry, WalkDir};
 
+// REQ028's decision + proof live in the excluded `provreq-proofs` leaf crate so Creusot can prove
+// them (#531/#537); `resolve` delegates its classification here rather than deciding inline.
+use provreq_proofs::model_binding::{BindingKind, classify_binding};
+
 /// Where a definition lives in the subject's model: file (relative to the subject root),
 /// 1-based line, and that line's own text — so the operator confirms against the real spec
 /// rather than a definition this tool reconstructed. Peer of [`crate::rust_adapter::CodeMatch`];
@@ -180,97 +184,6 @@ pub fn resolve(subject: &SubjectSpecs, observable: &str, expected_arity: usize) 
             declared,
             expected: expected_arity,
         },
-    }
-}
-
-/// The resolution a binding earns from the only facts the decision reads: how many definitions
-/// carry the name, and — for a lone match — the arity that line declares (`None` when it states
-/// none). Zero is not-found; several is ambiguous and the declared arity is never consulted
-/// (ambiguity is reported first); exactly one resolves unless its line declares an arity that
-/// disagrees with the requirement's. Pure over small values, so a bounded harness proves REQ028
-/// against the real rule rather than a copy.
-pub(crate) fn classify_binding(
-    match_count: usize,
-    lone_declared_arity: Option<usize>,
-    expected_arity: usize,
-) -> BindingKind {
-    match match_count {
-        0 => BindingKind::NotFound,
-        1 => match lone_declared_arity {
-            Some(declared) if declared != expected_arity => BindingKind::WrongArity { declared },
-            _ => BindingKind::Resolved,
-        },
-        _ => BindingKind::Ambiguous,
-    }
-}
-
-/// The payload-free shape of a [`ModelResolution`] — what [`classify_binding`] decides before the
-/// IO-bound [`resolve`] reattaches the matched definition(s). `WrongArity` keeps the declared arity
-/// it read, the one field the decision itself produces.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum BindingKind {
-    NotFound,
-    Resolved,
-    Ambiguous,
-    WrongArity { declared: usize },
-}
-
-/// REQ028's model-binding resolver stated as a proof sort: how many definitions share the name, the
-/// lone match's declared arity, and the requirement's expected arity — the only facts
-/// [`classify_binding`] reads. The real [`resolve`] walks the filesystem for these; the sort hands
-/// them directly, so it is prover-`Arbitrary` where `resolve` (IO over `SpecMatch` strings) is not.
-/// Named and `pub` like REQ030's `ProofEnsemble` so the sort resolver reads it as a plain subject
-/// type.
-#[cfg(any(kani, creusot, prusti))]
-pub struct ModelBindingCase {
-    pub match_count: usize,
-    pub lone_declared_arity: Option<usize>,
-    pub expected_arity: usize,
-}
-
-#[cfg(kani)]
-impl kani::Arbitrary for ModelBindingCase {
-    fn any() -> Self {
-        // Small bounds: the decision only branches on 0 / 1 / several and on arity (dis)agreement,
-        // so 0..4 exercises every case (none, lone, several; arities equal and not) with room to
-        // spare. Unbounded `usize` would have CBMC enumerate 2^64 values for no added coverage.
-        ModelBindingCase {
-            match_count: (kani::any::<u8>() % 4) as usize,
-            lone_declared_arity: if kani::any() {
-                Some((kani::any::<u8>() % 4) as usize)
-            } else {
-                None
-            },
-            expected_arity: (kani::any::<u8>() % 4) as usize,
-        }
-    }
-}
-
-/// REQ028 stated as a property and checked against the real [`classify_binding`]: every outcome
-/// keeps the promise its variant makes. `Resolved` only for a lone match whose stated arity agrees
-/// (or is absent); `NotFound` exactly when nothing carries the name; `Ambiguous` exactly when
-/// several do — the declared arity never consulted, so ambiguity is reported before arity;
-/// `WrongArity` only for a lone match whose stated arity disagrees. Written as the guarantee each
-/// variant owes, not as the classifier's own branches, so the two agree only if the rule is right.
-#[cfg(any(kani, creusot, prusti))]
-pub fn model_binding_is_sound(case: &ModelBindingCase) -> bool {
-    let kind = classify_binding(
-        case.match_count,
-        case.lone_declared_arity,
-        case.expected_arity,
-    );
-    let lone = case.match_count == 1;
-    let arity_agrees = match case.lone_declared_arity {
-        Some(declared) => declared == case.expected_arity,
-        None => true, // a line that states no arity is not a mismatch
-    };
-    match kind {
-        BindingKind::Resolved => lone && arity_agrees,
-        BindingKind::NotFound => case.match_count == 0,
-        BindingKind::Ambiguous => case.match_count >= 2,
-        BindingKind::WrongArity { declared } => {
-            lone && case.lone_declared_arity == Some(declared) && declared != case.expected_arity
-        }
     }
 }
 

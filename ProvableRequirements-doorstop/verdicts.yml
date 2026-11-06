@@ -2,19 +2,25 @@ verdicts:
   REQ011:
     id: REQ011
     status: holds
-    basis: model-checked (bounded)
+    basis: proven
     reason: null
     witness: null
     detail:
+    - 'Creusot: holds (proven)'
     - 'Kani: holds (model-checked (bounded))'
     - bounded by — unwind 4 (`kani.default_unwind` in provreq.yml); timeout 300s (`kani.timeout_seconds` in provreq.yml)
     - 'cargo test: holds (not-falsified)'
     - not falsified over — the tagged test `funnel_keeps_states_distinct` passed
-    - 'Creusot: inconclusive'
-    - 'the proof harness provreq generated did not compile — error: called program function `status::triage_partition_is_honest` in logic context (src/provreq_req011.rs:11:61). Pearlite may only call `#[logic]` functions, and that is an ordinary program function — marking it `#[logic]` is not the fix either, because that removes the item from the program and breaks every call site. Reach it through a `#[logic]` mirror instead, which leaves the function untouched: re-run `verify` with `--draft-semantic`'
     - 'Prusti: inconclusive'
     - 'Prusti''s pinned toolchain predates this subject''s dependency graph — its 2023 cargo cannot read a v4 lock file or a dependency declaring `edition = "2024"`. This is a toolchain ceiling, not a missing annotation: Prusti can only verify a subject whose whole dependency graph builds on a 2023 nightly, and upstream has published nothing newer'
     evidence:
+    - engine: Creusot
+      status: holds
+      basis: proven
+      witness: null
+      detail: []
+      correspondence: mechanical
+      source_location: null
     - engine: Kani
       status: holds
       basis: model-checked (bounded)
@@ -32,16 +38,8 @@ verdicts:
       correspondence: asserted
       source_location:
         file: src/status.rs
-        line: 336
+        line: 268
         symbol: funnel_keeps_states_distinct
-    - engine: Creusot
-      status: unknown
-      basis: null
-      witness: null
-      detail:
-      - 'the proof harness provreq generated did not compile — error: called program function `status::triage_partition_is_honest` in logic context (src/provreq_req011.rs:11:61). Pearlite may only call `#[logic]` functions, and that is an ordinary program function — marking it `#[logic]` is not the fix either, because that removes the item from the program and breaks every call site. Reach it through a `#[logic]` mirror instead, which leaves the function untouched: re-run `verify` with `--draft-semantic`'
-      correspondence: mechanical
-      source_location: null
     - engine: Prusti
       status: unknown
       basis: null
@@ -53,9 +51,9 @@ verdicts:
     correspondence: mechanical
     provenance:
       requirement_revision: 7cd86b495a6a9f166fbe0b5815604b8388be871441224d91a217823da891fdd3
-      subject_commit: a9639000619239cd11b4e54834ca8135230f32c0
-      tool_version: 0.0.39
-      verified_scope: null
+      subject_commit: e95f4e414fa753e4070e427fec2a03de50650871
+      tool_version: 0.0.42
+      verified_scope: crate crates/provreq-proofs
       formalization: fa903f765b817c3b
       environment:
         declared: provreq-devcontainer
@@ -69,10 +67,10 @@ verdicts:
         container: true
       spec_fingerprint: null
       trace_fingerprint: null
-      source_fingerprint: 62e051f97aaa8df2e5199abe85bedaeb8d41006a
+      source_fingerprint: b099da4620da3ed94ea92daa1533ac65d8b8bcfe
       ui_fingerprint: null
-      tagged_source_fingerprint: f72960aa23b89a8483a27fcdaed64311e218e8f03c20b2b133df031075142067
-      scope_fingerprint: 27eef0624a11cea480bad157ec1011546ded6b86e0fdea4d5818ad71d8796bfe
+      tagged_source_fingerprint: 96fcc76841c9f602d7d6a504e718b4a34ab72ea5f50e950cbd1422e0c3aadc87
+      scope_fingerprint: 94f6624fbbbcac3f65bb82fde5acf62dfd4f1253e3870a88447b317e65265638
   REQ014:
     id: REQ014
     status: holds
@@ -154,10 +152,11 @@ verdicts:
   REQ024:
     id: REQ024
     status: holds
-    basis: model-checked (bounded)
+    basis: proven
     reason: null
     witness: null
     detail:
+    - 'Creusot: holds (proven)'
     - 'Kani: holds (model-checked (bounded))'
     - bounded by — unwind 4 (`kani.default_unwind` in provreq.yml); timeout 300s (`kani.timeout_seconds` in provreq.yml)
     - 'cargo test: holds (not-falsified)'
@@ -182,11 +181,16 @@ verdicts:
     - not falsified over — the tagged test `out_of_fragment_error_is_actionable` passed
     - 'cargo test: holds (not-falsified)'
     - not falsified over — the tagged test `gate_rejects_liveness_at_category_one` passed
-    - 'Creusot: inconclusive'
-    - 'the proof harness provreq generated did not compile — error: called program function `prl::fragment::fragment_is_sound` in logic context (src/provreq_req024.rs:11:70). Pearlite may only call `#[logic]` functions, and that is an ordinary program function — marking it `#[logic]` is not the fix either, because that removes the item from the program and breaks every call site. Reach it through a `#[logic]` mirror instead, which leaves the function untouched: re-run `verify` with `--draft-semantic`'
     - 'Prusti: inconclusive'
     - 'Prusti''s pinned toolchain predates this subject''s dependency graph — its 2023 cargo cannot read a v4 lock file or a dependency declaring `edition = "2024"`. This is a toolchain ceiling, not a missing annotation: Prusti can only verify a subject whose whole dependency graph builds on a 2023 nightly, and upstream has published nothing newer'
     evidence:
+    - engine: Creusot
+      status: holds
+      basis: proven
+      witness: null
+      detail: []
+      correspondence: mechanical
+      source_location: null
     - engine: Kani
       status: holds
       basis: model-checked (bounded)
@@ -204,7 +208,7 @@ verdicts:
       correspondence: asserted
       source_location:
         file: src/engine.rs
-        line: 644
+        line: 609
         symbol: an_unwired_engine_is_never_ready
     - engine: cargo test
       status: holds
@@ -215,7 +219,7 @@ verdicts:
       correspondence: asserted
       source_location:
         file: src/engine.rs
-        line: 653
+        line: 618
         symbol: not_wired_is_distinct_from_missing
     - engine: cargo test
       status: holds
@@ -226,7 +230,7 @@ verdicts:
       correspondence: asserted
       source_location:
         file: src/engine.rs
-        line: 925
+        line: 890
         symbol: unwired_engine_blocks_readiness
     - engine: cargo test
       status: holds
@@ -237,7 +241,7 @@ verdicts:
       correspondence: asserted
       source_location:
         file: src/prl/fragment.rs
-        line: 355
+        line: 311
         symbol: liveness_at_category_one_is_out_of_fragment
     - engine: cargo test
       status: holds
@@ -248,7 +252,7 @@ verdicts:
       correspondence: asserted
       source_location:
         file: src/prl/fragment.rs
-        line: 374
+        line: 330
         symbol: invariants_are_in_fragment_at_category_one
     - engine: cargo test
       status: holds
@@ -259,7 +263,7 @@ verdicts:
       correspondence: asserted
       source_location:
         file: src/prl/fragment.rs
-        line: 396
+        line: 352
         symbol: every_temporal_pattern_is_out_of_fragment_at_category_one
     - engine: cargo test
       status: holds
@@ -270,7 +274,7 @@ verdicts:
       correspondence: asserted
       source_location:
         file: src/prl/fragment.rs
-        line: 420
+        line: 376
         symbol: can_reach_is_only_expressible_at_the_model_category
     - engine: cargo test
       status: holds
@@ -281,7 +285,7 @@ verdicts:
       correspondence: asserted
       source_location:
         file: src/prl/fragment.rs
-        line: 450
+        line: 406
         symbol: every_declared_category_must_express_the_claim
     - engine: cargo test
       status: holds
@@ -292,7 +296,7 @@ verdicts:
       correspondence: asserted
       source_location:
         file: src/prl/fragment.rs
-        line: 473
+        line: 429
         symbol: category_less_candidate_is_not_fragment_checked
     - engine: cargo test
       status: holds
@@ -303,7 +307,7 @@ verdicts:
       correspondence: asserted
       source_location:
         file: src/prl/fragment.rs
-        line: 485
+        line: 441
         symbol: out_of_fragment_error_is_actionable
     - engine: cargo test
       status: holds
@@ -314,16 +318,8 @@ verdicts:
       correspondence: asserted
       source_location:
         file: src/prl.rs
-        line: 98
+        line: 99
         symbol: gate_rejects_liveness_at_category_one
-    - engine: Creusot
-      status: unknown
-      basis: null
-      witness: null
-      detail:
-      - 'the proof harness provreq generated did not compile — error: called program function `prl::fragment::fragment_is_sound` in logic context (src/provreq_req024.rs:11:70). Pearlite may only call `#[logic]` functions, and that is an ordinary program function — marking it `#[logic]` is not the fix either, because that removes the item from the program and breaks every call site. Reach it through a `#[logic]` mirror instead, which leaves the function untouched: re-run `verify` with `--draft-semantic`'
-      correspondence: mechanical
-      source_location: null
     - engine: Prusti
       status: unknown
       basis: null
@@ -335,9 +331,9 @@ verdicts:
     correspondence: mechanical
     provenance:
       requirement_revision: a7af373762be623f5fd8a56c8f46e7a66479c292722ac1b84298c584569f3660
-      subject_commit: 5f2959f0ad92d59c935fd0722a4694032502b77f
-      tool_version: 0.0.38
-      verified_scope: null
+      subject_commit: e95f4e414fa753e4070e427fec2a03de50650871
+      tool_version: 0.0.42
+      verified_scope: crate crates/provreq-proofs
       formalization: 2618ceacc0cea640
       environment:
         declared: provreq-devcontainer
@@ -351,19 +347,22 @@ verdicts:
         container: true
       spec_fingerprint: null
       trace_fingerprint: null
-      source_fingerprint: be0a70020fdf951f6fe82780f1e908ef8cbf4a4d
+      source_fingerprint: b099da4620da3ed94ea92daa1533ac65d8b8bcfe
       ui_fingerprint: null
-      tagged_source_fingerprint: 297a5e4f181736e6e32958090580bfa97f9d4fc67af6fee37190c3a0e447f265
-      scope_fingerprint: 23bb1917fa7b4d77f643dc787e537c3391079bf80e2a2e83a20b3639c505e5df
+      tagged_source_fingerprint: dce95ffade8eb1a339dc791239203bbc50e0925efc8e1874a4b306ca0e5114c3
+      scope_fingerprint: b3f8fec435ff82555432d7eba86e4ebdcea651dc65d91c58a1e92f5d074c630d
   REQ028:
     id: REQ028
     status: holds
-    basis: model-checked (bounded)
+    basis: proven
     reason: null
     witness: null
     detail:
+    - 'Creusot: holds (proven)'
     - 'Kani: holds (model-checked (bounded))'
     - bounded by — unwind 4 (`kani.default_unwind` in provreq.yml); timeout 300s (`kani.timeout_seconds` in provreq.yml)
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `model_requirement_grounds_when_every_binding_resolves` passed
     - 'cargo test: holds (not-falsified)'
     - not falsified over — the tagged test `model_requirement_parks_when_a_binding_does_not_resolve` passed
     - 'cargo test: holds (not-falsified)'
@@ -436,18 +435,16 @@ verdicts:
     - not falsified over — the tagged test `a_verdict_without_a_spec_fingerprint_is_not_flagged` passed
     - 'cargo test: holds (not-falsified)'
     - not falsified over — the tagged test `losing_the_configured_specs_makes_a_verdict_stale` passed
-    - 'Creusot: inconclusive'
-    - 'the proof harness provreq generated did not compile — error: called program function `tla_adapter::model_binding_is_sound` in logic context (src/provreq_req028.rs:11:72). Pearlite may only call `#[logic]` functions, and that is an ordinary program function — marking it `#[logic]` is not the fix either, because that removes the item from the program and breaks every call site. Reach it through a `#[logic]` mirror instead, which leaves the function untouched: re-run `verify` with `--draft-semantic`'
     - 'Prusti: inconclusive'
     - 'Prusti''s pinned toolchain predates this subject''s dependency graph — its 2023 cargo cannot read a v4 lock file or a dependency declaring `edition = "2024"`. This is a toolchain ceiling, not a missing annotation: Prusti can only verify a subject whose whole dependency graph builds on a 2023 nightly, and upstream has published nothing newer'
-    - 'cargo test: inconclusive'
-    - '`cargo test model_requirement_grounds_when_every_binding_resolves` produced no test result (the harness did not run)'
-    - Compiling provreq v0.0.38 (/workspace)
-    - 'warning: linker stderr: /usr/bin/aarch64-linux-gnu-ld.bfd: /root/.rustup/toolchains/1.98.1-aarch64-unknown-linux-gnu/lib/rustlib/aarch64-unknown-linux-gnu/lib/libstd-96c9fe7a07d47cf2.rlib(std-96c9fe7a07d47cf2.std.2e66b1facfa492c-cgu.0.rcgu.o): in function `std::sys::net::connection::socket::lookup_host::{closure#0}'':'
-    - '/rustc/48a229ceaefd4985c50990b14116b6d856af0985/library/std/src/sys/net/connection/socket/mod.rs:352:(.text._RNCNvNtNtNtNtCsfr5T3GFabw_3std3sys3net10connection6socket11lookup_host0Bb_+0x44): Using ''getaddrinfo'' in statically linked applications requires at runtime the shared libraries from the glibc version used for linking'
-    - '/usr/bin/aarch64-linux-gnu-ld.bfd: /workspace/target/aarch64-unknown-linux-gnu/debug/deps/libgix_config_value-937ddd2e6e8c01e5.rlib(gix_config_value-937ddd2e6e8c01e5.gix_config_value.26cef5a3231c2014-cgu.0.rcgu.o): in function `gix_config_value::path::interpolate::home_for_user'':'
-    - '/root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/gix-config-value-0.19.1/src/path.rs:66:(.text._RNvNtNtCs3kzJEoQTbR8_16gix_config_value4path11interpolate13home_for_user+0xc4): Using ''getpwnam'' in statically linked applications requires at runtime the shared libraries from the glibc version used for linking'
     evidence:
+    - engine: Creusot
+      status: holds
+      basis: proven
+      witness: null
+      detail: []
+      correspondence: mechanical
+      source_location: null
     - engine: Kani
       status: holds
       basis: model-checked (bounded)
@@ -461,11 +458,22 @@ verdicts:
       basis: not-falsified
       witness: null
       detail:
+      - not falsified over — the tagged test `model_requirement_grounds_when_every_binding_resolves` passed
+      correspondence: asserted
+      source_location:
+        file: src/grounding.rs
+        line: 1185
+        symbol: model_requirement_grounds_when_every_binding_resolves
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
       - not falsified over — the tagged test `model_requirement_parks_when_a_binding_does_not_resolve` passed
       correspondence: asserted
       source_location:
         file: src/grounding.rs
-        line: 1477
+        line: 1490
         symbol: model_requirement_parks_when_a_binding_does_not_resolve
     - engine: cargo test
       status: holds
@@ -476,7 +484,7 @@ verdicts:
       correspondence: asserted
       source_location:
         file: src/grounding.rs
-        line: 1506
+        line: 1519
         symbol: model_requirement_parks_when_a_binding_has_the_wrong_arity
     - engine: cargo test
       status: holds
@@ -487,7 +495,7 @@ verdicts:
       correspondence: asserted
       source_location:
         file: src/grounding.rs
-        line: 1551
+        line: 1564
         symbol: the_arity_a_model_binding_must_match_comes_from_the_vocabulary
     - engine: cargo test
       status: holds
@@ -498,7 +506,7 @@ verdicts:
       correspondence: asserted
       source_location:
         file: src/grounding.rs
-        line: 1565
+        line: 1578
         symbol: model_requirement_parks_when_a_binding_was_never_resolved
     - engine: cargo test
       status: holds
@@ -575,7 +583,7 @@ verdicts:
       correspondence: asserted
       source_location:
         file: src/tla_adapter.rs
-        line: 687
+        line: 604
         symbol: a_spec_outside_the_subject_resolves
     - engine: cargo test
       status: holds
@@ -586,7 +594,7 @@ verdicts:
       correspondence: asserted
       source_location:
         file: src/tla_adapter.rs
-        line: 703
+        line: 620
         symbol: a_root_inside_the_subject_does_not_duplicate_its_specs
     - engine: cargo test
       status: holds
@@ -597,7 +605,7 @@ verdicts:
       correspondence: asserted
       source_location:
         file: src/tla_adapter.rs
-        line: 720
+        line: 637
         symbol: the_fingerprint_covers_external_specs_and_moves_with_them
     - engine: cargo test
       status: holds
@@ -608,7 +616,7 @@ verdicts:
       correspondence: asserted
       source_location:
         file: src/tla_adapter.rs
-        line: 739
+        line: 656
         symbol: an_in_tree_subject_has_no_external_fingerprint
     - engine: cargo test
       status: holds
@@ -619,7 +627,7 @@ verdicts:
       correspondence: asserted
       source_location:
         file: src/tla_adapter.rs
-        line: 748
+        line: 665
         symbol: the_fingerprint_is_independent_of_root_order
     - engine: cargo test
       status: holds
@@ -630,7 +638,7 @@ verdicts:
       correspondence: asserted
       source_location:
         file: src/tla_adapter.rs
-        line: 767
+        line: 684
         symbol: resolves_an_operator_definition_to_its_location
     - engine: cargo test
       status: holds
@@ -641,7 +649,7 @@ verdicts:
       correspondence: asserted
       source_location:
         file: src/tla_adapter.rs
-        line: 780
+        line: 697
         symbol: a_variable_a_constant_and_a_set_all_resolve
     - engine: cargo test
       status: holds
@@ -652,7 +660,7 @@ verdicts:
       correspondence: asserted
       source_location:
         file: src/tla_adapter.rs
-        line: 844
+        line: 761
         symbol: an_undefined_name_does_not_resolve
     - engine: cargo test
       status: holds
@@ -663,7 +671,7 @@ verdicts:
       correspondence: asserted
       source_location:
         file: src/tla_adapter.rs
-        line: 857
+        line: 774
         symbol: a_name_only_in_a_comment_does_not_resolve
     - engine: cargo test
       status: holds
@@ -674,7 +682,7 @@ verdicts:
       correspondence: asserted
       source_location:
         file: src/tla_adapter.rs
-        line: 864
+        line: 781
         symbol: a_keyword_prefix_is_not_a_declaration
     - engine: cargo test
       status: holds
@@ -685,7 +693,7 @@ verdicts:
       correspondence: asserted
       source_location:
         file: src/tla_adapter.rs
-        line: 876
+        line: 793
         symbol: an_equality_expression_is_not_a_definition
     - engine: cargo test
       status: holds
@@ -696,7 +704,7 @@ verdicts:
       correspondence: asserted
       source_location:
         file: src/tla_adapter.rs
-        line: 886
+        line: 803
         symbol: a_function_definition_takes_no_operator_arguments
     - engine: cargo test
       status: holds
@@ -707,7 +715,7 @@ verdicts:
       correspondence: asserted
       source_location:
         file: src/tla_adapter.rs
-        line: 904
+        line: 821
         symbol: a_predicate_bound_to_a_variable_that_takes_no_arguments_is_refused
     - engine: cargo test
       status: holds
@@ -718,7 +726,7 @@ verdicts:
       correspondence: asserted
       source_location:
         file: src/tla_adapter.rs
-        line: 929
+        line: 846
         symbol: an_operator_applied_to_too_few_arguments_is_refused
     - engine: cargo test
       status: holds
@@ -729,7 +737,7 @@ verdicts:
       correspondence: asserted
       source_location:
         file: src/tla_adapter.rs
-        line: 945
+        line: 862
         symbol: a_multi_argument_operator_resolves_only_at_its_own_arity
     - engine: cargo test
       status: holds
@@ -740,7 +748,7 @@ verdicts:
       correspondence: asserted
       source_location:
         file: src/tla_adapter.rs
-        line: 957
+        line: 874
         symbol: a_higher_order_parameter_counts_as_one_argument
     - engine: cargo test
       status: holds
@@ -751,7 +759,7 @@ verdicts:
       correspondence: asserted
       source_location:
         file: src/tla_adapter.rs
-        line: 966
+        line: 883
         symbol: ambiguity_is_reported_before_arity
     - engine: cargo test
       status: holds
@@ -762,7 +770,7 @@ verdicts:
       correspondence: asserted
       source_location:
         file: src/tla_adapter.rs
-        line: 979
+        line: 896
         symbol: the_read_back_claims_only_what_was_checked
     - engine: cargo test
       status: holds
@@ -773,7 +781,7 @@ verdicts:
       correspondence: asserted
       source_location:
         file: src/tla_adapter.rs
-        line: 993
+        line: 910
         symbol: an_unreadable_parameter_list_claims_no_arity
     - engine: cargo test
       status: holds
@@ -784,7 +792,7 @@ verdicts:
       correspondence: asserted
       source_location:
         file: src/tla_adapter.rs
-        line: 1005
+        line: 922
         symbol: duplicate_definitions_are_ambiguous_never_guessed
     - engine: cargo test
       status: holds
@@ -795,7 +803,7 @@ verdicts:
       correspondence: asserted
       source_location:
         file: src/tla_adapter.rs
-        line: 1017
+        line: 934
         symbol: the_walk_skips_the_companion_and_git
     - engine: cargo test
       status: holds
@@ -806,7 +814,7 @@ verdicts:
       correspondence: asserted
       source_location:
         file: src/tla_adapter.rs
-        line: 1042
+        line: 959
         symbol: non_tla_files_are_not_searched
     - engine: cargo test
       status: holds
@@ -817,7 +825,7 @@ verdicts:
       correspondence: asserted
       source_location:
         file: src/tla_adapter.rs
-        line: 1051
+        line: 968
         symbol: empty_observable_resolves_to_nothing
     - engine: cargo test
       status: holds
@@ -852,14 +860,6 @@ verdicts:
         file: src/verdict_store.rs
         line: 543
         symbol: losing_the_configured_specs_makes_a_verdict_stale
-    - engine: Creusot
-      status: unknown
-      basis: null
-      witness: null
-      detail:
-      - 'the proof harness provreq generated did not compile — error: called program function `tla_adapter::model_binding_is_sound` in logic context (src/provreq_req028.rs:11:72). Pearlite may only call `#[logic]` functions, and that is an ordinary program function — marking it `#[logic]` is not the fix either, because that removes the item from the program and breaks every call site. Reach it through a `#[logic]` mirror instead, which leaves the function untouched: re-run `verify` with `--draft-semantic`'
-      correspondence: mechanical
-      source_location: null
     - engine: Prusti
       status: unknown
       basis: null
@@ -868,28 +868,12 @@ verdicts:
       - 'Prusti''s pinned toolchain predates this subject''s dependency graph — its 2023 cargo cannot read a v4 lock file or a dependency declaring `edition = "2024"`. This is a toolchain ceiling, not a missing annotation: Prusti can only verify a subject whose whole dependency graph builds on a 2023 nightly, and upstream has published nothing newer'
       correspondence: mechanical
       source_location: null
-    - engine: cargo test
-      status: unknown
-      basis: null
-      witness: null
-      detail:
-      - '`cargo test model_requirement_grounds_when_every_binding_resolves` produced no test result (the harness did not run)'
-      - Compiling provreq v0.0.38 (/workspace)
-      - 'warning: linker stderr: /usr/bin/aarch64-linux-gnu-ld.bfd: /root/.rustup/toolchains/1.98.1-aarch64-unknown-linux-gnu/lib/rustlib/aarch64-unknown-linux-gnu/lib/libstd-96c9fe7a07d47cf2.rlib(std-96c9fe7a07d47cf2.std.2e66b1facfa492c-cgu.0.rcgu.o): in function `std::sys::net::connection::socket::lookup_host::{closure#0}'':'
-      - '/rustc/48a229ceaefd4985c50990b14116b6d856af0985/library/std/src/sys/net/connection/socket/mod.rs:352:(.text._RNCNvNtNtNtNtCsfr5T3GFabw_3std3sys3net10connection6socket11lookup_host0Bb_+0x44): Using ''getaddrinfo'' in statically linked applications requires at runtime the shared libraries from the glibc version used for linking'
-      - '/usr/bin/aarch64-linux-gnu-ld.bfd: /workspace/target/aarch64-unknown-linux-gnu/debug/deps/libgix_config_value-937ddd2e6e8c01e5.rlib(gix_config_value-937ddd2e6e8c01e5.gix_config_value.26cef5a3231c2014-cgu.0.rcgu.o): in function `gix_config_value::path::interpolate::home_for_user'':'
-      - '/root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/gix-config-value-0.19.1/src/path.rs:66:(.text._RNvNtNtCs3kzJEoQTbR8_16gix_config_value4path11interpolate13home_for_user+0xc4): Using ''getpwnam'' in statically linked applications requires at runtime the shared libraries from the glibc version used for linking'
-      correspondence: asserted
-      source_location:
-        file: src/grounding.rs
-        line: 1172
-        symbol: model_requirement_grounds_when_every_binding_resolves
     correspondence: mechanical
     provenance:
       requirement_revision: 5c60f23e493018ce2b850e669d956c3280da8ae443b0b8e4590a7389a0b8d495
-      subject_commit: 5f2959f0ad92d59c935fd0722a4694032502b77f
-      tool_version: 0.0.38
-      verified_scope: null
+      subject_commit: e95f4e414fa753e4070e427fec2a03de50650871
+      tool_version: 0.0.42
+      verified_scope: crate crates/provreq-proofs
       formalization: b0add4493715d12c
       environment:
         declared: provreq-devcontainer
@@ -903,10 +887,10 @@ verdicts:
         container: true
       spec_fingerprint: null
       trace_fingerprint: null
-      source_fingerprint: be0a70020fdf951f6fe82780f1e908ef8cbf4a4d
+      source_fingerprint: b099da4620da3ed94ea92daa1533ac65d8b8bcfe
       ui_fingerprint: null
-      tagged_source_fingerprint: 4523939ed7f785b8d029196b75a804afb06a7357e8fb47e6ad25d65493f44143
-      scope_fingerprint: 23bb1917fa7b4d77f643dc787e537c3391079bf80e2a2e83a20b3639c505e5df
+      tagged_source_fingerprint: 264c1e1f7764a6a7db118ee738265d1961843c10e26c7c41a0bae47e28b3c506
+      scope_fingerprint: 315f87db9b323fe6b33b5f1cc214d04cd3dcc58349c8e6c809c41d06a62975af
   REQ030:
     id: REQ030
     status: holds
