@@ -28,4 +28,7 @@ kani:
 # run against it; every non-code world still resolves against the subject.
 verify:
   crates:
+    REQ011: crates/provreq-proofs
+    REQ024: crates/provreq-proofs
+    REQ028: crates/provreq-proofs
     REQ051: crates/provreq-proofs

@@ -109,18 +109,18 @@ pub enum EngineStatus {
 }
 
 impl EngineStatus {
-    /// Drop the version/reason strings down to the payload-free [`provreq_proofs::Readiness`] the
+    /// Drop the version/reason strings down to the payload-free [`provreq_proofs::readiness::Readiness`] the
     /// cat-1 self-proof ranges over (REQ051). One variant each, so this map is a straight-line
     /// relabelling the prover does not have to reason about — the proof lives on `Readiness`, and
-    /// [`EngineStatus::is_ready`] delegates to [`provreq_proofs::is_ready`] over the same value, so
+    /// [`EngineStatus::is_ready`] delegates to [`provreq_proofs::readiness::is_ready`] over the same value, so
     /// what Creusot/Kani prove there is the readiness this type reports.
-    fn readiness_class(&self) -> provreq_proofs::Readiness {
+    fn readiness_class(&self) -> provreq_proofs::readiness::Readiness {
         match self {
-            EngineStatus::NotWired => provreq_proofs::Readiness::NotWired,
-            EngineStatus::Available { .. } => provreq_proofs::Readiness::Available,
-            EngineStatus::Missing => provreq_proofs::Readiness::Missing,
-            EngineStatus::Unusable { .. } => provreq_proofs::Readiness::Unusable,
-            EngineStatus::Incompatible { .. } => provreq_proofs::Readiness::Incompatible,
+            EngineStatus::NotWired => provreq_proofs::readiness::Readiness::NotWired,
+            EngineStatus::Available { .. } => provreq_proofs::readiness::Readiness::Available,
+            EngineStatus::Missing => provreq_proofs::readiness::Readiness::Missing,
+            EngineStatus::Unusable { .. } => provreq_proofs::readiness::Readiness::Unusable,
+            EngineStatus::Incompatible { .. } => provreq_proofs::readiness::Readiness::Incompatible,
         }
     }
 
@@ -136,7 +136,7 @@ impl EngineStatus {
     /// engine's *class* (a Rust verifier needs the subject's `rustc`, so it cannot be a
     /// shared portable binary) — R-eng-2 still requires it to be provisioned and detected.
     pub fn is_ready(&self) -> bool {
-        provreq_proofs::is_ready(self.readiness_class())
+        provreq_proofs::readiness::is_ready(self.readiness_class())
     }
 
     pub fn describe(&self) -> String {
