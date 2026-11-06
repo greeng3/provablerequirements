@@ -420,9 +420,13 @@ fn finish(
         // cache check reads it, so the next `verify` can tell an unchanged scope from a moved one.
         report.provenance.scope_fingerprint = scope_fingerprint(subject, code_root);
         let store = crate::verdict_store::load(companion)?;
-        // The prior stored status, read before the record overwrites it, is what makes the artifact
-        // breadcrumb (below) an event and not a per-run trace.
-        let prior_status = store.verdicts.get(&report.id).map(|v| v.status.clone());
+        // The prior stored verdict, read before the record overwrites it, is what makes the artifact
+        // breadcrumb (below) an event and not a per-run trace: it is appended only when the verdict an
+        // operator reads — its status, basis, and correspondence — actually changes (#535).
+        let prior = store
+            .verdicts
+            .get(&report.id)
+            .map(|v| (v.status.clone(), v.basis.clone(), v.correspondence.clone()));
         let breadcrumb = crate::provreq::VerdictBreadcrumb {
             status: report.status.clone(),
             basis: report.basis.clone(),
@@ -432,7 +436,7 @@ fn finish(
         let id = report.id.clone();
         let recorded = crate::verdict_store::record(&store, report);
         crate::verdict_store::save(companion, &recorded)?;
-        record_verdict_breadcrumb(subject, &id, prior_status.as_deref(), &breadcrumb)?;
+        record_verdict_breadcrumb(subject, &id, prior.as_ref(), &breadcrumb)?;
     }
     Ok(VerifyOutcome::Verdict {
         verdict,
@@ -442,24 +446,37 @@ fn finish(
     })
 }
 
-/// Whether a verdict transition is worth a review-log breadcrumb: the first verdict a requirement
-/// ever earns, or any later one whose status differs from the one on record. A re-verify that
-/// reaches the same status is not an event — the review log is an event stream, not a per-run trace.
-fn is_verdict_transition(prior_status: Option<&str>, new_status: &str) -> bool {
-    prior_status != Some(new_status)
+/// Whether a verdict is worth a review-log breadcrumb: the first verdict a requirement ever earns,
+/// or any later one that differs from the one on record in its status, its basis, or its
+/// correspondence. A re-verify that reaches the identical verdict is not an event — the review log
+/// is an event stream, not a per-run trace. Basis and correspondence count because an upgrade an
+/// operator cares about — a bounded `holds` becoming a proven one, a mechanical correspondence
+/// becoming asserted — keeps the status fixed while changing what the verdict claims (#535).
+fn is_verdict_event(
+    prior: Option<(&str, Option<&str>, &str)>,
+    new: (&str, Option<&str>, &str),
+) -> bool {
+    prior != Some(new)
 }
 
-/// Append a `provreq-verdict` breadcrumb to the requirement's Provreq artifact on a status
-/// transition (Phase 4e, REQ078). Provreq-only: a Doorstop subject has no review log to write to,
-/// so this is a no-op there and the verdict stays recorded in `verdicts.yml` regardless. The verdict
-/// is already persisted when this runs, so a write failure surfaces without losing the verdict.
+/// Append a `provreq-verdict` breadcrumb to the requirement's Provreq artifact when the verdict
+/// changes (Phase 4e, REQ078; basis/correspondence changes added in #535). Provreq-only: a Doorstop
+/// subject has no review log to write to, so this is a no-op there and the verdict stays recorded in
+/// `verdicts.yml` regardless. The verdict is already persisted when this runs, so a write failure
+/// surfaces without losing the verdict.
 fn record_verdict_breadcrumb(
     subject: &Path,
     id: &str,
-    prior_status: Option<&str>,
+    prior: Option<&(String, Option<String>, String)>,
     breadcrumb: &crate::provreq::VerdictBreadcrumb,
 ) -> Result<()> {
-    if !is_verdict_transition(prior_status, &breadcrumb.status) {
+    let prior_ref = prior.map(|(s, b, c)| (s.as_str(), b.as_deref(), c.as_str()));
+    let new = (
+        breadcrumb.status.as_str(),
+        breadcrumb.basis.as_deref(),
+        breadcrumb.correspondence.as_str(),
+    );
+    if !is_verdict_event(prior_ref, new) {
         return Ok(());
     }
     let req_root = crate::adopt::requirements_root(subject);
@@ -1392,22 +1409,35 @@ mod tests {
         );
     }
 
-    // Verifies: REQ078 / #342 — the breadcrumb fires on the first verdict and on a status change,
-    // and stays silent on a re-verify that reaches the same status (the review log is an event
-    // stream, not a per-run trace).
+    // Verifies: REQ078 / #342 / #535 — the breadcrumb fires on the first verdict and on any change to
+    // the verdict an operator reads (status, basis, or correspondence), and stays silent on a
+    // re-verify that reaches the identical verdict (the review log is an event stream, not a per-run
+    // trace).
     #[test]
-    fn a_verdict_transition_is_first_or_changed_status() {
+    fn a_verdict_event_is_first_or_changed_verdict() {
+        let bounded = ("holds", Some("model-checked (bounded)"), "mechanical");
+        assert!(is_verdict_event(None, bounded), "first verdict is an event");
         assert!(
-            is_verdict_transition(None, "holds"),
-            "first verdict is an event"
-        );
-        assert!(
-            is_verdict_transition(Some("holds"), "fails"),
+            is_verdict_event(Some(bounded), ("fails", None, "mechanical")),
             "a status change is an event"
         );
         assert!(
-            !is_verdict_transition(Some("holds"), "holds"),
-            "an unchanged status is not an event"
+            is_verdict_event(Some(bounded), ("holds", Some("proven"), "mechanical")),
+            "a basis upgrade (bounded -> proven) is an event (#535)"
+        );
+        assert!(
+            is_verdict_event(
+                Some(("holds", Some("proven"), "mechanical")),
+                ("holds", Some("proven"), "asserted"),
+            ),
+            "a correspondence change is an event (#535)"
+        );
+        assert!(
+            !is_verdict_event(
+                Some(("holds", Some("proven"), "mechanical")),
+                ("holds", Some("proven"), "mechanical"),
+            ),
+            "an identical verdict is not an event"
         );
     }
 
