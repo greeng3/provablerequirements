@@ -14,6 +14,7 @@
 //! `creusot::with_mirrors` redirects the harness onto.
 
 pub mod fragment;
+pub mod masquerade;
 pub mod model_binding;
 pub mod readiness;
 pub mod triage;

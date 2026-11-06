@@ -32,3 +32,6 @@ verify:
     REQ024: crates/provreq-proofs
     REQ028: crates/provreq-proofs
     REQ051: crates/provreq-proofs
+    # REQ076's masquerade guard folds over an arbitrary-length evidence slice, so unlike the others
+    # its Creusot proof is a Seq-induction (loop invariants), proved unbounded in the leaf (#539).
+    REQ076: crates/provreq-proofs

@@ -302,51 +302,46 @@ fn decisive_correspondence(
     reason: Option<UnknownReason>,
     evidence: &[Evidence],
 ) -> Correspondence {
+    use provreq_proofs::masquerade as guard;
     // Reduce each piece to the two fields the decision reads — its polarity (is it decisive?) and
-    // its correspondence — and let the pure core (REQ076) decide, so a Kani harness proves the real
-    // rule and not a copy.
-    let pairs: Vec<(Status, Correspondence)> = evidence
+    // its correspondence — and let the proved core (REQ076) decide, so the deductive proof is about
+    // the real rule and not a copy. The core lives in the excluded leaf crate because its fold over
+    // an arbitrary-length slice is proved unbounded there (#539); whether a verdict is a divergence
+    // is the one bit of `reason` the guard reads.
+    let pieces: Vec<(guard::Status, guard::Correspondence)> = evidence
         .iter()
-        .map(|e| (e.status, e.correspondence))
+        .map(|e| (to_guard_status(e.status), to_guard_corr(e.correspondence)))
         .collect();
-    decisive_correspondence_of(status, reason, &pairs)
+    let divergence = reason == Some(UnknownReason::Divergence);
+    from_guard_corr(guard::decisive_correspondence_of(
+        to_guard_status(status),
+        divergence,
+        &pieces,
+    ))
 }
 
-/// Whether a `(Status, Correspondence)` is *decisive* for a verdict of the given polarity — the
-/// holders for a `holds`, the refuters for a `fails`, either side of a divergence, the unknowns for
-/// an unknown. The masquerade guard looks only at this subset (REQ076).
-fn is_decisive(verdict: Status, reason: Option<UnknownReason>, piece: Status) -> bool {
-    match verdict {
-        Status::Holds => piece == Status::Holds,
-        Status::Fails => piece == Status::Fails,
-        Status::Unknown if reason == Some(UnknownReason::Divergence) => {
-            piece == Status::Holds || piece == Status::Fails
-        }
-        Status::Unknown => piece == Status::Unknown,
+fn to_guard_status(s: Status) -> provreq_proofs::masquerade::Status {
+    use provreq_proofs::masquerade::Status as G;
+    match s {
+        Status::Holds => G::Holds,
+        Status::Fails => G::Fails,
+        Status::Unknown => G::Unknown,
     }
 }
 
-/// The pure core of [`decisive_correspondence`] (REQ076): a verdict reads `Asserted` only when every
-/// piece of evidence that *decides* its polarity is asserted; a single decisive mechanical piece — or
-/// no decisive evidence at all (a missing-grounding / no-engine unknown asserted nothing) — makes it
-/// `Mechanical`. Pure over the small enums so a bounded Kani harness can prove the masquerade guard
-/// against the real decision.
-pub(crate) fn decisive_correspondence_of(
-    status: Status,
-    reason: Option<UnknownReason>,
-    pieces: &[(Status, Correspondence)],
-) -> Correspondence {
-    let mut relevant = pieces
-        .iter()
-        .filter(|(s, _)| is_decisive(status, reason, *s))
-        .peekable();
-    if relevant.peek().is_none() {
-        return Correspondence::Mechanical;
+fn to_guard_corr(c: Correspondence) -> provreq_proofs::masquerade::Correspondence {
+    use provreq_proofs::masquerade::Correspondence as G;
+    match c {
+        Correspondence::Mechanical => G::Mechanical,
+        Correspondence::Asserted => G::Asserted,
     }
-    if relevant.any(|(_, c)| *c == Correspondence::Mechanical) {
-        Correspondence::Mechanical
-    } else {
-        Correspondence::Asserted
+}
+
+fn from_guard_corr(c: provreq_proofs::masquerade::Correspondence) -> Correspondence {
+    use provreq_proofs::masquerade::Correspondence as G;
+    match c {
+        G::Mechanical => Correspondence::Mechanical,
+        G::Asserted => Correspondence::Asserted,
     }
 }
 
@@ -493,75 +488,11 @@ pub fn combine_is_sound(e: &ProofEnsemble) -> bool {
     }
 }
 
-#[cfg(kani)]
-impl kani::Arbitrary for Correspondence {
-    fn any() -> Self {
-        if kani::any() {
-            Correspondence::Mechanical
-        } else {
-            Correspondence::Asserted
-        }
-    }
-}
-
-#[cfg(kani)]
-impl kani::Arbitrary for UnknownReason {
-    fn any() -> Self {
-        match kani::any::<u8>() % 4 {
-            0 => UnknownReason::MissingGrounding,
-            1 => UnknownReason::NoEngine,
-            2 => UnknownReason::Inconclusive,
-            _ => UnknownReason::Divergence,
-        }
-    }
-}
-
-/// A bounded verdict-and-its-evidence-polarities — the sort REQ076's masquerade-guard harness ranges
-/// over. The three `(Status, Correspondence)` pieces stand in for the aggregated evidence (their only
-/// two fields the decision reads), so the sort is Kani-`Arbitrary` where the real `Evidence` (with its
-/// `String`s) is not. Named like REQ030's `ProofEnsemble` so it resolves as a plain subject type.
-#[cfg(any(kani, creusot, prusti))]
-pub struct ProofDecisive {
-    pub status: Status,
-    pub reason: Option<UnknownReason>,
-    pub pieces: [(Status, Correspondence); 3],
-}
-
-#[cfg(kani)]
-impl kani::Arbitrary for ProofDecisive {
-    fn any() -> Self {
-        ProofDecisive {
-            status: kani::any(),
-            reason: kani::any(),
-            pieces: kani::any(),
-        }
-    }
-}
-
-/// REQ076's masquerade guard stated as a property and checked against the real
-/// [`decisive_correspondence_of`]: a verdict reads `Asserted` only when there is at least one
-/// decisive piece and *every* decisive piece is asserted — otherwise `Mechanical`. The expected
-/// answer is written as "present and all-asserted" rather than the core's "any-mechanical / empty"
-/// phrasing, so the two agree only if the real decision is right.
-#[cfg(any(kani, creusot, prusti))]
-pub fn decisive_correspondence_is_sound(d: &ProofDecisive) -> bool {
-    let got = decisive_correspondence_of(d.status, d.reason, &d.pieces);
-    let any_decisive = d
-        .pieces
-        .iter()
-        .any(|(s, _)| is_decisive(d.status, d.reason, *s));
-    let all_decisive_asserted = d
-        .pieces
-        .iter()
-        .filter(|(s, _)| is_decisive(d.status, d.reason, *s))
-        .all(|(_, c)| *c == Correspondence::Asserted);
-    let expected = if any_decisive && all_decisive_asserted {
-        Correspondence::Asserted
-    } else {
-        Correspondence::Mechanical
-    };
-    got == expected
-}
+// REQ076's masquerade-guard sort and proof predicate moved to the excluded `provreq-proofs` leaf
+// crate (`masquerade` module, #539): its fold is over an arbitrary-length slice, so the leaf proves
+// it unbounded under Creusot (`proven`) while Kani still checks it at the length-3 bound. The
+// `Correspondence`/`UnknownReason` Kani `Arbitrary` impls went with it — only that sort used them;
+// `Status`/`Basis` keep theirs for REQ030's `ProofEnsemble`.
 
 pub fn aggregate(id: &str, mut evidence: Vec<Evidence>, provenance: Provenance) -> Verdict {
     // Strongest-first, so every surface listing this evidence — the CLI `detail`, the web
@@ -1306,28 +1237,50 @@ mod tests {
     // Verifies: REQ076 — the masquerade guard the Kani harness proves. A holds reads asserted only
     // when every *holding* piece is asserted; one mechanical holder, or a mechanical inconclusive
     // that is not decisive, keeps/leaves it honest.
+    // Verifies the app-side delegation into the proved leaf core (REQ076): `decisive_correspondence`
+    // reduces each `Evidence` to its `(status, correspondence)` and routes it through the guard the
+    // leaf crate proves (`provreq_proofs::masquerade`). The guard's own logic is proved there and
+    // unit-tested in the leaf; this guards the mapping of real enums onto the proxies.
     #[test]
-    fn decisive_correspondence_of_is_the_masquerade_guard() {
+    fn decisive_correspondence_delegates_the_masquerade_guard() {
         use Correspondence::*;
         use Status::*;
-        let h = |c| (Holds, c);
+        // One holding piece's correspondence, built as the kind of evidence the guard reads.
+        let piece = |corr: Correspondence| Evidence {
+            engine: "test".into(),
+            status: Holds,
+            basis: Some(Basis::Proven),
+            witness: None,
+            detail: Vec::new(),
+            correspondence: corr,
+            source_location: None,
+        };
+        let inconclusive_mechanical = Evidence {
+            engine: "test".into(),
+            status: Unknown,
+            basis: None,
+            witness: None,
+            detail: Vec::new(),
+            correspondence: Mechanical,
+            source_location: None,
+        };
         // All decisive (holding) evidence asserted → asserted.
         assert_eq!(
-            decisive_correspondence_of(Holds, None, &[h(Asserted), h(Asserted)]),
+            decisive_correspondence(Holds, None, &[piece(Asserted), piece(Asserted)]),
             Asserted
         );
         // One decisive mechanical holder → mechanical, however many asserted ones.
         assert_eq!(
-            decisive_correspondence_of(Holds, None, &[h(Asserted), h(Mechanical)]),
+            decisive_correspondence(Holds, None, &[piece(Asserted), piece(Mechanical)]),
             Mechanical
         );
         // A mechanical *inconclusive* is not decisive for a holds, so it cannot make it mechanical.
         assert_eq!(
-            decisive_correspondence_of(Holds, None, &[h(Asserted), (Unknown, Mechanical)]),
+            decisive_correspondence(Holds, None, &[piece(Asserted), inconclusive_mechanical]),
             Asserted
         );
         // No decisive evidence (nothing asserted anything) → mechanical.
-        assert_eq!(decisive_correspondence_of(Holds, None, &[]), Mechanical);
+        assert_eq!(decisive_correspondence(Holds, None, &[]), Mechanical);
     }
 
     // the two surfaces cannot drift.

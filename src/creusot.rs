@@ -231,8 +231,8 @@ fn assertion(claim: &LoweredClaim) -> String {
 /// init` copies into a project (`creusot-install` places it in the data dir). When a subject
 /// has no `why3find.json`, provreq copies THIS in rather than embedding a hand-rolled prover
 /// list: the operator's actual prover set is honored, and provreq never second-guesses the
-/// toolchain (which is where the cvc4→cvc5 prover migration belongs — see the vendored
-/// `creusot-linux-aarch64-provers.patch`, not here). Resolved from `CREUSOT_DATA` (what the
+/// toolchain (the prover set — e.g. cvc5 superseding cvc4 — is settled where Creusot is installed,
+/// the `.devcontainer/Dockerfile` bake, not here). Resolved from `CREUSOT_DATA` (what the
 /// install sets), falling back to the XDG data dir, then `~/.local/share`. `None` when Creusot
 /// is not installed/configured — which makes an honest `inconclusive`, never a guessed config.
 fn install_why3find_config() -> Option<PathBuf> {
