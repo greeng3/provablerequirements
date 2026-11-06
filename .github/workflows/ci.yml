@@ -34,6 +34,15 @@ jobs:
         run: cargo clippy --all-targets -- -D warnings
       - name: Test
         run: cargo test --all
+      # provreq-proofs is a separate workspace, excluded from the root so `cargo creusot` compiles
+      # only it, not the app crate's ~96 `derive(PartialEq)` types that trip Creusot's DeepModel
+      # demand (#531/#483). The workspace-wide steps above therefore skip its source, so lint and
+      # test it through its own manifest.
+      - name: Proofs leaf crate (fmt / clippy / test)
+        run: |
+          cargo fmt --check --manifest-path crates/provreq-proofs/Cargo.toml
+          cargo clippy --manifest-path crates/provreq-proofs/Cargo.toml --all-targets -- -D warnings
+          cargo test --manifest-path crates/provreq-proofs/Cargo.toml
 
       # Dependency CVE scan (RustSec). Mirrors `make audit`; kept fast by
       # installing a prebuilt cargo-audit rather than compiling it.

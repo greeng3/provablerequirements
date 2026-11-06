@@ -253,8 +253,8 @@ drafts:
     revision: 3e39701569a3dbb552aca202ae601b3917cf20e553430b4a5cbefb7ba256e491
     candidate: |-
       requirement REQ051_readiness_never_overclaims { category: 1
-        vocabulary { state readiness_is_honest(e: EngineStatus) }
-        require { always (readiness_is_honest(e)) } }
+        vocabulary { state readiness_is_honest(r: Readiness) }
+        require { always (readiness_is_honest(r)) } }
     gate:
       status: passed
       warnings: []
@@ -262,11 +262,11 @@ drafts:
       state: admitted
       review: optional
       by: greeng3
-      at_unix: 1793828175
+      at_unix: 1793923498
     bindings:
-    - symbol: EngineStatus
+    - symbol: Readiness
       category: code
-      observable: EngineStatus
+      observable: Readiness
       fidelity: definitional
     - symbol: readiness_is_honest
       category: code

@@ -108,57 +108,22 @@ pub enum EngineStatus {
     Incompatible { found: String, required: String },
 }
 
-/// Make `EngineStatus` a sort Kani can quantify over. A cat-1 claim that ranges over an
-/// `EngineState` variable lowers to `let d: EngineStatus = kani::any();`, and Kani needs a real
-/// value per quantified variable — without this impl the harness does not compile and the verdict
-/// is an `unknown` carrying a trait-bound error rather than an answer (#148).
-///
-/// Costs nothing in an ordinary build: the `kani` crate exists only under `cfg(kani)`, which only
-/// `cargo kani` sets.
-///
-/// `// ponytail: the String payloads are FIXED, not symbolic — this quantifies over the five
-/// discriminants only. Sound for every claim that reads the discriminant (`is_ready`, and so
-/// `decide_install`, which is all of them today), and an UNDER-approximation for any future claim
-/// that inspects a version or reason string: such a claim would be proved only for the empty
-/// string. Make the payloads symbolic (bounded `[u8; N]` → `String`) if one ever does.`
-#[cfg(kani)]
-impl kani::Arbitrary for EngineStatus {
-    fn any() -> Self {
-        match kani::any::<u8>() % 5 {
-            0 => EngineStatus::NotWired,
-            1 => EngineStatus::Available {
-                version: String::new(),
-            },
-            2 => EngineStatus::Missing,
-            3 => EngineStatus::Unusable {
-                reason: String::new(),
-            },
-            _ => EngineStatus::Incompatible {
-                found: String::new(),
-                required: String::new(),
-            },
+impl EngineStatus {
+    /// Drop the version/reason strings down to the payload-free [`provreq_proofs::Readiness`] the
+    /// cat-1 self-proof ranges over (REQ051). One variant each, so this map is a straight-line
+    /// relabelling the prover does not have to reason about — the proof lives on `Readiness`, and
+    /// [`EngineStatus::is_ready`] delegates to [`provreq_proofs::is_ready`] over the same value, so
+    /// what Creusot/Kani prove there is the readiness this type reports.
+    fn readiness_class(&self) -> provreq_proofs::Readiness {
+        match self {
+            EngineStatus::NotWired => provreq_proofs::Readiness::NotWired,
+            EngineStatus::Available { .. } => provreq_proofs::Readiness::Available,
+            EngineStatus::Missing => provreq_proofs::Readiness::Missing,
+            EngineStatus::Unusable { .. } => provreq_proofs::Readiness::Unusable,
+            EngineStatus::Incompatible { .. } => provreq_proofs::Readiness::Incompatible,
         }
     }
-}
 
-/// REQ051 stated as a property and checked against the real [`EngineStatus::is_ready`]: an engine
-/// backs a verdict only when it is actually present and runnable (`Available`); every other state —
-/// not wired, missing, cannot-start (`Unusable`), or too old — must never count as readiness, so a
-/// readiness answer can never overclaim what provreq can check. The per-variant expectation is
-/// written out independently of `is_ready`'s own `matches!`, so the two agree only if readiness is
-/// honest. Gated for every prover (like REQ030's `ProofEnsemble`); inert in an ordinary build.
-#[cfg(any(kani, creusot, prusti))]
-pub fn readiness_is_honest(e: &EngineStatus) -> bool {
-    match e {
-        EngineStatus::Available { .. } => e.is_ready(),
-        EngineStatus::NotWired
-        | EngineStatus::Missing
-        | EngineStatus::Unusable { .. }
-        | EngineStatus::Incompatible { .. } => !e.is_ready(),
-    }
-}
-
-impl EngineStatus {
     /// Whether an engine in this state can back a verdict (R-eng-3 gate).
     ///
     /// `NotWired` is **not** ready. Before REQ024 the category-1 engine reported
@@ -171,7 +136,7 @@ impl EngineStatus {
     /// engine's *class* (a Rust verifier needs the subject's `rustc`, so it cannot be a
     /// shared portable binary) — R-eng-2 still requires it to be provisioned and detected.
     pub fn is_ready(&self) -> bool {
-        matches!(self, EngineStatus::Available { .. })
+        provreq_proofs::is_ready(self.readiness_class())
     }
 
     pub fn describe(&self) -> String {

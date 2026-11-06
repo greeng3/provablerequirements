@@ -1,0 +1,31 @@
+# Its own single-crate workspace, excluded from the root (#531): `cargo creusot` run here must
+# compile only this crate + creusot-std, never the app crate whose ~96 `#[derive(PartialEq)]` types
+# trip Creusot's `DeepModel` demand. provreq path-depends on it; a path dep needs no shared workspace.
+[workspace]
+
+[package]
+name = "provreq-proofs"
+version = "0.1.0"
+edition = "2024"
+description = "Payload-free proof cores for provreq's own category-1 self-requirements (#531/#483)"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/greeng3/provablerequirements"
+publish = false
+
+# This crate exists so Creusot has something small to compile. Creusot translates the whole crate
+# before running any harness and intercepts `#[derive(PartialEq/Eq)]` to demand `DeepModel` on the
+# reachable types; the app crate's ~96 such derives make a whole-crate Creusot build an open-ended
+# arc (#531). The decision a self-requirement proves is copied here as a payload-free core the app
+# delegates to, so the crate Creusot must satisfy is this leaf, not provreq itself (#483 retargets
+# the cat-1 code root to it via `verify.crates`).
+[dependencies]
+# `cargo creusot` refuses any subject that does not depend on `creusot-std`, and this is where the
+# `#[logic]`/`#[ensures]`/`pearlite!` macros come from. Locked to the installed tool's 0.14, like
+# the root manifest; inert on an ordinary build (available only under `cfg(creusot)`).
+creusot-std = "0.14"
+
+# `cfg(kani)`/`cfg(creusot)` are set only by the respective prover, so an ordinary build has to be
+# told they are real cfgs or the prover-only scaffolding trips `unexpected_cfgs` under
+# `clippy -- -D warnings`. Same declaration as the workspace root.
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(kani)', 'cfg(creusot)', 'cfg(prusti)'] }

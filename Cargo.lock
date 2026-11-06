@@ -2672,7 +2672,7 @@ dependencies = [
 
 [[package]]
 name = "provreq"
-version = "0.0.40"
+version = "0.0.41"
 dependencies = [
  "anyhow",
  "async-stream",
@@ -2687,6 +2687,7 @@ dependencies = [
  "mime_guess",
  "proc-macro2",
  "provreq-model",
+ "provreq-proofs",
  "reqwest",
  "rust-embed",
  "serde",
@@ -2742,6 +2743,13 @@ dependencies = [
  "tracing",
  "url",
  "uuid",
+]
+
+[[package]]
+name = "provreq-proofs"
+version = "0.1.0"
+dependencies = [
+ "creusot-std",
 ]
 
 [[package]]

@@ -4,10 +4,16 @@
 # visible after the second edit.
 [workspace]
 members = ["crates/provreq-model", "crates/provreq-mcp"]
+# provreq-proofs is deliberately NOT a member: it is its own single-crate workspace (see its
+# Cargo.toml) so `cargo creusot` run against it compiles ONLY it + creusot-std, not the app crate.
+# That isolation is the whole point (#531) — the app crate's ~96 `#[derive(PartialEq)]` types trip
+# Creusot's `DeepModel` demand, and a workspace-member leaf would drag them back into the build.
+# provreq still depends on it by path below; a path dependency needs no shared workspace.
+exclude = ["crates/provreq-proofs"]
 
 [package]
 name = "provreq"
-version = "0.0.40"
+version = "0.0.41"
 edition = "2024"
 description = "PRL native provisioner and backend server (Design C)"
 license = "MIT OR Apache-2.0"
@@ -55,6 +61,9 @@ tempfile = "3"
 creusot-std = "0.14"
 sha2 = "0.11"
 provreq-model = { version = "0.1.0", path = "crates/provreq-model" }
+# The payload-free cores for provreq's own cat-1 self-requirements (#531/#483). `engine::is_ready`
+# delegates to it so a Creusot proof over the leaf crate is a proof about the real readiness answer.
+provreq-proofs = { version = "0.1.0", path = "crates/provreq-proofs" }
 # The Provreq adapter writes provenance back as a review-log entry, whose `timestamp` is a
 # `chrono::DateTime<Utc>` for the Provreq review-log back-write (REQ020) and `Utc::now()` for the
 # migrate-doorstop timestamps (#317). Already in the tree via provreq-model, so cargo unifies
