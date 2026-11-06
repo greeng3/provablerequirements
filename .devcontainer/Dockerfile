@@ -12,7 +12,7 @@ RUN apt-get update \
 # Installed from the official release .deb (apt resolves any dependencies). The
 # architecture is detected so the image builds on both amd64 and arm64 hosts;
 # `dpkg --print-architecture` yields amd64/arm64, matching glab's .deb naming.
-ARG GLAB_VERSION=1.107.0
+ARG GLAB_VERSION=1.128.0
 RUN arch="$(dpkg --print-architecture)" \
     && curl -fsSL -o /tmp/glab.deb \
       "https://gitlab.com/gitlab-org/cli/-/releases/v${GLAB_VERSION}/downloads/glab_${GLAB_VERSION}_linux_${arch}.deb" \
@@ -26,7 +26,7 @@ RUN arch="$(dpkg --print-architecture)" \
 # Same pattern as glab above: official release .deb, architecture detected so the
 # image builds on amd64 and arm64 hosts (`dpkg --print-architecture` yields
 # amd64/arm64, matching gh's .deb naming).
-ARG GH_VERSION=2.96.0
+ARG GH_VERSION=2.103.3
 RUN arch="$(dpkg --print-architecture)" \
     && curl -fsSL -o /tmp/gh.deb \
       "https://github.com/cli/cli/releases/download/v${GH_VERSION}/gh_${GH_VERSION}_linux_${arch}.deb" \
@@ -272,7 +272,7 @@ RUN apt-get update \
     # 1. The opam switch (OCaml 5.3.0, Why3, why3find). Must come first: it is the switch that
     #    the Alt-Ergo install below lands in.
     && OPAMYES=1 cargo run --bin creusot-install -- why3 </dev/null \
-    && OPAMYES=1 opam install alt-ergo.2.6.2 --switch "$CREUSOT_DATA" </dev/null \
+    && OPAMYES=1 opam install alt-ergo.2.6.4 --switch "$CREUSOT_DATA" </dev/null \
     # 2. creusot-rustc is itself a rustc driver, so it links the rustc-private crates, which this
     #    pinned nightly ships as dylibs ONLY — a default static-rlib link fails with 224 "required
     #    to be available in rlib format" errors. Exactly the Prusti problem above, same fix. The
