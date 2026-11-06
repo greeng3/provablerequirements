@@ -1,0 +1,8 @@
+# This crate is its own workspace, so cargo writes a target/ here (the root `/target` ignore does
+# not reach it). Creusot's own outputs (verif/, .why3find/, why3find.json) are prover artifacts a
+# verify run creates and normally cleans up; ignore them so a manual `cargo creusot` can't dirty the
+# tree either.
+/target
+/verif
+/.why3find
+/why3find.json

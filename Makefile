@@ -118,6 +118,11 @@ rust-check:
 	@$(CARGO) fmt --check
 	@$(CARGO) clippy --all-targets -- -D warnings
 	@$(CARGO) test --all
+	@# provreq-proofs is a separate workspace (excluded so `cargo creusot` compiles only it, #531);
+	@# the workspace-wide steps above skip it, so lint and test it through its own manifest.
+	@$(CARGO) fmt --check --manifest-path crates/provreq-proofs/Cargo.toml
+	@$(CARGO) clippy --manifest-path crates/provreq-proofs/Cargo.toml --all-targets -- -D warnings
+	@$(CARGO) test --manifest-path crates/provreq-proofs/Cargo.toml
 
 # Scan both dependency trees for known CVEs — Rust via the RustSec advisory DB, justified by the
 # HTTP/TLS stack (reqwest, rustls) pulled in for the LLM classifier; npm because the binary embeds

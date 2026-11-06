@@ -21,3 +21,11 @@ llm:
 kani:
   default_unwind: 4
   timeout_seconds: 300
+# Per-requirement cat-1 code root (#483). REQ051's readiness property is proved over the payload-free
+# core in `crates/provreq-proofs`, which Creusot can compile whole — the app crate cannot (its ~96
+# `#[derive(PartialEq)]` types trip Creusot's `DeepModel` demand, #531). `engine::is_ready` delegates
+# to that crate, so the proof is about the readiness provreq actually reports. Kani and Creusot both
+# run against it; every non-code world still resolves against the subject.
+verify:
+  crates:
+    REQ051: crates/provreq-proofs

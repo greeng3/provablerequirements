@@ -24,3 +24,6 @@
 # local `claude` binary not every environment has — so it is never committed. Project-wide LLM
 # config lives in the subject's `provreq.yml` instead.
 .provreq/
+# Creusot writes verif/ at the subject root during a category-1 verify; a run cleans up its own,
+# but a manually interrupted `cargo creusot` can leave one behind.
+/verif
