@@ -1,6 +1,8 @@
 # Base image shared with the qrusty devcontainer, so the two projects share a
-# common toolchain foundation. (Ubuntu-based rust-dev image.)
-FROM greeng340or/rust-dev-ubuntu
+# common toolchain foundation. (Ubuntu-based rust-dev image.) Pinned by digest so a rebuild is
+# reproducible instead of silently picking up a moved `:latest` (#545); this is the `:latest`
+# manifest index (multi-arch) as of 2026-11-06. Bump deliberately when the base image is updated.
+FROM greeng340or/rust-dev-ubuntu@sha256:be76da89c5c2813d40f1510212cde3a3ef065e84abe53e70b9b21171fd79347f
 
 # Download tools + certificates needed by the install steps below.
 RUN apt-get update \
@@ -317,9 +319,14 @@ RUN apt-get update \
 # guard, unlike Creusot's provers. The runtime finds the engine as `MONPOLY_BIN` else `monpoly` on
 # PATH (src/monitor/run.rs), so the built exe is installed as /usr/local/bin/monpoly. Its src tree
 # is removed after the exe is copied out — an OCaml native exe is self-contained.
+#
+# Pinned to a specific commit (was bitbucket master HEAD) so the 2b engine is reproducible (#545);
+# this is master as of 2026-11-06. A full clone (not --depth 1) so the commit is present regardless
+# of whether the server allows a shallow fetch by SHA.
 RUN eval "$(opam env --switch="$CREUSOT_DATA")" \
-    && git clone --depth 1 https://bitbucket.org/monpoly/monpoly.git /opt/monpoly-src \
+    && git clone -q https://bitbucket.org/monpoly/monpoly.git /opt/monpoly-src \
     && cd /opt/monpoly-src \
+    && git checkout -q adf23484edfe6306a0444b820302ff214533019c \
     && dune build \
     && install -m755 _build/default/src/main.exe /usr/local/bin/monpoly \
     && rm -rf /opt/monpoly-src \
