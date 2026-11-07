@@ -5,5 +5,5 @@
 # the newer clippy added. rustup honours this file on both sides. Bump it deliberately to move the
 # whole project's toolchain at once.
 [toolchain]
-channel = "1.98.1"
+channel = "1.99.1"
 components = ["clippy", "rustfmt"]
