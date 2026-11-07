@@ -186,9 +186,11 @@ fn committed_baseline(subject: &Path, companion: &Path, base_ref: &str) -> Optio
     // `git show <ref>:<path>` resolves the path from the repo root, not from `subject`, so the path
     // must be relative to the toplevel the subject lives under.
     let verdicts = companion.join(crate::verdict_store::VERDICT_FILE);
-    let rel = verdicts.strip_prefix(&toplevel).ok()?;
-    // git object paths are forward-slashed on every platform.
-    let spec = format!("{base_ref}:{}", rel.to_string_lossy().replace('\\', "/"));
+    let cwd = std::env::current_dir().ok()?;
+    let spec = format!(
+        "{base_ref}:{}",
+        repo_relative_spec(&toplevel, &cwd, &verdicts)?
+    );
     let out = std::process::Command::new("git")
         .arg("-C")
         .arg(subject)
@@ -197,6 +199,21 @@ fn committed_baseline(subject: &Path, companion: &Path, base_ref: &str) -> Optio
         .ok()
         .filter(|o| o.status.success())?;
     serde_yaml::from_slice(&out.stdout).ok()
+}
+
+/// The repo-relative, forward-slashed path to feed `git show <ref>:<path>`. `verdicts` is anchored
+/// at the subject, so it is relative when the subject is given as `.` — the common case, and the
+/// documented CI invocation (`provreq gate --path .`). `toplevel` is the absolute repo root git
+/// reports, so `verdicts` is made absolute (against the process `cwd` the companion is anchored at)
+/// before it is made relative to that root. Stripping a still-relative path against the absolute
+/// toplevel silently fails, and `committed_baseline` then falls back to the on-disk verdicts —
+/// comparing a change against itself and enforcing nothing. `cwd.join` leaves an already-absolute
+/// `verdicts` (from an absolute `--path`) untouched, so both forms resolve.
+fn repo_relative_spec(toplevel: &Path, cwd: &Path, verdicts: &Path) -> Option<String> {
+    let abs = cwd.join(verdicts);
+    let rel = abs.strip_prefix(toplevel).ok()?;
+    // git object paths are forward-slashed on every platform.
+    Some(rel.to_string_lossy().replace('\\', "/"))
 }
 
 #[cfg(test)]
@@ -330,5 +347,42 @@ mod tests {
                 .kind,
             RegressionKind::Outcome
         );
+    }
+
+    #[test]
+    fn repo_relative_spec_resolves_a_subject_relative_companion() {
+        // The `--path .` shape: cwd is the repo root and the companion path is relative to it.
+        // This is the case the original strip-only code silently dropped, falling back to on-disk
+        // verdicts and enforcing nothing.
+        let top = Path::new("/workspace");
+        let cwd = Path::new("/workspace");
+        let verdicts = Path::new("ProvableRequirements-doorstop/verdicts.yml");
+        assert_eq!(
+            repo_relative_spec(top, cwd, verdicts).as_deref(),
+            Some("ProvableRequirements-doorstop/verdicts.yml")
+        );
+    }
+
+    #[test]
+    fn repo_relative_spec_handles_an_absolute_companion() {
+        // The `--path /abs` shape: the companion path is already absolute, so cwd must not corrupt
+        // it.
+        let top = Path::new("/workspace");
+        let cwd = Path::new("/somewhere/else");
+        let verdicts = Path::new("/workspace/ProvableRequirements-doorstop/verdicts.yml");
+        assert_eq!(
+            repo_relative_spec(top, cwd, verdicts).as_deref(),
+            Some("ProvableRequirements-doorstop/verdicts.yml")
+        );
+    }
+
+    #[test]
+    fn repo_relative_spec_rejects_a_path_outside_the_repo() {
+        // A verdicts path that does not live under the repo root yields None, so the caller reports
+        // "no committed baseline" rather than feeding git a bogus spec.
+        let top = Path::new("/workspace");
+        let cwd = Path::new("/elsewhere");
+        let verdicts = Path::new("doorstop/verdicts.yml");
+        assert_eq!(repo_relative_spec(top, cwd, verdicts), None);
     }
 }
