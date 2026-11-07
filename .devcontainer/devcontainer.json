@@ -2,9 +2,16 @@
     "name": "Provable Requirements",
     // Pull the prebuilt multi-arch image instead of building Dockerfile locally: the heavy
     // stages (Kani setup, the Prusti source build) are paid ONCE in CI by
-    // .github/workflows/build-devcontainer-image.yml, which publishes this tag. To change the
-    // toolchain, edit .devcontainer/Dockerfile and re-run that workflow to republish the image.
-    "image": "ghcr.io/greeng3/provreq-devcontainer:latest",
+    // .github/workflows/build-devcontainer-image.yml, which publishes it.
+    //
+    // Pinned by DIGEST, not `:latest`. "Rebuild Container" (even Without Cache) does not re-pull an
+    // image: devcontainer when a local image already carries the tag, so a mutable `:latest` let a
+    // stale local image masquerade as current after the image was rebuilt. A digest is immutable:
+    // VS Code must pull exactly this image or fail loudly. The multi-arch index digest resolves on
+    // both arm64 and amd64. To change the toolchain: edit .devcontainer/Dockerfile, let the workflow
+    // republish, then bump this digest to the one it publishes (that bump is the only way the
+    // devcontainer moves to the new image).
+    "image": "ghcr.io/greeng3/provreq-devcontainer@sha256:42e8e0fd4e035fb20fcf28d761999c940476dbb88f87a228a5b461cb94e38358",
     // Node runs the Markdown linting toolchain (markdownlint-cli2, matching the
     // DavidAnson.vscode-markdownlint editor extension's rules), the `web/` frontend, and — once
     // phase 2 of the Provreq absorb lands — that project's frontend too.
