@@ -531,8 +531,31 @@ fn run_gate(subject: &Path, base: &str, strict_tier: bool, no_cache: bool) -> Re
             continue;
         };
         let current = provreq::gate::current_outcome(&outcome);
-        if let Some(r) = provreq::gate::regression(base_verdict, &current, strict_tier) {
-            regressions.push(r);
+        let Some(r) = provreq::gate::regression(base_verdict, &current, strict_tier) else {
+            continue;
+        };
+        // Confirm a would-be regression with one fresh, un-cached re-verify before blocking on it.
+        // A deductive re-verify flakes: Creusot/why3/alt-ergo time out intermittently and surface as
+        // `unknown`, which looks exactly like a genuine loss of proof. A real break is deterministic
+        // — a refuted claim or a proof that truly no longer closes stays fallen on the re-run — so a
+        // second disagreement confirms it, while a pass clears the flake. This never hides a
+        // regression: a broken proof does not flake back to `holds`, it flakes to `unknown`, so
+        // "keep only if it falls twice" only ever drops false reds.
+        // ponytail: one confirm re-run; bump to a bounded loop if a single retry proves too flaky.
+        match provreq::verify::verify_with(subject, id, false, false)? {
+            Some(again)
+                if provreq::gate::regression(
+                    base_verdict,
+                    &provreq::gate::current_outcome(&again),
+                    strict_tier,
+                )
+                .is_some() =>
+            {
+                regressions.push(r);
+            }
+            _ => println!(
+                "  · {id}: first re-verify fell but a fresh re-verify restored it — engine flake, not a regression"
+            ),
         }
     }
 

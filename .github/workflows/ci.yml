@@ -287,3 +287,53 @@ jobs:
           "$MONPOLY_BIN" -version
       - name: Run the real-engine tests
         run: "cargo test --lib monitor:: -- --ignored"
+
+  # The enforcement boundary (REQ092 / #515). `verify` only RECORDS a verdict; without this job
+  # nothing blocks a PR that regresses a previously-proven requirement to unknown/refuted. `provreq
+  # gate` re-verifies every requirement main's committed verdicts.yml records as passing and exits
+  # non-zero if any no longer does.
+  #
+  # Runs INSIDE the prebuilt devcontainer image for the same reason as the `creusot`/`prusti` jobs:
+  # today's baseline passes are proved by Creusot + Kani (both baked into the image), and the gate
+  # re-verifies them with the REAL engines. A vanilla runner lacking the engines would enforce
+  # nothing — a broken Creusot proof still has its asserted `cargo test` passing, so the requirement
+  # reads holds->holds (no regression) and the PR sails through.
+  #
+  # This job is SLOW BY DESIGN (~18 min): provreq verifies ITSELF, so the baseline carries no
+  # tool_version the current binary shares, and `reusable()` keys on tool_version — correctly, since
+  # a change to provreq's own verification logic can alter a verdict without moving any input
+  # fingerprint. So every run re-verifies the deductive proofs live; there is no sound cache
+  # shortcut. `provreq gate` confirms any would-be regression with a second un-cached re-verify, so
+  # an intermittent Creusot/why3 flake (a solver timeout surfacing as `unknown`) does not false-fail
+  # the job while a genuine break still blocks.
+  #
+  # `fetch-depth: 0` is REQUIRED: the baseline is read with `git show origin/main:.../verdicts.yml`,
+  # and if origin/main is not a resolvable ref `load_baseline` silently falls back to the PR's own
+  # on-disk verdicts — comparing the PR against itself and enforcing nothing (fixed in #553/#554,
+  # but the ref must still be present). PR-only: gating main against its own committed baseline is a
+  # no-op.
+  verdict-gate:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    container: ghcr.io/greeng3/provreq-devcontainer:latest
+    env:
+      HOME: /root
+      RUSTUP_HOME: /root/.rustup
+      CARGO_HOME: /root/.cargo
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      # `cargo run` links the whole crate (axum, rust-embed), which embeds web/dist — so the
+      # frontend must exist on disk even though the gate never serves it. Node is a devcontainer
+      # FEATURE, not part of the raw image, so set it up here.
+      - name: Set up Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Build frontend
+        run: npm --prefix web ci && npm --prefix web run build
+      - name: Gate against main's committed verdicts
+        run: cargo run --quiet --bin provreq -- gate --path . --base origin/main
