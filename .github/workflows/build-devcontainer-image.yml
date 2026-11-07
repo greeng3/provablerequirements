@@ -90,8 +90,9 @@ jobs:
     runs-on: ubuntu-latest
     needs: [build]
     permissions:
-      contents: read
+      contents: write
       packages: write
+      pull-requests: write
     steps:
       - uses: actions/download-artifact@v8
         with:
@@ -119,3 +120,53 @@ jobs:
         run: docker buildx imagetools inspect "${IMAGE}:${IMAGE_TAG}"
         env:
           IMAGE_TAG: ${{ inputs.image_tag || 'latest' }}
+
+      # Close the loop on #549's digest pin: devcontainer.json references the image by digest, so a
+      # Dockerfile change only reaches developers once that digest is bumped to the republished
+      # image. Do it automatically — resolve the just-published multi-arch index digest and open a
+      # PR pinning devcontainer.json to it. Only for `latest`: a scoped workflow_dispatch tag (e.g.
+      # pr-153) is a throwaway validation image and must not move the shared pin. The edit touches
+      # only devcontainer.json, which the `push` paths filter excludes, so merging the PR does not
+      # re-trigger this workflow — no loop.
+      - name: Resolve published index digest
+        if: ${{ (inputs.image_tag || 'latest') == 'latest' }}
+        id: idx
+        run: |
+          d=$(docker buildx imagetools inspect "${IMAGE}:latest" --format '{{.Manifest.Digest}}')
+          echo "digest=$d" >> "$GITHUB_OUTPUT"
+      - name: Check out the repo
+        if: ${{ (inputs.image_tag || 'latest') == 'latest' }}
+        uses: actions/checkout@v5
+      - name: Pin devcontainer.json to the new digest
+        if: ${{ (inputs.image_tag || 'latest') == 'latest' }}
+        env:
+          DIGEST: ${{ steps.idx.outputs.digest }}
+        run: |
+          python3 - "$IMAGE" "$DIGEST" <<'PY'
+          import re, sys
+          image, digest = sys.argv[1], sys.argv[2]
+          path = ".devcontainer/devcontainer.json"
+          src = open(path).read()
+          # Replace the image reference (whether pinned by @sha256:... or by a :tag) in place.
+          new = re.sub(re.escape(image) + r"(@sha256:[0-9a-f]+|:[\w.\-]+)",
+                       f"{image}@{digest}", src, count=1)
+          if new == src:
+              raise SystemExit(f"no {image} reference found in {path}")
+          open(path, "w").write(new)
+          PY
+      - name: Open the digest-bump PR
+        if: ${{ (inputs.image_tag || 'latest') == 'latest' }}
+        uses: peter-evans/create-pull-request@v7
+        with:
+          branch: auto/devcontainer-digest
+          base: main
+          title: "chore: bump devcontainer image digest"
+          commit-message: "chore: bump devcontainer image digest to the republished image"
+          body: |
+            Automated by `build-devcontainer-image.yml` after it republished the devcontainer image.
+
+            Pins `.devcontainer/devcontainer.json` to the new multi-arch index digest so a rebuild
+            pulls the image this Dockerfile change produced (closes the loop on #549 / #550). Merge
+            to roll developers onto the new image.
+          assignees: greeng3
+          delete-branch: true
