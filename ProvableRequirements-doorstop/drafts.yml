@@ -318,6 +318,29 @@ drafts:
       category: code
       observable: decisive_correspondence_is_sound
       fidelity: definitional
+  REQ090:
+    revision: 69b1b86b602f28bbf932d9a0dc935a5fac6e3f28d95b3ec6ddd50362be55b925
+    candidate: |-
+      requirement REQ090_convergence_is_bounded { category: 1
+        vocabulary { state bounded(step: ConvergeStep) }
+        require { always (bounded(step)) } }
+    gate:
+      status: passed
+      warnings: []
+    admission:
+      state: admitted
+      review: optional
+      by: greeng3
+      at_unix: 1794124732
+    bindings:
+    - symbol: bounded
+      category: code
+      observable: converge_bound_is_sound
+      fidelity: definitional
+    - symbol: ConvergeStep
+      category: code
+      observable: ConvergeStep
+      fidelity: definitional
   REQ091:
     revision: c4f610a02e87d7064a0d39c9fef788c9af434637a22facd0e92902cd93db96d5
     candidate: |-

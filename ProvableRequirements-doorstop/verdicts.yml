@@ -2175,6 +2175,119 @@ verdicts:
       ui_fingerprint: null
       tagged_source_fingerprint: 7203b997875e1bcb1f5d9831485b9f92f7d8c2aaf1648a23ca276c2eeb64c09c
       scope_fingerprint: 26107e3a33d811ccde28f3cf744c21c1bd4228e4473f02477822144421fe8a77
+  REQ090:
+    id: REQ090
+    status: holds
+    basis: model-checked (bounded)
+    reason: null
+    witness: null
+    detail:
+    - 'Kani: holds (model-checked (bounded))'
+    - bounded by — unwind 4 (`kani.default_unwind` in provreq.yml); timeout 300s (`kani.timeout_seconds` in provreq.yml)
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `repeating_converges_a_gradually_classifying_backlog` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `repeating_stops_when_a_round_makes_no_progress` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `repeating_is_bounded_by_the_round_ceiling` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `a_single_round_is_one_pass` passed
+    - 'Creusot: inconclusive'
+    - 'the proof harness provreq generated did not compile — error: called program function `triage::converge_bound_is_sound` in logic context (src/provreq_req090.rs:11:63). Pearlite may only call `#[logic]` functions, and that is an ordinary program function — marking it `#[logic]` is not the fix either, because that removes the item from the program and breaks every call site. Reach it through a `#[logic]` mirror instead, which leaves the function untouched: re-run `verify` with `--draft-semantic`'
+    - 'Prusti: inconclusive'
+    - 'Prusti''s pinned toolchain predates this subject''s dependency graph — its 2023 cargo cannot read a v4 lock file or a dependency declaring `edition = "2024"`. This is a toolchain ceiling, not a missing annotation: Prusti can only verify a subject whose whole dependency graph builds on a 2023 nightly, and upstream has published nothing newer'
+    evidence:
+    - engine: Kani
+      status: holds
+      basis: model-checked (bounded)
+      witness: null
+      detail:
+      - bounded by — unwind 4 (`kani.default_unwind` in provreq.yml); timeout 300s (`kani.timeout_seconds` in provreq.yml)
+      correspondence: mechanical
+      source_location: null
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `repeating_converges_a_gradually_classifying_backlog` passed
+      correspondence: asserted
+      source_location:
+        file: src/triage.rs
+        line: 893
+        symbol: repeating_converges_a_gradually_classifying_backlog
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `repeating_stops_when_a_round_makes_no_progress` passed
+      correspondence: asserted
+      source_location:
+        file: src/triage.rs
+        line: 915
+        symbol: repeating_stops_when_a_round_makes_no_progress
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `repeating_is_bounded_by_the_round_ceiling` passed
+      correspondence: asserted
+      source_location:
+        file: src/triage.rs
+        line: 936
+        symbol: repeating_is_bounded_by_the_round_ceiling
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `a_single_round_is_one_pass` passed
+      correspondence: asserted
+      source_location:
+        file: src/triage.rs
+        line: 957
+        symbol: a_single_round_is_one_pass
+    - engine: Creusot
+      status: unknown
+      basis: null
+      witness: null
+      detail:
+      - 'the proof harness provreq generated did not compile — error: called program function `triage::converge_bound_is_sound` in logic context (src/provreq_req090.rs:11:63). Pearlite may only call `#[logic]` functions, and that is an ordinary program function — marking it `#[logic]` is not the fix either, because that removes the item from the program and breaks every call site. Reach it through a `#[logic]` mirror instead, which leaves the function untouched: re-run `verify` with `--draft-semantic`'
+      correspondence: mechanical
+      source_location: null
+    - engine: Prusti
+      status: unknown
+      basis: null
+      witness: null
+      detail:
+      - 'Prusti''s pinned toolchain predates this subject''s dependency graph — its 2023 cargo cannot read a v4 lock file or a dependency declaring `edition = "2024"`. This is a toolchain ceiling, not a missing annotation: Prusti can only verify a subject whose whole dependency graph builds on a 2023 nightly, and upstream has published nothing newer'
+      correspondence: mechanical
+      source_location: null
+    correspondence: mechanical
+    provenance:
+      requirement_revision: 69b1b86b602f28bbf932d9a0dc935a5fac6e3f28d95b3ec6ddd50362be55b925
+      subject_commit: f1e60a59f1c75f6f84a94176805a90b9b27bc10c
+      tool_version: 0.0.50
+      verified_scope: null
+      formalization: 3eb028e0c21bb1b9
+      environment:
+        declared: provreq-devcontainer
+        engines:
+        - Creusot 0.14.0
+        - Kani 0.68.0
+        - TLC (TLA+) 2.19
+        unversioned:
+        - MonPoly
+        - Prusti
+        container: true
+      spec_fingerprint: null
+      trace_fingerprint: null
+      source_fingerprint: 6d19f1032152d21f5c20288e8b1e5008ffd447bc
+      ui_fingerprint: null
+      tagged_source_fingerprint: 4214f29e244faf15a6ed073f3dd76ce77d84878f664bccfda198b0a68507fa52
+      scope_fingerprint: 914166794d226ed690fac6f7cfd24b015ab9fe248ca6a3cfae329133ddf3eed9
   REQ091:
     id: REQ091
     status: holds
