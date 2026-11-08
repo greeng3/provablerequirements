@@ -81,9 +81,7 @@ verdicts:
     - 'cargo test: holds (not-falsified)'
     - not falsified over — the tagged test `stale_when_source_revision_moves` passed
     - 'Kani: inconclusive'
-    - |-
-      error[E0433]: cannot find `draft` in `provreq_model`
-      error[E0433]: cannot find `source` in `provreq_model`
+    - the sort `provreq::draft::Draft` cannot be instantiated by Kani — a bounded model checker needs a concrete value for every quantified variable, so a type it cannot enumerate stops the harness before the claim is reached. Nothing is wrong with the binding, the sort, or the claim. Either implement `kani::Arbitrary` for `provreq::draft::Draft` in the subject (an adoption step the subject owns, like a contracts dependency — provreq will not write it for you), or reach this claim through a deductive engine, whose `forall` is logical and needs no value at all
     - 'Creusot: inconclusive'
     - 'the proof harness provreq generated did not compile — error: called program function `draft::is_stale` in logic context (src/provreq_req014.rs:11:80). Pearlite may only call `#[logic]` functions, and that is an ordinary program function — marking it `#[logic]` is not the fix either, because that removes the item from the program and breaks every call site. Reach it through a `#[logic]` mirror instead, which leaves the function untouched: re-run `verify` with `--draft-semantic`'
     - 'Prusti: inconclusive'
@@ -105,9 +103,7 @@ verdicts:
       basis: null
       witness: null
       detail:
-      - |-
-        error[E0433]: cannot find `draft` in `provreq_model`
-        error[E0433]: cannot find `source` in `provreq_model`
+      - the sort `provreq::draft::Draft` cannot be instantiated by Kani — a bounded model checker needs a concrete value for every quantified variable, so a type it cannot enumerate stops the harness before the claim is reached. Nothing is wrong with the binding, the sort, or the claim. Either implement `kani::Arbitrary` for `provreq::draft::Draft` in the subject (an adoption step the subject owns, like a contracts dependency — provreq will not write it for you), or reach this claim through a deductive engine, whose `forall` is logical and needs no value at all
       correspondence: mechanical
       source_location: null
     - engine: Creusot
@@ -128,9 +124,9 @@ verdicts:
       source_location: null
     correspondence: asserted
     provenance:
-      requirement_revision: 19597bc0d12ed865
-      subject_commit: 7ff33ba7918d39eaab0c27c2e7ea20268ede87b3
-      tool_version: 0.0.35
+      requirement_revision: 537061943e10c2ec5c275f3a4b05a50f1bfd0a39ed58679b3c9aaad6a4af53e2
+      subject_commit: 23deefd469543dcb17b132f70436726852580894
+      tool_version: 0.0.47
       verified_scope: null
       formalization: 5fd8c1345fce1d0f
       environment:
@@ -145,10 +141,10 @@ verdicts:
         container: true
       spec_fingerprint: null
       trace_fingerprint: null
-      source_fingerprint: 405e525410ef228dc33a21cda554ef4a62a7cde7
+      source_fingerprint: 19961f034087226394233a7fea4a10e947ea770c
       ui_fingerprint: null
       tagged_source_fingerprint: 43e2f1e01b0189aa502076022ff88e940ca70e6c729051aea2c01f1799e4dbe3
-      scope_fingerprint: e922102803bd5ea5835f2c0e397a3185222d1f78dbfbca60800ce53c0c053918
+      scope_fingerprint: d2ceb389ae7576d2877a47cbcab29dd952ff41b9a2658886d8426166b05a2b84
   REQ024:
     id: REQ024
     status: holds
@@ -1273,9 +1269,7 @@ verdicts:
     - 'cargo test: holds (not-falsified)'
     - not falsified over — the tagged test `kani_platform_gate_matches_upstream_reach` passed
     - 'Kani: inconclusive'
-    - |-
-      error[E0433]: cannot find `engine` in `provreq_model`
-      error[E0433]: cannot find `provision` in `provreq_model`
+    - the sort `provreq::engine::EngineStatus` cannot be instantiated by Kani — a bounded model checker needs a concrete value for every quantified variable, so a type it cannot enumerate stops the harness before the claim is reached. Nothing is wrong with the binding, the sort, or the claim. Either implement `kani::Arbitrary` for `provreq::engine::EngineStatus` in the subject (an adoption step the subject owns, like a contracts dependency — provreq will not write it for you), or reach this claim through a deductive engine, whose `forall` is logical and needs no value at all
     - 'Creusot: inconclusive'
     - 'the proof harness provreq generated did not compile — error: called program function `provision::decide_install` in logic context (src/provreq_req047.rs:11:96). Pearlite may only call `#[logic]` functions, and that is an ordinary program function — marking it `#[logic]` is not the fix either, because that removes the item from the program and breaks every call site. Reach it through a `#[logic]` mirror instead, which leaves the function untouched: re-run `verify` with `--draft-semantic`'
     - 'Prusti: inconclusive'
@@ -1308,9 +1302,7 @@ verdicts:
       basis: null
       witness: null
       detail:
-      - |-
-        error[E0433]: cannot find `engine` in `provreq_model`
-        error[E0433]: cannot find `provision` in `provreq_model`
+      - the sort `provreq::engine::EngineStatus` cannot be instantiated by Kani — a bounded model checker needs a concrete value for every quantified variable, so a type it cannot enumerate stops the harness before the claim is reached. Nothing is wrong with the binding, the sort, or the claim. Either implement `kani::Arbitrary` for `provreq::engine::EngineStatus` in the subject (an adoption step the subject owns, like a contracts dependency — provreq will not write it for you), or reach this claim through a deductive engine, whose `forall` is logical and needs no value at all
       correspondence: mechanical
       source_location: null
     - engine: Creusot
@@ -1331,9 +1323,9 @@ verdicts:
       source_location: null
     correspondence: asserted
     provenance:
-      requirement_revision: 17cf6ac844159fbe
-      subject_commit: 7ff33ba7918d39eaab0c27c2e7ea20268ede87b3
-      tool_version: 0.0.35
+      requirement_revision: 13410d4f1074780cffb1f7dbfb176884579227de5576b494c9b73fcc5f3a5fec
+      subject_commit: 23deefd469543dcb17b132f70436726852580894
+      tool_version: 0.0.47
       verified_scope: null
       formalization: cf223ee274800417
       environment:
@@ -1348,10 +1340,10 @@ verdicts:
         container: true
       spec_fingerprint: null
       trace_fingerprint: null
-      source_fingerprint: 405e525410ef228dc33a21cda554ef4a62a7cde7
+      source_fingerprint: 19961f034087226394233a7fea4a10e947ea770c
       ui_fingerprint: null
       tagged_source_fingerprint: d65f18c6d6aedce9523d149a159763194918ab0c0d9f55d7bc8de6cc114e6adb
-      scope_fingerprint: e922102803bd5ea5835f2c0e397a3185222d1f78dbfbca60800ce53c0c053918
+      scope_fingerprint: d2ceb389ae7576d2877a47cbcab29dd952ff41b9a2658886d8426166b05a2b84
   REQ049:
     id: REQ049
     status: holds
