@@ -393,6 +393,8 @@ The whole tool is built to be iterated against — treat its output as the oracl
 
 ## Related documents
 
+- `docs/formalizing-requirements.md` — the proof craft: how to make a requirement provable
+  (extraction patterns, proof shapes, engine gotchas) once this pipeline is in hand.
 - `docs/requirement-language.md` — the complete PRL grammar and semantics.
 - `docs/installing-and-running.md` — getting the binary, engines, per-environment setup.
 - `docs/applying-to-existing-repos.md` — the design behind adoption and the companion tree.

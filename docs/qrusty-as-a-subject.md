@@ -233,3 +233,6 @@ Both land back on **#1 (end-to-end operator workflow)**, which is where this bel
   `no_message_lost` worked example.
 - [dogfood-self-adoption.md](dogfood-self-adoption.md) — provreq as its own subject, the only
   adoption we have done end to end.
+- [formalizing-requirements.md](formalizing-requirements.md) — the mechanical-proof cookbook: when a
+  requirement earns a deductive verdict vs an asserted one (qrusty's tree is mostly the latter), the
+  extraction and leaf-crate patterns, the proof shapes, and the engine gotchas.
