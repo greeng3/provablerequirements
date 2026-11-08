@@ -176,103 +176,22 @@ pub struct VerdictView {
     pub environment: Option<String>,
 }
 
-/// The code-drift axis outcome (REQ071) — payload-free so a bounded Kani harness can prove the rule
-/// against the real decision. `view` renders each variant's stale message.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum CodeDrift {
-    /// No code drift on this axis.
-    Fresh,
-    /// Both sides carry a source fingerprint and they differ — the fingerprinted source moved.
-    SourceMoved,
-    /// No fingerprint to compare, and the subject commit moved.
-    CommitMoved,
-    /// No fingerprint, and the stored commit can no longer be read.
-    CommitUnreadable,
-    /// No fingerprint, and the subject is a git repo now but was not when the verdict was stored.
-    NowGitRepo,
-}
-
-/// The code-drift decision (REQ071): when both sides carry a source fingerprint, drift is decided by
-/// the fingerprint alone — the commit is *not* consulted, so landing the verdict record (which moves
-/// the commit but not the fingerprinted source) is not drift. Only when a fingerprint is absent does
-/// it fall back to the commit comparison, so freshness is never widened on a basis the stored verdict
-/// does not carry. Generic over what a fingerprint/commit *is* because the decision reads only their
-/// equality and presence; the proof instantiates it at `u8` tokens, `view` at `&str`.
-pub fn code_drift<T: PartialEq>(
-    stored_fp: Option<T>,
-    cur_fp: Option<T>,
-    stored_commit: Option<T>,
-    cur_commit: Option<T>,
-) -> CodeDrift {
-    match (stored_fp, cur_fp) {
-        (Some(was), Some(now)) => {
-            if was != now {
-                CodeDrift::SourceMoved
-            } else {
-                CodeDrift::Fresh
-            }
-        }
-        _ => match (stored_commit, cur_commit) {
-            (Some(was), Some(now)) if was != now => CodeDrift::CommitMoved,
-            (Some(_), None) => CodeDrift::CommitUnreadable,
-            (None, Some(_)) => CodeDrift::NowGitRepo,
-            _ => CodeDrift::Fresh,
-        },
-    }
-}
-
-/// The code-drift axis inputs, distilled to what the decision reads: the stored and current source
-/// fingerprints and subject commits, modelled by `u8` tokens because [`code_drift`] reads only their
-/// equality and presence. The sort REQ071's category-1 harness ranges over.
-#[cfg(any(kani, creusot, prusti))]
-pub struct DriftInputs {
-    pub stored_fp: Option<u8>,
-    pub cur_fp: Option<u8>,
-    pub stored_commit: Option<u8>,
-    pub cur_commit: Option<u8>,
-}
-
-#[cfg(kani)]
-impl kani::Arbitrary for DriftInputs {
-    fn any() -> Self {
-        DriftInputs {
-            stored_fp: kani::any(),
-            cur_fp: kani::any(),
-            stored_commit: kani::any(),
-            cur_commit: kani::any(),
-        }
-    }
-}
-
-/// The commit-only fallback rule REQ071 keeps for a verdict with no source fingerprint.
-#[cfg(any(kani, creusot, prusti))]
-fn commit_rule(stored: Option<u8>, cur: Option<u8>) -> CodeDrift {
+/// Reduce a stored/current pair to the presence-and-equality facts REQ071's decision reads. Generic
+/// because the decision reads only equality and presence; the proof works over the reduced
+/// [`provreq_proofs::code_drift::Pair`] directly, so this plumbing stays out of the proved core.
+fn drift_pair<T: PartialEq>(stored: Option<T>, cur: Option<T>) -> provreq_proofs::code_drift::Pair {
+    use provreq_proofs::code_drift::Pair;
     match (stored, cur) {
-        (Some(was), Some(now)) if was != now => CodeDrift::CommitMoved,
-        (Some(_), None) => CodeDrift::CommitUnreadable,
-        (None, Some(_)) => CodeDrift::NowGitRepo,
-        _ => CodeDrift::Fresh,
-    }
-}
-
-/// REQ071 stated as a property and checked against the real [`code_drift`]: when both sides carry a
-/// source fingerprint, the outcome is decided by the fingerprint alone (`SourceMoved` iff they
-/// differ, else `Fresh`) — written without reading either commit, so proving it for every input
-/// establishes that the commit cannot change the outcome there (the axis never widens). Otherwise the
-/// outcome is the commit-only fallback. The harness ranges `i` over every bounded input, so a pass
-/// means the rule holds over the whole (bounded) space, not a spot check.
-#[cfg(any(kani, creusot, prusti))]
-pub fn code_drift_is_sound(i: &DriftInputs) -> bool {
-    let got = code_drift(i.stored_fp, i.cur_fp, i.stored_commit, i.cur_commit);
-    match (i.stored_fp, i.cur_fp) {
         (Some(was), Some(now)) => {
-            got == if was != now {
-                CodeDrift::SourceMoved
+            if was == now {
+                Pair::BothEqual
             } else {
-                CodeDrift::Fresh
+                Pair::BothDiffer
             }
         }
-        _ => got == commit_rule(i.stored_commit, i.cur_commit),
+        (Some(_), None) => Pair::OnlyStored,
+        (None, Some(_)) => Pair::OnlyCurrent,
+        (None, None) => Pair::Neither,
     }
 }
 
@@ -343,15 +262,20 @@ pub fn view(
     // The commit is a coarser clock than the code — the commit that lands `verdicts.yml` itself
     // moves it, so under bare commit comparison a subject keeping its record in-tree could never
     // hold a fresh verdict. A verdict from before this axis keeps the commit comparison instead:
-    // freshness is never *widened* on a basis the stored verdict does not carry. The decision is
-    // the payload-free `code_drift` (REQ071), proved to ignore the commit whenever both fingerprints
-    // are present; `view` only renders the chosen axis's message.
-    match code_drift(
+    // freshness is never *widened* on a basis the stored verdict does not carry. The decision is the
+    // payload-free `provreq_proofs::code_drift` (REQ071), proved to ignore the commit whenever both
+    // fingerprints are present; `view` reduces the strings to presence/equality pairs and renders the
+    // chosen axis's message.
+    use provreq_proofs::code_drift::{CodeDrift, code_drift};
+    let fp_pair = drift_pair(
         stored.provenance.source_fingerprint.as_deref(),
         anchor.source_fingerprint.as_deref(),
+    );
+    let commit_pair = drift_pair(
         stored.provenance.subject_commit.as_deref(),
         anchor.subject_commit.as_deref(),
-    ) {
+    );
+    match code_drift(fp_pair, commit_pair) {
         CodeDrift::Fresh => {}
         CodeDrift::SourceMoved => stale_reasons
             .push("the subject's source moved since this verdict — re-verify".to_string()),

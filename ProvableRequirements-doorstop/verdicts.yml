@@ -2016,10 +2016,11 @@ verdicts:
   REQ071:
     id: REQ071
     status: holds
-    basis: model-checked (bounded)
+    basis: proven
     reason: null
     witness: null
     detail:
+    - 'Creusot: holds (proven)'
     - 'Kani: holds (model-checked (bounded))'
     - bounded by — unwind 4 (`kani.default_unwind` in provreq.yml); timeout 300s (`kani.timeout_seconds` in provreq.yml)
     - 'cargo test: holds (not-falsified)'
@@ -2034,11 +2035,16 @@ verdicts:
     - not falsified over — the tagged test `source_fingerprint_ignores_provreq_requirements_too` passed
     - 'cargo test: holds (not-falsified)'
     - not falsified over — the tagged test `a_non_repo_has_no_source_fingerprint` passed
-    - 'Creusot: inconclusive'
-    - 'the proof harness provreq generated did not compile — error: called program function `verdict_store::code_drift_is_sound` in logic context (src/provreq_req071.rs:11:66). Pearlite may only call `#[logic]` functions, and that is an ordinary program function — marking it `#[logic]` is not the fix either, because that removes the item from the program and breaks every call site. Reach it through a `#[logic]` mirror instead, which leaves the function untouched: re-run `verify` with `--draft-semantic`'
     - 'Prusti: inconclusive'
     - 'Prusti''s pinned toolchain predates this subject''s dependency graph — its 2023 cargo cannot read a v4 lock file or a dependency declaring `edition = "2024"`. This is a toolchain ceiling, not a missing annotation: Prusti can only verify a subject whose whole dependency graph builds on a 2023 nightly, and upstream has published nothing newer'
     evidence:
+    - engine: Creusot
+      status: holds
+      basis: proven
+      witness: null
+      detail: []
+      correspondence: mechanical
+      source_location: null
     - engine: Kani
       status: holds
       basis: model-checked (bounded)
@@ -2056,7 +2062,7 @@ verdicts:
       correspondence: asserted
       source_location:
         file: src/verdict_store.rs
-        line: 822
+        line: 746
         symbol: a_companion_only_commit_is_not_code_drift
     - engine: cargo test
       status: holds
@@ -2067,7 +2073,7 @@ verdicts:
       correspondence: asserted
       source_location:
         file: src/verdict_store.rs
-        line: 844
+        line: 768
         symbol: source_movement_is_code_drift
     - engine: cargo test
       status: holds
@@ -2078,7 +2084,7 @@ verdicts:
       correspondence: asserted
       source_location:
         file: src/verdict_store.rs
-        line: 868
+        line: 792
         symbol: a_verdict_without_a_source_fingerprint_keeps_the_commit_rule
     - engine: cargo test
       status: holds
@@ -2113,14 +2119,6 @@ verdicts:
         file: src/verify.rs
         line: 1444
         symbol: a_non_repo_has_no_source_fingerprint
-    - engine: Creusot
-      status: unknown
-      basis: null
-      witness: null
-      detail:
-      - 'the proof harness provreq generated did not compile — error: called program function `verdict_store::code_drift_is_sound` in logic context (src/provreq_req071.rs:11:66). Pearlite may only call `#[logic]` functions, and that is an ordinary program function — marking it `#[logic]` is not the fix either, because that removes the item from the program and breaks every call site. Reach it through a `#[logic]` mirror instead, which leaves the function untouched: re-run `verify` with `--draft-semantic`'
-      correspondence: mechanical
-      source_location: null
     - engine: Prusti
       status: unknown
       basis: null
@@ -2132,9 +2130,9 @@ verdicts:
     correspondence: mechanical
     provenance:
       requirement_revision: 41907367990521aea71606f9477e5b1f25717f0fdee8e72b60476430adff80e9
-      subject_commit: daf92c1edcdc14552a4ac6212e41aee1e61755bf
-      tool_version: 0.0.51
-      verified_scope: null
+      subject_commit: 7a1f8d8ad505fd0dc2f2b3428426a2c92848d5dc
+      tool_version: 0.0.52
+      verified_scope: crate crates/provreq-proofs
       formalization: 5921faef50443e6f
       environment:
         declared: provreq-devcontainer
@@ -2148,10 +2146,10 @@ verdicts:
         container: true
       spec_fingerprint: null
       trace_fingerprint: null
-      source_fingerprint: 21f1b7627d3437e34c4a41f47c660bf7af84723a
+      source_fingerprint: cef91ad1806c309cec0f6c8f9f23ed2dc9a1be33
       ui_fingerprint: null
-      tagged_source_fingerprint: 2fab60372f561c07b0a72fa60aeddae71eaf80377376b468e7d3a54c97ea8c02
-      scope_fingerprint: 30cde2dadb2211ce43b566822b9fd7b32adfbf71e517c08419cd0d5c08f3ec39
+      tagged_source_fingerprint: 455ab816a3fd74e1cd1dea8ee64fabfb7c62e7ad08a757c0a078d91563ed3100
+      scope_fingerprint: 4b257d128dd8c07e7a3dfd9c334787d48e85f902e88aaa3989f3d7524f36e8d8
   REQ076:
     id: REQ076
     status: holds
