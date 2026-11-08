@@ -308,6 +308,14 @@ fn pending_count(state: &TriageState, items: &[Item]) -> usize {
     }
 }
 
+/// The convergence loop's stop decision (REQ090), factored out of [`seed_until_converged`] so the
+/// exact predicate the real loop breaks on is the one the proof ([`converge_bound_is_sound`]) ranges
+/// over. A round stops the run when nothing is left untriaged, when it placed nothing new
+/// (`remaining >= before`, a stable decline), or when the round ceiling is reached.
+fn converge_should_stop(before: usize, remaining: usize, round: usize, cap: usize) -> bool {
+    remaining == 0 || remaining >= before || round >= cap
+}
+
 /// Run [`seed_in_batches`] round after round until the untriaged backlog converges (REQ090). A
 /// classifier may decline an item (REQ052 / #226), which leaves it untriaged, and model
 /// nondeterminism means a different subset declines each pass — so one pass rarely drives the
@@ -383,7 +391,7 @@ pub async fn seed_until_converged<C: Classifier>(
             });
         }
         // Converged, stalled (this round shrank nothing), or out of rounds.
-        if remaining == 0 || remaining >= before || rounds >= cap {
+        if converge_should_stop(before, remaining, rounds, cap) {
             break;
         }
     }
@@ -393,6 +401,57 @@ pub async fn seed_until_converged<C: Classifier>(
         remaining,
         stopped: None,
     })
+}
+
+/// A bounded convergence step — the sort REQ090's category-1 harness ranges over: a round's residue
+/// before (`before`) and after (`remaining`) it ran, the round count so far (`round`), and the
+/// ceiling (`cap`). Named so the formal sort `ConvergeStep` resolves to a subject type the way
+/// REQ030's `ProofEnsemble` does (the sort resolver reads named items, not tuples). Gated for every
+/// prover, not just Kani, so a deductive engine's generated harness finds the type rather than a bare
+/// `E0425`.
+#[cfg(any(kani, creusot, prusti))]
+pub struct ConvergeStep {
+    pub before: usize,
+    pub remaining: usize,
+    pub round: usize,
+    pub cap: usize,
+}
+
+#[cfg(kani)]
+impl kani::Arbitrary for ConvergeStep {
+    fn any() -> Self {
+        // `cap` is the run's `max_rounds.max(1)`, so it is always at least one round.
+        ConvergeStep {
+            before: kani::any(),
+            remaining: kani::any(),
+            round: kani::any(),
+            cap: kani::any::<usize>().max(1),
+        }
+    }
+}
+
+/// REQ090 stated as a property and checked against the real [`converge_should_stop`]: the stop rule
+/// the convergence loop breaks on (1) always stops once the round ceiling is reached, so the run
+/// cannot loop without end; (2) always stops once the residue is empty; and (3) continues only when
+/// the round strictly shrank the residue, so the untriaged set can only shrink. The harness ranges
+/// `step` over every bounded step, so a pass means the rule has these properties over the whole
+/// (bounded) space, not a spot check.
+#[cfg(any(kani, creusot, prusti))]
+pub fn converge_bound_is_sound(step: &ConvergeStep) -> bool {
+    let ConvergeStep {
+        before,
+        remaining,
+        round,
+        cap,
+    } = *step;
+    let stop = converge_should_stop(before, remaining, round, cap);
+    // Reaching the ceiling always stops — the run is bounded by `cap` rounds.
+    let bounded_by_ceiling = round < cap || stop;
+    // An empty residue always stops.
+    let stops_when_converged = remaining != 0 || stop;
+    // A continuing round strictly shrank the residue.
+    let only_continues_on_progress = stop || remaining < before;
+    bounded_by_ceiling && stops_when_converged && only_continues_on_progress
 }
 
 /// A step of a [`seed_backlog`] run, reported as it happens so a caller can narrate the run in its
