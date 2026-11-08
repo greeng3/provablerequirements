@@ -31,6 +31,10 @@ verify:
     REQ011: crates/provreq-proofs
     REQ024: crates/provreq-proofs
     REQ028: crates/provreq-proofs
+    # REQ030's outcome fold selects the strongest basis over an arbitrary-length slice, so — like
+    # REQ076 — its Creusot proof is a max-over-sequence induction in the leaf (#561), proved unbounded
+    # while Kani checks the length-3 bound.
+    REQ030: crates/provreq-proofs
     REQ051: crates/provreq-proofs
     # REQ076's masquerade guard folds over an arbitrary-length evidence slice, so unlike the others
     # its Creusot proof is a Seq-induction (loop invariants), proved unbounded in the leaf (#539).

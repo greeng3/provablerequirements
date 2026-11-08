@@ -13,6 +13,7 @@
 //! case, a `#[cfg(kani)]` `Arbitrary`, and `#[cfg(creusot)]` `#[logic]` pearlite mirrors that
 //! `creusot::with_mirrors` redirects the harness onto.
 
+pub mod combine;
 pub mod fragment;
 pub mod masquerade;
 pub mod model_binding;
