@@ -890,10 +890,11 @@ verdicts:
   REQ030:
     id: REQ030
     status: holds
-    basis: model-checked (bounded)
+    basis: proven
     reason: null
     witness: null
     detail:
+    - 'Creusot: holds (proven)'
     - 'Kani: holds (model-checked (bounded))'
     - bounded by — unwind 4 (`kani.default_unwind` in provreq.yml); timeout 300s (`kani.timeout_seconds` in provreq.yml)
     - 'cargo test: holds (not-falsified)'
@@ -914,11 +915,16 @@ verdicts:
     - not falsified over — the tagged test `combine_outcome_is_refutation_wins_and_strongest_basis` passed
     - 'cargo test: holds (not-falsified)'
     - not falsified over — the tagged test `all_inconclusive_is_unknown_inconclusive` passed
-    - 'Creusot: inconclusive'
-    - 'the proof harness provreq generated did not compile — error: called program function `verdict::combine_is_sound` in logic context (src/provreq_req030.rs:11:62). Pearlite may only call `#[logic]` functions, and that is an ordinary program function — marking it `#[logic]` is not the fix either, because that removes the item from the program and breaks every call site. Reach it through a `#[logic]` mirror instead, which leaves the function untouched: re-run `verify` with `--draft-semantic`'
     - 'Prusti: inconclusive'
     - 'Prusti''s pinned toolchain predates this subject''s dependency graph — its 2023 cargo cannot read a v4 lock file or a dependency declaring `edition = "2024"`. This is a toolchain ceiling, not a missing annotation: Prusti can only verify a subject whose whole dependency graph builds on a 2023 nightly, and upstream has published nothing newer'
     evidence:
+    - engine: Creusot
+      status: holds
+      basis: proven
+      witness: null
+      detail: []
+      correspondence: mechanical
+      source_location: null
     - engine: Kani
       status: holds
       basis: model-checked (bounded)
@@ -936,7 +942,7 @@ verdicts:
       correspondence: asserted
       source_location:
         file: src/engine.rs
-        line: 918
+        line: 900
         symbol: category_is_ready_when_any_ensemble_engine_is_ready
     - engine: cargo test
       status: holds
@@ -1024,16 +1030,8 @@ verdicts:
       correspondence: asserted
       source_location:
         file: src/verdict.rs
-        line: 1257
+        line: 1306
         symbol: all_inconclusive_is_unknown_inconclusive
-    - engine: Creusot
-      status: unknown
-      basis: null
-      witness: null
-      detail:
-      - 'the proof harness provreq generated did not compile — error: called program function `verdict::combine_is_sound` in logic context (src/provreq_req030.rs:11:62). Pearlite may only call `#[logic]` functions, and that is an ordinary program function — marking it `#[logic]` is not the fix either, because that removes the item from the program and breaks every call site. Reach it through a `#[logic]` mirror instead, which leaves the function untouched: re-run `verify` with `--draft-semantic`'
-      correspondence: mechanical
-      source_location: null
     - engine: Prusti
       status: unknown
       basis: null
@@ -1045,9 +1043,9 @@ verdicts:
     correspondence: mechanical
     provenance:
       requirement_revision: 467e7570a79795b132e67f5862bdd3ada08ba90a67925565493152cbe4af9033
-      subject_commit: fd4375aff92076b036109c46b8b91845b3f4e096
-      tool_version: 0.0.36
-      verified_scope: null
+      subject_commit: d99736ab27b45601aa6d10842aca560abc9b3906
+      tool_version: 0.0.50
+      verified_scope: crate crates/provreq-proofs
       formalization: 16ae08ff45a08856
       environment:
         declared: provreq-devcontainer
@@ -1061,10 +1059,10 @@ verdicts:
         container: true
       spec_fingerprint: null
       trace_fingerprint: null
-      source_fingerprint: 0d6a31a1315fd4b39c4f2572fa834c2428fe96a1
+      source_fingerprint: 40a0a3ab8b004ea9cc031217f2aa75f2727dde44
       ui_fingerprint: null
-      tagged_source_fingerprint: f438d01388710f2774a265be1c0148d1a1ec7456647d5b697c49d2dfea8082c2
-      scope_fingerprint: cde59fb0b48dd1566d46443a609ef0e74b3f80a3779c569aead7006e9e4a8700
+      tagged_source_fingerprint: 7feb13c701056d9d7dc5e6956d048748f5cdb31601fed4c827727e376da513df
+      scope_fingerprint: df97768014b016454a988e17170b2f557a0baf0491d3bfe6d1a10e0e827101ad
   REQ031:
     id: REQ031
     status: holds

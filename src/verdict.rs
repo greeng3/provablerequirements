@@ -384,42 +384,59 @@ pub fn no_engine(id: &str, detail: Vec<String>, provenance: Provenance) -> Verdi
 /// for a holding engine, the rung it earned, decide the combined `(status, unknown-reason, basis)`.
 /// A refutation and a hold together are a divergence; any refutation refutes; otherwise a hold
 /// reports the strongest basis any holding engine earned; no evidence at all is inconclusive. There
-/// is deliberately no majority vote. Pure over the small verdict enums — no `Evidence`, no
-/// `String`s — so a bounded Kani harness can prove REQ030 against the real combiner.
+/// is deliberately no majority vote.
+///
+/// The decision itself is the payload-free core `provreq_proofs::combine::combine_outcome` in the
+/// excluded leaf crate (#483), which Creusot proves whole and Kani checks bounded (REQ030); this
+/// wrapper maps the verdict enums to the leaf's proxies and its `Outcome` back, so the proved rule is
+/// the one aggregate applies.
 pub(crate) fn combine_outcome(
     outcomes: &[(Status, Option<Basis>)],
 ) -> (Status, Option<UnknownReason>, Option<Basis>) {
-    let any_holds = outcomes.iter().any(|(s, _)| *s == Status::Holds);
-    let any_fails = outcomes.iter().any(|(s, _)| *s == Status::Fails);
-    if any_holds && any_fails {
-        (Status::Unknown, Some(UnknownReason::Divergence), None)
-    } else if any_fails {
-        (Status::Fails, None, None)
-    } else if any_holds {
-        let basis = outcomes
-            .iter()
-            .filter_map(|(_, b)| *b)
-            .max_by_key(basis_rank);
-        (Status::Holds, None, basis)
-    } else {
-        (Status::Unknown, Some(UnknownReason::Inconclusive), None)
+    use provreq_proofs::combine as c;
+    let proxied: Vec<(c::Status, Option<c::Basis>)> = outcomes
+        .iter()
+        .map(|(s, b)| (to_combine_status(*s), b.map(to_combine_basis)))
+        .collect();
+    match c::combine_outcome(&proxied) {
+        c::Outcome::Divergence => (Status::Unknown, Some(UnknownReason::Divergence), None),
+        c::Outcome::Refuted => (Status::Fails, None, None),
+        c::Outcome::Held(b) => (Status::Holds, None, b.map(from_combine_basis)),
+        c::Outcome::Inconclusive => (Status::Unknown, Some(UnknownReason::Inconclusive), None),
     }
 }
 
-// Adoption step (REQ030): the quantified sorts a Kani harness for `combine_outcome` enumerates.
-// `#[cfg(kani)]` keeps them out of every ordinary build, test, and clippy run — they exist only
-// under `cargo kani`.
-#[cfg(kani)]
-impl kani::Arbitrary for Status {
-    fn any() -> Self {
-        match kani::any::<u8>() % 3 {
-            0 => Status::Holds,
-            1 => Status::Fails,
-            _ => Status::Unknown,
-        }
+fn to_combine_status(s: Status) -> provreq_proofs::combine::Status {
+    use provreq_proofs::combine::Status as C;
+    match s {
+        Status::Holds => C::Holds,
+        Status::Fails => C::Fails,
+        Status::Unknown => C::Unknown,
     }
 }
 
+fn to_combine_basis(b: Basis) -> provreq_proofs::combine::Basis {
+    use provreq_proofs::combine::Basis as C;
+    match b {
+        Basis::NotFalsified => C::NotFalsified,
+        Basis::ModelCheckedBounded => C::ModelCheckedBounded,
+        Basis::Proven => C::Proven,
+    }
+}
+
+fn from_combine_basis(b: provreq_proofs::combine::Basis) -> Basis {
+    use provreq_proofs::combine::Basis as C;
+    match b {
+        C::NotFalsified => Basis::NotFalsified,
+        C::ModelCheckedBounded => Basis::ModelCheckedBounded,
+        C::Proven => Basis::Proven,
+    }
+}
+
+// REQ031's sort: a Kani harness for `proven_is_top` ranges over every `Basis`. `#[cfg(kani)]` keeps
+// it out of every ordinary build, test, and clippy run — it exists only under `cargo kani`. (REQ030's
+// own sort and property moved to the excluded `provreq-proofs` leaf, `combine` module, so Creusot can
+// prove the fold whole; `combine_outcome` above delegates to it.)
 #[cfg(kani)]
 impl kani::Arbitrary for Basis {
     fn any() -> Self {
@@ -431,67 +448,10 @@ impl kani::Arbitrary for Basis {
     }
 }
 
-/// A bounded ensemble of engine outcomes — the sort REQ030's category-1 harness ranges over. Wrapping
-/// the array in a named type lets the formal sort `ProofEnsemble` resolve to a subject type the way
-/// REQ014's `Draft` does (the sort resolver reads named items, not array types); Kani derives
-/// `Arbitrary` for the array of `Arbitrary` outcomes inside. Three is the ensemble bound the cat-2a
-/// model also uses (`|Engine| <= 3`) — enough to exercise divergence, corroboration, and ordering.
-///
-/// Gated for every prover, not just Kani: the deductive engines generate their own harness against
-/// this same sort, and a sort that existed only under `cfg(kani)` left their harness referencing a
-/// type that is not there — a raw `E0425` that reads like a provreq defect rather than the honest
-/// "this engine cannot discharge it" the ensemble means to record.
-#[cfg(any(kani, creusot, prusti))]
-pub struct ProofEnsemble(pub [(Status, Option<Basis>); 3]);
-
-#[cfg(kani)]
-impl kani::Arbitrary for ProofEnsemble {
-    fn any() -> Self {
-        ProofEnsemble(kani::any())
-    }
-}
-
-/// REQ030 stated as a property and checked against the real [`combine_outcome`]: a hold and a
-/// refutation together are a divergence; any refutation refutes; otherwise the combined basis is the
-/// strongest any present evidence earned (the maximum, stated as *present and dominating* rather than
-/// re-running the fold); no evidence is inconclusive — and never a majority vote. The harness ranges
-/// `e` over every bounded ensemble, so a pass means `combine_outcome` meets this over the whole
-/// (bounded) space, not a spot check.
-#[cfg(any(kani, creusot, prusti))]
-pub fn combine_is_sound(e: &ProofEnsemble) -> bool {
-    let outcomes = &e.0;
-    let (status, reason, basis) = combine_outcome(outcomes);
-    let any_holds = outcomes.iter().any(|(s, _)| *s == Status::Holds);
-    let any_fails = outcomes.iter().any(|(s, _)| *s == Status::Fails);
-    if any_holds && any_fails {
-        status == Status::Unknown && reason == Some(UnknownReason::Divergence) && basis.is_none()
-    } else if any_fails {
-        status == Status::Fails && basis.is_none()
-    } else if any_holds {
-        // Strongest basis among every present basis: the result is a present basis that dominates
-        // all of them, or None exactly when no evidence carried a basis. This is the defining
-        // property of the maximum, written independently of `combine_outcome`'s own fold.
-        let present = |want: Basis| outcomes.iter().any(|(_, b)| *b == Some(want));
-        let dominates = |top: Basis| {
-            outcomes
-                .iter()
-                .filter_map(|(_, b)| *b)
-                .all(|other| basis_rank(&top) >= basis_rank(&other))
-        };
-        let strongest_ok = match basis {
-            Some(top) => present(top) && dominates(top),
-            None => outcomes.iter().all(|(_, b)| b.is_none()),
-        };
-        status == Status::Holds && strongest_ok
-    } else {
-        status == Status::Unknown && reason == Some(UnknownReason::Inconclusive) && basis.is_none()
-    }
-}
-
 /// REQ031 stated as a property and checked against the real [`basis_rank`]: `proven` is the
 /// unique strongest rung — every basis is either `proven` itself or ranks strictly below it. This
 /// is the scale the ensemble trusts when it reports "proven by Creusot, corroborated bounded by
-/// Kani" as `proven`: REQ030's [`combine_is_sound`] proves the combiner reports the maximum of this
+/// Kani" as `proven`: REQ030's `provreq_proofs::combine` proves the combiner reports the maximum of this
 /// scale, and this proves the scale itself puts `proven` on top (and nothing ties it). The harness
 /// ranges `b` over every basis, so a pass means it holds for the whole sort, not a spot check.
 #[cfg(any(kani, creusot, prusti))]
@@ -499,11 +459,11 @@ pub fn proven_is_top(b: &Basis) -> bool {
     *b == Basis::Proven || basis_rank(&Basis::Proven) > basis_rank(b)
 }
 
-// REQ076's masquerade-guard sort and proof predicate moved to the excluded `provreq-proofs` leaf
-// crate (`masquerade` module, #539): its fold is over an arbitrary-length slice, so the leaf proves
-// it unbounded under Creusot (`proven`) while Kani still checks it at the length-3 bound. The
-// `Correspondence`/`UnknownReason` Kani `Arbitrary` impls went with it — only that sort used them;
-// `Status`/`Basis` keep theirs for REQ030's `ProofEnsemble`.
+// REQ076's masquerade-guard and REQ030's outcome fold both moved to the excluded `provreq-proofs`
+// leaf crate (`masquerade`/`combine` modules, #539/#561): each folds over an arbitrary-length slice,
+// so the leaf proves it unbounded under Creusot (`proven`) while Kani still checks it at the length-3
+// bound. The `Status` Kani `Arbitrary` went with them — only those sorts used it; `Basis` keeps its
+// own for REQ031's `proven_is_top`.
 
 pub fn aggregate(id: &str, mut evidence: Vec<Evidence>, provenance: Provenance) -> Verdict {
     // Strongest-first, so every surface listing this evidence — the CLI `detail`, the web
