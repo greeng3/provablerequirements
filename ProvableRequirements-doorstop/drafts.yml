@@ -295,6 +295,29 @@ drafts:
       category: code
       observable: readiness_is_honest
       fidelity: definitional
+  REQ071:
+    revision: 41907367990521aea71606f9477e5b1f25717f0fdee8e72b60476430adff80e9
+    candidate: |-
+      requirement REQ071_code_drift_at_source_granularity { category: 1
+        vocabulary { state sound(i: DriftInputs) }
+        require { always (sound(i)) } }
+    gate:
+      status: passed
+      warnings: []
+    admission:
+      state: admitted
+      review: optional
+      by: greeng3
+      at_unix: 1794160830
+    bindings:
+    - symbol: sound
+      category: code
+      observable: code_drift_is_sound
+      fidelity: definitional
+    - symbol: DriftInputs
+      category: code
+      observable: DriftInputs
+      fidelity: definitional
   REQ076:
     revision: fa8b0dc2ec423538fbd417a50416388e7aa772ecbfad6f622372156946ed4c9a
     candidate: |-

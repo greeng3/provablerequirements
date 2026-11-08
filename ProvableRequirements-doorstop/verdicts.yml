@@ -2013,6 +2013,145 @@ verdicts:
       ui_fingerprint: null
       tagged_source_fingerprint: 9afd769d31211f41ea6412bee2a427e1565c8554869f3a9680eefd15bed0e198
       scope_fingerprint: 518b7c1023643671a5f075b48f0c8b8cfe680ebaeba572cc304d5979c72f2c00
+  REQ071:
+    id: REQ071
+    status: holds
+    basis: model-checked (bounded)
+    reason: null
+    witness: null
+    detail:
+    - 'Kani: holds (model-checked (bounded))'
+    - bounded by — unwind 4 (`kani.default_unwind` in provreq.yml); timeout 300s (`kani.timeout_seconds` in provreq.yml)
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `a_companion_only_commit_is_not_code_drift` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `source_movement_is_code_drift` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `a_verdict_without_a_source_fingerprint_keeps_the_commit_rule` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `source_fingerprint_ignores_the_records_other_axes_own` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `source_fingerprint_ignores_provreq_requirements_too` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `a_non_repo_has_no_source_fingerprint` passed
+    - 'Creusot: inconclusive'
+    - 'the proof harness provreq generated did not compile — error: called program function `verdict_store::code_drift_is_sound` in logic context (src/provreq_req071.rs:11:66). Pearlite may only call `#[logic]` functions, and that is an ordinary program function — marking it `#[logic]` is not the fix either, because that removes the item from the program and breaks every call site. Reach it through a `#[logic]` mirror instead, which leaves the function untouched: re-run `verify` with `--draft-semantic`'
+    - 'Prusti: inconclusive'
+    - 'Prusti''s pinned toolchain predates this subject''s dependency graph — its 2023 cargo cannot read a v4 lock file or a dependency declaring `edition = "2024"`. This is a toolchain ceiling, not a missing annotation: Prusti can only verify a subject whose whole dependency graph builds on a 2023 nightly, and upstream has published nothing newer'
+    evidence:
+    - engine: Kani
+      status: holds
+      basis: model-checked (bounded)
+      witness: null
+      detail:
+      - bounded by — unwind 4 (`kani.default_unwind` in provreq.yml); timeout 300s (`kani.timeout_seconds` in provreq.yml)
+      correspondence: mechanical
+      source_location: null
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `a_companion_only_commit_is_not_code_drift` passed
+      correspondence: asserted
+      source_location:
+        file: src/verdict_store.rs
+        line: 822
+        symbol: a_companion_only_commit_is_not_code_drift
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `source_movement_is_code_drift` passed
+      correspondence: asserted
+      source_location:
+        file: src/verdict_store.rs
+        line: 844
+        symbol: source_movement_is_code_drift
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `a_verdict_without_a_source_fingerprint_keeps_the_commit_rule` passed
+      correspondence: asserted
+      source_location:
+        file: src/verdict_store.rs
+        line: 868
+        symbol: a_verdict_without_a_source_fingerprint_keeps_the_commit_rule
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `source_fingerprint_ignores_the_records_other_axes_own` passed
+      correspondence: asserted
+      source_location:
+        file: src/verify.rs
+        line: 1258
+        symbol: source_fingerprint_ignores_the_records_other_axes_own
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `source_fingerprint_ignores_provreq_requirements_too` passed
+      correspondence: asserted
+      source_location:
+        file: src/verify.rs
+        line: 1367
+        symbol: source_fingerprint_ignores_provreq_requirements_too
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `a_non_repo_has_no_source_fingerprint` passed
+      correspondence: asserted
+      source_location:
+        file: src/verify.rs
+        line: 1444
+        symbol: a_non_repo_has_no_source_fingerprint
+    - engine: Creusot
+      status: unknown
+      basis: null
+      witness: null
+      detail:
+      - 'the proof harness provreq generated did not compile — error: called program function `verdict_store::code_drift_is_sound` in logic context (src/provreq_req071.rs:11:66). Pearlite may only call `#[logic]` functions, and that is an ordinary program function — marking it `#[logic]` is not the fix either, because that removes the item from the program and breaks every call site. Reach it through a `#[logic]` mirror instead, which leaves the function untouched: re-run `verify` with `--draft-semantic`'
+      correspondence: mechanical
+      source_location: null
+    - engine: Prusti
+      status: unknown
+      basis: null
+      witness: null
+      detail:
+      - 'Prusti''s pinned toolchain predates this subject''s dependency graph — its 2023 cargo cannot read a v4 lock file or a dependency declaring `edition = "2024"`. This is a toolchain ceiling, not a missing annotation: Prusti can only verify a subject whose whole dependency graph builds on a 2023 nightly, and upstream has published nothing newer'
+      correspondence: mechanical
+      source_location: null
+    correspondence: mechanical
+    provenance:
+      requirement_revision: 41907367990521aea71606f9477e5b1f25717f0fdee8e72b60476430adff80e9
+      subject_commit: daf92c1edcdc14552a4ac6212e41aee1e61755bf
+      tool_version: 0.0.51
+      verified_scope: null
+      formalization: 5921faef50443e6f
+      environment:
+        declared: provreq-devcontainer
+        engines:
+        - Creusot 0.14.0
+        - Kani 0.68.0
+        - TLC (TLA+) 2.19
+        unversioned:
+        - MonPoly
+        - Prusti
+        container: true
+      spec_fingerprint: null
+      trace_fingerprint: null
+      source_fingerprint: 21f1b7627d3437e34c4a41f47c660bf7af84723a
+      ui_fingerprint: null
+      tagged_source_fingerprint: 2fab60372f561c07b0a72fa60aeddae71eaf80377376b468e7d3a54c97ea8c02
+      scope_fingerprint: 30cde2dadb2211ce43b566822b9fd7b32adfbf71e517c08419cd0d5c08f3ec39
   REQ076:
     id: REQ076
     status: holds
