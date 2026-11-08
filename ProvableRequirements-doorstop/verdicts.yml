@@ -1065,6 +1065,366 @@ verdicts:
       ui_fingerprint: null
       tagged_source_fingerprint: f438d01388710f2774a265be1c0148d1a1ec7456647d5b697c49d2dfea8082c2
       scope_fingerprint: cde59fb0b48dd1566d46443a609ef0e74b3f80a3779c569aead7006e9e4a8700
+  REQ031:
+    id: REQ031
+    status: holds
+    basis: model-checked (bounded)
+    reason: null
+    witness: null
+    detail:
+    - 'Kani: holds (model-checked (bounded))'
+    - bounded by — unwind 4 (`kani.default_unwind` in provreq.yml); timeout 300s (`kani.timeout_seconds` in provreq.yml)
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `quantified_invariant_lowers_to_a_forall_proof_assert` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `calls_go_through_crate_not_a_crate_name` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `calls_follow_the_subjects_parameter_modes` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `never_lowers_to_a_negated_unquantified_assertion` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `unbound_sort_does_not_lower` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `unresolved_predicate_does_not_lower` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `temporal_patterns_do_not_lower` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `proved_output_is_holds` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `unproved_goal_is_inconclusive_never_fails` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `a_partial_proof_is_not_holds` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `a_compile_failure_is_inconclusive_and_names_the_error_and_its_site` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `unrecognised_output_is_inconclusive` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `harness_name_is_a_valid_prefixed_identifier` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `a_creusot_pass_is_proven_and_not_bounded` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `an_inconclusive_run_is_unknown_never_a_verdict` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `an_existing_harness_file_is_never_overwritten` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `a_subject_with_no_crate_root_is_inconclusive` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `a_proven_holds_does_not_wear_the_bounded_caveat` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `proven_outranks_bounded_model_checked_in_the_ensemble` passed
+    - 'Creusot: inconclusive'
+    - 'the proof harness provreq generated did not compile — error: called program function `verdict::proven_is_top` in logic context (src/provreq_req031.rs:11:54). Pearlite may only call `#[logic]` functions, and that is an ordinary program function — marking it `#[logic]` is not the fix either, because that removes the item from the program and breaks every call site. Reach it through a `#[logic]` mirror instead, which leaves the function untouched: re-run `verify` with `--draft-semantic`'
+    - 'Prusti: inconclusive'
+    - 'Prusti''s pinned toolchain predates this subject''s dependency graph — its 2023 cargo cannot read a v4 lock file or a dependency declaring `edition = "2024"`. This is a toolchain ceiling, not a missing annotation: Prusti can only verify a subject whose whole dependency graph builds on a 2023 nightly, and upstream has published nothing newer'
+    - 'cargo test: inconclusive'
+    - no test named `real_creusot_proves_a_true_invariant` ran (the tag names no runnable test)
+    - 'cargo test: inconclusive'
+    - no test named `real_creusot_cannot_prove_a_false_invariant` ran (the tag names no runnable test)
+    - 'cargo test: inconclusive'
+    - no test named `real_creusot_is_inconclusive_on_opaque_predicates` ran (the tag names no runnable test)
+    - 'cargo test: inconclusive'
+    - no test named `real_creusot_run_leaves_no_trace_in_the_subject` ran (the tag names no runnable test)
+    evidence:
+    - engine: Kani
+      status: holds
+      basis: model-checked (bounded)
+      witness: null
+      detail:
+      - bounded by — unwind 4 (`kani.default_unwind` in provreq.yml); timeout 300s (`kani.timeout_seconds` in provreq.yml)
+      correspondence: mechanical
+      source_location: null
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `quantified_invariant_lowers_to_a_forall_proof_assert` passed
+      correspondence: asserted
+      source_location:
+        file: src/creusot.rs
+        line: 783
+        symbol: quantified_invariant_lowers_to_a_forall_proof_assert
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `calls_go_through_crate_not_a_crate_name` passed
+      correspondence: asserted
+      source_location:
+        file: src/creusot.rs
+        line: 805
+        symbol: calls_go_through_crate_not_a_crate_name
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `calls_follow_the_subjects_parameter_modes` passed
+      correspondence: asserted
+      source_location:
+        file: src/creusot.rs
+        line: 814
+        symbol: calls_follow_the_subjects_parameter_modes
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `never_lowers_to_a_negated_unquantified_assertion` passed
+      correspondence: asserted
+      source_location:
+        file: src/creusot.rs
+        line: 827
+        symbol: never_lowers_to_a_negated_unquantified_assertion
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `unbound_sort_does_not_lower` passed
+      correspondence: asserted
+      source_location:
+        file: src/creusot.rs
+        line: 857
+        symbol: unbound_sort_does_not_lower
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `unresolved_predicate_does_not_lower` passed
+      correspondence: asserted
+      source_location:
+        file: src/creusot.rs
+        line: 876
+        symbol: unresolved_predicate_does_not_lower
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `temporal_patterns_do_not_lower` passed
+      correspondence: asserted
+      source_location:
+        file: src/creusot.rs
+        line: 891
+        symbol: temporal_patterns_do_not_lower
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `proved_output_is_holds` passed
+      correspondence: asserted
+      source_location:
+        file: src/creusot.rs
+        line: 906
+        symbol: proved_output_is_holds
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `unproved_goal_is_inconclusive_never_fails` passed
+      correspondence: asserted
+      source_location:
+        file: src/creusot.rs
+        line: 915
+        symbol: unproved_goal_is_inconclusive_never_fails
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `a_partial_proof_is_not_holds` passed
+      correspondence: asserted
+      source_location:
+        file: src/creusot.rs
+        line: 930
+        symbol: a_partial_proof_is_not_holds
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `a_compile_failure_is_inconclusive_and_names_the_error_and_its_site` passed
+      correspondence: asserted
+      source_location:
+        file: src/creusot.rs
+        line: 938
+        symbol: a_compile_failure_is_inconclusive_and_names_the_error_and_its_site
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `unrecognised_output_is_inconclusive` passed
+      correspondence: asserted
+      source_location:
+        file: src/creusot.rs
+        line: 1203
+        symbol: unrecognised_output_is_inconclusive
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `harness_name_is_a_valid_prefixed_identifier` passed
+      correspondence: asserted
+      source_location:
+        file: src/creusot.rs
+        line: 1213
+        symbol: harness_name_is_a_valid_prefixed_identifier
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `a_creusot_pass_is_proven_and_not_bounded` passed
+      correspondence: asserted
+      source_location:
+        file: src/creusot.rs
+        line: 1229
+        symbol: a_creusot_pass_is_proven_and_not_bounded
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `an_inconclusive_run_is_unknown_never_a_verdict` passed
+      correspondence: asserted
+      source_location:
+        file: src/creusot.rs
+        line: 1241
+        symbol: an_inconclusive_run_is_unknown_never_a_verdict
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `an_existing_harness_file_is_never_overwritten` passed
+      correspondence: asserted
+      source_location:
+        file: src/creusot.rs
+        line: 1749
+        symbol: an_existing_harness_file_is_never_overwritten
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `a_subject_with_no_crate_root_is_inconclusive` passed
+      correspondence: asserted
+      source_location:
+        file: src/creusot.rs
+        line: 1774
+        symbol: a_subject_with_no_crate_root_is_inconclusive
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `a_proven_holds_does_not_wear_the_bounded_caveat` passed
+      correspondence: asserted
+      source_location:
+        file: src/verdict.rs
+        line: 1064
+        symbol: a_proven_holds_does_not_wear_the_bounded_caveat
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `proven_outranks_bounded_model_checked_in_the_ensemble` passed
+      correspondence: asserted
+      source_location:
+        file: src/verdict.rs
+        line: 1084
+        symbol: proven_outranks_bounded_model_checked_in_the_ensemble
+    - engine: Creusot
+      status: unknown
+      basis: null
+      witness: null
+      detail:
+      - 'the proof harness provreq generated did not compile — error: called program function `verdict::proven_is_top` in logic context (src/provreq_req031.rs:11:54). Pearlite may only call `#[logic]` functions, and that is an ordinary program function — marking it `#[logic]` is not the fix either, because that removes the item from the program and breaks every call site. Reach it through a `#[logic]` mirror instead, which leaves the function untouched: re-run `verify` with `--draft-semantic`'
+      correspondence: mechanical
+      source_location: null
+    - engine: Prusti
+      status: unknown
+      basis: null
+      witness: null
+      detail:
+      - 'Prusti''s pinned toolchain predates this subject''s dependency graph — its 2023 cargo cannot read a v4 lock file or a dependency declaring `edition = "2024"`. This is a toolchain ceiling, not a missing annotation: Prusti can only verify a subject whose whole dependency graph builds on a 2023 nightly, and upstream has published nothing newer'
+      correspondence: mechanical
+      source_location: null
+    - engine: cargo test
+      status: unknown
+      basis: null
+      witness: null
+      detail:
+      - no test named `real_creusot_proves_a_true_invariant` ran (the tag names no runnable test)
+      correspondence: asserted
+      source_location:
+        file: src/creusot.rs
+        line: 1408
+        symbol: real_creusot_proves_a_true_invariant
+    - engine: cargo test
+      status: unknown
+      basis: null
+      witness: null
+      detail:
+      - no test named `real_creusot_cannot_prove_a_false_invariant` ran (the tag names no runnable test)
+      correspondence: asserted
+      source_location:
+        file: src/creusot.rs
+        line: 1423
+        symbol: real_creusot_cannot_prove_a_false_invariant
+    - engine: cargo test
+      status: unknown
+      basis: null
+      witness: null
+      detail:
+      - no test named `real_creusot_is_inconclusive_on_opaque_predicates` ran (the tag names no runnable test)
+      correspondence: asserted
+      source_location:
+        file: src/creusot.rs
+        line: 1439
+        symbol: real_creusot_is_inconclusive_on_opaque_predicates
+    - engine: cargo test
+      status: unknown
+      basis: null
+      witness: null
+      detail:
+      - no test named `real_creusot_run_leaves_no_trace_in_the_subject` ran (the tag names no runnable test)
+      correspondence: asserted
+      source_location:
+        file: src/creusot.rs
+        line: 1717
+        symbol: real_creusot_run_leaves_no_trace_in_the_subject
+    correspondence: mechanical
+    provenance:
+      requirement_revision: e807137c3adf9e6b402dc2a218d78d778be623c0db60d749938b1370780a2426
+      subject_commit: 4387cc40f9fc7435472c838f477e80c4525fd68b
+      tool_version: 0.0.47
+      verified_scope: null
+      formalization: bdd84dce35c20fd6
+      environment:
+        declared: provreq-devcontainer
+        engines:
+        - Creusot 0.14.0
+        - Kani 0.68.0
+        - TLC (TLA+) 2.19
+        unversioned:
+        - MonPoly
+        - Prusti
+        container: true
+      spec_fingerprint: null
+      trace_fingerprint: null
+      source_fingerprint: 9e1e5042be56f5b38375d2cde9f13876a8636e17
+      ui_fingerprint: null
+      tagged_source_fingerprint: fdcecebb0c4128788c5841f99dd5b3e0477c28d227f39e1d33b673db6436afd9
+      scope_fingerprint: d21d2343d24772d850ad3f7110481a6cae19fed22d066916320aeeb9ab7fa2c6
   REQ039:
     id: REQ039
     status: holds

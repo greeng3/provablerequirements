@@ -488,6 +488,17 @@ pub fn combine_is_sound(e: &ProofEnsemble) -> bool {
     }
 }
 
+/// REQ031 stated as a property and checked against the real [`basis_rank`]: `proven` is the
+/// unique strongest rung — every basis is either `proven` itself or ranks strictly below it. This
+/// is the scale the ensemble trusts when it reports "proven by Creusot, corroborated bounded by
+/// Kani" as `proven`: REQ030's [`combine_is_sound`] proves the combiner reports the maximum of this
+/// scale, and this proves the scale itself puts `proven` on top (and nothing ties it). The harness
+/// ranges `b` over every basis, so a pass means it holds for the whole sort, not a spot check.
+#[cfg(any(kani, creusot, prusti))]
+pub fn proven_is_top(b: &Basis) -> bool {
+    *b == Basis::Proven || basis_rank(&Basis::Proven) > basis_rank(b)
+}
+
 // REQ076's masquerade-guard sort and proof predicate moved to the excluded `provreq-proofs` leaf
 // crate (`masquerade` module, #539): its fold is over an arbitrary-length slice, so the leaf proves
 // it unbounded under Creusot (`proven`) while Kani still checks it at the length-3 bound. The
