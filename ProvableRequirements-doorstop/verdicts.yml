@@ -1069,6 +1069,198 @@ verdicts:
       ui_fingerprint: null
       tagged_source_fingerprint: f438d01388710f2774a265be1c0148d1a1ec7456647d5b697c49d2dfea8082c2
       scope_fingerprint: cde59fb0b48dd1566d46443a609ef0e74b3f80a3779c569aead7006e9e4a8700
+  REQ039:
+    id: REQ039
+    status: holds
+    basis: not-falsified
+    reason: null
+    witness: null
+    detail:
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `stored_verdict_surfaces_on_the_row_and_drift_drops_it_from_verified` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `verified_counts_only_fresh_holds_and_row_surfaces_drift` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `unmoved_verdict_is_fresh` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `each_moved_axis_is_a_named_reason` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `record_and_load_round_trip_replacing_prior` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `missing_file_is_empty_store` passed
+    evidence:
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `stored_verdict_surfaces_on_the_row_and_drift_drops_it_from_verified` passed
+      correspondence: asserted
+      source_location:
+        file: src/server.rs
+        line: 1143
+        symbol: stored_verdict_surfaces_on_the_row_and_drift_drops_it_from_verified
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `verified_counts_only_fresh_holds_and_row_surfaces_drift` passed
+      correspondence: asserted
+      source_location:
+        file: src/status.rs
+        line: 330
+        symbol: verified_counts_only_fresh_holds_and_row_surfaces_drift
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `unmoved_verdict_is_fresh` passed
+      correspondence: asserted
+      source_location:
+        file: src/verdict_store.rs
+        line: 793
+        symbol: unmoved_verdict_is_fresh
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `each_moved_axis_is_a_named_reason` passed
+      correspondence: asserted
+      source_location:
+        file: src/verdict_store.rs
+        line: 811
+        symbol: each_moved_axis_is_a_named_reason
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `record_and_load_round_trip_replacing_prior` passed
+      correspondence: asserted
+      source_location:
+        file: src/verdict_store.rs
+        line: 899
+        symbol: record_and_load_round_trip_replacing_prior
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `missing_file_is_empty_store` passed
+      correspondence: asserted
+      source_location:
+        file: src/verdict_store.rs
+        line: 925
+        symbol: missing_file_is_empty_store
+    correspondence: asserted
+    provenance:
+      requirement_revision: 22aa2e3d49492502d368e1e988b2c218a035ae5e54259f00f96c4c7cecfe3833
+      subject_commit: 5014a16c6e97f96b79f56144797d23feeae1e3e2
+      tool_version: 0.0.46
+      verified_scope: null
+      formalization: d547965de8b0b6d5
+      environment:
+        declared: provreq-devcontainer
+        engines:
+        - Creusot 0.14.0
+        - Kani 0.68.0
+        - TLC (TLA+) 2.19
+        unversioned:
+        - MonPoly
+        - Prusti
+        container: true
+      spec_fingerprint: null
+      trace_fingerprint: null
+      source_fingerprint: 98ed79416e6931e8fb60e4a6b4ecbc63ce1d0b25
+      ui_fingerprint: null
+      tagged_source_fingerprint: dc161f8c0f5e985a53058f3bb6aebb5609c3b9488836dd9301559d54608ddbf7
+      scope_fingerprint: 68e98ca2711294f5352b6d0c0e8e58ed4e08522ed53686f5e266e8ee929a9000
+  REQ045:
+    id: REQ045
+    status: holds
+    basis: not-falsified
+    reason: null
+    witness: null
+    detail:
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `editing_the_admitted_candidate_drifts_its_verdict` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `formalization_change_drifts_the_verdict` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `no_admitted_formalization_drifts_the_verdict` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `pre_axis_verdict_is_not_flagged_on_formalization` passed
+    evidence:
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `editing_the_admitted_candidate_drifts_its_verdict` passed
+      correspondence: asserted
+      source_location:
+        file: src/status.rs
+        line: 368
+        symbol: editing_the_admitted_candidate_drifts_its_verdict
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `formalization_change_drifts_the_verdict` passed
+      correspondence: asserted
+      source_location:
+        file: src/verdict_store.rs
+        line: 856
+        symbol: formalization_change_drifts_the_verdict
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `no_admitted_formalization_drifts_the_verdict` passed
+      correspondence: asserted
+      source_location:
+        file: src/verdict_store.rs
+        line: 876
+        symbol: no_admitted_formalization_drifts_the_verdict
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `pre_axis_verdict_is_not_flagged_on_formalization` passed
+      correspondence: asserted
+      source_location:
+        file: src/verdict_store.rs
+        line: 887
+        symbol: pre_axis_verdict_is_not_flagged_on_formalization
+    correspondence: asserted
+    provenance:
+      requirement_revision: f1566735a2241b3023f3e767e722f7bc0678796bca26f4bde7d6c8312dbb14ad
+      subject_commit: 5014a16c6e97f96b79f56144797d23feeae1e3e2
+      tool_version: 0.0.46
+      verified_scope: null
+      formalization: 002f6655781e70f0
+      environment:
+        declared: provreq-devcontainer
+        engines:
+        - Creusot 0.14.0
+        - Kani 0.68.0
+        - TLC (TLA+) 2.19
+        unversioned:
+        - MonPoly
+        - Prusti
+        container: true
+      spec_fingerprint: null
+      trace_fingerprint: null
+      source_fingerprint: 98ed79416e6931e8fb60e4a6b4ecbc63ce1d0b25
+      ui_fingerprint: null
+      tagged_source_fingerprint: 63e76390ca27f95ea18c9c35feeabcdfba6153d7413b7ee117b747eb2bfb261a
+      scope_fingerprint: 68e98ca2711294f5352b6d0c0e8e58ed4e08522ed53686f5e266e8ee929a9000
   REQ047:
     id: REQ047
     status: holds
@@ -1160,6 +1352,154 @@ verdicts:
       ui_fingerprint: null
       tagged_source_fingerprint: d65f18c6d6aedce9523d149a159763194918ab0c0d9f55d7bc8de6cc114e6adb
       scope_fingerprint: e922102803bd5ea5835f2c0e397a3185222d1f78dbfbca60800ce53c0c053918
+  REQ049:
+    id: REQ049
+    status: holds
+    basis: not-falsified
+    reason: null
+    witness: null
+    detail:
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `unversioned_engines_are_recorded_separately_not_as_a_version` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `an_engine_with_no_version_never_drifts_a_verdict` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `an_engine_version_change_is_named_drift` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `the_declared_label_drifts_independently_of_the_engines` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `the_container_marker_is_context_not_drift` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `describe_states_the_blind_spot_and_the_missing_label` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `the_declared_label_is_read_from_the_manifest_and_never_fails` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `a_verdict_proved_elsewhere_is_stale` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `a_verdict_predating_the_environment_axis_is_not_flagged` passed
+    evidence:
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `unversioned_engines_are_recorded_separately_not_as_a_version` passed
+      correspondence: asserted
+      source_location:
+        file: src/proving_env.rs
+        line: 193
+        symbol: unversioned_engines_are_recorded_separately_not_as_a_version
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `an_engine_with_no_version_never_drifts_a_verdict` passed
+      correspondence: asserted
+      source_location:
+        file: src/proving_env.rs
+        line: 245
+        symbol: an_engine_with_no_version_never_drifts_a_verdict
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `an_engine_version_change_is_named_drift` passed
+      correspondence: asserted
+      source_location:
+        file: src/proving_env.rs
+        line: 262
+        symbol: an_engine_version_change_is_named_drift
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `the_declared_label_drifts_independently_of_the_engines` passed
+      correspondence: asserted
+      source_location:
+        file: src/proving_env.rs
+        line: 272
+        symbol: the_declared_label_drifts_independently_of_the_engines
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `the_container_marker_is_context_not_drift` passed
+      correspondence: asserted
+      source_location:
+        file: src/proving_env.rs
+        line: 293
+        symbol: the_container_marker_is_context_not_drift
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `describe_states_the_blind_spot_and_the_missing_label` passed
+      correspondence: asserted
+      source_location:
+        file: src/proving_env.rs
+        line: 303
+        symbol: describe_states_the_blind_spot_and_the_missing_label
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `the_declared_label_is_read_from_the_manifest_and_never_fails` passed
+      correspondence: asserted
+      source_location:
+        file: src/proving_env.rs
+        line: 331
+        symbol: the_declared_label_is_read_from_the_manifest_and_never_fails
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `a_verdict_proved_elsewhere_is_stale` passed
+      correspondence: asserted
+      source_location:
+        file: src/verdict_store.rs
+        line: 474
+        symbol: a_verdict_proved_elsewhere_is_stale
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `a_verdict_predating_the_environment_axis_is_not_flagged` passed
+      correspondence: asserted
+      source_location:
+        file: src/verdict_store.rs
+        line: 701
+        symbol: a_verdict_predating_the_environment_axis_is_not_flagged
+    correspondence: asserted
+    provenance:
+      requirement_revision: 4f85143f954c0f55888bbc6c2d9c74e8b71d55dc0d105f6a92f42916acd95f6c
+      subject_commit: 5014a16c6e97f96b79f56144797d23feeae1e3e2
+      tool_version: 0.0.46
+      verified_scope: null
+      formalization: 34b8d83099acf98c
+      environment:
+        declared: provreq-devcontainer
+        engines:
+        - Creusot 0.14.0
+        - Kani 0.68.0
+        - TLC (TLA+) 2.19
+        unversioned:
+        - MonPoly
+        - Prusti
+        container: true
+      spec_fingerprint: null
+      trace_fingerprint: null
+      source_fingerprint: 98ed79416e6931e8fb60e4a6b4ecbc63ce1d0b25
+      ui_fingerprint: null
+      tagged_source_fingerprint: e0c67ec8832780e942fbc259a7cffb944381fa594ee065c42e87d4fce356ddbf
+      scope_fingerprint: 68e98ca2711294f5352b6d0c0e8e58ed4e08522ed53686f5e266e8ee929a9000
   REQ051:
     id: REQ051
     status: holds
@@ -1483,3 +1823,286 @@ verdicts:
       ui_fingerprint: null
       tagged_source_fingerprint: 7203b997875e1bcb1f5d9831485b9f92f7d8c2aaf1648a23ca276c2eeb64c09c
       scope_fingerprint: 26107e3a33d811ccde28f3cf744c21c1bd4228e4473f02477822144421fe8a77
+  REQ091:
+    id: REQ091
+    status: holds
+    basis: not-falsified
+    reason: null
+    witness: null
+    detail:
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `an_unchanged_world_is_a_cache_hit` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `a_scope_edit_is_a_cache_miss` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `a_missing_scope_fingerprint_is_never_a_hit` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `any_determining_axis_moving_is_a_miss` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `a_tagged_source_edit_is_a_cache_miss` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `no_tagged_evidence_is_still_a_hit` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `record_keeping_churn_is_still_a_hit` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `scope_fingerprint_tracks_the_working_tree_and_prunes_noise` passed
+    evidence:
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `an_unchanged_world_is_a_cache_hit` passed
+      correspondence: asserted
+      source_location:
+        file: src/verdict_store.rs
+        line: 944
+        symbol: an_unchanged_world_is_a_cache_hit
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `a_scope_edit_is_a_cache_miss` passed
+      correspondence: asserted
+      source_location:
+        file: src/verdict_store.rs
+        line: 952
+        symbol: a_scope_edit_is_a_cache_miss
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `a_missing_scope_fingerprint_is_never_a_hit` passed
+      correspondence: asserted
+      source_location:
+        file: src/verdict_store.rs
+        line: 962
+        symbol: a_missing_scope_fingerprint_is_never_a_hit
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `any_determining_axis_moving_is_a_miss` passed
+      correspondence: asserted
+      source_location:
+        file: src/verdict_store.rs
+        line: 976
+        symbol: any_determining_axis_moving_is_a_miss
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `a_tagged_source_edit_is_a_cache_miss` passed
+      correspondence: asserted
+      source_location:
+        file: src/verdict_store.rs
+        line: 996
+        symbol: a_tagged_source_edit_is_a_cache_miss
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `no_tagged_evidence_is_still_a_hit` passed
+      correspondence: asserted
+      source_location:
+        file: src/verdict_store.rs
+        line: 1012
+        symbol: no_tagged_evidence_is_still_a_hit
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `record_keeping_churn_is_still_a_hit` passed
+      correspondence: asserted
+      source_location:
+        file: src/verdict_store.rs
+        line: 1022
+        symbol: record_keeping_churn_is_still_a_hit
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `scope_fingerprint_tracks_the_working_tree_and_prunes_noise` passed
+      correspondence: asserted
+      source_location:
+        file: src/verify.rs
+        line: 1327
+        symbol: scope_fingerprint_tracks_the_working_tree_and_prunes_noise
+    correspondence: asserted
+    provenance:
+      requirement_revision: c4f610a02e87d7064a0d39c9fef788c9af434637a22facd0e92902cd93db96d5
+      subject_commit: 5014a16c6e97f96b79f56144797d23feeae1e3e2
+      tool_version: 0.0.46
+      verified_scope: null
+      formalization: 2cbe88498cd85c74
+      environment:
+        declared: provreq-devcontainer
+        engines:
+        - Creusot 0.14.0
+        - Kani 0.68.0
+        - TLC (TLA+) 2.19
+        unversioned:
+        - MonPoly
+        - Prusti
+        container: true
+      spec_fingerprint: null
+      trace_fingerprint: null
+      source_fingerprint: 98ed79416e6931e8fb60e4a6b4ecbc63ce1d0b25
+      ui_fingerprint: null
+      tagged_source_fingerprint: 81d1c24e55454fd74972d325ced63817723237145617957a7c7cf4dd917e0269
+      scope_fingerprint: 68e98ca2711294f5352b6d0c0e8e58ed4e08522ed53686f5e266e8ee929a9000
+  REQ092:
+    id: REQ092
+    status: holds
+    basis: not-falsified
+    reason: null
+    witness: null
+    detail:
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `a_proven_requirement_falling_to_unknown_regresses` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `a_proven_requirement_refuted_regresses` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `a_non_passing_baseline_never_regresses` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `an_unchanged_pass_is_clean` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `a_tier_downgrade_fires_only_under_strict_tier` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `mechanical_becoming_asserted_is_a_strict_tier_downgrade` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `a_stronger_result_is_not_a_downgrade` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `losing_the_admitted_draft_reads_as_a_fall` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `finish_persist_flag_controls_whether_the_store_is_written` passed
+    evidence:
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `a_proven_requirement_falling_to_unknown_regresses` passed
+      correspondence: asserted
+      source_location:
+        file: src/gate.rs
+        line: 259
+        symbol: a_proven_requirement_falling_to_unknown_regresses
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `a_proven_requirement_refuted_regresses` passed
+      correspondence: asserted
+      source_location:
+        file: src/gate.rs
+        line: 273
+        symbol: a_proven_requirement_refuted_regresses
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `a_non_passing_baseline_never_regresses` passed
+      correspondence: asserted
+      source_location:
+        file: src/gate.rs
+        line: 281
+        symbol: a_non_passing_baseline_never_regresses
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `an_unchanged_pass_is_clean` passed
+      correspondence: asserted
+      source_location:
+        file: src/gate.rs
+        line: 291
+        symbol: an_unchanged_pass_is_clean
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `a_tier_downgrade_fires_only_under_strict_tier` passed
+      correspondence: asserted
+      source_location:
+        file: src/gate.rs
+        line: 300
+        symbol: a_tier_downgrade_fires_only_under_strict_tier
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `mechanical_becoming_asserted_is_a_strict_tier_downgrade` passed
+      correspondence: asserted
+      source_location:
+        file: src/gate.rs
+        line: 314
+        symbol: mechanical_becoming_asserted_is_a_strict_tier_downgrade
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `a_stronger_result_is_not_a_downgrade` passed
+      correspondence: asserted
+      source_location:
+        file: src/gate.rs
+        line: 328
+        symbol: a_stronger_result_is_not_a_downgrade
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `losing_the_admitted_draft_reads_as_a_fall` passed
+      correspondence: asserted
+      source_location:
+        file: src/gate.rs
+        line: 337
+        symbol: losing_the_admitted_draft_reads_as_a_fall
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `finish_persist_flag_controls_whether_the_store_is_written` passed
+      correspondence: asserted
+      source_location:
+        file: src/verify.rs
+        line: 1478
+        symbol: finish_persist_flag_controls_whether_the_store_is_written
+    correspondence: asserted
+    provenance:
+      requirement_revision: 38e46c8fc056c6535f80f5a93a5fccf3bc4e2fbf1354039c75d9f7c7ac365b77
+      subject_commit: 5014a16c6e97f96b79f56144797d23feeae1e3e2
+      tool_version: 0.0.46
+      verified_scope: null
+      formalization: 614e27fcb795a5b9
+      environment:
+        declared: provreq-devcontainer
+        engines:
+        - Creusot 0.14.0
+        - Kani 0.68.0
+        - TLC (TLA+) 2.19
+        unversioned:
+        - MonPoly
+        - Prusti
+        container: true
+      spec_fingerprint: null
+      trace_fingerprint: null
+      source_fingerprint: 98ed79416e6931e8fb60e4a6b4ecbc63ce1d0b25
+      ui_fingerprint: null
+      tagged_source_fingerprint: 15cca81bda97c2c0eed90c382fb3dc83d9d6bb0c0cd735dc044d381416bfe103
+      scope_fingerprint: 68e98ca2711294f5352b6d0c0e8e58ed4e08522ed53686f5e266e8ee929a9000

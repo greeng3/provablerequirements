@@ -13,7 +13,7 @@ exclude = ["crates/provreq-proofs"]
 
 [package]
 name = "provreq"
-version = "0.0.46"
+version = "0.0.47"
 edition = "2024"
 description = "PRL native provisioner and backend server (Design C)"
 license = "MIT OR Apache-2.0"
