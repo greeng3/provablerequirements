@@ -24,7 +24,7 @@ drafts:
       observable: triage_partition_is_honest
       fidelity: definitional
   REQ014:
-    revision: 19597bc0d12ed865
+    revision: 537061943e10c2ec5c275f3a4b05a50f1bfd0a39ed58679b3c9aaad6a4af53e2
     candidate: |-
       requirement REQ014 { category: 1
         vocabulary { state is_stale(d: Draft, i: Item)
@@ -38,7 +38,7 @@ drafts:
       state: admitted
       review: optional
       by: greeng3
-      at_unix: 1786054424
+      at_unix: 1794101835
     bindings:
     - symbol: Draft
       category: code
@@ -190,7 +190,7 @@ drafts:
       at_unix: 1793749856
     bindings: []
   REQ047:
-    revision: 17cf6ac844159fbe
+    revision: 13410d4f1074780cffb1f7dbfb176884579227de5576b494c9b73fcc5f3a5fec
     candidate: |-
       requirement install_gated_on_platform_and_not_already_ready { category: 1
         vocabulary { state ready(d: EngineState)
@@ -203,7 +203,7 @@ drafts:
       state: admitted
       review: optional
       by: greeng3
-      at_unix: 1785439058
+      at_unix: 1794101934
     bindings:
     - symbol: EngineState
       category: code
