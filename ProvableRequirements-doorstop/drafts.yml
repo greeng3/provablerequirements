@@ -129,6 +129,29 @@ drafts:
       category: code
       observable: combine_is_sound
       fidelity: definitional
+  REQ031:
+    revision: e807137c3adf9e6b402dc2a218d78d778be623c0db60d749938b1370780a2426
+    candidate: |-
+      requirement REQ031_proven_is_the_strongest_basis { category: 1
+        vocabulary { state strongest(b: Basis) }
+        require { always (strongest(b)) } }
+    gate:
+      status: passed
+      warnings: []
+    admission:
+      state: admitted
+      review: optional
+      by: greeng3
+      at_unix: 1794107431
+    bindings:
+    - symbol: Basis
+      category: code
+      observable: Basis
+      fidelity: definitional
+    - symbol: strongest
+      category: code
+      observable: proven_is_top
+      fidelity: definitional
   REQ039:
     revision: 22aa2e3d49492502d368e1e988b2c218a035ae5e54259f00f96c4c7cecfe3833
     candidate: |-
