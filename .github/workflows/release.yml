@@ -25,12 +25,13 @@ jobs:
             os: windows-latest
           - target: aarch64-pc-windows-msvc
             os: windows-latest
-          # Apple Silicon runner cross-builds the Intel target; the Intel macos-13
-          # image is being retired and its jobs sit unscheduled for hours.
+          # Apple Silicon runner cross-builds the Intel target (the Intel macos-13 image was
+          # retired and its jobs sat unscheduled for hours). macos-14 was then retired from GitHub
+          # Actions on 2026-11-02, so pin the current GA arm64 image; bump when it too is retired.
           - target: x86_64-apple-darwin
-            os: macos-14
+            os: macos-15
           - target: aarch64-apple-darwin
-            os: macos-14
+            os: macos-15
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v5
