@@ -1,8 +1,8 @@
 # Base image shared with the qrusty devcontainer, so the two projects share a
 # common toolchain foundation. (Ubuntu-based rust-dev image.) Pinned by digest so a rebuild is
 # reproducible instead of silently picking up a moved `:latest` (#545); this is the `:latest`
-# manifest index (multi-arch) as of 2026-11-06. Bump deliberately when the base image is updated.
-FROM greeng340or/rust-dev-ubuntu@sha256:be76da89c5c2813d40f1510212cde3a3ef065e84abe53e70b9b21171fd79347f
+# manifest index (multi-arch) as of 2026-11-16. Bump deliberately when the base image is updated.
+FROM greeng340or/rust-dev-ubuntu@sha256:452a755889d7752e10ed2ed4a1ac656496f48950d92c42b450f25efa76846612
 
 # Download tools + certificates needed by the install steps below.
 RUN apt-get update \
