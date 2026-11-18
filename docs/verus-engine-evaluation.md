@@ -51,6 +51,63 @@ sharply from Kani (plain Rust + a harness). Consequences:
   functional-correctness proofs Verus discharges quickly, often with less
   hand-holding than Creusot / Why3.
 
+## Can existing subject code be retrofitted with annotations?
+
+The natural hope is to do for Verus what [`src/prusti.rs`](../src/prusti.rs)
+does for Prusti: generate an **additive** harness (a `#[cfg(...)]` module that
+asserts the invariant), never edit the subject, and let the engine prove it
+against the subject's own predicates. For Prusti that works because Prusti is a
+rustc driver that **unfolds the subject's real `#[pure]` bodies** — the proof is
+grounded in actual code, and the subject only had to already mark its predicates
+`#[pure]`.
+
+Verus breaks every clause of that:
+
+- It is **not** a driver over arbitrary Rust. Code it reasons about must live in
+  `verus! { }` and use its supported subset.
+- A call into an ordinary subject `fn` is **opaque** — no `ensures`, nothing to
+  unfold — so it decides nothing, exactly like a non-`#[pure]` predicate under
+  Prusti.
+- Making it non-opaque means rewriting the subject's predicates as `spec fn`
+  inside `verus! { }` — i.e. **editing the subject**. That violates the additive
+  discipline and the read-only-external-repos rule. Dead end for a modern
+  adopted subject such as qrusty.
+
+### The one hook that looks like a retrofit — and why it is a trap
+
+Verus offers `assume_specification [path::to::fn]` (formerly
+`external_fn_specification`): from the **harness** crate you can attach a spec to
+a function defined elsewhere, without touching it. Mechanically additive, so it
+is tempting.
+
+But it is `assume`, not prove. The invariant would then rest on specs provreq
+**asserted** about the subject's predicates, with no check that the real bodies
+match — strictly weaker than Prusti unfolding the real `#[pure]` body. Mapping
+that to `proven` (D8's strongest rung) would be an overclaim; the most it could
+honestly earn is "proven relative to an assumed, unverified spec", which is
+below the bar and arguably worse than an honest `unknown`. Not worth building.
+
+### What is sound
+
+- **Non-Verus subject:** no sound retrofit exists. Verus reports a **ceiling** —
+  structurally the same honest `inconclusive` / `unknown` that
+  [`src/prusti.rs`](../src/prusti.rs) already emits, named as "subject not
+  authored in the Verus subset", never a guess.
+- **Leaf-crate / payload-free mirror:** the real payoff — but this is
+  **re-authoring the core in the Verus dialect, not retrofitting the subject**.
+
+### The reusable piece if an engine is built
+
+`lowering::lower_property` already yields an engine-agnostic
+`LoweredClaim { claim, quantified }`. Prusti wraps it
+`prusti_assert!(forall(|b: ty| claim))`; Verus wraps the **same** claim as
+`assert(forall|b: ty| claim)` inside a `verus! { }` proof fn. A `verus.rs` would
+be close to a copy of `prusti.rs`'s `lower` / `assertion` with a different
+wrapper and a different `classify` (Verus prints `N verified, 0 errors`). The
+additive `run` / attach / restore machinery ports almost verbatim — but is only
+usable against a Verus-authored subject, so in practice the engine only ever
+fires on leaf mirrors.
+
 ## Cost
 
 Another pinned toolchain. Verus ships against a specific Rust nightly plus a
