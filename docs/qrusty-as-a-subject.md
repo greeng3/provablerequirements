@@ -63,7 +63,7 @@ result:
 | 1 — code             | no clear instance found while surveying | small        |
 
 **The consequence for planning.** provreq's most-developed machinery is category 1: a
-three-engine ensemble (Kani, Creusot, Prusti), contract drafting, the mirror channel, and the
+four-engine ensemble (Kani, Creusot, Prusti, Verus), contract drafting, the mirror channel, and the
 aggregation rules that let a deductive `proven` outrank a bounded `model-checked`. Very little of
 qrusty lands there. The weight falls on 2a, 2b, and 3 — the categories with **one engine each**
 and the least mileage. Working with qrusty therefore exercises provreq's thinner half, and the

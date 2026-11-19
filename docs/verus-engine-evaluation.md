@@ -1,7 +1,11 @@
 # Verus as a cat-1 deductive engine — evaluation
 
-Status: evaluation / not adopted. Tracking issue:
-[#578](https://github.com/greeng3/provablerequirements/issues/578).
+Status: **ADOPTED** — wired as the fourth category-1 deductive engine (REQ093,
+[#585](https://github.com/greeng3/provablerequirements/issues/585)); the
+toolchain is baked into the image (#582). The original evaluation that led here
+is kept below. Tracking issue:
+[#578](https://github.com/greeng3/provablerequirements/issues/578). See also the
+practical guide, [`using-verus-in-your-repo.md`](using-verus-in-your-repo.md).
 
 Repo under evaluation: <https://github.com/verus-lang/verus>
 

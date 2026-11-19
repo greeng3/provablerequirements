@@ -641,6 +641,7 @@ fn ensemble_evidence(
             "Kani" => kani_evidence(engine_root, companion, id, requirement, bindings, resolved),
             "Creusot" => creusot_evidence(engine_root, id, requirement, bindings, resolved),
             "Prusti" => prusti_evidence(engine_root, id, requirement, bindings, resolved),
+            "Verus" => verus_evidence(engine_root, id, requirement, bindings, resolved),
             "TLC (TLA+)" => tlc_evidence(subject, companion, id, requirement, bindings),
             "MonPoly" => monpoly_evidence(subject, companion, requirement, bindings),
             "Selenium (WebDriver)" => ui_evidence(companion, requirement, bindings),
@@ -763,6 +764,30 @@ fn prusti_evidence(
         Err(e) => return verdict::Evidence::inconclusive("Prusti", vec![e.reason]),
     };
     crate::prusti::run(subject, &harness).into_evidence()
+}
+
+/// Category 1 → Verus (REQ093): the ensemble's second SMT-backed deductive member. Lower to an
+/// additive in-crate `verus! { }` proof harness, run it, map to evidence. A subject whose
+/// predicates are not authored in the Verus subset (ordinary `fn`, not `spec fn`) is honest
+/// `inconclusive`, never approximated (D2).
+fn verus_evidence(
+    subject: &Path,
+    id: &str,
+    requirement: &Requirement,
+    bindings: &[Binding],
+    resolved: &grounding::Resolutions,
+) -> verdict::Evidence {
+    let harness = match crate::verus::lower(
+        requirement,
+        bindings,
+        &resolved.code,
+        &resolved.sorts,
+        &crate::verus::harness_name(id),
+    ) {
+        Ok(h) => h,
+        Err(e) => return verdict::Evidence::inconclusive("Verus", vec![e.reason]),
+    };
+    crate::verus::run(subject, &harness).into_evidence()
 }
 
 /// Category 2a → TLC (REQ029): locate the subject's `Spec`, take the operator's constant model,

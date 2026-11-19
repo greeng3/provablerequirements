@@ -249,6 +249,22 @@ pub fn registry() -> Vec<Engine> {
             })),
         },
         Engine {
+            // Category 1's FOURTH ensemble member (D2b) — REQ093. Verus is a second SMT-backed
+            // deductive verifier (Z3), distinct from Prusti's Viper and Creusot's Why3, so it too
+            // earns `proven` (∀ executions); `aggregate` reports the stronger rung when it and a
+            // bounded engine both hold. Prebuilt and image-provided (#582), it IS a PATH binary:
+            // `verus --version` exits 0 and prints `Verus`, the honest readiness marker. Sound in
+            // place only on a Verus-authored subject; otherwise it reports an honest ceiling.
+            category: BindCategory::Code,
+            name: "Verus",
+            probe: Some(Probe::Command(EngineProbe {
+                bin: "verus".to_string(),
+                args: vec!["--version".to_string()],
+                version_marker: Some("Verus".to_string()),
+                min_version: None,
+            })),
+        },
+        Engine {
             // Category 2a is the model world: the temporal properties (safety AND liveness)
             // checked against a TLA+ model. Its engine is TLC — REQ029, the model-world analog
             // of wiring Kani for category 1. TLC is not a PATH binary; it runs as
@@ -510,21 +526,23 @@ mod tests {
     use super::*;
     use std::collections::BTreeMap;
 
-    // Verifies: REQ022/REQ027/REQ031/REQ032 — every PRL category is routed, and category 1 is an
-    // ENSEMBLE of three wired engines (Kani + Creusot + Prusti, D2b), while 2a/2b/3 route to one
-    // each.
+    // Verifies: REQ022/REQ027/REQ031/REQ032/REQ093 — every PRL category is routed, and category 1
+    // is an ENSEMBLE of four wired engines (Kani + Creusot + Prusti + Verus, D2b), while 2a/2b/3
+    // route to one each.
     #[test]
     fn registry_routes_every_category() {
         for cat in [BindCategory::Model, BindCategory::Runtime, BindCategory::Ui] {
             assert_eq!(engines_for(cat).len(), 1, "{cat:?} routes to one engine");
         }
-        // Category 1 is the ensemble — Kani first, Creusot second (REQ031), Prusti third (REQ032).
+        // Category 1 is the ensemble — Kani first, Creusot second (REQ031), Prusti third (REQ032),
+        // Verus fourth (REQ093).
         let code = engines_for(BindCategory::Code);
-        assert_eq!(code.len(), 3, "category 1 is a three-engine ensemble");
+        assert_eq!(code.len(), 4, "category 1 is a four-engine ensemble");
         let names: Vec<&str> = code.iter().map(|e| e.name).collect();
         assert!(names.contains(&"Kani"), "{names:?}");
         assert!(names.contains(&"Creusot"), "{names:?}");
         assert!(names.contains(&"Prusti"), "{names:?}");
+        assert!(names.contains(&"Verus"), "{names:?}");
         let kani = code.iter().find(|e| e.name == "Kani").expect("Kani wired");
         assert_eq!(
             kani.probe
@@ -559,6 +577,19 @@ mod tests {
                 .expect("Prusti is wired")
                 .bin,
             "cargo-prusti"
+        );
+        let verus = code
+            .iter()
+            .find(|e| e.name == "Verus")
+            .expect("Verus wired");
+        assert_eq!(
+            verus
+                .probe
+                .as_ref()
+                .and_then(Probe::command)
+                .expect("Verus is wired")
+                .bin,
+            "verus"
         );
         // REQ029: category 2a is wired to TLC, probed via `java … tlc2.TLC`.
         let model = engines_for(BindCategory::Model);
