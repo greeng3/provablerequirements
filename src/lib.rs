@@ -52,6 +52,7 @@ pub mod ui;
 pub mod verdict;
 pub mod verdict_store;
 pub mod verify;
+pub mod verus;
 pub mod watcher;
 
 /// The health payload the backend reports (and will later serve at `/health`).

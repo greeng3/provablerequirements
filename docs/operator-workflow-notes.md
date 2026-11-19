@@ -93,8 +93,8 @@ most 0`, unused vocabulary), the generate-then-repair loop (`src/formalize.rs` f
 4. **Verify** — run one engine → inspect the verdict tree. **🟢 SHIPPED (2026-07-22, issue #81 /
    PR #82)** — per-item verify on demand runs the wired engine ensemble and returns the aggregate
    verdict plus each engine's own evidence (REQ038), over the ensemble aggregation from issue #60 /
-   PR #61 (REQ030). Category 1 is a three-engine ensemble — Kani (bounded), Creusot and Prusti (both
-   deductive) — and category 2a is TLC.
+   PR #61 (REQ030). Category 1 is a four-engine ensemble — Kani (bounded), Creusot, Prusti and Verus
+   (all three deductive) — and category 2a is TLC.
 5. **Annotate** — stage the working-tree proof-carrier edit; operator reviews + commits on their own
    forge. **🟢 SHIPPED** — A6/D14 back-write above (issue #28 / PR #29, REQ020) plus the A6
    contract-draft channel (issue #71 / PR #72, REQ033) and the semantic contract drafting that
