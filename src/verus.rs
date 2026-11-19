@@ -6,11 +6,17 @@
 //! category-1 requirement becomes something Verus can prove, and what its answer means.
 //!
 //! **Additive, and in-crate like Prusti/Creusot.** Verus processes a crate's `verus! { }` code, so
-//! the harness is a new **module** in the crate root (`#[cfg(provreq_verus)] mod provreq_…;`) plus
-//! its source file. The subject's own code is never edited — only a `mod` line is appended and then
-//! removed. The `#[cfg(provreq_verus)]` flag is passed to the `verus` binary as `--cfg
-//! provreq_verus`; it keeps an interrupted run's leaked harness out of an ordinary `cargo build`,
-//! exactly as Prusti's `#[cfg(prusti)]` does.
+//! the harness is a new **module** in the crate root (`#[cfg(verus_only)] mod provreq_…;`) plus its
+//! source file. The subject's own code is never edited — only a `mod` line is appended and then
+//! removed. `verus_only` is Verus's own ghost-code cfg: `cargo verus` sets it during verification
+//! and an ordinary `cargo build` leaves it off, so an interrupted run's leaked harness never breaks
+//! a normal build — exactly as Prusti's `#[cfg(prusti)]` does.
+//!
+//! **Two invocation paths.** A **cargo crate** (has `Cargo.toml`) is verified through `cargo verus
+//! focus`, which resolves the crate's dependencies and sets `verus_only` itself; it requires the
+//! subject to depend on `vstd` (the Verus stdlib the harness compiles against), and a cargo crate
+//! without that dependency is an honest `inconclusive`. A **bare crate** (no `Cargo.toml`) is handed
+//! to the `verus` binary directly, which supplies `vstd` itself, with `--cfg verus_only` passed.
 //!
 //! **The soundness precondition.** Verus reasons only about code in its supported subset. The
 //! harness calls the subject's predicates inside a `proof`-mode `assert(forall …)`, which requires
@@ -28,7 +34,7 @@
 //! producing engine (Kani).
 //!
 //! **A pass requires a check to have run.** Verus reports `N verified, M errors`. A `Holds` demands
-//! **`N ≥ 1` and `M == 0`**: a run in which the `#[cfg(provreq_verus)]` module was excluded reports
+//! **`N ≥ 1` and `M == 0`**: a run in which the `#[cfg(verus_only)]` module was excluded reports
 //! `0 verified, 0 errors`, and reading that as a proof would be claiming a proof nothing performed.
 //!
 //! Implements: REQ093 (wire Verus as cat-1 engine #4 — a grounded invariant authored in the Verus
@@ -108,7 +114,7 @@ pub fn lower(
          // An ADDITIVE Verus proof harness: a module inside the subject crate that asserts the\n\
          // invariant as a universally-quantified proposition in a `verus! {{ }}` proof fn. The\n\
          // subject's own code is untouched. The `mod` line in the crate root is\n\
-         // `#[cfg(provreq_verus)]`, so an\n\
+         // `#[cfg(verus_only)]`, so an\n\
          // ordinary `cargo build` never sees this file.\n\
          #![allow(unused)]\n\
          use vstd::prelude::*;\n\
@@ -160,8 +166,18 @@ fn crate_root(subject_root: &Path) -> Option<(PathBuf, bool)> {
     None
 }
 
-/// Write the harness into the subject as a `#[cfg(provreq_verus)]` module, run `verus`, and restore
-/// the subject exactly as it was.
+/// Whether the subject's `Cargo.toml` declares a dependency on `vstd`, the Verus standard library
+/// the `verus! { }` harness compiles against. A line check suffices: `vstd` as a dependency key is
+/// not a token a manifest carries for any other reason, and getting a false negative only yields an
+/// honest `inconclusive` (never a wrong verdict).
+fn depends_on_vstd(subject_root: &Path) -> bool {
+    std::fs::read_to_string(subject_root.join("Cargo.toml"))
+        .map(|t| t.lines().any(|l| l.trim_start().starts_with("vstd")))
+        .unwrap_or(false)
+}
+
+/// Write the harness into the subject as a `#[cfg(verus_only)]` module, run Verus (via `cargo verus`
+/// for a cargo crate, else the `verus` binary), and restore the subject exactly as it was.
 pub fn run(subject_root: &Path, harness: &Harness) -> Outcome {
     let Some((root_file, is_lib)) = crate_root(subject_root) else {
         return Outcome::Inconclusive {
@@ -205,7 +221,7 @@ pub fn run(subject_root: &Path, harness: &Harness) -> Outcome {
         };
     }
     let with_mod = format!(
-        "{original_root}\n#[cfg(provreq_verus)]\nmod {};\n",
+        "{original_root}\n#[cfg(verus_only)]\nmod {};\n",
         harness.name
     );
     if let Err(e) = std::fs::write(&root_file, &with_mod) {
@@ -218,18 +234,43 @@ pub fn run(subject_root: &Path, harness: &Harness) -> Outcome {
         };
     }
 
-    // The `verus` binary is a rustc wrapper: point it at the crate root, pass `--crate-type=lib`
-    // for a library (so the entry file is read as one), and `--cfg provreq_verus` so the gated
-    // harness module is included. Without that cfg the module is excluded and Verus reports
-    // `0 verified` — which `classify` refuses to read as a proof.
-    let mut cmd = std::process::Command::new("verus");
-    cmd.arg(&root_file);
-    if is_lib {
-        cmd.arg("--crate-type=lib");
-    }
-    cmd.arg("--cfg").arg("provreq_verus");
-    cmd.current_dir(subject_root);
-    let output = cmd.output();
+    // Choose the invocation. A cargo crate (has `Cargo.toml`) carries dependencies the plain
+    // `verus` binary cannot resolve, so it is verified through `cargo verus`, which drives
+    // `cargo build` and sets the `verus_only` cfg itself. That path needs the subject to depend on
+    // `vstd` — the Verus standard library the `verus! { }` harness compiles against — exactly as
+    // Prusti needs `prusti-contracts`; a cargo crate without it is an honest `inconclusive`, never a
+    // guess. A bare crate (no `Cargo.toml`) is handed to the `verus` binary directly, which supplies
+    // `vstd` itself; `--cfg verus_only` is passed so the gated harness module is included (without
+    // it the module is excluded and Verus reports `0 verified`, which `classify` refuses to read as
+    // a proof).
+    let output = if subject_root.join("Cargo.toml").exists() {
+        if !depends_on_vstd(subject_root) {
+            let _ = std::fs::write(&root_file, &original_root);
+            let _ = std::fs::remove_file(&harness_path);
+            return Outcome::Inconclusive {
+                reason: "the subject is a cargo crate but does not depend on `vstd` (the Verus \
+                         standard library), so the `verus! { }` proof harness has nothing to \
+                         compile against — add `vstd = \"=<verus-version>\"` to its dependencies \
+                         to verify with Verus"
+                    .to_string(),
+            };
+        }
+        // `focus` verifies the crate's own contents without re-verifying its dependencies.
+        std::process::Command::new("cargo")
+            .arg("verus")
+            .arg("focus")
+            .current_dir(subject_root)
+            .output()
+    } else {
+        let mut cmd = std::process::Command::new("verus");
+        cmd.arg(&root_file);
+        if is_lib {
+            cmd.arg("--crate-type=lib");
+        }
+        cmd.arg("--cfg").arg("verus_only");
+        cmd.current_dir(subject_root);
+        cmd.output()
+    };
 
     // Restore before interpreting anything, so an early return cannot leak the harness.
     let _ = std::fs::write(&root_file, &original_root);
@@ -550,7 +591,7 @@ mod tests {
     }
 
     // Verifies: REQ093 (the soundness crux) — `0 verified, 0 errors` is the excluded-module shape
-    // (the `#[cfg(provreq_verus)]` flag did not take), and MUST NOT be read as a proof. Nothing was
+    // (the `#[cfg(verus_only)]` flag did not take), and MUST NOT be read as a proof. Nothing was
     // checked, so there is nothing proved.
     #[test]
     fn zero_verified_is_never_holds() {
@@ -694,6 +735,36 @@ mod tests {
         assert!(reason.contains("no src/lib.rs or src/main.rs"), "{reason}");
     }
 
+    // Verifies: REQ093/#587 — a cargo crate (has Cargo.toml) that does NOT depend on `vstd` is an
+    // honest `inconclusive` naming the missing dependency, never a guess. Runs without Verus: the
+    // check short-circuits before any verifier is invoked, and the subject is restored.
+    #[test]
+    fn a_cargo_crate_without_vstd_is_inconclusive() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        std::fs::create_dir_all(tmp.path().join("src")).expect("src");
+        std::fs::write(
+            tmp.path().join("Cargo.toml"),
+            "[package]\nname = \"s\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\n",
+        )
+        .expect("manifest");
+        let root_before = "pub fn f() {}\n";
+        std::fs::write(tmp.path().join("src/lib.rs"), root_before).expect("lib.rs");
+
+        let Outcome::Inconclusive { reason } = run(tmp.path(), &smoke_harness()) else {
+            panic!("a cargo crate without vstd decides nothing");
+        };
+        assert!(reason.contains("vstd"), "{reason}");
+        assert_eq!(
+            std::fs::read_to_string(tmp.path().join("src/lib.rs")).expect("read"),
+            root_before,
+            "the crate root must be restored"
+        );
+        assert!(
+            !tmp.path().join("src/provreq_smoke.rs").exists(),
+            "the harness file must be cleaned up"
+        );
+    }
+
     /// A real verus-authored subject: a sort and two `spec fn` predicates in a `verus! { }` block.
     /// `has_session`'s body is supplied so a test can make the invariant `logged_in ==> has_session`
     /// a tautology or false.
@@ -797,6 +868,47 @@ mod tests {
         assert!(
             !tmp.path().join("src/provreq_smoke.rs").exists(),
             "harness file must be gone"
+        );
+    }
+
+    // Verifies: #587 — THE REAL ENGINE via the CARGO path: a real cargo crate (Cargo.toml + a `vstd`
+    // dependency) with a Verus-authored predicate is proved through `cargo verus focus`, earning
+    // `proven`. `cargo verus new` scaffolds a correctly-versioned `vstd` dependency, so the test is
+    // robust to the pinned Verus release.
+    #[test]
+    #[ignore = "needs Verus installed — run via `cargo test -- --ignored`"]
+    fn real_verus_proves_a_true_invariant_in_a_cargo_crate() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        // Scaffold with a relative name from inside the tempdir, so the package is named `subj`
+        // (an absolute path would be rejected as an invalid package name).
+        let scaffolded = std::process::Command::new("cargo")
+            .args(["verus", "new", "--lib", "subj"])
+            .current_dir(tmp.path())
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false);
+        assert!(
+            scaffolded,
+            "`cargo verus new` must scaffold a vstd-depending crate"
+        );
+        let dir = tmp.path().join("subj");
+        // A Verus-authored subject: predicates as `spec fn`, gated by `verus_only` per the ghost-code
+        // convention `cargo verus new` sets up. `has_session = logged_in` → the invariant is a
+        // tautology.
+        std::fs::write(
+            dir.join("src/lib.rs"),
+            "#[cfg(verus_only)]\nuse vstd::prelude::*;\n\
+             #[cfg(verus_only)]\nverus! {\n\
+             pub struct User { pub logged_in: bool, pub extra: bool }\n\
+             pub open spec fn logged_in(u: User) -> bool { u.logged_in }\n\
+             pub open spec fn has_session(u: User) -> bool { u.logged_in }\n\
+             }\n",
+        )
+        .expect("lib.rs");
+        assert_eq!(
+            run(&dir, &smoke_harness()),
+            Outcome::Holds,
+            "a true invariant in a cargo crate must be proved via the cargo-verus path"
         );
     }
 }
