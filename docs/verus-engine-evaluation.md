@@ -89,12 +89,48 @@ below the bar and arguably worse than an honest `unknown`. Not worth building.
 
 ### What is sound
 
-- **Non-Verus subject:** no sound retrofit exists. Verus reports a **ceiling** —
-  structurally the same honest `inconclusive` / `unknown` that
+- **Non-Verus subject you do not own:** no sound retrofit exists. Verus reports a
+  **ceiling** — structurally the same honest `inconclusive` / `unknown` that
   [`src/prusti.rs`](../src/prusti.rs) already emits, named as "subject not
-  authored in the Verus subset", never a guess.
-- **Leaf-crate / payload-free mirror:** the real payoff — but this is
-  **re-authoring the core in the Verus dialect, not retrofitting the subject**.
+  authored in the Verus subset", never a guess. (qrusty and any adopted-but-not-
+  owned subject stay here.)
+- **Leaf-crate / payload-free mirror:** the real payoff for the above — but this
+  is **re-authoring the core in the Verus dialect, not retrofitting the
+  subject**.
+
+### When you own the subject
+
+The wall above is two constraints stacked: the additive discipline (do not edit
+the subject) **and** the read-only-external-repos rule. For a repo you own, the
+second vanishes and editing the subject is no longer a violation — it is a
+legitimate, one-time authoring step. That unlocks a **sound in-place retrofit**,
+not just the leaf mirror:
+
+- You author the subject's predicates as `spec fn` inside `verus! { }`. Verus
+  then reasons about the **real** code, so the generated
+  `assert(forall|b: ty| claim)` harness earns genuine `proven` — grounded, not
+  assumed.
+- This is the **exact** Prusti parallel: Prusti's owned-subject precondition was
+  "mark predicates `#[pure]`"; Verus's is "author predicates as `spec fn`". Same
+  author obligation on code you control, same engine-module shape.
+- The `assume_specification` trap mostly dissolves — you write the true
+  `spec fn` rather than assuming one. It only resurfaces for **dependencies you
+  do not own** inside an owned subject, a narrow and clearly-labelled trust
+  caveat rather than the whole mechanism.
+
+Owning the subject removes the **read-only** constraint but **not** provreq's
+**additive-at-verify-time** discipline, and the retrofit splits cleanly along
+that line:
+
+- **Author-side (your commit, one-time):** predicates become `spec fn`.
+- **Tool-side (unchanged):** provreq generates the ephemeral assert harness on
+  each `verify` and restores the subject afterward — it never permanently
+  rewrites your code.
+
+So owned-only turns the retrofit from "no sound path, use the leaf mirror" into
+"a sound in-place path exists, gated on a one-time `spec fn` authoring step the
+owner is willing to do" — a **stronger** reason to build the engine, scoped to
+Verus's natural domain.
 
 ### The reusable piece if an engine is built
 
