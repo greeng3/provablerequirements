@@ -333,3 +333,50 @@ RUN eval "$(opam env --switch="$CREUSOT_DATA")" \
     # MonPoly's exit code carries no information (0 for clean, violation, AND refusal), so a
     # liveness check greps the banner rather than trusting the code.
     && monpoly -version 2>&1 | grep -qi monpoly
+
+# Verus — a category-1 deductive verifier (SMT/Z3). Baked into the image like Kani/TLC/Prusti/Creusot
+# so it never evaporates on rebuild. It is here to back docs/using-verus-in-your-repo.md (the Verus
+# how-to) and the Prusti-replacement cat-1 engine evaluated in #578/docs/verus-engine-evaluation.md.
+#
+# Unlike Prusti/Creusot this needs NO source build: upstream ships a self-contained prebuilt release
+# PER PLATFORM, including arm64-linux. (The guide's "supported platforms" list lags reality — the
+# release ASSETS are the source of truth, and `…-arm64-linux.zip` and `…-x86-linux.zip` both exist.)
+# So both image legs download a binary, arch-detected exactly like glab/gh above. The archive holds
+# the `verus` driver, a bundled `z3`, a `cargo-verus` subcommand, and the vstd rlibs/.vir in ONE
+# directory; the driver resolves those siblings from its own location, so the whole directory is
+# installed at /opt/verus and put on PATH (a bare symlink elsewhere would break sibling lookup).
+#
+# Toolchain coupling: this release targets 1.99.1 (its version.json "toolchain"), which is exactly
+# the toolchain pinned and defaulted above — so NO extra `rustup` install is needed. That is why
+# VERUS_VERSION is pinned rather than floating `latest`: a future release may target a different
+# nightly, and then this stage must `rustup toolchain install` it. The liveness check below is the
+# guard — the driver aborts if its required toolchain is absent, so a toolchain drift fails the build
+# here (a clear error) instead of surfacing as a mysterious runtime failure later. If you bump
+# VERUS_VERSION, re-read the new release's version.json and add the toolchain install if it moved.
+ARG VERUS_VERSION=0.2026.11.02.8bf68ee
+ENV PATH="/opt/verus:${PATH}"
+RUN varch="$(dpkg --print-architecture)" \
+    && case "$varch" in \
+         amd64) vtok=x86 ;; \
+         arm64) vtok=arm64 ;; \
+         *) echo "Verus: unsupported architecture '$varch'" >&2; exit 1 ;; \
+       esac \
+    # `unzip` is installed by the Prusti stage above and persists in the image; guard anyway so this
+    # stage is self-sufficient if the stages are ever reordered.
+    && { command -v unzip >/dev/null || { apt-get update \
+         && apt-get install -y --no-install-recommends unzip \
+         && rm -rf /var/lib/apt/lists/*; }; } \
+    && curl -fLsS -o /tmp/verus.zip \
+      "https://github.com/verus-lang/verus/releases/download/release/${VERUS_VERSION}/verus-${VERUS_VERSION}-${vtok}-linux.zip" \
+    && unzip -q /tmp/verus.zip -d /tmp/verus-unz \
+    && mv "/tmp/verus-unz/verus-${vtok}-linux" /opt/verus \
+    && rm -rf /tmp/verus.zip /tmp/verus-unz \
+    && test -x /opt/verus/verus \
+    && test -x /opt/verus/cargo-verus \
+    # Liveness: a real proof must VERIFY, not merely the binary exist (the Kani/TLC/MonPoly rule). A
+    # trivial true invariant that must report `1 verified, 0 errors`; any error count or nonzero exit
+    # fails the build. This also exercises the bundled z3 and the 1.99.1 toolchain end to end.
+    && printf 'use vstd::prelude::*;\nverus! {\nspec fn min(x: int, y: int) -> int { if x <= y { x } else { y } }\nfn main() { assert(min(10, 20) == 10); }\n}\n' \
+      > /tmp/verus_check.rs \
+    && /opt/verus/verus /tmp/verus_check.rs 2>&1 | grep -q "1 verified, 0 errors" \
+    && rm -f /tmp/verus_check.rs
