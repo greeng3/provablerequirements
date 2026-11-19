@@ -11,7 +11,7 @@
     // both arm64 and amd64. To change the toolchain: edit .devcontainer/Dockerfile, let the workflow
     // republish, then bump this digest to the one it publishes (that bump is the only way the
     // devcontainer moves to the new image).
-    "image": "ghcr.io/greeng3/provreq-devcontainer@sha256:8a4c1e2fed054c73c91998ab4669b8fa402dcf7ba4590775a870a57d7c52dc25",
+    "image": "ghcr.io/greeng3/provreq-devcontainer@sha256:1678259012c76d04b386cc4fa81dfd16f847a2e8e5618607e5b189259ab9de7b",
     // Node runs the Markdown linting toolchain (markdownlint-cli2, matching the
     // DavidAnson.vscode-markdownlint editor extension's rules), the `web/` frontend, and — once
     // phase 2 of the Provreq absorb lands — that project's frontend too.
