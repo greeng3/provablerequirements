@@ -183,6 +183,26 @@ drafts:
       by: gg
       at_unix: 1793749900
     bindings: []
+  REQ043:
+    revision: 6295958b114ba8df39fc5e1d7496642395edc544b9cb0b44a52af9c8ee28fa3e
+    candidate: 'requirement REQ043_coverage_axis_is_sound { category: 1 vocabulary { state classify_is_sound(a: VerdictAxis) } require { always (classify_is_sound(a)) } }'
+    gate:
+      status: passed
+      warnings: []
+    admission:
+      state: admitted
+      review: optional
+      by: greeng3
+      at_unix: 1795213113
+    bindings:
+    - symbol: classify_is_sound
+      category: code
+      observable: classify_is_sound
+      fidelity: definitional
+    - symbol: VerdictAxis
+      category: code
+      observable: VerdictAxis
+      fidelity: definitional
   REQ045:
     revision: f1566735a2241b3023f3e767e722f7bc0678796bca26f4bde7d6c8312dbb14ad
     candidate: |-

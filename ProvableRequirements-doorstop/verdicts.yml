@@ -1568,6 +1568,87 @@ verdicts:
       ui_fingerprint: null
       tagged_source_fingerprint: dc161f8c0f5e985a53058f3bb6aebb5609c3b9488836dd9301559d54608ddbf7
       scope_fingerprint: 68e98ca2711294f5352b6d0c0e8e58ed4e08522ed53686f5e266e8ee929a9000
+  REQ043:
+    id: REQ043
+    status: holds
+    basis: proven
+    reason: null
+    witness: null
+    detail:
+    - 'Creusot: holds (proven)'
+    - 'Verus: holds (proven)'
+    - 'Kani: holds (model-checked (bounded))'
+    - bounded by — unwind 4 (`kani.default_unwind` in provreq.yml); timeout 300s (`kani.timeout_seconds` in provreq.yml)
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `stale_counts_drifted_verdicts_of_any_polarity` passed
+    - 'Prusti: inconclusive'
+    - 'Prusti''s pinned toolchain predates this subject''s dependency graph — its 2023 cargo cannot read a v4 lock file or a dependency declaring `edition = "2024"`. This is a toolchain ceiling, not a missing annotation: Prusti can only verify a subject whose whole dependency graph builds on a 2023 nightly, and upstream has published nothing newer'
+    evidence:
+    - engine: Creusot
+      status: holds
+      basis: proven
+      witness: null
+      detail: []
+      correspondence: mechanical
+      source_location: null
+    - engine: Verus
+      status: holds
+      basis: proven
+      witness: null
+      detail: []
+      correspondence: mechanical
+      source_location: null
+    - engine: Kani
+      status: holds
+      basis: model-checked (bounded)
+      witness: null
+      detail:
+      - bounded by — unwind 4 (`kani.default_unwind` in provreq.yml); timeout 300s (`kani.timeout_seconds` in provreq.yml)
+      correspondence: mechanical
+      source_location: null
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `stale_counts_drifted_verdicts_of_any_polarity` passed
+      correspondence: asserted
+      source_location:
+        file: src/status.rs
+        line: 432
+        symbol: stale_counts_drifted_verdicts_of_any_polarity
+    - engine: Prusti
+      status: unknown
+      basis: null
+      witness: null
+      detail:
+      - 'Prusti''s pinned toolchain predates this subject''s dependency graph — its 2023 cargo cannot read a v4 lock file or a dependency declaring `edition = "2024"`. This is a toolchain ceiling, not a missing annotation: Prusti can only verify a subject whose whole dependency graph builds on a 2023 nightly, and upstream has published nothing newer'
+      correspondence: mechanical
+      source_location: null
+    correspondence: mechanical
+    provenance:
+      requirement_revision: 6295958b114ba8df39fc5e1d7496642395edc544b9cb0b44a52af9c8ee28fa3e
+      subject_commit: 6774eb2407e9bc70253f17266c21fa4962771b49
+      tool_version: 0.0.64
+      verified_scope: crate crates/provreq-proofs
+      formalization: 00ad30cf9e44b33f
+      environment:
+        declared: provreq-devcontainer
+        engines:
+        - Creusot 0.14.0
+        - Kani 0.68.0
+        - TLC (TLA+) 2.19
+        unversioned:
+        - MonPoly
+        - Prusti
+        - Verus
+        container: true
+      spec_fingerprint: null
+      trace_fingerprint: null
+      source_fingerprint: 7028a250e080092d8da41290a2a587db24e27ce2
+      ui_fingerprint: null
+      tagged_source_fingerprint: 6effd3a16e9c7863068aa5d8d04d52ae2114a85d4449349fc05a44a5d36fafe4
+      scope_fingerprint: a2b5d69a5814fd29fc10b148d0f9fbc36baa426c1956d5d879149574e60fc370
   REQ045:
     id: REQ045
     status: holds

@@ -76,10 +76,12 @@ pub fn coverage(
             None => {}
         }
         if let Some(view) = verdict_view(item, drafts, verdicts, anchor) {
-            if !view.fresh {
-                cov.stale += 1;
-            } else if view.status == "holds" {
-                cov.verified += 1;
+            // Delegate the verdict-axis bucketing to the proof core (REQ043): a drifted verdict is
+            // stale whatever its polarity, a fresh holding verdict is verified, else neither.
+            match provreq_proofs::coverage::classify(view.fresh, view.status == "holds") {
+                provreq_proofs::coverage::CoverageContribution::Stale => cov.stale += 1,
+                provreq_proofs::coverage::CoverageContribution::Verified => cov.verified += 1,
+                provreq_proofs::coverage::CoverageContribution::Neither => {}
             }
         }
     }
