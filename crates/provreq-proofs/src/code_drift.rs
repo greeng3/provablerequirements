@@ -19,6 +19,9 @@ use creusot_std::macros::*;
 /// A stored/current pair reduced to the two facts the decision reads: are both present, and (if so)
 /// are they equal. Payload-free proxy — no `PartialEq` derive (that derive triggers Creusot's
 /// `DeepModel` demand; the proofs use pearlite `==`/`match`, which needs no derive).
+// Plain proxy — gated out under `verus_only`, where the `verus! { }` mirror below owns the name
+// (a Verus `spec fn` matches only a Verus-visible datatype, #588).
+#[cfg(not(verus_only))]
 #[derive(Debug, Clone, Copy)]
 pub enum Pair {
     /// Both sides present and equal.
@@ -34,6 +37,7 @@ pub enum Pair {
 }
 
 /// The code-drift axis outcome (REQ071). `verdict_store::view` renders each variant's stale message.
+#[cfg(not(verus_only))]
 #[derive(Debug, Clone, Copy)]
 pub enum CodeDrift {
     /// No code drift on this axis.
@@ -53,6 +57,7 @@ pub enum CodeDrift {
 /// record (which moves the commit but not the fingerprinted source) is not drift. Otherwise the
 /// commit-only fallback applies. The `#[ensures]` links it to [`code_drift_logic`] so the whole-case
 /// equality is discharged deductively.
+#[cfg(not(verus_only))]
 #[cfg_attr(creusot, ensures(result == code_drift_logic(fp, commit)))]
 pub fn code_drift(fp: Pair, commit: Pair) -> CodeDrift {
     match fp {
@@ -200,3 +205,67 @@ mod tests {
         ));
     }
 }
+
+// REQ093/#588 — the Verus mirror: independent deductive corroboration of REQ071 alongside Creusot.
+// Under `verus_only` (the cfg `cargo verus` sets during verification, and no ordinary build sets)
+// the payload-free `Pair`, `CodeDrift`, the `code_drift` decision, `DriftInputs`, and the soundness
+// predicate are authored in the Verus subset as `spec fn`s, so the engine's generated
+// `assert(forall|i| code_drift_is_sound(&i))` harness discharges through Verus/Z3 exactly as the
+// pearlite mirror above discharges through Creusot/Why3. Both top out at `proven`; two unrelated
+// provers agreeing is the point. The plain items above are gated `not(verus_only)` so these own the
+// names the harness reaches (`crate::code_drift::{DriftInputs, code_drift_is_sound}`).
+#[cfg(verus_only)]
+use vstd::prelude::*;
+
+#[cfg(verus_only)]
+verus! {
+
+pub enum Pair {
+    BothEqual,
+    BothDiffer,
+    OnlyStored,
+    OnlyCurrent,
+    Neither,
+}
+
+pub enum CodeDrift {
+    Fresh,
+    SourceMoved,
+    CommitMoved,
+    CommitUnreadable,
+    NowGitRepo,
+}
+
+pub open spec fn code_drift(fp: Pair, commit: Pair) -> CodeDrift {
+    match fp {
+        Pair::BothEqual => CodeDrift::Fresh,
+        Pair::BothDiffer => CodeDrift::SourceMoved,
+        _ => match commit {
+            Pair::BothDiffer => CodeDrift::CommitMoved,
+            Pair::OnlyStored => CodeDrift::CommitUnreadable,
+            Pair::OnlyCurrent => CodeDrift::NowGitRepo,
+            _ => CodeDrift::Fresh,
+        },
+    }
+}
+
+pub struct DriftInputs {
+    pub fp: Pair,
+    pub commit: Pair,
+}
+
+pub open spec fn code_drift_is_sound(i: &DriftInputs) -> bool {
+    let got = code_drift(i.fp, i.commit);
+    match i.fp {
+        Pair::BothEqual => got == CodeDrift::Fresh,
+        Pair::BothDiffer => got == CodeDrift::SourceMoved,
+        _ => match i.commit {
+            Pair::BothDiffer => got == CodeDrift::CommitMoved,
+            Pair::OnlyStored => got == CodeDrift::CommitUnreadable,
+            Pair::OnlyCurrent => got == CodeDrift::NowGitRepo,
+            _ => got == CodeDrift::Fresh,
+        },
+    }
+}
+
+} // verus!
