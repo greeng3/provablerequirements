@@ -456,7 +456,15 @@ fn is_verdict_event(
     prior: Option<(&str, Option<&str>, &str)>,
     new: (&str, Option<&str>, &str),
 ) -> bool {
-    prior != Some(new)
+    // Reduce to the facts the decision reads — presence plus per-field equality — and delegate to the
+    // payload-free proof core (REQ078) so the proof is about the rule provreq applies. Faithful:
+    // `None` → `is_event(false, ..) == true == (None != Some(new))`; `Some(p)` →
+    // `is_event(true, eqs) == !(all eq) == (p != new)`.
+    let (present, status_eq, basis_eq, corr_eq) = match prior {
+        None => (false, false, false, false),
+        Some(p) => (true, p.0 == new.0, p.1 == new.1, p.2 == new.2),
+    };
+    provreq_proofs::verdict_event::is_event(present, status_eq, basis_eq, corr_eq)
 }
 
 /// Append a `provreq-verdict` breadcrumb to the requirement's Provreq artifact when the verdict

@@ -341,6 +341,26 @@ drafts:
       category: code
       observable: decisive_correspondence_is_sound
       fidelity: definitional
+  REQ078:
+    revision: 50d61d449fc6cdd39307effff978cdd86388050bf81b27632918d72ce6bc1f1b
+    candidate: 'requirement REQ078_verdict_event_is_sound { category: 1 vocabulary { state is_event_is_sound(i: VerdictEventInputs) } require { always (is_event_is_sound(i)) } }'
+    gate:
+      status: passed
+      warnings: []
+    admission:
+      state: admitted
+      review: optional
+      by: greeng3
+      at_unix: 1795194957
+    bindings:
+    - symbol: is_event_is_sound
+      category: code
+      observable: is_event_is_sound
+      fidelity: definitional
+    - symbol: VerdictEventInputs
+      category: code
+      observable: VerdictEventInputs
+      fidelity: definitional
   REQ090:
     revision: 69b1b86b602f28bbf932d9a0dc935a5fac6e3f28d95b3ec6ddd50362be55b925
     candidate: |-

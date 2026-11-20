@@ -39,6 +39,10 @@ verify:
     # while Kani checks the length-3 bound.
     REQ030: crates/provreq-proofs
     REQ051: crates/provreq-proofs
+    # REQ078's verdict-event decision is loop-free, so its Creusot/Verus proof is a finite case
+    # analysis over the payload-free presence+equality facts in the leaf (#600); `verify::
+    # is_verdict_event` reduces the `(status, basis, correspondence)` string tuples.
+    REQ078: crates/provreq-proofs
     # REQ076's masquerade guard folds over an arbitrary-length evidence slice, so unlike the others
     # its Creusot proof is a Seq-induction (loop invariants), proved unbounded in the leaf (#539).
     REQ076: crates/provreq-proofs
