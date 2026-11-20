@@ -19,5 +19,6 @@ pub mod fragment;
 pub mod masquerade;
 pub mod model_binding;
 pub mod readiness;
+pub mod retire;
 pub mod triage;
 pub mod verdict_event;

@@ -361,6 +361,26 @@ drafts:
       category: code
       observable: VerdictEventInputs
       fidelity: definitional
+  REQ079:
+    revision: d9e0aba34a9ca4958eb05c417bf525b822952b9ccdfaf2e69fd85f6d08c537a5
+    candidate: 'requirement REQ079_retire_is_sound { category: 1 vocabulary { state should_retire_is_sound(p: RetirePair) } require { always (should_retire_is_sound(p)) } }'
+    gate:
+      status: passed
+      warnings: []
+    admission:
+      state: admitted
+      review: optional
+      by: greeng3
+      at_unix: 1795208141
+    bindings:
+    - symbol: should_retire_is_sound
+      category: code
+      observable: should_retire_is_sound
+      fidelity: definitional
+    - symbol: RetirePair
+      category: code
+      observable: RetirePair
+      fidelity: definitional
   REQ090:
     revision: 69b1b86b602f28bbf932d9a0dc935a5fac6e3f28d95b3ec6ddd50362be55b925
     candidate: |-

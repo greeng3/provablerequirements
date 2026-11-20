@@ -43,6 +43,10 @@ verify:
     # analysis over the payload-free presence+equality facts in the leaf (#600); `verify::
     # is_verdict_event` reduces the `(status, basis, correspondence)` string tuples.
     REQ078: crates/provreq-proofs
+    # REQ079's test-retirement redundancy is a finite comparison on the 3-rung basis lattice, so its
+    # Creusot/Verus proof is a case analysis over the payload-free `RetirePair` in the leaf (#602);
+    # `report::recommend_retirements` maps `verdict::Basis` and delegates the decision.
+    REQ079: crates/provreq-proofs
     # REQ076's masquerade guard folds over an arbitrary-length evidence slice, so unlike the others
     # its Creusot proof is a Seq-induction (loop invariants), proved unbounded in the leaf (#539).
     REQ076: crates/provreq-proofs
