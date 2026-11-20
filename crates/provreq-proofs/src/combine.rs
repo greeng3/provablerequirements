@@ -22,6 +22,9 @@ use creusot_std::macros::*;
 /// A verdict polarity. Payload-free proxy for `verdict::Status`; no `PartialEq` derive (the derive
 /// is what triggers Creusot's `DeepModel` demand — the proofs use `==`/`match`, which is pearlite's
 /// logical equality and needs no derive).
+// Plain proxy — gated out under `verus_only`, where the `verus! { }` mirror below owns the name
+// (a Verus `spec fn` matches only a Verus-visible datatype, #593).
+#[cfg(not(verus_only))]
 #[derive(Debug, Clone, Copy)]
 pub enum Status {
     Holds,
@@ -31,6 +34,7 @@ pub enum Status {
 
 /// The rung of assurance a holding engine earned. Payload-free proxy for `verdict::Basis`, ordered
 /// weakest-to-strongest.
+#[cfg(not(verus_only))]
 #[derive(Debug, Clone, Copy)]
 pub enum Basis {
     NotFalsified,
@@ -41,6 +45,7 @@ pub enum Basis {
 /// The combined outcome of the fold. Payload-free but for the single strongest basis a `Held`
 /// carries; `verdict::combine_outcome` maps it back onto `(Status, Option<UnknownReason>,
 /// Option<Basis>)`.
+#[cfg(not(verus_only))]
 #[derive(Debug, Clone, Copy)]
 pub enum Outcome {
     Divergence,
@@ -52,6 +57,7 @@ pub enum Outcome {
 /// Rank of a basis: higher is stronger. Internal to the fold — the app keeps its own display rank.
 /// The `#[ensures]` links it to [`basis_rank_logic`] so the fold's rank comparisons can be read in
 /// the loop invariants, which are stated through the logic rank.
+#[cfg(not(verus_only))]
 #[cfg_attr(creusot, ensures(result@ == basis_rank_logic(b)))]
 pub fn basis_rank(b: Basis) -> usize {
     match b {
@@ -63,6 +69,7 @@ pub fn basis_rank(b: Basis) -> usize {
 
 /// Rank of an optional basis as a plain integer; absent is below every present rung. The executable
 /// twin that Kani runs; `rank_opt` is its logic mirror.
+#[cfg(not(verus_only))]
 pub fn rank_opt_exec(o: Option<Basis>) -> usize {
     match o {
         Some(b) => basis_rank(b),
@@ -75,6 +82,7 @@ pub fn rank_opt_exec(o: Option<Basis>) -> usize {
 /// copy. The `#[ensures]` links the result to [`combine_outcome_logic`], stated over the whole `Seq`;
 /// the loop invariants make `any_holds`/`any_fails`/`best` the running fold over the prefix, so
 /// Creusot discharges the whole-length property by prefix extension — no array bound.
+#[cfg(not(verus_only))]
 #[cfg_attr(creusot, ensures(result == combine_outcome_logic(outcomes@)))]
 pub fn combine_outcome(outcomes: &[(Status, Option<Basis>)]) -> Outcome {
     let mut any_holds = false;
@@ -318,3 +326,94 @@ mod tests {
         ));
     }
 }
+
+// REQ093/#593 — the Verus mirror: independent deductive corroboration of REQ030 alongside Creusot.
+// Under `verus_only` (the cfg `cargo verus` sets during verification, and no ordinary build sets)
+// the payload-free `Status`/`Basis`/`Outcome`, the rank mirrors, the finite-lattice `strongest_prefix`
+// argmax, the `combine_outcome` fold, `ProofEnsemble`, and the soundness predicate are authored in
+// the Verus subset as `spec fn`s, so the engine's generated `assert(forall|e| combine_is_sound(&e))`
+// harness discharges through Verus/Z3 exactly as the pearlite mirror above discharges through
+// Creusot/Why3. Both top out at `proven`; two unrelated provers agreeing is the point.
+//
+// Unlike REQ071's loop-free decision, this fold selects the strongest basis over an arbitrary-length
+// slice. The Creusot program fold carries loop invariants, but a `spec fn` has no loop: the maximum
+// is the closed-form finite-lattice argmax (`strongest_prefix`, three existentials over the `Seq`),
+// so Verus/Z3 discharges the whole quantified soundness directly — no `invariant`-annotated loop and
+// no induction lemma. The `#[trigger]`s on the sequence indexings are load-bearing: Verus does not
+// infer a trigger for `s[j]` under the bare bounds, where pearlite needs none (#593).
+//
+// The plain items above are gated `not(verus_only)` so these own the names the harness reaches
+// (`crate::combine::{ProofEnsemble, combine_is_sound}`); `ProofEnsemble`/`combine_is_sound` are
+// otherwise `cfg(any(kani, creusot, prusti))`, excluded under Verus, so the `verus!` versions are
+// the only ones it sees.
+#[cfg(verus_only)]
+use vstd::prelude::*;
+
+#[cfg(verus_only)]
+verus! {
+
+pub enum Status { Holds, Fails, Unknown }
+
+pub enum Basis { NotFalsified, ModelCheckedBounded, Proven }
+
+pub enum Outcome { Divergence, Refuted, Held(Option<Basis>), Inconclusive }
+
+pub open spec fn basis_rank(b: Basis) -> int {
+    match b {
+        Basis::NotFalsified => 1,
+        Basis::ModelCheckedBounded => 2,
+        Basis::Proven => 3,
+    }
+}
+
+pub open spec fn rank_opt(o: Option<Basis>) -> int {
+    match o {
+        Some(b) => basis_rank(b),
+        None => 0,
+    }
+}
+
+pub open spec fn strongest_prefix(s: Seq<(Status, Option<Basis>)>, n: int) -> Option<Basis> {
+    if exists|j: int| 0 <= j < n && (#[trigger] s[j]).1 == Some(Basis::Proven) {
+        Some(Basis::Proven)
+    } else if exists|j: int| 0 <= j < n && (#[trigger] s[j]).1 == Some(Basis::ModelCheckedBounded) {
+        Some(Basis::ModelCheckedBounded)
+    } else if exists|j: int| 0 <= j < n && (#[trigger] s[j]).1 == Some(Basis::NotFalsified) {
+        Some(Basis::NotFalsified)
+    } else {
+        None
+    }
+}
+
+pub open spec fn combine_outcome(s: Seq<(Status, Option<Basis>)>) -> Outcome {
+    let any_holds = exists|j: int| 0 <= j < s.len() && (#[trigger] s[j]).0 == Status::Holds;
+    let any_fails = exists|j: int| 0 <= j < s.len() && (#[trigger] s[j]).0 == Status::Fails;
+    if any_holds && any_fails {
+        Outcome::Divergence
+    } else if any_fails {
+        Outcome::Refuted
+    } else if any_holds {
+        Outcome::Held(strongest_prefix(s, s.len() as int))
+    } else {
+        Outcome::Inconclusive
+    }
+}
+
+pub struct ProofEnsemble(pub Vec<(Status, Option<Basis>)>);
+
+pub open spec fn combine_is_sound(e: &ProofEnsemble) -> bool {
+    let s = e.0@;
+    let any_holds = exists|j: int| 0 <= j < s.len() && (#[trigger] s[j]).0 == Status::Holds;
+    let any_fails = exists|j: int| 0 <= j < s.len() && (#[trigger] s[j]).0 == Status::Fails;
+    match combine_outcome(s) {
+        Outcome::Divergence => any_holds && any_fails,
+        Outcome::Refuted => any_fails && !any_holds,
+        Outcome::Inconclusive => !any_holds && !any_fails,
+        Outcome::Held(b) =>
+            any_holds && !any_fails
+            && (forall|k: int| 0 <= k < s.len() ==> rank_opt((#[trigger] s[k]).1) <= rank_opt(b))
+            && (exists|j: int| 0 <= j < s.len() && rank_opt((#[trigger] s[j]).1) == rank_opt(b)),
+    }
+}
+
+} // verus!

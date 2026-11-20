@@ -895,6 +895,7 @@ verdicts:
     witness: null
     detail:
     - 'Creusot: holds (proven)'
+    - 'Verus: holds (proven)'
     - 'Kani: holds (model-checked (bounded))'
     - bounded by — unwind 4 (`kani.default_unwind` in provreq.yml); timeout 300s (`kani.timeout_seconds` in provreq.yml)
     - 'cargo test: holds (not-falsified)'
@@ -925,6 +926,13 @@ verdicts:
       detail: []
       correspondence: mechanical
       source_location: null
+    - engine: Verus
+      status: holds
+      basis: proven
+      witness: null
+      detail: []
+      correspondence: mechanical
+      source_location: null
     - engine: Kani
       status: holds
       basis: model-checked (bounded)
@@ -942,7 +950,7 @@ verdicts:
       correspondence: asserted
       source_location:
         file: src/engine.rs
-        line: 900
+        line: 931
         symbol: category_is_ready_when_any_ensemble_engine_is_ready
     - engine: cargo test
       status: holds
@@ -1043,8 +1051,8 @@ verdicts:
     correspondence: mechanical
     provenance:
       requirement_revision: 467e7570a79795b132e67f5862bdd3ada08ba90a67925565493152cbe4af9033
-      subject_commit: d99736ab27b45601aa6d10842aca560abc9b3906
-      tool_version: 0.0.50
+      subject_commit: 9b704ce8b06801d01bc37b555a6afc04ff3ffb99
+      tool_version: 0.0.57
       verified_scope: crate crates/provreq-proofs
       formalization: 16ae08ff45a08856
       environment:
@@ -1056,13 +1064,14 @@ verdicts:
         unversioned:
         - MonPoly
         - Prusti
+        - Verus
         container: true
       spec_fingerprint: null
       trace_fingerprint: null
-      source_fingerprint: 40a0a3ab8b004ea9cc031217f2aa75f2727dde44
+      source_fingerprint: 9a9660ee99a0582c64fcd780a07456e7dfcc80da
       ui_fingerprint: null
-      tagged_source_fingerprint: 7feb13c701056d9d7dc5e6956d048748f5cdb31601fed4c827727e376da513df
-      scope_fingerprint: df97768014b016454a988e17170b2f557a0baf0491d3bfe6d1a10e0e827101ad
+      tagged_source_fingerprint: 298a378554d11d3eb68dd0f613fb9bcf805258988803817eb423e90b87dd4fbc
+      scope_fingerprint: 444ee4f1205983cd9cebdd12317c88546be6cb96c4a3020c0ea9a0b0b383e904
   REQ031:
     id: REQ031
     status: holds
