@@ -160,6 +160,14 @@ verify = true` to its `Cargo.toml`, and list `cfg(verus_only)` in the `check-cfg
 - Verus spec `==` is structural and needs no `PartialEq` (like pearlite); `match` with a bare `_`
   arm is fine; a `forall` whose body is a function call (`code_drift_is_sound(&i)`) triggers on that
   call with no `#[trigger]` needed. The engine's generated harness is that one `assert(forall …)`.
+- A core whose spec body folds over a `Seq` (its own `exists|j| … s[j] …` / `forall|k| … s[k] …`,
+  as REQ030's `combine_is_sound` does) **does** need an explicit `#[trigger]` on each sequence
+  indexing (`(#[trigger] s[j]).1`), where pearlite infers the trigger. With it, the finite-lattice
+  argmax (`strongest_prefix`: the strongest basis = the highest rung present, three existentials, no
+  recursion) discharges directly in Z3 — no `invariant`-annotated loop and no induction lemma, even
+  though the Creusot program fold carried loop invariants. Validate the spec-fn shape in a scratch
+  crate under `cargo verus focus` before wiring it onto the real leaf; Verus `Seq` triggers differ
+  from pearlite, so the round-trip belongs in scratch, not on the subject.
 - A pass prints `verification results:: N verified, 0 errors` (N ≥ 1); the engine classifies that as
   `proven`. `0 verified, 0 errors` means the harness module was excluded — **not** a proof.
 
