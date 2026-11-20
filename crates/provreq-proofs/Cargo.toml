@@ -12,6 +12,11 @@ license = "MIT OR Apache-2.0"
 repository = "https://github.com/greeng3/provablerequirements"
 publish = false
 
+# Opt this crate into Verus verification (REQ093/#588). Inert metadata for every other
+# consumer; `cargo verus focus` reads it to know the crate carries `verus! { }` proofs.
+[package.metadata.verus]
+verify = true
+
 # This crate exists so Creusot has something small to compile. Creusot translates the whole crate
 # before running any harness and intercepts `#[derive(PartialEq/Eq)]` to demand `DeepModel` on the
 # reachable types; the app crate's ~96 such derives make a whole-crate Creusot build an open-ended
@@ -23,9 +28,13 @@ publish = false
 # `#[logic]`/`#[ensures]`/`pearlite!` macros come from. Locked to the installed tool's 0.14, like
 # the root manifest; inert on an ordinary build (available only under `cfg(creusot)`).
 creusot-std = "0.14"
+# The Verus standard library the `#[cfg(verus_only)] verus! { }` mirror in
+# `code_drift.rs` compiles against (REQ093/#588). `cargo verus focus` needs it declared
+# here; it is an ordinary dependency, inert under a normal build / clippy / Kani / Creusot.
+vstd = "=0.0.0-2026-11-01-0251"
 
 # `cfg(kani)`/`cfg(creusot)` are set only by the respective prover, so an ordinary build has to be
 # told they are real cfgs or the prover-only scaffolding trips `unexpected_cfgs` under
 # `clippy -- -D warnings`. Same declaration as the workspace root.
 [lints.rust]
-unexpected_cfgs = { level = "warn", check-cfg = ['cfg(kani)', 'cfg(creusot)', 'cfg(prusti)'] }
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(kani)', 'cfg(creusot)', 'cfg(prusti)', 'cfg(verus_only)'] }

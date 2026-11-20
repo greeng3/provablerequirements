@@ -140,6 +140,29 @@ plus an `#[ensures(result == <core>_logic(args))]` link on the real decision, th
 failed`). This is not a proof failure if the harness compiled and translated — **re-run a Creusot
   red before believing it**.
 
+### Verus (independent corroboration)
+
+A leaf core already proved by Creusot can be re-proved by Verus/Z3 as a second deductive pipeline —
+two unrelated provers agreeing on the same `proven` is stronger than one. It does **not** raise the
+verdict (both top out at `proven`); the value is independent-pipeline assurance. To add it to a leaf:
+
+- Add `vstd = "=<verus-version>"` to the leaf's `[dependencies]` and `[package.metadata.verus]
+  verify = true` to its `Cargo.toml`, and list `cfg(verus_only)` in the `check-cfg` lints. Get the
+  exact `vstd` version from a `cargo verus new --lib x` scaffold (release-pinned). `vstd` is an
+  ordinary dep — it does not disturb `cargo build`, `clippy`, Kani or Creusot.
+- Author the core as `pub open spec fn`s inside a `#[cfg(verus_only)] verus! { }` block (guard the
+  `use vstd::prelude::*;` the same way). `verus_only` is the cfg `cargo verus` sets and no ordinary
+  build sets, so these are invisible except under Verus — exactly like Creusot's `#[cfg(creusot)]`
+  mirror. The grounded predicate and its sort must resolve to these `spec fn`/datatype names.
+- The payload-free proxy types the plain build shares (`Pair`, the outcome enum, the decision `fn`)
+  must be gated `#[cfg(not(verus_only))]` so the `verus!` block owns those names under Verus — a
+  `spec fn` can only call another `spec fn` and match a Verus-visible datatype, not the plain `fn`.
+- Verus spec `==` is structural and needs no `PartialEq` (like pearlite); `match` with a bare `_`
+  arm is fine; a `forall` whose body is a function call (`code_drift_is_sound(&i)`) triggers on that
+  call with no `#[trigger]` needed. The engine's generated harness is that one `assert(forall …)`.
+- A pass prints `verification results:: N verified, 0 errors` (N ≥ 1); the engine classifies that as
+  `proven`. `0 verified, 0 errors` means the harness module was excluded — **not** a proof.
+
 ### Provenance
 
 - Set `USER=<reviewer>` before `draft --admit`, or provenance records `reviewer: unknown`.
