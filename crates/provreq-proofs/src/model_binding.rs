@@ -7,6 +7,9 @@ use creusot_std::macros::*;
 /// The payload-free shape of a model resolution — what [`classify_binding`] decides before the
 /// IO-bound resolver reattaches the matched definition(s). `WrongArity` keeps the declared arity it
 /// read (a plain `usize`, so no heap). Deliberately no `PartialEq` derive: the proofs match on it.
+// Plain shared items — gated out under `verus_only`, where the `verus! { }` mirror below owns these
+// names (#598, REQ030 gating style — the predicate/sort are `cfg(any(kani, creusot, prusti))`).
+#[cfg(not(verus_only))]
 #[derive(Debug, Clone, Copy)]
 pub enum BindingKind {
     NotFound,
@@ -19,6 +22,7 @@ pub enum BindingKind {
 /// carry the name, and — for a lone match — the arity that line declares (`None` when it states
 /// none). Zero is not-found; several is ambiguous (the declared arity is never consulted — ambiguity
 /// is reported first); exactly one resolves unless its line declares an arity that disagrees.
+#[cfg(not(verus_only))]
 #[cfg_attr(creusot, ensures(result == classify_binding_logic(match_count, lone_declared_arity, expected_arity)))]
 pub fn classify_binding(
     match_count: usize,
@@ -170,3 +174,63 @@ mod tests {
         ));
     }
 }
+
+// REQ093/#598 — the Verus mirror: independent deductive corroboration of REQ028 alongside Creusot.
+// Loop-free finite case analysis over small integers; the generated harness body
+// `model_binding_is_sound(&case)` is a function call that triggers on itself — no `#[trigger]`. This
+// core exercises `usize` / `Option<usize>` / a struct-variant (`WrongArity { declared }`) in the
+// Verus subset (comparisons only, no arithmetic, so no overflow obligation). The plain
+// `BindingKind`/`classify_binding` are gated `not(verus_only)`; `ModelBindingCase`/
+// `model_binding_is_sound` are `cfg(any(kani, creusot, prusti))`, excluded under Verus.
+#[cfg(verus_only)]
+use vstd::prelude::*;
+
+#[cfg(verus_only)]
+verus! {
+
+pub enum BindingKind { NotFound, Resolved, Ambiguous, WrongArity { declared: usize } }
+
+pub open spec fn classify_binding(
+    match_count: usize,
+    lone_declared_arity: Option<usize>,
+    expected_arity: usize,
+) -> BindingKind {
+    if match_count == 0 {
+        BindingKind::NotFound
+    } else if match_count == 1 {
+        match lone_declared_arity {
+            Some(declared) => if declared != expected_arity {
+                BindingKind::WrongArity { declared }
+            } else {
+                BindingKind::Resolved
+            },
+            None => BindingKind::Resolved,
+        }
+    } else {
+        BindingKind::Ambiguous
+    }
+}
+
+pub struct ModelBindingCase {
+    pub match_count: usize,
+    pub lone_declared_arity: Option<usize>,
+    pub expected_arity: usize,
+}
+
+pub open spec fn model_binding_is_sound(case: &ModelBindingCase) -> bool {
+    let kind = classify_binding(case.match_count, case.lone_declared_arity, case.expected_arity);
+    let lone = case.match_count == 1;
+    let arity_agrees = match case.lone_declared_arity {
+        Some(declared) => declared == case.expected_arity,
+        None => true,
+    };
+    match kind {
+        BindingKind::Resolved => lone && arity_agrees,
+        BindingKind::NotFound => case.match_count == 0,
+        BindingKind::Ambiguous => case.match_count >= 2,
+        BindingKind::WrongArity { declared } =>
+            lone && case.lone_declared_arity == Some(declared) && declared != case.expected_arity,
+    }
+}
+
+} // verus!

@@ -5,6 +5,10 @@
 use creusot_std::macros::*;
 
 /// The requirement categories, payload-free. `prl::ast::Category` maps onto this.
+// Plain shared items — gated out under `verus_only`, where the `verus! { }` mirror below owns these
+// names (#598). The `_is_sound` predicate and its sort are `cfg(any(kani, creusot, prusti))`,
+// excluded under Verus, so the `verus!` block declares its own — the REQ030 gating style.
+#[cfg(not(verus_only))]
 #[derive(Debug, Clone, Copy)]
 pub enum Category {
     Code,
@@ -15,6 +19,7 @@ pub enum Category {
 
 /// A pattern with its expression payloads stripped — the only thing the fragment rule reads is the
 /// shape. `prl::fragment::PatternKind` maps onto this. No `PartialEq` derive: the proofs match on it.
+#[cfg(not(verus_only))]
 #[derive(Debug, Clone, Copy)]
 pub enum PatternKind {
     Never,
@@ -30,6 +35,7 @@ pub enum PatternKind {
 /// decision, which `prl::fragment::fragment_rule` delegates here. Rule 1: the code fragment is
 /// temporal-free, so only the safety shapes (`always`/`never`) survive at category 1. Rule 2:
 /// `can_reach` is branching-time (CTL `EF`) and only a model checker (2a) has the state graph.
+#[cfg(not(verus_only))]
 #[cfg_attr(creusot, ensures(result == refuses_logic(category, kind)))]
 pub fn refuses(category: Category, kind: PatternKind) -> bool {
     match category {
@@ -163,3 +169,42 @@ mod tests {
         assert!(!refuses(Category::Runtime, PatternKind::Always));
     }
 }
+
+// REQ093/#598 — the Verus mirror: independent deductive corroboration of REQ024 alongside Creusot.
+// Loop-free finite case analysis (the easy REQ071 shape); the generated harness body
+// `fragment_is_sound(&case)` is a function call that triggers on itself — no `#[trigger]`. The plain
+// `Category`/`PatternKind`/`refuses` are gated `not(verus_only)` so these own the names under Verus;
+// `FragmentCase`/`fragment_is_sound` are `cfg(any(kani, creusot, prusti))`, excluded under Verus.
+#[cfg(verus_only)]
+use vstd::prelude::*;
+
+#[cfg(verus_only)]
+verus! {
+
+pub enum Category { Code, Model, Runtime, Ui }
+
+pub enum PatternKind { Never, Always, Eventually, LeadsTo, Precedes, OccursAtMost, CanReach }
+
+pub open spec fn refuses(category: Category, kind: PatternKind) -> bool {
+    match category {
+        Category::Code => !(kind == PatternKind::Always || kind == PatternKind::Never),
+        Category::Model => false,
+        _ => kind == PatternKind::CanReach,
+    }
+}
+
+pub struct FragmentCase { pub category: Category, pub kind: PatternKind }
+
+pub open spec fn fragment_is_sound(case: &FragmentCase) -> bool {
+    let refused = refuses(case.category, case.kind);
+    let is_safety = case.kind == PatternKind::Always || case.kind == PatternKind::Never;
+    let is_can_reach = case.kind == PatternKind::CanReach;
+    let expected_refused = match case.category {
+        Category::Code => !is_safety,
+        Category::Model => false,
+        _ => is_can_reach,
+    };
+    refused == expected_refused
+}
+
+} // verus!
