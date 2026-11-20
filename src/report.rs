@@ -184,6 +184,18 @@ fn strongest_holds_basis(
 /// by its source location. Recommend-only — nothing is retired. An asserted test that is *stronger*
 /// than every mechanical result, or the sole evidence, is never recommended: it is not redundant.
 /// Pure over the states the report already carries.
+/// Map a `verdict::Basis` to the payload-free proof-core `Basis` (REQ079). Faithful: the three rungs
+/// correspond one-to-one and in order, so `should_retire` decides over the same lattice.
+fn retire_basis(b: &crate::verdict::Basis) -> provreq_proofs::retire::Basis {
+    use crate::verdict::Basis as V;
+    use provreq_proofs::retire::Basis as L;
+    match b {
+        V::Proven => L::Proven,
+        V::ModelCheckedBounded => L::ModelCheckedBounded,
+        V::NotFalsified => L::NotFalsified,
+    }
+}
+
 fn recommend_retirements(states: &[ItemState]) -> Vec<Recommendation> {
     let mut out = Vec::new();
     for state in states {
@@ -191,7 +203,7 @@ fn recommend_retirements(states: &[ItemState]) -> Vec<Recommendation> {
         let Some(mechanical) = strongest_holds_basis(&view.evidence, "mechanical") else {
             continue;
         };
-        let mechanical_rank = crate::verdict::basis_rank(&mechanical);
+        let mechanical_leaf = retire_basis(&mechanical);
         for e in &view.evidence {
             if e.status != "holds" || e.correspondence != "asserted" {
                 continue;
@@ -199,8 +211,10 @@ fn recommend_retirements(states: &[ItemState]) -> Vec<Recommendation> {
             let Some(asserted) = e.basis.as_deref().and_then(crate::verdict::Basis::parse) else {
                 continue;
             };
-            // The mechanical side must dominate (>=), so a stronger asserted test is kept.
-            if crate::verdict::basis_rank(&asserted) > mechanical_rank {
+            // Delegate the redundancy decision to the proof core (REQ079): the mechanical side must
+            // dominate (>=), so a stronger asserted test is kept. `should_retire` is proved to
+            // recommend exactly the no-weaker case.
+            if !provreq_proofs::retire::should_retire(mechanical_leaf, retire_basis(&asserted)) {
                 continue;
             }
             // No location means nothing concrete to recommend retiring — skip rather than guess.
