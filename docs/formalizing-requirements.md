@@ -147,7 +147,7 @@ two unrelated provers agreeing on the same `proven` is stronger than one. It doe
 verdict (both top out at `proven`); the value is independent-pipeline assurance. To add it to a leaf:
 
 - Add `vstd = "=<verus-version>"` to the leaf's `[dependencies]` and `[package.metadata.verus]
-  verify = true` to its `Cargo.toml`, and list `cfg(verus_only)` in the `check-cfg` lints. Get the
+verify = true` to its `Cargo.toml`, and list `cfg(verus_only)` in the `check-cfg` lints. Get the
   exact `vstd` version from a `cargo verus new --lib x` scaffold (release-pinned). `vstd` is an
   ordinary dep — it does not disturb `cargo build`, `clippy`, Kani or Creusot.
 - Author the core as `pub open spec fn`s inside a `#[cfg(verus_only)] verus! { }` block (guard the
