@@ -21,6 +21,9 @@ use creusot_std::macros::*;
 /// The verdict polarity a correspondence is being decided for. Payload-free proxy for
 /// `verdict::Status`; no `PartialEq` derive (the derive is what triggers Creusot's `DeepModel`
 /// demand — the proofs match on it instead).
+// Plain proxy — gated out under `verus_only`, where the `verus! { }` mirror below owns the name
+// (a Verus `spec fn` matches only a Verus-visible datatype, #594).
+#[cfg(not(verus_only))]
 #[derive(Debug, Clone, Copy)]
 pub enum Status {
     Holds,
@@ -30,6 +33,7 @@ pub enum Status {
 
 /// Whether one piece of evidence is asserted or merely mechanical. Payload-free proxy for
 /// `verdict::Correspondence`.
+#[cfg(not(verus_only))]
 #[derive(Debug, Clone, Copy)]
 pub enum Correspondence {
     Mechanical,
@@ -42,6 +46,7 @@ pub enum Correspondence {
 /// the real `Option<UnknownReason>` to the one bit the decision reads. The `#[ensures]` links it to
 /// [`is_decisive_logic`] so the fold's loop invariants, written in terms of the logic mirror, can see
 /// which branch each iteration takes.
+#[cfg(not(verus_only))]
 #[cfg_attr(creusot, ensures(result == is_decisive_logic(verdict, divergence, piece)))]
 pub fn is_decisive(verdict: Status, divergence: bool, piece: Status) -> bool {
     match verdict {
@@ -61,6 +66,7 @@ pub fn is_decisive(verdict: Status, divergence: bool, piece: Status) -> bool {
 /// directly over the whole `Seq` as `∃ decisive ∧ ∀ decisive asserted`; the loop invariants make
 /// `saw`/`all_asserted` the running `∃`/`∀` over the prefix, so Creusot discharges the whole-length
 /// property by prefix extension — no array bound.
+#[cfg(not(verus_only))]
 #[cfg_attr(creusot, ensures(
     result == decisive_correspondence_of_logic(verdict, divergence, pieces@)
 ))]
@@ -266,3 +272,80 @@ mod tests {
         ));
     }
 }
+
+// REQ093/#594 — the Verus mirror: independent deductive corroboration of REQ076 alongside Creusot.
+// Under `verus_only` (the cfg `cargo verus` sets during verification, and no ordinary build sets)
+// the payload-free `Status`/`Correspondence`, `is_decisive`, the `decisive_correspondence_of` fold,
+// `ProofDecisive`, and the soundness predicate are authored in the Verus subset as `spec fn`s, so the
+// engine's generated `assert(forall|d| decisive_correspondence_is_sound(&d))` harness discharges
+// through Verus/Z3 exactly as the pearlite mirror above discharges through Creusot/Why3. Both top out
+// at `proven`; two unrelated provers agreeing is the point.
+//
+// Like REQ030 (#593) this fold is over an arbitrary-length `Seq` — the rule is `∃ decisive ∧ ∀
+// decisive asserted`. A `spec fn` has no loop, so `decisive_correspondence_of` is the closed-form
+// `∃/∀` directly; soundness is then a near-tautology once Verus unfolds the two `open` spec fns. The
+// `#[trigger]`s on the sequence indexings are load-bearing: Verus does not infer a trigger for
+// `pieces[i]` / `s[i]` under the bare bounds, where pearlite needs none (#594). No `invariant`-
+// annotated loop and no induction lemma, even though the Creusot program fold carried loop invariants.
+//
+// The plain items above are gated `not(verus_only)` so these own the names the harness reaches
+// (`crate::masquerade::{ProofDecisive, decisive_correspondence_is_sound}`); `ProofDecisive`/
+// `decisive_correspondence_is_sound` are otherwise `cfg(any(kani, creusot, prusti))`, excluded under
+// Verus, so the `verus!` versions are the only ones it sees.
+#[cfg(verus_only)]
+use vstd::prelude::*;
+
+#[cfg(verus_only)]
+verus! {
+
+pub enum Status { Holds, Fails, Unknown }
+
+pub enum Correspondence { Mechanical, Asserted }
+
+pub open spec fn is_decisive(verdict: Status, divergence: bool, piece: Status) -> bool {
+    match verdict {
+        Status::Holds => piece == Status::Holds,
+        Status::Fails => piece == Status::Fails,
+        Status::Unknown => if divergence {
+            piece == Status::Holds || piece == Status::Fails
+        } else {
+            piece == Status::Unknown
+        },
+    }
+}
+
+pub open spec fn decisive_correspondence_of(
+    verdict: Status,
+    divergence: bool,
+    pieces: Seq<(Status, Correspondence)>,
+) -> Correspondence {
+    if (exists|i: int| 0 <= i < pieces.len()
+            && is_decisive(verdict, divergence, (#[trigger] pieces[i]).0))
+        && (forall|i: int| 0 <= i < pieces.len()
+            && is_decisive(verdict, divergence, (#[trigger] pieces[i]).0)
+            ==> (pieces[i]).1 == Correspondence::Asserted)
+    {
+        Correspondence::Asserted
+    } else {
+        Correspondence::Mechanical
+    }
+}
+
+pub struct ProofDecisive {
+    pub verdict: Status,
+    pub divergence: bool,
+    pub pieces: Vec<(Status, Correspondence)>,
+}
+
+pub open spec fn decisive_correspondence_is_sound(d: &ProofDecisive) -> bool {
+    let s = d.pieces@;
+    let any_decisive = exists|i: int| 0 <= i < s.len()
+        && is_decisive(d.verdict, d.divergence, (#[trigger] s[i]).0);
+    let all_decisive_asserted = forall|i: int| 0 <= i < s.len()
+        && is_decisive(d.verdict, d.divergence, (#[trigger] s[i]).0)
+        ==> (s[i]).1 == Correspondence::Asserted;
+    (decisive_correspondence_of(d.verdict, d.divergence, s) == Correspondence::Asserted)
+        == (any_decisive && all_decisive_asserted)
+}
+
+} // verus!
