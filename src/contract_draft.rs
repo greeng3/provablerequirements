@@ -85,10 +85,13 @@ impl Marker {
     /// linking postcondition. So there is nothing left for the marker channel to do there, and
     /// staging one would break the subject's build before any prover ran.
     pub fn drafts_markers(self) -> bool {
-        match self {
-            Marker::Logic => false,
-            Marker::Pure => true,
-        }
+        // Delegated to the payload-free leaf core so REQ033 is proved about the rule provreq
+        // actually applies (#608). The app `Marker` maps 1:1 onto the leaf's.
+        let leaf = match self {
+            Marker::Logic => provreq_proofs::contract_marker::Marker::Logic,
+            Marker::Pure => provreq_proofs::contract_marker::Marker::Pure,
+        };
+        provreq_proofs::contract_marker::drafts_markers(leaf)
     }
 
     /// The `use` line that brings this dialect's attributes into scope.

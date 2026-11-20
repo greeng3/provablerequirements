@@ -55,6 +55,10 @@ verify:
     # polarity, so its Creusot/Verus proof is a case analysis over the payload-free `VerdictAxis` in
     # the leaf (#606); `status::coverage` reduces `(view.fresh, view.status == "holds")` and delegates.
     REQ043: crates/provreq-proofs
+    # REQ033's marker-draft guard is a finite two-case decision over the dialect's marker, so its
+    # Creusot/Verus proof is a case analysis over the payload-free `Marker` in the leaf (#608);
+    # `contract_draft::Marker::drafts_markers` maps the app marker and delegates.
+    REQ033: crates/provreq-proofs
     # REQ076's masquerade guard folds over an arbitrary-length evidence slice, so unlike the others
     # its Creusot proof is a Seq-induction (loop invariants), proved unbounded in the leaf (#539).
     REQ076: crates/provreq-proofs
