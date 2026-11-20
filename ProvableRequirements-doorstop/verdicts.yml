@@ -2176,8 +2176,11 @@ verdicts:
     witness: null
     detail:
     - 'Creusot: holds (proven)'
+    - 'Verus: holds (proven)'
     - 'Kani: holds (model-checked (bounded))'
     - bounded by — unwind 4 (`kani.default_unwind` in provreq.yml); timeout 300s (`kani.timeout_seconds` in provreq.yml)
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `decisive_correspondence_delegates_the_masquerade_guard` passed
     - 'cargo test: holds (not-falsified)'
     - not falsified over — the tagged test `a_verdict_from_a_tagged_test_alone_is_asserted` passed
     - 'cargo test: holds (not-falsified)'
@@ -2192,15 +2195,15 @@ verdicts:
     - not falsified over — the tagged test `an_engine_verdict_stays_mechanical` passed
     - 'Prusti: inconclusive'
     - 'Prusti''s pinned toolchain predates this subject''s dependency graph — its 2023 cargo cannot read a v4 lock file or a dependency declaring `edition = "2024"`. This is a toolchain ceiling, not a missing annotation: Prusti can only verify a subject whose whole dependency graph builds on a 2023 nightly, and upstream has published nothing newer'
-    - 'cargo test: inconclusive'
-    - '`cargo test decisive_correspondence_delegates_the_masquerade_guard` produced no test result (the harness did not run)'
-    - Compiling provreq v0.0.44 (/workspace)
-    - 'warning: linker stderr: /usr/bin/aarch64-linux-gnu-ld.bfd: /root/.rustup/toolchains/1.98.1-aarch64-unknown-linux-gnu/lib/rustlib/aarch64-unknown-linux-gnu/lib/libstd-96c9fe7a07d47cf2.rlib(std-96c9fe7a07d47cf2.std.2e66b1facfa492c-cgu.0.rcgu.o): in function `std::sys::net::connection::socket::lookup_host::{closure#0}'':'
-    - '/rustc/48a229ceaefd4985c50990b14116b6d856af0985/library/std/src/sys/net/connection/socket/mod.rs:352:(.text._RNCNvNtNtNtNtCsfr5T3GFabw_3std3sys3net10connection6socket11lookup_host0Bb_+0x44): Using ''getaddrinfo'' in statically linked applications requires at runtime the shared libraries from the glibc version used for linking'
-    - '/usr/bin/aarch64-linux-gnu-ld.bfd: /workspace/target/aarch64-unknown-linux-gnu/debug/deps/libgix_config_value-937ddd2e6e8c01e5.rlib(gix_config_value-937ddd2e6e8c01e5.gix_config_value.26cef5a3231c2014-cgu.0.rcgu.o): in function `gix_config_value::path::interpolate::home_for_user'':'
-    - '/root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/gix-config-value-0.19.1/src/path.rs:66:(.text._RNvNtNtCs3kzJEoQTbR8_16gix_config_value4path11interpolate13home_for_user+0xc4): Using ''getpwnam'' in statically linked applications requires at runtime the shared libraries from the glibc version used for linking'
     evidence:
     - engine: Creusot
+      status: holds
+      basis: proven
+      witness: null
+      detail: []
+      correspondence: mechanical
+      source_location: null
+    - engine: Verus
       status: holds
       basis: proven
       witness: null
@@ -2220,11 +2223,22 @@ verdicts:
       basis: not-falsified
       witness: null
       detail:
+      - not falsified over — the tagged test `decisive_correspondence_delegates_the_masquerade_guard` passed
+      correspondence: asserted
+      source_location:
+        file: src/verdict.rs
+        line: 1208
+        symbol: decisive_correspondence_delegates_the_masquerade_guard
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
       - not falsified over — the tagged test `a_verdict_from_a_tagged_test_alone_is_asserted` passed
       correspondence: asserted
       source_location:
         file: src/verdict.rs
-        line: 1364
+        line: 1335
         symbol: a_verdict_from_a_tagged_test_alone_is_asserted
     - engine: cargo test
       status: holds
@@ -2235,7 +2249,7 @@ verdicts:
       correspondence: asserted
       source_location:
         file: src/verdict.rs
-        line: 1374
+        line: 1345
         symbol: a_mechanical_proof_dominates_the_verdict_correspondence
     - engine: cargo test
       status: holds
@@ -2246,7 +2260,7 @@ verdicts:
       correspondence: asserted
       source_location:
         file: src/verdict.rs
-        line: 1391
+        line: 1362
         symbol: a_mechanical_inconclusive_does_not_make_an_asserted_holds_mechanical
     - engine: cargo test
       status: holds
@@ -2257,7 +2271,7 @@ verdicts:
       correspondence: asserted
       source_location:
         file: src/verdict.rs
-        line: 1408
+        line: 1379
         symbol: a_tagged_fail_against_a_proof_is_divergence
     - engine: cargo test
       status: holds
@@ -2268,7 +2282,7 @@ verdicts:
       correspondence: asserted
       source_location:
         file: src/verdict.rs
-        line: 1424
+        line: 1395
         symbol: correspondence_is_surfaced_in_report_and_render
     - engine: cargo test
       status: holds
@@ -2279,7 +2293,7 @@ verdicts:
       correspondence: asserted
       source_location:
         file: src/verdict.rs
-        line: 1435
+        line: 1406
         symbol: an_engine_verdict_stays_mechanical
     - engine: Prusti
       status: unknown
@@ -2289,27 +2303,11 @@ verdicts:
       - 'Prusti''s pinned toolchain predates this subject''s dependency graph — its 2023 cargo cannot read a v4 lock file or a dependency declaring `edition = "2024"`. This is a toolchain ceiling, not a missing annotation: Prusti can only verify a subject whose whole dependency graph builds on a 2023 nightly, and upstream has published nothing newer'
       correspondence: mechanical
       source_location: null
-    - engine: cargo test
-      status: unknown
-      basis: null
-      witness: null
-      detail:
-      - '`cargo test decisive_correspondence_delegates_the_masquerade_guard` produced no test result (the harness did not run)'
-      - Compiling provreq v0.0.44 (/workspace)
-      - 'warning: linker stderr: /usr/bin/aarch64-linux-gnu-ld.bfd: /root/.rustup/toolchains/1.98.1-aarch64-unknown-linux-gnu/lib/rustlib/aarch64-unknown-linux-gnu/lib/libstd-96c9fe7a07d47cf2.rlib(std-96c9fe7a07d47cf2.std.2e66b1facfa492c-cgu.0.rcgu.o): in function `std::sys::net::connection::socket::lookup_host::{closure#0}'':'
-      - '/rustc/48a229ceaefd4985c50990b14116b6d856af0985/library/std/src/sys/net/connection/socket/mod.rs:352:(.text._RNCNvNtNtNtNtCsfr5T3GFabw_3std3sys3net10connection6socket11lookup_host0Bb_+0x44): Using ''getaddrinfo'' in statically linked applications requires at runtime the shared libraries from the glibc version used for linking'
-      - '/usr/bin/aarch64-linux-gnu-ld.bfd: /workspace/target/aarch64-unknown-linux-gnu/debug/deps/libgix_config_value-937ddd2e6e8c01e5.rlib(gix_config_value-937ddd2e6e8c01e5.gix_config_value.26cef5a3231c2014-cgu.0.rcgu.o): in function `gix_config_value::path::interpolate::home_for_user'':'
-      - '/root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/gix-config-value-0.19.1/src/path.rs:66:(.text._RNvNtNtCs3kzJEoQTbR8_16gix_config_value4path11interpolate13home_for_user+0xc4): Using ''getpwnam'' in statically linked applications requires at runtime the shared libraries from the glibc version used for linking'
-      correspondence: asserted
-      source_location:
-        file: src/verdict.rs
-        line: 1237
-        symbol: decisive_correspondence_delegates_the_masquerade_guard
     correspondence: mechanical
     provenance:
       requirement_revision: fa8b0dc2ec423538fbd417a50416388e7aa772ecbfad6f622372156946ed4c9a
-      subject_commit: c20806dcbb6c5aa4debb4bb97a1c3ab33c47061f
-      tool_version: 0.0.44
+      subject_commit: d0f2b259084529f11404a6b57883849c44747a10
+      tool_version: 0.0.58
       verified_scope: crate crates/provreq-proofs
       formalization: 85ddb1e9b7bedb72
       environment:
@@ -2321,13 +2319,14 @@ verdicts:
         unversioned:
         - MonPoly
         - Prusti
+        - Verus
         container: true
       spec_fingerprint: null
       trace_fingerprint: null
-      source_fingerprint: 83e360440877c169e522b99740f8c15968380aad
+      source_fingerprint: 1321cab350dd4de61d60c55ca9521ad4e9248a98
       ui_fingerprint: null
-      tagged_source_fingerprint: 7203b997875e1bcb1f5d9831485b9f92f7d8c2aaf1648a23ca276c2eeb64c09c
-      scope_fingerprint: 26107e3a33d811ccde28f3cf744c21c1bd4228e4473f02477822144421fe8a77
+      tagged_source_fingerprint: 05e4c1ccb3274f2e2f23d2cd029b370ea983b2fa4993ddf01602401289dfdf23
+      scope_fingerprint: 72ec2c4c162eaaad8a27bdf35d606d905e55f86749ad1d0d53ea02defd0bb5b0
   REQ090:
     id: REQ090
     status: holds
