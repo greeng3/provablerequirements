@@ -47,6 +47,10 @@ verify:
     # Creusot/Verus proof is a case analysis over the payload-free `RetirePair` in the leaf (#602);
     # `report::recommend_retirements` maps `verdict::Basis` and delegates the decision.
     REQ079: crates/provreq-proofs
+    # REQ083's expectsCodeTrace guard is a finite decision over the model bucket and the item's
+    # declaration, so its Creusot/Verus proof is a case analysis over the payload-free `GuardCase` in
+    # the leaf (#604); `llm::parse_buckets` maps `source::Classification` and delegates.
+    REQ083: crates/provreq-proofs
     # REQ076's masquerade guard folds over an arbitrary-length evidence slice, so unlike the others
     # its Creusot proof is a Seq-induction (loop invariants), proved unbounded in the leaf (#539).
     REQ076: crates/provreq-proofs

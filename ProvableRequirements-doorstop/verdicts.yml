@@ -2590,6 +2590,139 @@ verdicts:
       ui_fingerprint: null
       tagged_source_fingerprint: 421bd54eb1255c22f5518354eaab4a267e3014c1d3e730a29ebba70238998959
       scope_fingerprint: 017f87eb1a159fbea6f5e8b14a75a1d8aadcfe597b3e9c8256177e841c1e8e8e
+  REQ083:
+    id: REQ083
+    status: holds
+    basis: proven
+    reason: null
+    witness: null
+    detail:
+    - 'Creusot: holds (proven)'
+    - 'Verus: holds (proven)'
+    - 'Kani: holds (model-checked (bounded))'
+    - bounded by — unwind 4 (`kani.default_unwind` in provreq.yml); timeout 300s (`kani.timeout_seconds` in provreq.yml)
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `classify_declines_formalizable_now_for_a_ruled_out_item` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `prompt_states_the_ruled_out_declaration` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `explicit_false_is_carried_and_seeds_no_bucket` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `explicit_true_is_carried_and_seeds_formalizable_now` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `absent_expects_code_trace_carries_nothing` passed
+    - 'Prusti: inconclusive'
+    - 'Prusti''s pinned toolchain predates this subject''s dependency graph — its 2023 cargo cannot read a v4 lock file or a dependency declaring `edition = "2024"`. This is a toolchain ceiling, not a missing annotation: Prusti can only verify a subject whose whole dependency graph builds on a 2023 nightly, and upstream has published nothing newer'
+    evidence:
+    - engine: Creusot
+      status: holds
+      basis: proven
+      witness: null
+      detail: []
+      correspondence: mechanical
+      source_location: null
+    - engine: Verus
+      status: holds
+      basis: proven
+      witness: null
+      detail: []
+      correspondence: mechanical
+      source_location: null
+    - engine: Kani
+      status: holds
+      basis: model-checked (bounded)
+      witness: null
+      detail:
+      - bounded by — unwind 4 (`kani.default_unwind` in provreq.yml); timeout 300s (`kani.timeout_seconds` in provreq.yml)
+      correspondence: mechanical
+      source_location: null
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `classify_declines_formalizable_now_for_a_ruled_out_item` passed
+      correspondence: asserted
+      source_location:
+        file: src/llm.rs
+        line: 925
+        symbol: classify_declines_formalizable_now_for_a_ruled_out_item
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `prompt_states_the_ruled_out_declaration` passed
+      correspondence: asserted
+      source_location:
+        file: src/llm.rs
+        line: 959
+        symbol: prompt_states_the_ruled_out_declaration
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `explicit_false_is_carried_and_seeds_no_bucket` passed
+      correspondence: asserted
+      source_location:
+        file: src/provreq.rs
+        line: 388
+        symbol: explicit_false_is_carried_and_seeds_no_bucket
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `explicit_true_is_carried_and_seeds_formalizable_now` passed
+      correspondence: asserted
+      source_location:
+        file: src/provreq.rs
+        line: 399
+        symbol: explicit_true_is_carried_and_seeds_formalizable_now
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `absent_expects_code_trace_carries_nothing` passed
+      correspondence: asserted
+      source_location:
+        file: src/provreq.rs
+        line: 411
+        symbol: absent_expects_code_trace_carries_nothing
+    - engine: Prusti
+      status: unknown
+      basis: null
+      witness: null
+      detail:
+      - 'Prusti''s pinned toolchain predates this subject''s dependency graph — its 2023 cargo cannot read a v4 lock file or a dependency declaring `edition = "2024"`. This is a toolchain ceiling, not a missing annotation: Prusti can only verify a subject whose whole dependency graph builds on a 2023 nightly, and upstream has published nothing newer'
+      correspondence: mechanical
+      source_location: null
+    correspondence: mechanical
+    provenance:
+      requirement_revision: 542a3001a3bfc280f73c515e909b3c3c789d58e8414b4a2752a1235ca42c17d0
+      subject_commit: 654720e62519ba5c86f576ca7d4f27664acf2a80
+      tool_version: 0.0.63
+      verified_scope: crate crates/provreq-proofs
+      formalization: 4ab1faa20dc0b252
+      environment:
+        declared: provreq-devcontainer
+        engines:
+        - Creusot 0.14.0
+        - Kani 0.68.0
+        - TLC (TLA+) 2.19
+        unversioned:
+        - MonPoly
+        - Prusti
+        - Verus
+        container: true
+      spec_fingerprint: null
+      trace_fingerprint: null
+      source_fingerprint: 88092311ea8c6320d3a2e5124c6f2ded09c6742c
+      ui_fingerprint: null
+      tagged_source_fingerprint: 4bf35f554b3b908e2d6981d53ff61775859ef55ea0e208ff098fa6a1927abbb2
+      scope_fingerprint: a051dcbecbced81af088d822c24c76161990073ce16dae610debe9438e720edb
   REQ090:
     id: REQ090
     status: holds

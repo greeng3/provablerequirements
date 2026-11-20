@@ -722,17 +722,39 @@ fn parse_buckets(raw: &str, items: &[Item]) -> Result<Vec<Option<Classification>
     }
     Ok(items
         .iter()
-        .map(|i| match map.get(&i.id).copied() {
-            // The source declared this requirement is not expected to trace to code, which rules
-            // formalizable-now out (R-src-7, #297). If the model returned it anyway, decline the
-            // item rather than present a hint that contradicts the source's own declaration: a
-            // decline leaves the item exactly as it was (#226), never inventing or overwriting a
-            // judgement. The other two buckets are left untouched — the declaration excludes one
-            // bucket, it does not choose among the rest.
-            Some(Classification::FormalizableNow) if i.expects_code_trace == Some(false) => None,
-            other => other,
+        .map(|i| {
+            // The source's `expectsCodeTrace: false` declaration rules formalizable-now out (R-src-7,
+            // #297). The deterministic guard — proved sound as REQ083 in the leaf — declines a
+            // formalizable-now the model returns for such an item (leaving it exactly as it was,
+            // #226, never inventing or overwriting a judgement) while passing every other bucket
+            // through untouched. Delegated so the proof is about the rule provreq applies.
+            let decided = provreq_proofs::classify_guard::decide(
+                map.get(&i.id).copied().map(to_guard_class),
+                i.expects_code_trace,
+            );
+            decided.map(from_guard_class)
         })
         .collect())
+}
+
+/// Map a `source::Classification` to the payload-free proof-core `Classification` (REQ083), and back.
+/// Faithful: the three buckets correspond one-to-one.
+fn to_guard_class(c: Classification) -> provreq_proofs::classify_guard::Classification {
+    use provreq_proofs::classify_guard::Classification as L;
+    match c {
+        Classification::FormalizableNow => L::FormalizableNow,
+        Classification::FalsifiableOnly => L::FalsifiableOnly,
+        Classification::StaysProse => L::StaysProse,
+    }
+}
+
+fn from_guard_class(c: provreq_proofs::classify_guard::Classification) -> Classification {
+    use provreq_proofs::classify_guard::Classification as L;
+    match c {
+        L::FormalizableNow => Classification::FormalizableNow,
+        L::FalsifiableOnly => Classification::FalsifiableOnly,
+        L::StaysProse => Classification::StaysProse,
+    }
 }
 
 /// A short, single-line rendering of a reply for an error message — enough for the operator to
