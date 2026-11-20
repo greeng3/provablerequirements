@@ -51,6 +51,10 @@ verify:
     # declaration, so its Creusot/Verus proof is a case analysis over the payload-free `GuardCase` in
     # the leaf (#604); `llm::parse_buckets` maps `source::Classification` and delegates.
     REQ083: crates/provreq-proofs
+    # REQ043's verdict-axis bucketing is a finite decision over a present verdict's freshness and
+    # polarity, so its Creusot/Verus proof is a case analysis over the payload-free `VerdictAxis` in
+    # the leaf (#606); `status::coverage` reduces `(view.fresh, view.status == "holds")` and delegates.
+    REQ043: crates/provreq-proofs
     # REQ076's masquerade guard folds over an arbitrary-length evidence slice, so unlike the others
     # its Creusot proof is a Seq-induction (loop invariants), proved unbounded in the leaf (#539).
     REQ076: crates/provreq-proofs

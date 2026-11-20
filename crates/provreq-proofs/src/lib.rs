@@ -16,6 +16,7 @@
 pub mod classify_guard;
 pub mod code_drift;
 pub mod combine;
+pub mod coverage;
 pub mod fragment;
 pub mod masquerade;
 pub mod model_binding;
