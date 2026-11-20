@@ -6,6 +6,9 @@ use creusot_std::macros::*;
 
 /// The payload-free triage classification of one item. `status::Classification` maps onto this.
 /// No `PartialEq` derive: the proofs match on it.
+// Plain shared items — gated out under `verus_only`, where the `verus! { }` mirror below owns these
+// names (#598, REQ030 gating style — the predicate/sort are `cfg(any(kani, creusot, prusti))`).
+#[cfg(not(verus_only))]
 #[derive(Debug, Clone, Copy)]
 pub enum Classification {
     FormalizableNow,
@@ -15,6 +18,7 @@ pub enum Classification {
 
 /// The four honest triage buckets of the coverage funnel. `None` classification is untriaged — its
 /// own state, never folded into stays-prose or either formalizable bucket.
+#[cfg(not(verus_only))]
 #[derive(Debug, Clone, Copy)]
 pub enum TriageBucket {
     Untriaged,
@@ -25,6 +29,7 @@ pub enum TriageBucket {
 
 /// Which bucket one item falls in, from its classification alone. Pure and total, so the funnel's
 /// counts partition the items.
+#[cfg(not(verus_only))]
 #[cfg_attr(creusot, ensures(result == triage_bucket_logic(classification)))]
 pub fn triage_bucket(classification: Option<Classification>) -> TriageBucket {
     match classification {
@@ -139,3 +144,45 @@ mod tests {
         ));
     }
 }
+
+// REQ093/#598 — the Verus mirror: independent deductive corroboration of REQ011 alongside Creusot.
+// Loop-free; the generated harness body `triage_partition_is_honest(&case)` is a function call that
+// triggers on itself — no `#[trigger]`. The spec fn mirrors the pearlite `*_logic` (the "exactly one
+// state holds" count is structural in the disjoint match, so — like the Creusot mirror — this checks
+// only that `triage_bucket` lands each case in its own bucket). The plain `Classification`/
+// `TriageBucket`/`triage_bucket` are gated `not(verus_only)`; `FunnelCase`/`triage_partition_is_honest`
+// are `cfg(any(kani, creusot, prusti))`, excluded under Verus.
+#[cfg(verus_only)]
+use vstd::prelude::*;
+
+#[cfg(verus_only)]
+verus! {
+
+pub enum Classification { FormalizableNow, FalsifiableOnly, StaysProse }
+
+pub enum TriageBucket { Untriaged, FormalizableNow, FalsifiableOnly, StaysProse }
+
+pub open spec fn triage_bucket(classification: Option<Classification>) -> TriageBucket {
+    match classification {
+        None => TriageBucket::Untriaged,
+        Some(Classification::FormalizableNow) => TriageBucket::FormalizableNow,
+        Some(Classification::FalsifiableOnly) => TriageBucket::FalsifiableOnly,
+        Some(Classification::StaysProse) => TriageBucket::StaysProse,
+    }
+}
+
+pub struct FunnelCase { pub classification: Option<Classification> }
+
+pub open spec fn triage_partition_is_honest(case: &FunnelCase) -> bool {
+    match case.classification {
+        None => triage_bucket(case.classification) == TriageBucket::Untriaged,
+        Some(Classification::FormalizableNow) =>
+            triage_bucket(case.classification) == TriageBucket::FormalizableNow,
+        Some(Classification::FalsifiableOnly) =>
+            triage_bucket(case.classification) == TriageBucket::FalsifiableOnly,
+        Some(Classification::StaysProse) =>
+            triage_bucket(case.classification) == TriageBucket::StaysProse,
+    }
+}
+
+} // verus!

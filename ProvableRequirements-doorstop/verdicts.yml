@@ -7,6 +7,7 @@ verdicts:
     witness: null
     detail:
     - 'Creusot: holds (proven)'
+    - 'Verus: holds (proven)'
     - 'Kani: holds (model-checked (bounded))'
     - bounded by — unwind 4 (`kani.default_unwind` in provreq.yml); timeout 300s (`kani.timeout_seconds` in provreq.yml)
     - 'cargo test: holds (not-falsified)'
@@ -15,6 +16,13 @@ verdicts:
     - 'Prusti''s pinned toolchain predates this subject''s dependency graph — its 2023 cargo cannot read a v4 lock file or a dependency declaring `edition = "2024"`. This is a toolchain ceiling, not a missing annotation: Prusti can only verify a subject whose whole dependency graph builds on a 2023 nightly, and upstream has published nothing newer'
     evidence:
     - engine: Creusot
+      status: holds
+      basis: proven
+      witness: null
+      detail: []
+      correspondence: mechanical
+      source_location: null
+    - engine: Verus
       status: holds
       basis: proven
       witness: null
@@ -51,8 +59,8 @@ verdicts:
     correspondence: mechanical
     provenance:
       requirement_revision: 7cd86b495a6a9f166fbe0b5815604b8388be871441224d91a217823da891fdd3
-      subject_commit: e95f4e414fa753e4070e427fec2a03de50650871
-      tool_version: 0.0.42
+      subject_commit: 612945aa17ace6b46c0979d9ff404c53cd327eb0
+      tool_version: 0.0.60
       verified_scope: crate crates/provreq-proofs
       formalization: fa903f765b817c3b
       environment:
@@ -64,13 +72,14 @@ verdicts:
         unversioned:
         - MonPoly
         - Prusti
+        - Verus
         container: true
       spec_fingerprint: null
       trace_fingerprint: null
-      source_fingerprint: b099da4620da3ed94ea92daa1533ac65d8b8bcfe
+      source_fingerprint: b61f38200a11619afc12b5c6fffac8927228d962
       ui_fingerprint: null
       tagged_source_fingerprint: 96fcc76841c9f602d7d6a504e718b4a34ab72ea5f50e950cbd1422e0c3aadc87
-      scope_fingerprint: 94f6624fbbbcac3f65bb82fde5acf62dfd4f1253e3870a88447b317e65265638
+      scope_fingerprint: 6cbeda08d511a1a038cb672189d4440f7d784418ad18bbd8c85e3c7c6a617007
   REQ014:
     id: REQ014
     status: holds
@@ -153,6 +162,7 @@ verdicts:
     witness: null
     detail:
     - 'Creusot: holds (proven)'
+    - 'Verus: holds (proven)'
     - 'Kani: holds (model-checked (bounded))'
     - bounded by — unwind 4 (`kani.default_unwind` in provreq.yml); timeout 300s (`kani.timeout_seconds` in provreq.yml)
     - 'cargo test: holds (not-falsified)'
@@ -187,6 +197,13 @@ verdicts:
       detail: []
       correspondence: mechanical
       source_location: null
+    - engine: Verus
+      status: holds
+      basis: proven
+      witness: null
+      detail: []
+      correspondence: mechanical
+      source_location: null
     - engine: Kani
       status: holds
       basis: model-checked (bounded)
@@ -204,7 +221,7 @@ verdicts:
       correspondence: asserted
       source_location:
         file: src/engine.rs
-        line: 609
+        line: 640
         symbol: an_unwired_engine_is_never_ready
     - engine: cargo test
       status: holds
@@ -215,7 +232,7 @@ verdicts:
       correspondence: asserted
       source_location:
         file: src/engine.rs
-        line: 618
+        line: 649
         symbol: not_wired_is_distinct_from_missing
     - engine: cargo test
       status: holds
@@ -226,7 +243,7 @@ verdicts:
       correspondence: asserted
       source_location:
         file: src/engine.rs
-        line: 890
+        line: 921
         symbol: unwired_engine_blocks_readiness
     - engine: cargo test
       status: holds
@@ -327,8 +344,8 @@ verdicts:
     correspondence: mechanical
     provenance:
       requirement_revision: a7af373762be623f5fd8a56c8f46e7a66479c292722ac1b84298c584569f3660
-      subject_commit: e95f4e414fa753e4070e427fec2a03de50650871
-      tool_version: 0.0.42
+      subject_commit: 612945aa17ace6b46c0979d9ff404c53cd327eb0
+      tool_version: 0.0.60
       verified_scope: crate crates/provreq-proofs
       formalization: 2618ceacc0cea640
       environment:
@@ -340,13 +357,14 @@ verdicts:
         unversioned:
         - MonPoly
         - Prusti
+        - Verus
         container: true
       spec_fingerprint: null
       trace_fingerprint: null
-      source_fingerprint: b099da4620da3ed94ea92daa1533ac65d8b8bcfe
+      source_fingerprint: b61f38200a11619afc12b5c6fffac8927228d962
       ui_fingerprint: null
-      tagged_source_fingerprint: dce95ffade8eb1a339dc791239203bbc50e0925efc8e1874a4b306ca0e5114c3
-      scope_fingerprint: b3f8fec435ff82555432d7eba86e4ebdcea651dc65d91c58a1e92f5d074c630d
+      tagged_source_fingerprint: b233b4974bbb31b895757aa2ce7e0e6662066badb3a88fbf1706a7985e36e729
+      scope_fingerprint: ebc05c09ff7d6d617fd5c6aff2ace949a831f1845e2005b2ec9d759a50c6e01a
   REQ028:
     id: REQ028
     status: holds
@@ -355,6 +373,7 @@ verdicts:
     witness: null
     detail:
     - 'Creusot: holds (proven)'
+    - 'Verus: holds (proven)'
     - 'Kani: holds (model-checked (bounded))'
     - bounded by — unwind 4 (`kani.default_unwind` in provreq.yml); timeout 300s (`kani.timeout_seconds` in provreq.yml)
     - 'cargo test: holds (not-falsified)'
@@ -435,6 +454,13 @@ verdicts:
     - 'Prusti''s pinned toolchain predates this subject''s dependency graph — its 2023 cargo cannot read a v4 lock file or a dependency declaring `edition = "2024"`. This is a toolchain ceiling, not a missing annotation: Prusti can only verify a subject whose whole dependency graph builds on a 2023 nightly, and upstream has published nothing newer'
     evidence:
     - engine: Creusot
+      status: holds
+      basis: proven
+      witness: null
+      detail: []
+      correspondence: mechanical
+      source_location: null
+    - engine: Verus
       status: holds
       basis: proven
       witness: null
@@ -832,7 +858,7 @@ verdicts:
       correspondence: asserted
       source_location:
         file: src/verdict_store.rs
-        line: 497
+        line: 521
         symbol: an_external_spec_moving_makes_a_verdict_stale
     - engine: cargo test
       status: holds
@@ -843,7 +869,7 @@ verdicts:
       correspondence: asserted
       source_location:
         file: src/verdict_store.rs
-        line: 524
+        line: 548
         symbol: a_verdict_without_a_spec_fingerprint_is_not_flagged
     - engine: cargo test
       status: holds
@@ -854,7 +880,7 @@ verdicts:
       correspondence: asserted
       source_location:
         file: src/verdict_store.rs
-        line: 543
+        line: 567
         symbol: losing_the_configured_specs_makes_a_verdict_stale
     - engine: Prusti
       status: unknown
@@ -867,8 +893,8 @@ verdicts:
     correspondence: mechanical
     provenance:
       requirement_revision: 5c60f23e493018ce2b850e669d956c3280da8ae443b0b8e4590a7389a0b8d495
-      subject_commit: e95f4e414fa753e4070e427fec2a03de50650871
-      tool_version: 0.0.42
+      subject_commit: 612945aa17ace6b46c0979d9ff404c53cd327eb0
+      tool_version: 0.0.60
       verified_scope: crate crates/provreq-proofs
       formalization: b0add4493715d12c
       environment:
@@ -880,13 +906,14 @@ verdicts:
         unversioned:
         - MonPoly
         - Prusti
+        - Verus
         container: true
       spec_fingerprint: null
       trace_fingerprint: null
-      source_fingerprint: b099da4620da3ed94ea92daa1533ac65d8b8bcfe
+      source_fingerprint: b61f38200a11619afc12b5c6fffac8927228d962
       ui_fingerprint: null
-      tagged_source_fingerprint: 264c1e1f7764a6a7db118ee738265d1961843c10e26c7c41a0bae47e28b3c506
-      scope_fingerprint: 315f87db9b323fe6b33b5f1cc214d04cd3dcc58349c8e6c809c41d06a62975af
+      tagged_source_fingerprint: 36fbe5f2ef19c7510993202277fbd693759f93efdc68b1a5ddcd98ab53e8615d
+      scope_fingerprint: a9701779de8b10b3da715a47b44a2946e478ab9379f82bd0837f833e6501f8cf
   REQ030:
     id: REQ030
     status: holds
