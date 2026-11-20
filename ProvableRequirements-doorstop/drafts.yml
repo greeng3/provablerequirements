@@ -381,6 +381,26 @@ drafts:
       category: code
       observable: RetirePair
       fidelity: definitional
+  REQ083:
+    revision: 542a3001a3bfc280f73c515e909b3c3c789d58e8414b4a2752a1235ca42c17d0
+    candidate: 'requirement REQ083_expects_trace_guard_is_sound { category: 1 vocabulary { state decide_is_sound(c: GuardCase) } require { always (decide_is_sound(c)) } }'
+    gate:
+      status: passed
+      warnings: []
+    admission:
+      state: admitted
+      review: optional
+      by: greeng3
+      at_unix: 1795210653
+    bindings:
+    - symbol: decide_is_sound
+      category: code
+      observable: decide_is_sound
+      fidelity: definitional
+    - symbol: GuardCase
+      category: code
+      observable: GuardCase
+      fidelity: definitional
   REQ090:
     revision: 69b1b86b602f28bbf932d9a0dc935a5fac6e3f28d95b3ec6ddd50362be55b925
     candidate: |-
