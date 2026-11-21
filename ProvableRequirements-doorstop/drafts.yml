@@ -152,6 +152,26 @@ drafts:
       category: code
       observable: proven_is_top
       fidelity: definitional
+  REQ033:
+    revision: ee677d4ff47bd6ccfabff03188c4fbbccf40a8c7bfa396532c03a82356599d65
+    candidate: 'requirement REQ033_marker_draft_is_sound { category: 1 vocabulary { state drafts_markers_is_sound(m: Marker) } require { always (drafts_markers_is_sound(m)) } }'
+    gate:
+      status: passed
+      warnings: []
+    admission:
+      state: admitted
+      review: optional
+      by: greeng3
+      at_unix: 1795216343
+    bindings:
+    - symbol: drafts_markers_is_sound
+      category: code
+      observable: drafts_markers_is_sound
+      fidelity: definitional
+    - symbol: Marker
+      category: code
+      observable: Marker
+      fidelity: definitional
   REQ039:
     revision: 22aa2e3d49492502d368e1e988b2c218a035ae5e54259f00f96c4c7cecfe3833
     candidate: |-
