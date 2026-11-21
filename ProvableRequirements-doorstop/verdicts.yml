@@ -5800,6 +5800,8 @@ verdicts:
     - not falsified over — the tagged test `draft_translate_unknown_id_is_not_found` passed
     - 'cargo test: holds (not-falsified)'
     - not falsified over — the tagged test `draft_translate_on_unadopted_subject_is_conflict` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `draft_translate_with_a_model_generates_repairs_and_stores_the_candidate` passed
     evidence:
     - engine: cargo test
       status: holds
@@ -5834,13 +5836,24 @@ verdicts:
         file: src/server.rs
         line: 1352
         symbol: draft_translate_on_unadopted_subject_is_conflict
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `draft_translate_with_a_model_generates_repairs_and_stores_the_candidate` passed
+      correspondence: asserted
+      source_location:
+        file: src/server.rs
+        line: 1413
+        symbol: draft_translate_with_a_model_generates_repairs_and_stores_the_candidate
     correspondence: asserted
     provenance:
       requirement_revision: c7fc817b53db96f19e1f1791eb86bb7831814b54c8b5d21fdcc1fa4a89848794
-      subject_commit: 2a223d0b715147fffae12e53364bee06c2dcf499
-      tool_version: 0.0.65
+      subject_commit: bbf8a4dbbe3a50004e6ff71907b15ac7ee8e7131
+      tool_version: 0.0.69
       verified_scope: null
-      formalization: '1599148460102357'
+      formalization: 5a4f51c55f551f34
       environment:
         declared: provreq-devcontainer
         engines:
@@ -5854,10 +5867,10 @@ verdicts:
         container: true
       spec_fingerprint: null
       trace_fingerprint: null
-      source_fingerprint: c47157765172605737b705802020738bd6a967d6
+      source_fingerprint: 178a928cb83fdb372597d0c8ec149b2ccf49843c
       ui_fingerprint: null
-      tagged_source_fingerprint: 976d19b6ab6c8dcdb145c2785bc45eb859159d4ce305c31d913430d6c859b159
-      scope_fingerprint: 270c0f775f32065e4b104ed5501c0afbc475c0ef64e85595e53c57cbd7bbd03a
+      tagged_source_fingerprint: 452fe30d54ab203ec5418bc513aef6fd4622cf3142137c61c5c596c44e9e3627
+      scope_fingerprint: 1e444ac0b0f4cbe03cf5fbe007657d3386c5a67b1ba56cb3cffc67648cfb5020
   REQ088:
     id: REQ088
     status: holds
