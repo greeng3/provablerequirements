@@ -202,6 +202,52 @@ wiped it, and ~530 PRLs were lost (provreq's #477-482). Commit `drafts.yml`, `ve
 `provreq-formalized` / `provreq-verdict` breadcrumbs the writeback appends to each requirement item.
 provreq warns on this via `draft::drafts_at_loss_risk`.
 
+## The asserted route: honest `not-falsified` via tagged tests
+
+Not every requirement has a payload-free deductive core. One that does not can still earn an honest
+`holds / **not-falsified**` (asserted, weaker than `proven`) verdict from a human-written test tagged
+to it — provided the test genuinely exercises the requirement's claim.
+
+**How a test is tagged.** A `// Verifies: <ID>` comment directly above a `#[test]` ties it to a
+requirement (resolved by `trace::TraceKind::Verifies`; the id is compared `-`/`_`-insensitively and
+case-folded, so `Verifies: REQ-081` matches `REQ081`). `verify` scans for these, runs each with a
+bare `cargo test <name>`, and a pass contributes `not-falsified`. `Implements:` is **not** evidence —
+it says code _realises_ the requirement, not that it _checks_ it.
+
+**Independent of grounding.** Tagged-test evidence does not need a grounded PRL — an admitted draft
+with empty `bindings` still earns the verdict from its tests. So the PRL only has to state the claim
+faithfully and admit; the verdict rides on the tests. Draft/admit/writeback exactly as above, minus
+the `--ground` steps.
+
+**The honesty bar is yours, not the engine's.** The engine will stamp `not-falsified` on _any_
+requirement with a passing tagged test. An honest verdict needs ≥1 un-ignored tagged test that would
+**fail if the claim regressed** — not an incidental test that merely mentions the id. If the only
+tests touch sibling behaviour, or the claim is inherently un-testable by a unit test (human workflow,
+quality of generated prose, a live subprocess), do **not** draft it a verdict — leave it `unknown`.
+Scope the PRL to what the tests actually pin: a requirement whose headline needs a live model, but
+whose tests only cover the guardrails, is formalized honestly as the guardrail claim alone.
+
+**Two reachability gotchas** (both verify to an honest `unknown`, never a false pass):
+
+- **All-`#[ignore]`d match.** A bare `cargo test <name>` reports an ignored test as `0 passed;
+0 failed` — "the tag names no runnable test" → `unknown`. A requirement whose only tagged tests are
+  `#[ignore]`d (e.g. live-prover integration tests run just in CI) stays honestly `unknown` locally.
+- **Test in another member crate.** `cargo test <name>` runs in the subject's own package, so a test
+  in a sibling workspace member is never built → `unknown`. Point the requirement at it with a
+  per-requirement override (#612):
+
+    ```yaml
+    verify:
+        cargo_overrides:
+            REQ081:
+                extra_args: ["-p", "provreq-mcp"] # reach the member crate's test
+    ```
+
+    `verify.cargo_overrides` wins wholesale over the subject-wide `verify.cargo` block, the way
+    `verify.crates` wins over `verify.crate` — so one requirement's build input does not change the
+    invocation for the others. The override can also carry `features`, `harness_args` (e.g.
+    `["--ignored"]`), or `env`.
+
 ## Related
 
 - [end-to-end-guide.md](end-to-end-guide.md) — the CLI pipeline this cookbook plugs into.
