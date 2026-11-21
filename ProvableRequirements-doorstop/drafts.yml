@@ -731,7 +731,7 @@ drafts:
     bindings: []
   REQ087:
     revision: c7fc817b53db96f19e1f1791eb86bb7831814b54c8b5d21fdcc1fa4a89848794
-    candidate: 'requirement REQ087_translate_has_no_offline_fallback { category: 1 vocabulary { state translate_request(r: Request) state model_configured(r: Request) state named_config_error(r: Request) } require { each r: Request . never (translate_request(r) and not model_configured(r) and not named_config_error(r)) } }'
+    candidate: 'requirement REQ087_translate_runs_shared_gated_machinery { category: 1 vocabulary { state translate_request(r: Request) state model_configured(r: Request) state named_config_error(r: Request) state gated_candidate_stored(r: Request) } require { each r: Request . never (translate_request(r) and not model_configured(r) and not named_config_error(r)) each r: Request . never (translate_request(r) and model_configured(r) and not named_config_error(r) and not gated_candidate_stored(r)) } }'
     gate:
       status: passed
       warnings: []
@@ -739,7 +739,7 @@ drafts:
       state: admitted
       review: optional
       by: greeng3
-      at_unix: 1795223345
+      at_unix: 1795290757
     bindings: []
   REQ088:
     revision: e9611f4159b5a7a1d63c8762d08aaa7e569c7e7f9d24d56ccba59a8ace020c38
