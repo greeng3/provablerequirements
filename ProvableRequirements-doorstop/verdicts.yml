@@ -1,4 +1,127 @@
 verdicts:
+  REQ009:
+    id: REQ009
+    status: holds
+    basis: not-falsified
+    reason: null
+    witness: null
+    detail:
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `a_provreq_subject_resolves_through_the_same_seam_as_a_doorstop_one` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `a_subject_without_a_collection_is_still_read_as_doorstop` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `doorstop_source_reads_prose_and_revision` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `reads_a_provreq_artifact_as_a_source_item` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `the_revision_follows_the_prose_and_not_the_timestamp` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `an_inactive_artifact_is_not_a_requirement` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `the_revision_token_is_a_pinned_digest_not_a_build_local_hash` passed
+    evidence:
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `a_provreq_subject_resolves_through_the_same_seam_as_a_doorstop_one` passed
+      correspondence: asserted
+      source_location:
+        file: src/adopt.rs
+        line: 314
+        symbol: a_provreq_subject_resolves_through_the_same_seam_as_a_doorstop_one
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `a_subject_without_a_collection_is_still_read_as_doorstop` passed
+      correspondence: asserted
+      source_location:
+        file: src/adopt.rs
+        line: 334
+        symbol: a_subject_without_a_collection_is_still_read_as_doorstop
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `doorstop_source_reads_prose_and_revision` passed
+      correspondence: asserted
+      source_location:
+        file: src/doorstop.rs
+        line: 223
+        symbol: doorstop_source_reads_prose_and_revision
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `reads_a_provreq_artifact_as_a_source_item` passed
+      correspondence: asserted
+      source_location:
+        file: src/provreq.rs
+        line: 332
+        symbol: reads_a_provreq_artifact_as_a_source_item
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `the_revision_follows_the_prose_and_not_the_timestamp` passed
+      correspondence: asserted
+      source_location:
+        file: src/provreq.rs
+        line: 420
+        symbol: the_revision_follows_the_prose_and_not_the_timestamp
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `an_inactive_artifact_is_not_a_requirement` passed
+      correspondence: asserted
+      source_location:
+        file: src/provreq.rs
+        line: 489
+        symbol: an_inactive_artifact_is_not_a_requirement
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `the_revision_token_is_a_pinned_digest_not_a_build_local_hash` passed
+      correspondence: asserted
+      source_location:
+        file: src/source.rs
+        line: 140
+        symbol: the_revision_token_is_a_pinned_digest_not_a_build_local_hash
+    correspondence: asserted
+    provenance:
+      requirement_revision: 995343ff9674e7981805afad621e867e6e57b8e76d611fbf65f85ba3bdcf5d2d
+      subject_commit: 2a223d0b715147fffae12e53364bee06c2dcf499
+      tool_version: 0.0.65
+      verified_scope: null
+      formalization: a2ef41b6b1eeafb1
+      environment:
+        declared: provreq-devcontainer
+        engines:
+        - Creusot 0.14.0
+        - Kani 0.68.0
+        - TLC (TLA+) 2.19
+        unversioned:
+        - MonPoly
+        - Prusti
+        - Verus
+        container: true
+      spec_fingerprint: null
+      trace_fingerprint: null
+      source_fingerprint: c47157765172605737b705802020738bd6a967d6
+      ui_fingerprint: null
+      tagged_source_fingerprint: ada2f6102009c46ab0e6e2289cc61f039357fecd6b1ff8d16690b2bd62e877f7
+      scope_fingerprint: 270c0f775f32065e4b104ed5501c0afbc475c0ef64e85595e53c57cbd7bbd03a
   REQ011:
     id: REQ011
     status: holds
@@ -154,6 +277,245 @@ verdicts:
       ui_fingerprint: null
       tagged_source_fingerprint: 43e2f1e01b0189aa502076022ff88e940ca70e6c729051aea2c01f1799e4dbe3
       scope_fingerprint: d2ceb389ae7576d2877a47cbcab29dd952ff41b9a2658886d8426166b05a2b84
+  REQ016:
+    id: REQ016
+    status: holds
+    basis: not-falsified
+    reason: null
+    witness: null
+    detail:
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `gate_rejects_undeclared_predicate_with_a_line` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `gate_rejects_malformed_input_at_parse` passed
+    evidence:
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `gate_rejects_undeclared_predicate_with_a_line` passed
+      correspondence: asserted
+      source_location:
+        file: src/prl.rs
+        line: 137
+        symbol: gate_rejects_undeclared_predicate_with_a_line
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `gate_rejects_malformed_input_at_parse` passed
+      correspondence: asserted
+      source_location:
+        file: src/prl.rs
+        line: 154
+        symbol: gate_rejects_malformed_input_at_parse
+    correspondence: asserted
+    provenance:
+      requirement_revision: 12d7c1c8ad6735532473d4c79912b646f25dfc710d557a198416f677a9b77625
+      subject_commit: 2a223d0b715147fffae12e53364bee06c2dcf499
+      tool_version: 0.0.65
+      verified_scope: null
+      formalization: 70cb11a4d745fa3f
+      environment:
+        declared: provreq-devcontainer
+        engines:
+        - Creusot 0.14.0
+        - Kani 0.68.0
+        - TLC (TLA+) 2.19
+        unversioned:
+        - MonPoly
+        - Prusti
+        - Verus
+        container: true
+      spec_fingerprint: null
+      trace_fingerprint: null
+      source_fingerprint: c47157765172605737b705802020738bd6a967d6
+      ui_fingerprint: null
+      tagged_source_fingerprint: 17c83aff4f719df25b7284a10344bc7ad0a2e76606fd6eb7990bec45b609134e
+      scope_fingerprint: 270c0f775f32065e4b104ed5501c0afbc475c0ef64e85595e53c57cbd7bbd03a
+  REQ017:
+    id: REQ017
+    status: holds
+    basis: not-falsified
+    reason: null
+    witness: null
+    detail:
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `set_gate_updates_outcome_only` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `repair_loop_recovers_on_second_attempt` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `repair_loop_gives_up_after_max_attempts` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `vacuity_warnings_do_not_drive_repair` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `gate_accepts_but_warns_on_vacuity` passed
+    evidence:
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `set_gate_updates_outcome_only` passed
+      correspondence: asserted
+      source_location:
+        file: src/draft.rs
+        line: 716
+        symbol: set_gate_updates_outcome_only
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `repair_loop_recovers_on_second_attempt` passed
+      correspondence: asserted
+      source_location:
+        file: src/formalize.rs
+        line: 382
+        symbol: repair_loop_recovers_on_second_attempt
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `repair_loop_gives_up_after_max_attempts` passed
+      correspondence: asserted
+      source_location:
+        file: src/formalize.rs
+        line: 399
+        symbol: repair_loop_gives_up_after_max_attempts
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `vacuity_warnings_do_not_drive_repair` passed
+      correspondence: asserted
+      source_location:
+        file: src/formalize.rs
+        line: 416
+        symbol: vacuity_warnings_do_not_drive_repair
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `gate_accepts_but_warns_on_vacuity` passed
+      correspondence: asserted
+      source_location:
+        file: src/prl.rs
+        line: 120
+        symbol: gate_accepts_but_warns_on_vacuity
+    correspondence: asserted
+    provenance:
+      requirement_revision: 289606c00a749371b0ed50a8303076943dd4466600c9e2e53dcbc9eff2513db8
+      subject_commit: 2a223d0b715147fffae12e53364bee06c2dcf499
+      tool_version: 0.0.65
+      verified_scope: null
+      formalization: 1b8788759f61b970
+      environment:
+        declared: provreq-devcontainer
+        engines:
+        - Creusot 0.14.0
+        - Kani 0.68.0
+        - TLC (TLA+) 2.19
+        unversioned:
+        - MonPoly
+        - Prusti
+        - Verus
+        container: true
+      spec_fingerprint: null
+      trace_fingerprint: null
+      source_fingerprint: c47157765172605737b705802020738bd6a967d6
+      ui_fingerprint: null
+      tagged_source_fingerprint: fac08f115cbd858a03ef9857def56ff7f1db1cc5bd0d0a71f6907da99c836dad
+      scope_fingerprint: 270c0f775f32065e4b104ed5501c0afbc475c0ef64e85595e53c57cbd7bbd03a
+  REQ023:
+    id: REQ023
+    status: holds
+    basis: not-falsified
+    reason: null
+    witness: null
+    detail:
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `grounded_but_no_engine_is_unknown_no_engine` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `parked_grounding_is_unknown_missing_grounding_with_reasons` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `render_shows_status_reason_and_provenance` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `render_handles_missing_subject_commit` passed
+    evidence:
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `grounded_but_no_engine_is_unknown_no_engine` passed
+      correspondence: asserted
+      source_location:
+        file: src/verdict.rs
+        line: 873
+        symbol: grounded_but_no_engine_is_unknown_no_engine
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `parked_grounding_is_unknown_missing_grounding_with_reasons` passed
+      correspondence: asserted
+      source_location:
+        file: src/verdict.rs
+        line: 883
+        symbol: parked_grounding_is_unknown_missing_grounding_with_reasons
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `render_shows_status_reason_and_provenance` passed
+      correspondence: asserted
+      source_location:
+        file: src/verdict.rs
+        line: 897
+        symbol: render_shows_status_reason_and_provenance
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `render_handles_missing_subject_commit` passed
+      correspondence: asserted
+      source_location:
+        file: src/verdict.rs
+        line: 912
+        symbol: render_handles_missing_subject_commit
+    correspondence: asserted
+    provenance:
+      requirement_revision: 40e59516c423e22b086603ec3a7a877e9ddbd465022c17dbb3ab8713c6876066
+      subject_commit: 2a223d0b715147fffae12e53364bee06c2dcf499
+      tool_version: 0.0.65
+      verified_scope: null
+      formalization: 7b3ec91622d89000
+      environment:
+        declared: provreq-devcontainer
+        engines:
+        - Creusot 0.14.0
+        - Kani 0.68.0
+        - TLC (TLA+) 2.19
+        unversioned:
+        - MonPoly
+        - Prusti
+        - Verus
+        container: true
+      spec_fingerprint: null
+      trace_fingerprint: null
+      source_fingerprint: c47157765172605737b705802020738bd6a967d6
+      ui_fingerprint: null
+      tagged_source_fingerprint: 05e4c1ccb3274f2e2f23d2cd029b370ea983b2fa4993ddf01602401289dfdf23
+      scope_fingerprint: 270c0f775f32065e4b104ed5501c0afbc475c0ef64e85595e53c57cbd7bbd03a
   REQ024:
     id: REQ024
     status: holds
@@ -1459,6 +1821,311 @@ verdicts:
       ui_fingerprint: null
       tagged_source_fingerprint: fdcecebb0c4128788c5841f99dd5b3e0477c28d227f39e1d33b673db6436afd9
       scope_fingerprint: d21d2343d24772d850ad3f7110481a6cae19fed22d066916320aeeb9ab7fa2c6
+  REQ032:
+    id: REQ032
+    status: holds
+    basis: not-falsified
+    reason: null
+    witness: null
+    detail:
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `quantified_invariant_lowers_to_a_forall_prusti_assert` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `calls_go_through_crate_not_a_crate_name` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `calls_follow_the_subjects_parameter_modes` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `never_lowers_to_a_negated_unquantified_assertion` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `unbound_sort_does_not_lower` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `unresolved_predicate_does_not_lower` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `temporal_patterns_do_not_lower` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `finished_output_is_holds` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `verification_error_is_inconclusive_never_fails` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `a_compile_failure_is_inconclusive_and_names_the_cause` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `a_missing_prusti_contracts_dependency_is_inconclusive` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `unrecognised_output_is_inconclusive` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `harness_name_is_a_valid_prefixed_identifier` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `a_prusti_pass_is_proven_and_not_bounded` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `an_inconclusive_run_is_unknown_never_a_verdict` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `an_existing_harness_file_is_never_overwritten` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `a_subject_with_no_crate_root_is_inconclusive` passed
+    - 'cargo test: inconclusive'
+    - no test named `real_prusti_proves_a_true_invariant` ran (the tag names no runnable test)
+    - 'cargo test: inconclusive'
+    - no test named `real_prusti_cannot_prove_a_false_invariant` ran (the tag names no runnable test)
+    - 'cargo test: inconclusive'
+    - no test named `real_prusti_is_inconclusive_on_opaque_predicates` ran (the tag names no runnable test)
+    - 'cargo test: inconclusive'
+    - no test named `real_prusti_run_leaves_no_trace_in_the_subject` ran (the tag names no runnable test)
+    evidence:
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `quantified_invariant_lowers_to_a_forall_prusti_assert` passed
+      correspondence: asserted
+      source_location:
+        file: src/prusti.rs
+        line: 437
+        symbol: quantified_invariant_lowers_to_a_forall_prusti_assert
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `calls_go_through_crate_not_a_crate_name` passed
+      correspondence: asserted
+      source_location:
+        file: src/prusti.rs
+        line: 459
+        symbol: calls_go_through_crate_not_a_crate_name
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `calls_follow_the_subjects_parameter_modes` passed
+      correspondence: asserted
+      source_location:
+        file: src/prusti.rs
+        line: 468
+        symbol: calls_follow_the_subjects_parameter_modes
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `never_lowers_to_a_negated_unquantified_assertion` passed
+      correspondence: asserted
+      source_location:
+        file: src/prusti.rs
+        line: 481
+        symbol: never_lowers_to_a_negated_unquantified_assertion
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `unbound_sort_does_not_lower` passed
+      correspondence: asserted
+      source_location:
+        file: src/prusti.rs
+        line: 511
+        symbol: unbound_sort_does_not_lower
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `unresolved_predicate_does_not_lower` passed
+      correspondence: asserted
+      source_location:
+        file: src/prusti.rs
+        line: 530
+        symbol: unresolved_predicate_does_not_lower
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `temporal_patterns_do_not_lower` passed
+      correspondence: asserted
+      source_location:
+        file: src/prusti.rs
+        line: 545
+        symbol: temporal_patterns_do_not_lower
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `finished_output_is_holds` passed
+      correspondence: asserted
+      source_location:
+        file: src/prusti.rs
+        line: 560
+        symbol: finished_output_is_holds
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `verification_error_is_inconclusive_never_fails` passed
+      correspondence: asserted
+      source_location:
+        file: src/prusti.rs
+        line: 570
+        symbol: verification_error_is_inconclusive_never_fails
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `a_compile_failure_is_inconclusive_and_names_the_cause` passed
+      correspondence: asserted
+      source_location:
+        file: src/prusti.rs
+        line: 586
+        symbol: a_compile_failure_is_inconclusive_and_names_the_cause
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `a_missing_prusti_contracts_dependency_is_inconclusive` passed
+      correspondence: asserted
+      source_location:
+        file: src/prusti.rs
+        line: 602
+        symbol: a_missing_prusti_contracts_dependency_is_inconclusive
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `unrecognised_output_is_inconclusive` passed
+      correspondence: asserted
+      source_location:
+        file: src/prusti.rs
+        line: 637
+        symbol: unrecognised_output_is_inconclusive
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `harness_name_is_a_valid_prefixed_identifier` passed
+      correspondence: asserted
+      source_location:
+        file: src/prusti.rs
+        line: 647
+        symbol: harness_name_is_a_valid_prefixed_identifier
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `a_prusti_pass_is_proven_and_not_bounded` passed
+      correspondence: asserted
+      source_location:
+        file: src/prusti.rs
+        line: 663
+        symbol: a_prusti_pass_is_proven_and_not_bounded
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `an_inconclusive_run_is_unknown_never_a_verdict` passed
+      correspondence: asserted
+      source_location:
+        file: src/prusti.rs
+        line: 675
+        symbol: an_inconclusive_run_is_unknown_never_a_verdict
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `an_existing_harness_file_is_never_overwritten` passed
+      correspondence: asserted
+      source_location:
+        file: src/prusti.rs
+        line: 835
+        symbol: an_existing_harness_file_is_never_overwritten
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `a_subject_with_no_crate_root_is_inconclusive` passed
+      correspondence: asserted
+      source_location:
+        file: src/prusti.rs
+        line: 860
+        symbol: a_subject_with_no_crate_root_is_inconclusive
+    - engine: cargo test
+      status: unknown
+      basis: null
+      witness: null
+      detail:
+      - no test named `real_prusti_proves_a_true_invariant` ran (the tag names no runnable test)
+      correspondence: asserted
+      source_location:
+        file: src/prusti.rs
+        line: 747
+        symbol: real_prusti_proves_a_true_invariant
+    - engine: cargo test
+      status: unknown
+      basis: null
+      witness: null
+      detail:
+      - no test named `real_prusti_cannot_prove_a_false_invariant` ran (the tag names no runnable test)
+      correspondence: asserted
+      source_location:
+        file: src/prusti.rs
+        line: 762
+        symbol: real_prusti_cannot_prove_a_false_invariant
+    - engine: cargo test
+      status: unknown
+      basis: null
+      witness: null
+      detail:
+      - no test named `real_prusti_is_inconclusive_on_opaque_predicates` ran (the tag names no runnable test)
+      correspondence: asserted
+      source_location:
+        file: src/prusti.rs
+        line: 778
+        symbol: real_prusti_is_inconclusive_on_opaque_predicates
+    - engine: cargo test
+      status: unknown
+      basis: null
+      witness: null
+      detail:
+      - no test named `real_prusti_run_leaves_no_trace_in_the_subject` ran (the tag names no runnable test)
+      correspondence: asserted
+      source_location:
+        file: src/prusti.rs
+        line: 815
+        symbol: real_prusti_run_leaves_no_trace_in_the_subject
+    correspondence: asserted
+    provenance:
+      requirement_revision: 4c368a15a1abff807b4fcf2019e809c46c30397be40f635f30d225c4b843f603
+      subject_commit: 2a223d0b715147fffae12e53364bee06c2dcf499
+      tool_version: 0.0.65
+      verified_scope: null
+      formalization: 85e9397715580b2e
+      environment:
+        declared: provreq-devcontainer
+        engines:
+        - Creusot 0.14.0
+        - Kani 0.68.0
+        - TLC (TLA+) 2.19
+        unversioned:
+        - MonPoly
+        - Prusti
+        - Verus
+        container: true
+      spec_fingerprint: null
+      trace_fingerprint: null
+      source_fingerprint: c47157765172605737b705802020738bd6a967d6
+      ui_fingerprint: null
+      tagged_source_fingerprint: c04c6481cd031e3d2f1981cb29a7977b77e0e37f4e82ada5c08af9f4f2b1b6f5
+      scope_fingerprint: 270c0f775f32065e4b104ed5501c0afbc475c0ef64e85595e53c57cbd7bbd03a
   REQ033:
     id: REQ033
     status: holds
@@ -1887,6 +2554,207 @@ verdicts:
       ui_fingerprint: null
       tagged_source_fingerprint: d65f18c6d6aedce9523d149a159763194918ab0c0d9f55d7bc8de6cc114e6adb
       scope_fingerprint: d2ceb389ae7576d2877a47cbcab29dd952ff41b9a2658886d8426166b05a2b84
+  REQ048:
+    id: REQ048
+    status: holds
+    basis: not-falsified
+    reason: null
+    witness: null
+    detail:
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `no_config_is_native` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `image_config_with_comments_and_trailing_comma_resolves` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `dockerfile_config_resolves_under_either_spelling` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `unreadable_config_is_not_reported_as_native` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `nested_config_folder_resolves_deterministically` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `comment_stripping_does_not_touch_string_contents` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `advice_separates_the_command_answer_from_the_build_env_answer` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `heavy_tier_advice_names_this_subjects_environment` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `advice_does_not_tell_you_to_extend_the_image_you_are_running` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `nothing_missing_yields_no_advice` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `this_repos_own_dev_container_resolves_to_its_image` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `install_says_which_kind_of_no_it_is` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `engine_names_resolve_from_their_cli_spelling` passed
+    evidence:
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `no_config_is_native` passed
+      correspondence: asserted
+      source_location:
+        file: src/buildenv.rs
+        line: 328
+        symbol: no_config_is_native
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `image_config_with_comments_and_trailing_comma_resolves` passed
+      correspondence: asserted
+      source_location:
+        file: src/buildenv.rs
+        line: 337
+        symbol: image_config_with_comments_and_trailing_comma_resolves
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `dockerfile_config_resolves_under_either_spelling` passed
+      correspondence: asserted
+      source_location:
+        file: src/buildenv.rs
+        line: 359
+        symbol: dockerfile_config_resolves_under_either_spelling
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `unreadable_config_is_not_reported_as_native` passed
+      correspondence: asserted
+      source_location:
+        file: src/buildenv.rs
+        line: 379
+        symbol: unreadable_config_is_not_reported_as_native
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `nested_config_folder_resolves_deterministically` passed
+      correspondence: asserted
+      source_location:
+        file: src/buildenv.rs
+        line: 395
+        symbol: nested_config_folder_resolves_deterministically
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `comment_stripping_does_not_touch_string_contents` passed
+      correspondence: asserted
+      source_location:
+        file: src/buildenv.rs
+        line: 415
+        symbol: comment_stripping_does_not_touch_string_contents
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `advice_separates_the_command_answer_from_the_build_env_answer` passed
+      correspondence: asserted
+      source_location:
+        file: src/buildenv.rs
+        line: 429
+        symbol: advice_separates_the_command_answer_from_the_build_env_answer
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `heavy_tier_advice_names_this_subjects_environment` passed
+      correspondence: asserted
+      source_location:
+        file: src/buildenv.rs
+        line: 450
+        symbol: heavy_tier_advice_names_this_subjects_environment
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `advice_does_not_tell_you_to_extend_the_image_you_are_running` passed
+      correspondence: asserted
+      source_location:
+        file: src/buildenv.rs
+        line: 481
+        symbol: advice_does_not_tell_you_to_extend_the_image_you_are_running
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `nothing_missing_yields_no_advice` passed
+      correspondence: asserted
+      source_location:
+        file: src/buildenv.rs
+        line: 504
+        symbol: nothing_missing_yields_no_advice
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `this_repos_own_dev_container_resolves_to_its_image` passed
+      correspondence: asserted
+      source_location:
+        file: src/buildenv.rs
+        line: 511
+        symbol: this_repos_own_dev_container_resolves_to_its_image
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `install_says_which_kind_of_no_it_is` passed
+      correspondence: asserted
+      source_location:
+        file: src/main.rs
+        line: 2373
+        symbol: install_says_which_kind_of_no_it_is
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `engine_names_resolve_from_their_cli_spelling` passed
+      correspondence: asserted
+      source_location:
+        file: src/main.rs
+        line: 2424
+        symbol: engine_names_resolve_from_their_cli_spelling
+    correspondence: asserted
+    provenance:
+      requirement_revision: 0348836ce5b8c6099d235910cee76937d5e0205e234b2da115c92df5d773c457
+      subject_commit: 2a223d0b715147fffae12e53364bee06c2dcf499
+      tool_version: 0.0.65
+      verified_scope: null
+      formalization: ea5273e63d33e974
+      environment:
+        declared: provreq-devcontainer
+        engines:
+        - Creusot 0.14.0
+        - Kani 0.68.0
+        - TLC (TLA+) 2.19
+        unversioned:
+        - MonPoly
+        - Prusti
+        - Verus
+        container: true
+      spec_fingerprint: null
+      trace_fingerprint: null
+      source_fingerprint: c47157765172605737b705802020738bd6a967d6
+      ui_fingerprint: null
+      tagged_source_fingerprint: 3014b3956623e23e13a74842bf66865f6126392524abeed0d67b5fa77fb28216
+      scope_fingerprint: 270c0f775f32065e4b104ed5501c0afbc475c0ef64e85595e53c57cbd7bbd03a
   REQ049:
     id: REQ049
     status: holds
@@ -2035,6 +2903,77 @@ verdicts:
       ui_fingerprint: null
       tagged_source_fingerprint: e0c67ec8832780e942fbc259a7cffb944381fa594ee065c42e87d4fce356ddbf
       scope_fingerprint: 68e98ca2711294f5352b6d0c0e8e58ed4e08522ed53686f5e266e8ee929a9000
+  REQ050:
+    id: REQ050
+    status: holds
+    basis: not-falsified
+    reason: null
+    witness: null
+    detail:
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `a_recorded_environment_is_distinguishable_from_an_unrecorded_one` passed
+    - 'cargo test: inconclusive'
+    - no test runner for this language yet
+    - 'cargo test: inconclusive'
+    - no test runner for this language yet
+    evidence:
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `a_recorded_environment_is_distinguishable_from_an_unrecorded_one` passed
+      correspondence: asserted
+      source_location:
+        file: src/verdict_store.rs
+        line: 693
+        symbol: a_recorded_environment_is_distinguishable_from_an_unrecorded_one
+    - engine: cargo test
+      status: unknown
+      basis: null
+      witness: null
+      detail:
+      - no test runner for this language yet
+      correspondence: asserted
+      source_location:
+        file: web/src/routes/proof/components/__tests__/VerifyPanel.test.tsx
+        line: 37
+        symbol: names the environment a recorded verdict was proved in
+    - engine: cargo test
+      status: unknown
+      basis: null
+      witness: null
+      detail:
+      - no test runner for this language yet
+      correspondence: asserted
+      source_location:
+        file: web/src/routes/proof/components/__tests__/VerifyPanel.test.tsx
+        line: 47
+        symbol: calls out a verdict whose environment was never recorded
+    correspondence: asserted
+    provenance:
+      requirement_revision: 06addf3cff3868213d5a24371ac41a4a7af6c81e346be25f41161265d419ec90
+      subject_commit: 2a223d0b715147fffae12e53364bee06c2dcf499
+      tool_version: 0.0.65
+      verified_scope: null
+      formalization: c0a706db3f1a1849
+      environment:
+        declared: provreq-devcontainer
+        engines:
+        - Creusot 0.14.0
+        - Kani 0.68.0
+        - TLC (TLA+) 2.19
+        unversioned:
+        - MonPoly
+        - Prusti
+        - Verus
+        container: true
+      spec_fingerprint: null
+      trace_fingerprint: null
+      source_fingerprint: c47157765172605737b705802020738bd6a967d6
+      ui_fingerprint: null
+      tagged_source_fingerprint: 54f1021da4df0531a824e8b7bef1fcdf2a514433b6ff371f3940e9b546bf7633
+      scope_fingerprint: 270c0f775f32065e4b104ed5501c0afbc475c0ef64e85595e53c57cbd7bbd03a
   REQ051:
     id: REQ051
     status: holds
@@ -2207,6 +3146,1405 @@ verdicts:
       ui_fingerprint: null
       tagged_source_fingerprint: 97e25b01e0a50e42975dbf7a2d49d6433be91ffb4b2fb3a9fa6d9e80c74739f2
       scope_fingerprint: ff0b1297830ceaf44af3014978ed1a9ff6be20d45033b0e796ea6d88b6edf275
+  REQ052:
+    id: REQ052
+    status: holds
+    basis: not-falsified
+    reason: null
+    witness: null
+    detail:
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `classify_leaves_missing_and_unknown_untriaged` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `a_reply_with_no_usable_assignment_is_an_error` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `one_usable_assignment_is_still_an_answer` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `reject_empty_treats_blank_completion_as_failure` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `the_prompt_asks_about_lowering_not_about_wording` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `a_declined_item_is_left_exactly_as_it_was` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `a_failed_classifier_leaves_the_existing_state_untouched` passed
+    evidence:
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `classify_leaves_missing_and_unknown_untriaged` passed
+      correspondence: asserted
+      source_location:
+        file: src/llm.rs
+        line: 902
+        symbol: classify_leaves_missing_and_unknown_untriaged
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `a_reply_with_no_usable_assignment_is_an_error` passed
+      correspondence: asserted
+      source_location:
+        file: src/llm.rs
+        line: 980
+        symbol: a_reply_with_no_usable_assignment_is_an_error
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `one_usable_assignment_is_still_an_answer` passed
+      correspondence: asserted
+      source_location:
+        file: src/llm.rs
+        line: 1015
+        symbol: one_usable_assignment_is_still_an_answer
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `reject_empty_treats_blank_completion_as_failure` passed
+      correspondence: asserted
+      source_location:
+        file: src/llm.rs
+        line: 1034
+        symbol: reject_empty_treats_blank_completion_as_failure
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `the_prompt_asks_about_lowering_not_about_wording` passed
+      correspondence: asserted
+      source_location:
+        file: src/llm.rs
+        line: 1110
+        symbol: the_prompt_asks_about_lowering_not_about_wording
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `a_declined_item_is_left_exactly_as_it_was` passed
+      correspondence: asserted
+      source_location:
+        file: src/triage.rs
+        line: 978
+        symbol: a_declined_item_is_left_exactly_as_it_was
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `a_failed_classifier_leaves_the_existing_state_untouched` passed
+      correspondence: asserted
+      source_location:
+        file: src/triage.rs
+        line: 1252
+        symbol: a_failed_classifier_leaves_the_existing_state_untouched
+    correspondence: asserted
+    provenance:
+      requirement_revision: afe8c61d9ffcc00bc926aa8e9abbce00d5772dfd195a25a8a45244151e77c1cf
+      subject_commit: 2a223d0b715147fffae12e53364bee06c2dcf499
+      tool_version: 0.0.65
+      verified_scope: null
+      formalization: 7d079e4918d1cceb
+      environment:
+        declared: provreq-devcontainer
+        engines:
+        - Creusot 0.14.0
+        - Kani 0.68.0
+        - TLC (TLA+) 2.19
+        unversioned:
+        - MonPoly
+        - Prusti
+        - Verus
+        container: true
+      spec_fingerprint: null
+      trace_fingerprint: null
+      source_fingerprint: c47157765172605737b705802020738bd6a967d6
+      ui_fingerprint: null
+      tagged_source_fingerprint: 4127e3fea5c37e2d6674b72f5b2e11bd4295efec442f0fcf3f0f14a50b051870
+      scope_fingerprint: 270c0f775f32065e4b104ed5501c0afbc475c0ef64e85595e53c57cbd7bbd03a
+  REQ055:
+    id: REQ055
+    status: holds
+    basis: not-falsified
+    reason: null
+    witness: null
+    detail:
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `a_free_function_lowers_to_a_free_call` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `a_method_lowers_to_a_method_call_not_a_free_call` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `a_variant_test_lowers_to_a_match_expression` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `a_nullary_method_is_not_lowerable` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `a_function_returning_an_enum_binds_through_one_of_its_variants` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `a_variant_that_does_not_exist_names_the_ones_that_do` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `a_variant_on_a_non_enum_return_says_so` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `qualifying_by_type_disambiguates_a_shared_method_name` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `a_method_found_by_its_bare_name_is_still_a_method` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `a_method_the_type_does_not_have_names_the_ones_it_does` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `a_path_deeper_than_two_segments_does_not_resolve` passed
+    evidence:
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `a_free_function_lowers_to_a_free_call` passed
+      correspondence: asserted
+      source_location:
+        file: src/lowering.rs
+        line: 667
+        symbol: a_free_function_lowers_to_a_free_call
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `a_method_lowers_to_a_method_call_not_a_free_call` passed
+      correspondence: asserted
+      source_location:
+        file: src/lowering.rs
+        line: 676
+        symbol: a_method_lowers_to_a_method_call_not_a_free_call
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `a_variant_test_lowers_to_a_match_expression` passed
+      correspondence: asserted
+      source_location:
+        file: src/lowering.rs
+        line: 750
+        symbol: a_variant_test_lowers_to_a_match_expression
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `a_nullary_method_is_not_lowerable` passed
+      correspondence: asserted
+      source_location:
+        file: src/lowering.rs
+        line: 1227
+        symbol: a_nullary_method_is_not_lowerable
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `a_function_returning_an_enum_binds_through_one_of_its_variants` passed
+      correspondence: asserted
+      source_location:
+        file: src/rust_adapter.rs
+        line: 2320
+        symbol: a_function_returning_an_enum_binds_through_one_of_its_variants
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `a_variant_that_does_not_exist_names_the_ones_that_do` passed
+      correspondence: asserted
+      source_location:
+        file: src/rust_adapter.rs
+        line: 2351
+        symbol: a_variant_that_does_not_exist_names_the_ones_that_do
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `a_variant_on_a_non_enum_return_says_so` passed
+      correspondence: asserted
+      source_location:
+        file: src/rust_adapter.rs
+        line: 2365
+        symbol: a_variant_on_a_non_enum_return_says_so
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `qualifying_by_type_disambiguates_a_shared_method_name` passed
+      correspondence: asserted
+      source_location:
+        file: src/rust_adapter.rs
+        line: 2376
+        symbol: qualifying_by_type_disambiguates_a_shared_method_name
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `a_method_found_by_its_bare_name_is_still_a_method` passed
+      correspondence: asserted
+      source_location:
+        file: src/rust_adapter.rs
+        line: 2401
+        symbol: a_method_found_by_its_bare_name_is_still_a_method
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `a_method_the_type_does_not_have_names_the_ones_it_does` passed
+      correspondence: asserted
+      source_location:
+        file: src/rust_adapter.rs
+        line: 2421
+        symbol: a_method_the_type_does_not_have_names_the_ones_it_does
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `a_path_deeper_than_two_segments_does_not_resolve` passed
+      correspondence: asserted
+      source_location:
+        file: src/rust_adapter.rs
+        line: 2512
+        symbol: a_path_deeper_than_two_segments_does_not_resolve
+    correspondence: asserted
+    provenance:
+      requirement_revision: acfa77feb47b8475713a4e074387bb71a8c1b46a5855f8f98ec0deaac6089849
+      subject_commit: 2a223d0b715147fffae12e53364bee06c2dcf499
+      tool_version: 0.0.65
+      verified_scope: null
+      formalization: 5a61998572fb9b52
+      environment:
+        declared: provreq-devcontainer
+        engines:
+        - Creusot 0.14.0
+        - Kani 0.68.0
+        - TLC (TLA+) 2.19
+        unversioned:
+        - MonPoly
+        - Prusti
+        - Verus
+        container: true
+      spec_fingerprint: null
+      trace_fingerprint: null
+      source_fingerprint: c47157765172605737b705802020738bd6a967d6
+      ui_fingerprint: null
+      tagged_source_fingerprint: a6436809eb443ab3fb9f63cf62cfdb52b9e6af951494e8371fc158dbeb67164e
+      scope_fingerprint: 270c0f775f32065e4b104ed5501c0afbc475c0ef64e85595e53c57cbd7bbd03a
+  REQ057:
+    id: REQ057
+    status: holds
+    basis: not-falsified
+    reason: null
+    witness: null
+    detail:
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `declared_parameter_sorts_type_check_every_position` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `expected_param_types_follow_the_quantified_arguments_sort` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `a_sort_that_did_not_resolve_says_nothing_about_the_parameter` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `a_position_the_requirement_cannot_speak_for_stays_unknown` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `a_parameter_typed_against_a_different_sort_does_not_resolve` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `positions_a_name_comparison_cannot_speak_for_are_skipped` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `a_receivers_type_is_the_type_it_is_implemented_on` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `arity_and_return_type_are_reported_before_a_parameter_type` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `a_variant_test_checks_its_parameter_types_too` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `the_parameter_check_discriminates_on_type_arguments` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `a_side_that_writes_no_type_arguments_is_compared_on_the_name_alone` passed
+    evidence:
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `declared_parameter_sorts_type_check_every_position` passed
+      correspondence: asserted
+      source_location:
+        file: src/grounding.rs
+        line: 965
+        symbol: declared_parameter_sorts_type_check_every_position
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `expected_param_types_follow_the_quantified_arguments_sort` passed
+      correspondence: asserted
+      source_location:
+        file: src/grounding.rs
+        line: 1042
+        symbol: expected_param_types_follow_the_quantified_arguments_sort
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `a_sort_that_did_not_resolve_says_nothing_about_the_parameter` passed
+      correspondence: asserted
+      source_location:
+        file: src/grounding.rs
+        line: 1070
+        symbol: a_sort_that_did_not_resolve_says_nothing_about_the_parameter
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `a_position_the_requirement_cannot_speak_for_stays_unknown` passed
+      correspondence: asserted
+      source_location:
+        file: src/grounding.rs
+        line: 1117
+        symbol: a_position_the_requirement_cannot_speak_for_stays_unknown
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `a_parameter_typed_against_a_different_sort_does_not_resolve` passed
+      correspondence: asserted
+      source_location:
+        file: src/rust_adapter.rs
+        line: 2549
+        symbol: a_parameter_typed_against_a_different_sort_does_not_resolve
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `positions_a_name_comparison_cannot_speak_for_are_skipped` passed
+      correspondence: asserted
+      source_location:
+        file: src/rust_adapter.rs
+        line: 2576
+        symbol: positions_a_name_comparison_cannot_speak_for_are_skipped
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `a_receivers_type_is_the_type_it_is_implemented_on` passed
+      correspondence: asserted
+      source_location:
+        file: src/rust_adapter.rs
+        line: 2599
+        symbol: a_receivers_type_is_the_type_it_is_implemented_on
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `arity_and_return_type_are_reported_before_a_parameter_type` passed
+      correspondence: asserted
+      source_location:
+        file: src/rust_adapter.rs
+        line: 2618
+        symbol: arity_and_return_type_are_reported_before_a_parameter_type
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `a_variant_test_checks_its_parameter_types_too` passed
+      correspondence: asserted
+      source_location:
+        file: src/rust_adapter.rs
+        line: 2637
+        symbol: a_variant_test_checks_its_parameter_types_too
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `the_parameter_check_discriminates_on_type_arguments` passed
+      correspondence: asserted
+      source_location:
+        file: src/rust_adapter.rs
+        line: 3495
+        symbol: the_parameter_check_discriminates_on_type_arguments
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `a_side_that_writes_no_type_arguments_is_compared_on_the_name_alone` passed
+      correspondence: asserted
+      source_location:
+        file: src/rust_adapter.rs
+        line: 3523
+        symbol: a_side_that_writes_no_type_arguments_is_compared_on_the_name_alone
+    correspondence: asserted
+    provenance:
+      requirement_revision: cf58050b3ba6db9cd545695dd4a7fa44dd174a14d52b32f143c6f26d48d9b5b2
+      subject_commit: 2a223d0b715147fffae12e53364bee06c2dcf499
+      tool_version: 0.0.65
+      verified_scope: null
+      formalization: 8be5aeadb2b2b6e6
+      environment:
+        declared: provreq-devcontainer
+        engines:
+        - Creusot 0.14.0
+        - Kani 0.68.0
+        - TLC (TLA+) 2.19
+        unversioned:
+        - MonPoly
+        - Prusti
+        - Verus
+        container: true
+      spec_fingerprint: null
+      trace_fingerprint: null
+      source_fingerprint: c47157765172605737b705802020738bd6a967d6
+      ui_fingerprint: null
+      tagged_source_fingerprint: 840ce11184576d758923cc88738e84fd5af375b0b746dd5c3e7d8cdf0c907161
+      scope_fingerprint: 270c0f775f32065e4b104ed5501c0afbc475c0ef64e85595e53c57cbd7bbd03a
+  REQ058:
+    id: REQ058
+    status: holds
+    basis: not-falsified
+    reason: null
+    witness: null
+    detail:
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `a_primitive_sort_lowers_unprefixed` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `a_primitive_type_resolves_as_a_sort` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `str_and_string_are_not_primitive_sorts` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `a_declared_type_wins_over_the_primitive_of_the_same_name` passed
+    evidence:
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `a_primitive_sort_lowers_unprefixed` passed
+      correspondence: asserted
+      source_location:
+        file: src/lowering.rs
+        line: 770
+        symbol: a_primitive_sort_lowers_unprefixed
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `a_primitive_type_resolves_as_a_sort` passed
+      correspondence: asserted
+      source_location:
+        file: src/rust_adapter.rs
+        line: 2923
+        symbol: a_primitive_type_resolves_as_a_sort
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `str_and_string_are_not_primitive_sorts` passed
+      correspondence: asserted
+      source_location:
+        file: src/rust_adapter.rs
+        line: 2942
+        symbol: str_and_string_are_not_primitive_sorts
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `a_declared_type_wins_over_the_primitive_of_the_same_name` passed
+      correspondence: asserted
+      source_location:
+        file: src/rust_adapter.rs
+        line: 2958
+        symbol: a_declared_type_wins_over_the_primitive_of_the_same_name
+    correspondence: asserted
+    provenance:
+      requirement_revision: 23e10ab8e81e13277d637ee65297d57e23c2dbf31cad7a5667ecc8b0cc1c50a1
+      subject_commit: 2a223d0b715147fffae12e53364bee06c2dcf499
+      tool_version: 0.0.65
+      verified_scope: null
+      formalization: 8cab405ab9108df0
+      environment:
+        declared: provreq-devcontainer
+        engines:
+        - Creusot 0.14.0
+        - Kani 0.68.0
+        - TLC (TLA+) 2.19
+        unversioned:
+        - MonPoly
+        - Prusti
+        - Verus
+        container: true
+      spec_fingerprint: null
+      trace_fingerprint: null
+      source_fingerprint: c47157765172605737b705802020738bd6a967d6
+      ui_fingerprint: null
+      tagged_source_fingerprint: a6436809eb443ab3fb9f63cf62cfdb52b9e6af951494e8371fc158dbeb67164e
+      scope_fingerprint: 270c0f775f32065e4b104ed5501c0afbc475c0ef64e85595e53c57cbd7bbd03a
+  REQ059:
+    id: REQ059
+    status: holds
+    basis: not-falsified
+    reason: null
+    witness: null
+    detail:
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `a_declared_parameter_type_is_a_bindable_sort` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `declared_parameter_sorts_type_check_every_position` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `free_variables_are_closed_over_their_declared_sorts` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `a_variable_without_a_declared_sort_does_not_lower` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `an_explicit_binder_wins_over_the_declared_parameter_sort` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `a_literal_argument_is_not_closed_over` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `free_variables_of_an_invariant_are_bound_by_their_declared_sorts` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `an_explicit_binder_leads_and_keeps_its_own_sort` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `a_variable_the_requirement_does_not_type_has_no_sort` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `literals_and_expressions_are_not_bound` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `closure_applies_only_to_an_invariant_in_the_code_fragment` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `readback_states_an_implicit_closure` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `readback_names_a_variable_with_no_declared_sort` passed
+    evidence:
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `a_declared_parameter_type_is_a_bindable_sort` passed
+      correspondence: asserted
+      source_location:
+        file: src/grounding.rs
+        line: 948
+        symbol: a_declared_parameter_type_is_a_bindable_sort
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `declared_parameter_sorts_type_check_every_position` passed
+      correspondence: asserted
+      source_location:
+        file: src/grounding.rs
+        line: 965
+        symbol: declared_parameter_sorts_type_check_every_position
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `free_variables_are_closed_over_their_declared_sorts` passed
+      correspondence: asserted
+      source_location:
+        file: src/lowering.rs
+        line: 899
+        symbol: free_variables_are_closed_over_their_declared_sorts
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `a_variable_without_a_declared_sort_does_not_lower` passed
+      correspondence: asserted
+      source_location:
+        file: src/lowering.rs
+        line: 1006
+        symbol: a_variable_without_a_declared_sort_does_not_lower
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `an_explicit_binder_wins_over_the_declared_parameter_sort` passed
+      correspondence: asserted
+      source_location:
+        file: src/lowering.rs
+        line: 1031
+        symbol: an_explicit_binder_wins_over_the_declared_parameter_sort
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `a_literal_argument_is_not_closed_over` passed
+      correspondence: asserted
+      source_location:
+        file: src/lowering.rs
+        line: 1054
+        symbol: a_literal_argument_is_not_closed_over
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `free_variables_of_an_invariant_are_bound_by_their_declared_sorts` passed
+      correspondence: asserted
+      source_location:
+        file: src/prl/ast.rs
+        line: 325
+        symbol: free_variables_of_an_invariant_are_bound_by_their_declared_sorts
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `an_explicit_binder_leads_and_keeps_its_own_sort` passed
+      correspondence: asserted
+      source_location:
+        file: src/prl/ast.rs
+        line: 346
+        symbol: an_explicit_binder_leads_and_keeps_its_own_sort
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `a_variable_the_requirement_does_not_type_has_no_sort` passed
+      correspondence: asserted
+      source_location:
+        file: src/prl/ast.rs
+        line: 363
+        symbol: a_variable_the_requirement_does_not_type_has_no_sort
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `literals_and_expressions_are_not_bound` passed
+      correspondence: asserted
+      source_location:
+        file: src/prl/ast.rs
+        line: 386
+        symbol: literals_and_expressions_are_not_bound
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `closure_applies_only_to_an_invariant_in_the_code_fragment` passed
+      correspondence: asserted
+      source_location:
+        file: src/prl/ast.rs
+        line: 400
+        symbol: closure_applies_only_to_an_invariant_in_the_code_fragment
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `readback_states_an_implicit_closure` passed
+      correspondence: asserted
+      source_location:
+        file: src/prl/readback.rs
+        line: 224
+        symbol: readback_states_an_implicit_closure
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `readback_names_a_variable_with_no_declared_sort` passed
+      correspondence: asserted
+      source_location:
+        file: src/prl/readback.rs
+        line: 244
+        symbol: readback_names_a_variable_with_no_declared_sort
+    correspondence: asserted
+    provenance:
+      requirement_revision: 4d63616f7fff666ebb9016b33bbe3c50e532794b27532043f68db57b2c5e5b0f
+      subject_commit: 2a223d0b715147fffae12e53364bee06c2dcf499
+      tool_version: 0.0.65
+      verified_scope: null
+      formalization: ef509f545430b236
+      environment:
+        declared: provreq-devcontainer
+        engines:
+        - Creusot 0.14.0
+        - Kani 0.68.0
+        - TLC (TLA+) 2.19
+        unversioned:
+        - MonPoly
+        - Prusti
+        - Verus
+        container: true
+      spec_fingerprint: null
+      trace_fingerprint: null
+      source_fingerprint: c47157765172605737b705802020738bd6a967d6
+      ui_fingerprint: null
+      tagged_source_fingerprint: 1cf0d6e216951837ad43dc7fd23e70b19ec20979b683bb809d3436776fd83517
+      scope_fingerprint: 270c0f775f32065e4b104ed5501c0afbc475c0ef64e85595e53c57cbd7bbd03a
+  REQ060:
+    id: REQ060
+    status: holds
+    basis: not-falsified
+    reason: null
+    witness: null
+    detail:
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `a_mac_sidecar_never_becomes_a_requirement` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `a_hidden_source_file_is_still_the_subjects_own` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `mac_resource_files_never_become_binding_candidates` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `prunes_build_and_vcs_directories_by_name` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `prunes_a_tagged_cache_directory_under_any_name` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `an_unsigned_tag_does_not_prune` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `prunes_hidden_directories_no_name_list_could_enumerate` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `never_prunes_the_root_of_the_walk` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `prunes_the_operating_systems_own_files` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `reads_files_the_author_wrote_however_they_are_named` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `mac_resource_files_never_become_model_specs` passed
+    evidence:
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `a_mac_sidecar_never_becomes_a_requirement` passed
+      correspondence: asserted
+      source_location:
+        file: src/provreq.rs
+        line: 462
+        symbol: a_mac_sidecar_never_becomes_a_requirement
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `a_hidden_source_file_is_still_the_subjects_own` passed
+      correspondence: asserted
+      source_location:
+        file: src/rust_adapter.rs
+        line: 2194
+        symbol: a_hidden_source_file_is_still_the_subjects_own
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `mac_resource_files_never_become_binding_candidates` passed
+      correspondence: asserted
+      source_location:
+        file: src/rust_adapter.rs
+        line: 2214
+        symbol: mac_resource_files_never_become_binding_candidates
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `prunes_build_and_vcs_directories_by_name` passed
+      correspondence: asserted
+      source_location:
+        file: src/subject_tree.rs
+        line: 90
+        symbol: prunes_build_and_vcs_directories_by_name
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `prunes_a_tagged_cache_directory_under_any_name` passed
+      correspondence: asserted
+      source_location:
+        file: src/subject_tree.rs
+        line: 108
+        symbol: prunes_a_tagged_cache_directory_under_any_name
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `an_unsigned_tag_does_not_prune` passed
+      correspondence: asserted
+      source_location:
+        file: src/subject_tree.rs
+        line: 128
+        symbol: an_unsigned_tag_does_not_prune
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `prunes_hidden_directories_no_name_list_could_enumerate` passed
+      correspondence: asserted
+      source_location:
+        file: src/subject_tree.rs
+        line: 140
+        symbol: prunes_hidden_directories_no_name_list_could_enumerate
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `never_prunes_the_root_of_the_walk` passed
+      correspondence: asserted
+      source_location:
+        file: src/subject_tree.rs
+        line: 156
+        symbol: never_prunes_the_root_of_the_walk
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `prunes_the_operating_systems_own_files` passed
+      correspondence: asserted
+      source_location:
+        file: src/subject_tree.rs
+        line: 171
+        symbol: prunes_the_operating_systems_own_files
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `reads_files_the_author_wrote_however_they_are_named` passed
+      correspondence: asserted
+      source_location:
+        file: src/subject_tree.rs
+        line: 184
+        symbol: reads_files_the_author_wrote_however_they_are_named
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `mac_resource_files_never_become_model_specs` passed
+      correspondence: asserted
+      source_location:
+        file: src/tla_adapter.rs
+        line: 548
+        symbol: mac_resource_files_never_become_model_specs
+    correspondence: asserted
+    provenance:
+      requirement_revision: 18ccffe1afecafe8f8bd2de0286698a090eb95082fed68306299d9f11b79fd4b
+      subject_commit: 2a223d0b715147fffae12e53364bee06c2dcf499
+      tool_version: 0.0.65
+      verified_scope: null
+      formalization: 3a0e102a47164f36
+      environment:
+        declared: provreq-devcontainer
+        engines:
+        - Creusot 0.14.0
+        - Kani 0.68.0
+        - TLC (TLA+) 2.19
+        unversioned:
+        - MonPoly
+        - Prusti
+        - Verus
+        container: true
+      spec_fingerprint: null
+      trace_fingerprint: null
+      source_fingerprint: c47157765172605737b705802020738bd6a967d6
+      ui_fingerprint: null
+      tagged_source_fingerprint: d34e74846b783ad3761b5a7c975468469e1e629d7ee60c76d1631a15f06df5c0
+      scope_fingerprint: 270c0f775f32065e4b104ed5501c0afbc475c0ef64e85595e53c57cbd7bbd03a
+  REQ061:
+    id: REQ061
+    status: holds
+    basis: not-falsified
+    reason: null
+    witness: null
+    detail:
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `a_call_is_named_through_the_module_it_was_found_in` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `a_variant_test_names_the_enum_through_its_own_module` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `an_item_with_no_module_path_does_not_lower` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `module_path_follows_the_cargo_layout` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `resolution_records_the_module_it_found_the_item_in` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `an_item_outside_the_crate_resolves_but_has_no_module` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `duplicate_enums_are_ambiguous_never_pooled` passed
+    evidence:
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `a_call_is_named_through_the_module_it_was_found_in` passed
+      correspondence: asserted
+      source_location:
+        file: src/lowering.rs
+        line: 1077
+        symbol: a_call_is_named_through_the_module_it_was_found_in
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `a_variant_test_names_the_enum_through_its_own_module` passed
+      correspondence: asserted
+      source_location:
+        file: src/lowering.rs
+        line: 1112
+        symbol: a_variant_test_names_the_enum_through_its_own_module
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `an_item_with_no_module_path_does_not_lower` passed
+      correspondence: asserted
+      source_location:
+        file: src/lowering.rs
+        line: 1146
+        symbol: an_item_with_no_module_path_does_not_lower
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `module_path_follows_the_cargo_layout` passed
+      correspondence: asserted
+      source_location:
+        file: src/rust_adapter.rs
+        line: 2823
+        symbol: module_path_follows_the_cargo_layout
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `resolution_records_the_module_it_found_the_item_in` passed
+      correspondence: asserted
+      source_location:
+        file: src/rust_adapter.rs
+        line: 2849
+        symbol: resolution_records_the_module_it_found_the_item_in
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `an_item_outside_the_crate_resolves_but_has_no_module` passed
+      correspondence: asserted
+      source_location:
+        file: src/rust_adapter.rs
+        line: 2871
+        symbol: an_item_outside_the_crate_resolves_but_has_no_module
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `duplicate_enums_are_ambiguous_never_pooled` passed
+      correspondence: asserted
+      source_location:
+        file: src/rust_adapter.rs
+        line: 2890
+        symbol: duplicate_enums_are_ambiguous_never_pooled
+    correspondence: asserted
+    provenance:
+      requirement_revision: 1de8f3f005d79279fd459a7c751284a7784da7daab6191cc23dd166e1b9d7c72
+      subject_commit: 2a223d0b715147fffae12e53364bee06c2dcf499
+      tool_version: 0.0.65
+      verified_scope: null
+      formalization: b32e328f5d58c909
+      environment:
+        declared: provreq-devcontainer
+        engines:
+        - Creusot 0.14.0
+        - Kani 0.68.0
+        - TLC (TLA+) 2.19
+        unversioned:
+        - MonPoly
+        - Prusti
+        - Verus
+        container: true
+      spec_fingerprint: null
+      trace_fingerprint: null
+      source_fingerprint: c47157765172605737b705802020738bd6a967d6
+      ui_fingerprint: null
+      tagged_source_fingerprint: a6436809eb443ab3fb9f63cf62cfdb52b9e6af951494e8371fc158dbeb67164e
+      scope_fingerprint: 270c0f775f32065e4b104ed5501c0afbc475c0ef64e85595e53c57cbd7bbd03a
+  REQ066:
+    id: REQ066
+    status: holds
+    basis: not-falsified
+    reason: null
+    witness: null
+    detail:
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `a_boolean_variable_lowers_to_itself_as_a_condition` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `a_non_boolean_variable_used_as_a_condition_does_not_lower` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `a_variable_used_as_a_condition_is_not_an_undeclared_predicate` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `a_bare_name_the_claim_does_not_bind_is_still_undeclared` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `a_declared_nullary_predicate_is_still_a_predicate` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `a_variable_used_as_a_condition_reads_as_a_condition` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `a_nullary_predicate_still_reads_as_a_predicate` passed
+    evidence:
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `a_boolean_variable_lowers_to_itself_as_a_condition` passed
+      correspondence: asserted
+      source_location:
+        file: src/lowering.rs
+        line: 952
+        symbol: a_boolean_variable_lowers_to_itself_as_a_condition
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `a_non_boolean_variable_used_as_a_condition_does_not_lower` passed
+      correspondence: asserted
+      source_location:
+        file: src/lowering.rs
+        line: 983
+        symbol: a_non_boolean_variable_used_as_a_condition_does_not_lower
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `a_variable_used_as_a_condition_is_not_an_undeclared_predicate` passed
+      correspondence: asserted
+      source_location:
+        file: src/prl/check.rs
+        line: 112
+        symbol: a_variable_used_as_a_condition_is_not_an_undeclared_predicate
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `a_bare_name_the_claim_does_not_bind_is_still_undeclared` passed
+      correspondence: asserted
+      source_location:
+        file: src/prl/check.rs
+        line: 124
+        symbol: a_bare_name_the_claim_does_not_bind_is_still_undeclared
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `a_declared_nullary_predicate_is_still_a_predicate` passed
+      correspondence: asserted
+      source_location:
+        file: src/prl/check.rs
+        line: 139
+        symbol: a_declared_nullary_predicate_is_still_a_predicate
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `a_variable_used_as_a_condition_reads_as_a_condition` passed
+      correspondence: asserted
+      source_location:
+        file: src/prl/readback.rs
+        line: 309
+        symbol: a_variable_used_as_a_condition_reads_as_a_condition
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `a_nullary_predicate_still_reads_as_a_predicate` passed
+      correspondence: asserted
+      source_location:
+        file: src/prl/readback.rs
+        line: 324
+        symbol: a_nullary_predicate_still_reads_as_a_predicate
+    correspondence: asserted
+    provenance:
+      requirement_revision: ff5291a6d600605b4dc061667daed554a243a6bd429a85926e93c0543264f127
+      subject_commit: 2a223d0b715147fffae12e53364bee06c2dcf499
+      tool_version: 0.0.65
+      verified_scope: null
+      formalization: 940ad064a6afd243
+      environment:
+        declared: provreq-devcontainer
+        engines:
+        - Creusot 0.14.0
+        - Kani 0.68.0
+        - TLC (TLA+) 2.19
+        unversioned:
+        - MonPoly
+        - Prusti
+        - Verus
+        container: true
+      spec_fingerprint: null
+      trace_fingerprint: null
+      source_fingerprint: c47157765172605737b705802020738bd6a967d6
+      ui_fingerprint: null
+      tagged_source_fingerprint: 58f2f093c09f36039946ced1e82889eb9670b7ab04680ec7950d06473b1baf1c
+      scope_fingerprint: 270c0f775f32065e4b104ed5501c0afbc475c0ef64e85595e53c57cbd7bbd03a
+  REQ069:
+    id: REQ069
+    status: holds
+    basis: not-falsified
+    reason: null
+    witness: null
+    detail:
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `an_applied_sort_lowers_with_a_path_for_every_part` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `a_mirror_signature_writes_type_arguments_out` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `a_sort_observable_may_apply_a_type_argument` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `a_type_argument_resolves_against_the_subject_like_any_sort` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `type_arguments_are_checked_against_the_declarations_arity` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `a_nested_type_argument_is_refused_by_name` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `an_argument_that_names_no_type_refuses_the_application` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `a_missing_head_type_reads_as_missing_not_as_bad_arguments` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `the_readback_of_an_application_names_every_part` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `the_parameter_check_discriminates_on_type_arguments` passed
+    evidence:
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `an_applied_sort_lowers_with_a_path_for_every_part` passed
+      correspondence: asserted
+      source_location:
+        file: src/lowering.rs
+        line: 797
+        symbol: an_applied_sort_lowers_with_a_path_for_every_part
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `a_mirror_signature_writes_type_arguments_out` passed
+      correspondence: asserted
+      source_location:
+        file: src/mirror_draft.rs
+        line: 1492
+        symbol: a_mirror_signature_writes_type_arguments_out
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `a_sort_observable_may_apply_a_type_argument` passed
+      correspondence: asserted
+      source_location:
+        file: src/rust_adapter.rs
+        line: 3363
+        symbol: a_sort_observable_may_apply_a_type_argument
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `a_type_argument_resolves_against_the_subject_like_any_sort` passed
+      correspondence: asserted
+      source_location:
+        file: src/rust_adapter.rs
+        line: 3380
+        symbol: a_type_argument_resolves_against_the_subject_like_any_sort
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `type_arguments_are_checked_against_the_declarations_arity` passed
+      correspondence: asserted
+      source_location:
+        file: src/rust_adapter.rs
+        line: 3405
+        symbol: type_arguments_are_checked_against_the_declarations_arity
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `a_nested_type_argument_is_refused_by_name` passed
+      correspondence: asserted
+      source_location:
+        file: src/rust_adapter.rs
+        line: 3435
+        symbol: a_nested_type_argument_is_refused_by_name
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `an_argument_that_names_no_type_refuses_the_application` passed
+      correspondence: asserted
+      source_location:
+        file: src/rust_adapter.rs
+        line: 3449
+        symbol: an_argument_that_names_no_type_refuses_the_application
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `a_missing_head_type_reads_as_missing_not_as_bad_arguments` passed
+      correspondence: asserted
+      source_location:
+        file: src/rust_adapter.rs
+        line: 3474
+        symbol: a_missing_head_type_reads_as_missing_not_as_bad_arguments
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `the_readback_of_an_application_names_every_part` passed
+      correspondence: asserted
+      source_location:
+        file: src/rust_adapter.rs
+        line: 3485
+        symbol: the_readback_of_an_application_names_every_part
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `the_parameter_check_discriminates_on_type_arguments` passed
+      correspondence: asserted
+      source_location:
+        file: src/rust_adapter.rs
+        line: 3495
+        symbol: the_parameter_check_discriminates_on_type_arguments
+    correspondence: asserted
+    provenance:
+      requirement_revision: a05ec3b0220c074e01be8c0e3b9da49bbccec66ba1aef391533488fdd4db6401
+      subject_commit: 2a223d0b715147fffae12e53364bee06c2dcf499
+      tool_version: 0.0.65
+      verified_scope: null
+      formalization: e8d8c3b2e6055590
+      environment:
+        declared: provreq-devcontainer
+        engines:
+        - Creusot 0.14.0
+        - Kani 0.68.0
+        - TLC (TLA+) 2.19
+        unversioned:
+        - MonPoly
+        - Prusti
+        - Verus
+        container: true
+      spec_fingerprint: null
+      trace_fingerprint: null
+      source_fingerprint: c47157765172605737b705802020738bd6a967d6
+      ui_fingerprint: null
+      tagged_source_fingerprint: 8de6ec68688d9a2ebd7faa120132af89114395fe0566376b1ccddcdc15740ea5
+      scope_fingerprint: 270c0f775f32065e4b104ed5501c0afbc475c0ef64e85595e53c57cbd7bbd03a
+  REQ070:
+    id: REQ070
+    status: holds
+    basis: not-falsified
+    reason: null
+    witness: null
+    detail:
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `an_untranslatable_constant_is_the_provers_limit_too` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `a_later_untranslatable_construct_does_not_preempt_the_first_error` passed
+    evidence:
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `an_untranslatable_constant_is_the_provers_limit_too` passed
+      correspondence: asserted
+      source_location:
+        file: src/creusot.rs
+        line: 1116
+        symbol: an_untranslatable_constant_is_the_provers_limit_too
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `a_later_untranslatable_construct_does_not_preempt_the_first_error` passed
+      correspondence: asserted
+      source_location:
+        file: src/creusot.rs
+        line: 1177
+        symbol: a_later_untranslatable_construct_does_not_preempt_the_first_error
+    correspondence: asserted
+    provenance:
+      requirement_revision: a44a29f1ab7a813a7901bae71671dc1f7779d8d116ed57cb3e016872b0e12492
+      subject_commit: 2a223d0b715147fffae12e53364bee06c2dcf499
+      tool_version: 0.0.65
+      verified_scope: null
+      formalization: 804911077e4b0da0
+      environment:
+        declared: provreq-devcontainer
+        engines:
+        - Creusot 0.14.0
+        - Kani 0.68.0
+        - TLC (TLA+) 2.19
+        unversioned:
+        - MonPoly
+        - Prusti
+        - Verus
+        container: true
+      spec_fingerprint: null
+      trace_fingerprint: null
+      source_fingerprint: c47157765172605737b705802020738bd6a967d6
+      ui_fingerprint: null
+      tagged_source_fingerprint: b020c9c0f5f7f67d22274deb3c55071eccae8ac4822a451c7a60de330b52c75e
+      scope_fingerprint: 270c0f775f32065e4b104ed5501c0afbc475c0ef64e85595e53c57cbd7bbd03a
   REQ071:
     id: REQ071
     status: holds
@@ -2353,6 +4691,297 @@ verdicts:
       ui_fingerprint: null
       tagged_source_fingerprint: 12540ea2f7eca957ca16e0fd58d34a9b3b6bd693eb32e18320178010ccde98c3
       scope_fingerprint: 67170d74569403902d28ff75a3e419372c33eb595a34ffa8937d495b061f2c30
+  REQ072:
+    id: REQ072
+    status: holds
+    basis: not-falsified
+    reason: null
+    witness: null
+    detail:
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `prompt_carries_observables_and_states_its_cap` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `an_empty_context_renders_no_observables_section` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `prompt_boundaries_come_from_the_gate` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `triage_boundaries_place_every_verb_once_per_category` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `inventory_names_predicates_and_sorts` passed
+    evidence:
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `prompt_carries_observables_and_states_its_cap` passed
+      correspondence: asserted
+      source_location:
+        file: src/llm.rs
+        line: 800
+        symbol: prompt_carries_observables_and_states_its_cap
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `an_empty_context_renders_no_observables_section` passed
+      correspondence: asserted
+      source_location:
+        file: src/llm.rs
+        line: 821
+        symbol: an_empty_context_renders_no_observables_section
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `prompt_boundaries_come_from_the_gate` passed
+      correspondence: asserted
+      source_location:
+        file: src/llm.rs
+        line: 829
+        symbol: prompt_boundaries_come_from_the_gate
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `triage_boundaries_place_every_verb_once_per_category` passed
+      correspondence: asserted
+      source_location:
+        file: src/prl/fragment.rs
+        line: 275
+        symbol: triage_boundaries_place_every_verb_once_per_category
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `inventory_names_predicates_and_sorts` passed
+      correspondence: asserted
+      source_location:
+        file: src/rust_adapter.rs
+        line: 2251
+        symbol: inventory_names_predicates_and_sorts
+    correspondence: asserted
+    provenance:
+      requirement_revision: 66d3de0592be3e68fee44f5dd705e978b7a33cf754e494e13c784126adeebc19
+      subject_commit: 2a223d0b715147fffae12e53364bee06c2dcf499
+      tool_version: 0.0.65
+      verified_scope: null
+      formalization: bf2ce8517e481e0a
+      environment:
+        declared: provreq-devcontainer
+        engines:
+        - Creusot 0.14.0
+        - Kani 0.68.0
+        - TLC (TLA+) 2.19
+        unversioned:
+        - MonPoly
+        - Prusti
+        - Verus
+        container: true
+      spec_fingerprint: null
+      trace_fingerprint: null
+      source_fingerprint: c47157765172605737b705802020738bd6a967d6
+      ui_fingerprint: null
+      tagged_source_fingerprint: 035a909c1364883fe3eb620eb04d709b27a5c021e2a01499aa190d1612be5bb9
+      scope_fingerprint: 270c0f775f32065e4b104ed5501c0afbc475c0ef64e85595e53c57cbd7bbd03a
+  REQ074:
+    id: REQ074
+    status: holds
+    basis: not-falsified
+    reason: null
+    witness: null
+    detail:
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `authors_a_readable_unreviewed_requirement` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `refuses_to_overwrite_an_existing_id` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `routes_by_id_prefix_when_multiple_collections` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `errors_when_no_collection_matches_the_prefix` passed
+    evidence:
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `authors_a_readable_unreviewed_requirement` passed
+      correspondence: asserted
+      source_location:
+        file: src/create.rs
+        line: 139
+        symbol: authors_a_readable_unreviewed_requirement
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `refuses_to_overwrite_an_existing_id` passed
+      correspondence: asserted
+      source_location:
+        file: src/create.rs
+        line: 173
+        symbol: refuses_to_overwrite_an_existing_id
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `routes_by_id_prefix_when_multiple_collections` passed
+      correspondence: asserted
+      source_location:
+        file: src/create.rs
+        line: 197
+        symbol: routes_by_id_prefix_when_multiple_collections
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `errors_when_no_collection_matches_the_prefix` passed
+      correspondence: asserted
+      source_location:
+        file: src/create.rs
+        line: 218
+        symbol: errors_when_no_collection_matches_the_prefix
+    correspondence: asserted
+    provenance:
+      requirement_revision: c9685dd5e0fde367f38e976bf5445833f122b7c2bc0651a5e09001e05704d111
+      subject_commit: 2a223d0b715147fffae12e53364bee06c2dcf499
+      tool_version: 0.0.65
+      verified_scope: null
+      formalization: 878a33ec7f00d880
+      environment:
+        declared: provreq-devcontainer
+        engines:
+        - Creusot 0.14.0
+        - Kani 0.68.0
+        - TLC (TLA+) 2.19
+        unversioned:
+        - MonPoly
+        - Prusti
+        - Verus
+        container: true
+      spec_fingerprint: null
+      trace_fingerprint: null
+      source_fingerprint: c47157765172605737b705802020738bd6a967d6
+      ui_fingerprint: null
+      tagged_source_fingerprint: 608fbb6065554c5f167b3395ad7d1ed96a96ff3b4fee5ccb85c113e5a7a791c5
+      scope_fingerprint: 270c0f775f32065e4b104ed5501c0afbc475c0ef64e85595e53c57cbd7bbd03a
+  REQ075:
+    id: REQ075
+    status: holds
+    basis: not-falsified
+    reason: null
+    witness: null
+    detail:
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `verifies_tag_resolves_through_attribute_to_the_fn` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `a_hyphenless_id_is_accepted` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `implements_aliases_map_to_one_kind` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `a_module_level_tag_resolves_to_no_symbol` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `an_appledouble_sidecar_is_not_scanned` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `parenthetical_prose_ids_are_filtered_by_prefix` passed
+    evidence:
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `verifies_tag_resolves_through_attribute_to_the_fn` passed
+      correspondence: asserted
+      source_location:
+        file: src/trace/mod.rs
+        line: 157
+        symbol: verifies_tag_resolves_through_attribute_to_the_fn
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `a_hyphenless_id_is_accepted` passed
+      correspondence: asserted
+      source_location:
+        file: src/trace/mod.rs
+        line: 183
+        symbol: a_hyphenless_id_is_accepted
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `implements_aliases_map_to_one_kind` passed
+      correspondence: asserted
+      source_location:
+        file: src/trace/mod.rs
+        line: 198
+        symbol: implements_aliases_map_to_one_kind
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `a_module_level_tag_resolves_to_no_symbol` passed
+      correspondence: asserted
+      source_location:
+        file: src/trace/mod.rs
+        line: 214
+        symbol: a_module_level_tag_resolves_to_no_symbol
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `an_appledouble_sidecar_is_not_scanned` passed
+      correspondence: asserted
+      source_location:
+        file: src/trace/mod.rs
+        line: 231
+        symbol: an_appledouble_sidecar_is_not_scanned
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `parenthetical_prose_ids_are_filtered_by_prefix` passed
+      correspondence: asserted
+      source_location:
+        file: src/trace/mod.rs
+        line: 249
+        symbol: parenthetical_prose_ids_are_filtered_by_prefix
+    correspondence: asserted
+    provenance:
+      requirement_revision: 4e06e4dba43b3b587b2261c3b3e0eae1829bf8b2e93d2d51c823fc37ea5d5ff0
+      subject_commit: 2a223d0b715147fffae12e53364bee06c2dcf499
+      tool_version: 0.0.65
+      verified_scope: null
+      formalization: 0827e9cfa467cbfc
+      environment:
+        declared: provreq-devcontainer
+        engines:
+        - Creusot 0.14.0
+        - Kani 0.68.0
+        - TLC (TLA+) 2.19
+        unversioned:
+        - MonPoly
+        - Prusti
+        - Verus
+        container: true
+      spec_fingerprint: null
+      trace_fingerprint: null
+      source_fingerprint: c47157765172605737b705802020738bd6a967d6
+      ui_fingerprint: null
+      tagged_source_fingerprint: d7f39e702f79903a57de7a6121878465a981de8af8f0e6e8022ead1f3cc03203
+      scope_fingerprint: 270c0f775f32065e4b104ed5501c0afbc475c0ef64e85595e53c57cbd7bbd03a
   REQ076:
     id: REQ076
     status: holds
@@ -2512,6 +5141,90 @@ verdicts:
       ui_fingerprint: null
       tagged_source_fingerprint: 05e4c1ccb3274f2e2f23d2cd029b370ea983b2fa4993ddf01602401289dfdf23
       scope_fingerprint: 72ec2c4c162eaaad8a27bdf35d606d905e55f86749ad1d0d53ea02defd0bb5b0
+  REQ077:
+    id: REQ077
+    status: holds
+    basis: not-falsified
+    reason: null
+    witness: null
+    detail:
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `a_row_joins_formalization_tags_and_the_asserted_verdict` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `outcomes_map_and_never_verified_is_distinct` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `a_tag_for_an_unknown_id_is_an_orphan` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `text_render_marks_stale_and_asserted` passed
+    evidence:
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `a_row_joins_formalization_tags_and_the_asserted_verdict` passed
+      correspondence: asserted
+      source_location:
+        file: src/report.rs
+        line: 415
+        symbol: a_row_joins_formalization_tags_and_the_asserted_verdict
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `outcomes_map_and_never_verified_is_distinct` passed
+      correspondence: asserted
+      source_location:
+        file: src/report.rs
+        line: 443
+        symbol: outcomes_map_and_never_verified_is_distinct
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `a_tag_for_an_unknown_id_is_an_orphan` passed
+      correspondence: asserted
+      source_location:
+        file: src/report.rs
+        line: 534
+        symbol: a_tag_for_an_unknown_id_is_an_orphan
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `text_render_marks_stale_and_asserted` passed
+      correspondence: asserted
+      source_location:
+        file: src/report.rs
+        line: 545
+        symbol: text_render_marks_stale_and_asserted
+    correspondence: asserted
+    provenance:
+      requirement_revision: 1dd009c568ce9894640778252017dc75ce47f448a829bae54b832596e3ee222e
+      subject_commit: 2a223d0b715147fffae12e53364bee06c2dcf499
+      tool_version: 0.0.65
+      verified_scope: null
+      formalization: f6263224b222b7cb
+      environment:
+        declared: provreq-devcontainer
+        engines:
+        - Creusot 0.14.0
+        - Kani 0.68.0
+        - TLC (TLA+) 2.19
+        unversioned:
+        - MonPoly
+        - Prusti
+        - Verus
+        container: true
+      spec_fingerprint: null
+      trace_fingerprint: null
+      source_fingerprint: c47157765172605737b705802020738bd6a967d6
+      ui_fingerprint: null
+      tagged_source_fingerprint: 421bd54eb1255c22f5518354eaab4a267e3014c1d3e730a29ebba70238998959
+      scope_fingerprint: 270c0f775f32065e4b104ed5501c0afbc475c0ef64e85595e53c57cbd7bbd03a
   REQ078:
     id: REQ078
     status: holds
@@ -2739,6 +5452,51 @@ verdicts:
       ui_fingerprint: null
       tagged_source_fingerprint: 421bd54eb1255c22f5518354eaab4a267e3014c1d3e730a29ebba70238998959
       scope_fingerprint: 017f87eb1a159fbea6f5e8b14a75a1d8aadcfe597b3e9c8256177e841c1e8e8e
+  REQ080:
+    id: REQ080
+    status: holds
+    basis: not-falsified
+    reason: null
+    witness: null
+    detail:
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `check_fails_on_an_orphan_tag` passed
+    evidence:
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `check_fails_on_an_orphan_tag` passed
+      correspondence: asserted
+      source_location:
+        file: src/check.rs
+        line: 107
+        symbol: check_fails_on_an_orphan_tag
+    correspondence: asserted
+    provenance:
+      requirement_revision: fa4191ae8cb104c99fce5defa3059662c76e28cc2af6c3397e8d6a21efc7a08e
+      subject_commit: 2a223d0b715147fffae12e53364bee06c2dcf499
+      tool_version: 0.0.65
+      verified_scope: null
+      formalization: 826c915cedc686dd
+      environment:
+        declared: provreq-devcontainer
+        engines:
+        - Creusot 0.14.0
+        - Kani 0.68.0
+        - TLC (TLA+) 2.19
+        unversioned:
+        - MonPoly
+        - Prusti
+        - Verus
+        container: true
+      spec_fingerprint: null
+      trace_fingerprint: null
+      source_fingerprint: c47157765172605737b705802020738bd6a967d6
+      ui_fingerprint: null
+      tagged_source_fingerprint: db1899ea4b20ae19bd25b49e533cb2c126ebadb218e22a23e0ceada60c41d5fd
+      scope_fingerprint: 270c0f775f32065e4b104ed5501c0afbc475c0ef64e85595e53c57cbd7bbd03a
   REQ083:
     id: REQ083
     status: holds
@@ -2872,6 +5630,284 @@ verdicts:
       ui_fingerprint: null
       tagged_source_fingerprint: 4bf35f554b3b908e2d6981d53ff61775859ef55ea0e208ff098fa6a1927abbb2
       scope_fingerprint: a051dcbecbced81af088d822c24c76161990073ce16dae610debe9438e720edb
+  REQ086:
+    id: REQ086
+    status: holds
+    basis: not-falsified
+    reason: null
+    witness: null
+    detail:
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `ground_binds_a_declared_symbol_and_rejects_an_undeclared_one` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `draft_set_candidate_stores_the_prl_and_reports_drafting` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `draft_check_regates_the_stored_candidate` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `draft_ground_without_a_candidate_is_rejected` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `draft_discard_removes_the_draft` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `draft_write_on_unadopted_subject_is_conflict` passed
+    evidence:
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `ground_binds_a_declared_symbol_and_rejects_an_undeclared_one` passed
+      correspondence: asserted
+      source_location:
+        file: src/draft.rs
+        line: 612
+        symbol: ground_binds_a_declared_symbol_and_rejects_an_undeclared_one
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `draft_set_candidate_stores_the_prl_and_reports_drafting` passed
+      correspondence: asserted
+      source_location:
+        file: src/server.rs
+        line: 1239
+        symbol: draft_set_candidate_stores_the_prl_and_reports_drafting
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `draft_check_regates_the_stored_candidate` passed
+      correspondence: asserted
+      source_location:
+        file: src/server.rs
+        line: 1263
+        symbol: draft_check_regates_the_stored_candidate
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `draft_ground_without_a_candidate_is_rejected` passed
+      correspondence: asserted
+      source_location:
+        file: src/server.rs
+        line: 1285
+        symbol: draft_ground_without_a_candidate_is_rejected
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `draft_discard_removes_the_draft` passed
+      correspondence: asserted
+      source_location:
+        file: src/server.rs
+        line: 1298
+        symbol: draft_discard_removes_the_draft
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `draft_write_on_unadopted_subject_is_conflict` passed
+      correspondence: asserted
+      source_location:
+        file: src/server.rs
+        line: 1515
+        symbol: draft_write_on_unadopted_subject_is_conflict
+    correspondence: asserted
+    provenance:
+      requirement_revision: 1fde46175e04d73bbd7d5874e987873e4e2a29eb043d5f74085ed471bc086e9d
+      subject_commit: 2a223d0b715147fffae12e53364bee06c2dcf499
+      tool_version: 0.0.65
+      verified_scope: null
+      formalization: 48cc3a6147870761
+      environment:
+        declared: provreq-devcontainer
+        engines:
+        - Creusot 0.14.0
+        - Kani 0.68.0
+        - TLC (TLA+) 2.19
+        unversioned:
+        - MonPoly
+        - Prusti
+        - Verus
+        container: true
+      spec_fingerprint: null
+      trace_fingerprint: null
+      source_fingerprint: c47157765172605737b705802020738bd6a967d6
+      ui_fingerprint: null
+      tagged_source_fingerprint: 36529f5e2e303fb40d1d4723320127df0e002e2528d00450d4f7efc341b30b04
+      scope_fingerprint: 270c0f775f32065e4b104ed5501c0afbc475c0ef64e85595e53c57cbd7bbd03a
+  REQ087:
+    id: REQ087
+    status: holds
+    basis: not-falsified
+    reason: null
+    witness: null
+    detail:
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `draft_translate_without_a_model_is_a_named_error` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `draft_translate_unknown_id_is_not_found` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `draft_translate_on_unadopted_subject_is_conflict` passed
+    evidence:
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `draft_translate_without_a_model_is_a_named_error` passed
+      correspondence: asserted
+      source_location:
+        file: src/server.rs
+        line: 1320
+        symbol: draft_translate_without_a_model_is_a_named_error
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `draft_translate_unknown_id_is_not_found` passed
+      correspondence: asserted
+      source_location:
+        file: src/server.rs
+        line: 1340
+        symbol: draft_translate_unknown_id_is_not_found
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `draft_translate_on_unadopted_subject_is_conflict` passed
+      correspondence: asserted
+      source_location:
+        file: src/server.rs
+        line: 1352
+        symbol: draft_translate_on_unadopted_subject_is_conflict
+    correspondence: asserted
+    provenance:
+      requirement_revision: c7fc817b53db96f19e1f1791eb86bb7831814b54c8b5d21fdcc1fa4a89848794
+      subject_commit: 2a223d0b715147fffae12e53364bee06c2dcf499
+      tool_version: 0.0.65
+      verified_scope: null
+      formalization: '1599148460102357'
+      environment:
+        declared: provreq-devcontainer
+        engines:
+        - Creusot 0.14.0
+        - Kani 0.68.0
+        - TLC (TLA+) 2.19
+        unversioned:
+        - MonPoly
+        - Prusti
+        - Verus
+        container: true
+      spec_fingerprint: null
+      trace_fingerprint: null
+      source_fingerprint: c47157765172605737b705802020738bd6a967d6
+      ui_fingerprint: null
+      tagged_source_fingerprint: 976d19b6ab6c8dcdb145c2785bc45eb859159d4ce305c31d913430d6c859b159
+      scope_fingerprint: 270c0f775f32065e4b104ed5501c0afbc475c0ef64e85595e53c57cbd7bbd03a
+  REQ088:
+    id: REQ088
+    status: holds
+    basis: not-falsified
+    reason: null
+    witness: null
+    detail:
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `draft_admit_clean_candidate_records_admission` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `draft_admit_vacuous_candidate_needs_confirmation` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `draft_admit_without_candidate_or_reviewer_is_rejected` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `draft_writeback_requires_admission_then_writes` passed
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `draft_admit_unknown_id_is_not_found_and_unadopted_is_conflict` passed
+    evidence:
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `draft_admit_clean_candidate_records_admission` passed
+      correspondence: asserted
+      source_location:
+        file: src/server.rs
+        line: 1399
+        symbol: draft_admit_clean_candidate_records_admission
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `draft_admit_vacuous_candidate_needs_confirmation` passed
+      correspondence: asserted
+      source_location:
+        file: src/server.rs
+        line: 1418
+        symbol: draft_admit_vacuous_candidate_needs_confirmation
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `draft_admit_without_candidate_or_reviewer_is_rejected` passed
+      correspondence: asserted
+      source_location:
+        file: src/server.rs
+        line: 1440
+        symbol: draft_admit_without_candidate_or_reviewer_is_rejected
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `draft_writeback_requires_admission_then_writes` passed
+      correspondence: asserted
+      source_location:
+        file: src/server.rs
+        line: 1463
+        symbol: draft_writeback_requires_admission_then_writes
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `draft_admit_unknown_id_is_not_found_and_unadopted_is_conflict` passed
+      correspondence: asserted
+      source_location:
+        file: src/server.rs
+        line: 1493
+        symbol: draft_admit_unknown_id_is_not_found_and_unadopted_is_conflict
+    correspondence: asserted
+    provenance:
+      requirement_revision: e9611f4159b5a7a1d63c8762d08aaa7e569c7e7f9d24d56ccba59a8ace020c38
+      subject_commit: 2a223d0b715147fffae12e53364bee06c2dcf499
+      tool_version: 0.0.65
+      verified_scope: null
+      formalization: f5f28d13c92eb0d8
+      environment:
+        declared: provreq-devcontainer
+        engines:
+        - Creusot 0.14.0
+        - Kani 0.68.0
+        - TLC (TLA+) 2.19
+        unversioned:
+        - MonPoly
+        - Prusti
+        - Verus
+        container: true
+      spec_fingerprint: null
+      trace_fingerprint: null
+      source_fingerprint: c47157765172605737b705802020738bd6a967d6
+      ui_fingerprint: null
+      tagged_source_fingerprint: 976d19b6ab6c8dcdb145c2785bc45eb859159d4ce305c31d913430d6c859b159
+      scope_fingerprint: 270c0f775f32065e4b104ed5501c0afbc475c0ef64e85595e53c57cbd7bbd03a
   REQ090:
     id: REQ090
     status: holds

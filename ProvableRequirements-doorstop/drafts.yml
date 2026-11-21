@@ -1,5 +1,17 @@
 schema: 1
 drafts:
+  REQ009:
+    revision: 995343ff9674e7981805afad621e867e6e57b8e76d611fbf65f85ba3bdcf5d2d
+    candidate: 'requirement REQ009_items_through_one_seam { category: 1 vocabulary { state item(i: Item) state has_id_prose_revision(i: Item) } require { each i: Item . never (item(i) and not has_id_prose_revision(i)) } }'
+    gate:
+      status: passed
+      warnings: []
+    admission:
+      state: admitted
+      review: optional
+      by: greeng3
+      at_unix: 1795223341
+    bindings: []
   REQ011:
     revision: 7cd86b495a6a9f166fbe0b5815604b8388be871441224d91a217823da891fdd3
     candidate: |-
@@ -60,6 +72,42 @@ drafts:
       category: code
       observable: needs_reconfirmation
       fidelity: definitional
+  REQ016:
+    revision: 12d7c1c8ad6735532473d4c79912b646f25dfc710d557a198416f677a9b77625
+    candidate: 'requirement REQ016_gate_rejects_illtyped { category: 1 vocabulary { state accepted(c: Candidate) state well_typed(c: Candidate) } require { each c: Candidate . never (accepted(c) and not well_typed(c)) } }'
+    gate:
+      status: passed
+      warnings: []
+    admission:
+      state: admitted
+      review: optional
+      by: greeng3
+      at_unix: 1795223341
+    bindings: []
+  REQ017:
+    revision: 289606c00a749371b0ed50a8303076943dd4466600c9e2e53dcbc9eff2513db8
+    candidate: 'requirement REQ017_repair_only_on_fed_back_error { category: 1 vocabulary { state repaired(c: Candidate) state had_error_fed_back(c: Candidate) } require { each c: Candidate . never (repaired(c) and not had_error_fed_back(c)) } }'
+    gate:
+      status: passed
+      warnings: []
+    admission:
+      state: admitted
+      review: optional
+      by: greeng3
+      at_unix: 1795223341
+    bindings: []
+  REQ023:
+    revision: 40e59516c423e22b086603ec3a7a877e9ddbd465022c17dbb3ab8713c6876066
+    candidate: 'requirement REQ023_unknown_always_carries_reason { category: 1 vocabulary { state unknown(v: Verdict) state has_reason(v: Verdict) } require { each v: Verdict . never (unknown(v) and not has_reason(v)) } }'
+    gate:
+      status: passed
+      warnings: []
+    admission:
+      state: admitted
+      review: optional
+      by: greeng3
+      at_unix: 1795223342
+    bindings: []
   REQ024:
     revision: a7af373762be623f5fd8a56c8f46e7a66479c292722ac1b84298c584569f3660
     candidate: |-
@@ -152,6 +200,18 @@ drafts:
       category: code
       observable: proven_is_top
       fidelity: definitional
+  REQ032:
+    revision: 4c368a15a1abff807b4fcf2019e809c46c30397be40f635f30d225c4b843f603
+    candidate: 'requirement REQ032_prusti_proof_is_honest { category: 1 vocabulary { state discharged(h: Obligation) state proven(h: Obligation) } require { each h: Obligation . never (proven(h) and not discharged(h)) } }'
+    gate:
+      status: passed
+      warnings: []
+    admission:
+      state: admitted
+      review: optional
+      by: greeng3
+      at_unix: 1795223339
+    bindings: []
   REQ033:
     revision: ee677d4ff47bd6ccfabff03188c4fbbccf40a8c7bfa396532c03a82356599d65
     candidate: 'requirement REQ033_marker_draft_is_sound { category: 1 vocabulary { state drafts_markers_is_sound(m: Marker) } require { always (drafts_markers_is_sound(m)) } }'
@@ -284,6 +344,18 @@ drafts:
       category: code
       observable: decide_install::Proceed
       fidelity: definitional
+  REQ048:
+    revision: 0348836ce5b8c6099d235910cee76937d5e0205e234b2da115c92df5d773c457
+    candidate: 'requirement REQ048_heavy_advice_names_environment { category: 1 vocabulary { state advice_given(e: Engine) state names_subject_environment(e: Engine) } require { each e: Engine . never (advice_given(e) and not names_subject_environment(e)) } }'
+    gate:
+      status: passed
+      warnings: []
+    admission:
+      state: admitted
+      review: optional
+      by: greeng3
+      at_unix: 1795223342
+    bindings: []
   REQ049:
     revision: 4f85143f954c0f55888bbc6c2d9c74e8b71d55dc0d105f6a92f42916acd95f6c
     candidate: |-
@@ -312,6 +384,18 @@ drafts:
       by: gg
       at_unix: 1793749900
     bindings: []
+  REQ050:
+    revision: 06addf3cff3868213d5a24371ac41a4a7af6c81e346be25f41161265d419ec90
+    candidate: 'requirement REQ050_environment_label_only_if_recorded { category: 1 vocabulary { state shows_environment_label(v: Verdict) state recorded_environment(v: Verdict) } require { each v: Verdict . never (shows_environment_label(v) and not recorded_environment(v)) } }'
+    gate:
+      status: passed
+      warnings: []
+    admission:
+      state: admitted
+      review: optional
+      by: greeng3
+      at_unix: 1795223345
+    bindings: []
   REQ051:
     revision: 3e39701569a3dbb552aca202ae601b3917cf20e553430b4a5cbefb7ba256e491
     candidate: |-
@@ -335,6 +419,126 @@ drafts:
       category: code
       observable: readiness_is_honest
       fidelity: definitional
+  REQ052:
+    revision: afe8c61d9ffcc00bc926aa8e9abbce00d5772dfd195a25a8a45244151e77c1cf
+    candidate: 'requirement REQ052_no_assignment_is_error_not_default { category: 1 vocabulary { state triaged(i: Item) state had_usable_assignment(i: Item) } require { each i: Item . never (triaged(i) and not had_usable_assignment(i)) } }'
+    gate:
+      status: passed
+      warnings: []
+    admission:
+      state: admitted
+      review: optional
+      by: greeng3
+      at_unix: 1795223342
+    bindings: []
+  REQ055:
+    revision: acfa77feb47b8475713a4e074387bb71a8c1b46a5855f8f98ec0deaac6089849
+    candidate: 'requirement REQ055_binding_resolves_variant_or_method { category: 1 vocabulary { state resolved(b: Binding) state names_real_variant_or_method(b: Binding) } require { each b: Binding . never (resolved(b) and not names_real_variant_or_method(b)) } }'
+    gate:
+      status: passed
+      warnings: []
+    admission:
+      state: admitted
+      review: optional
+      by: greeng3
+      at_unix: 1795223339
+    bindings: []
+  REQ057:
+    revision: cf58050b3ba6db9cd545695dd4a7fa44dd174a14d52b32f143c6f26d48d9b5b2
+    candidate: 'requirement REQ057_param_type_must_match_sort { category: 1 vocabulary { state resolved(b: Binding) state param_type_matches_sort(b: Binding) } require { each b: Binding . never (resolved(b) and not param_type_matches_sort(b)) } }'
+    gate:
+      status: passed
+      warnings: []
+    admission:
+      state: admitted
+      review: optional
+      by: greeng3
+      at_unix: 1795223340
+    bindings: []
+  REQ058:
+    revision: 23e10ab8e81e13277d637ee65297d57e23c2dbf31cad7a5667ecc8b0cc1c50a1
+    candidate: 'requirement REQ058_primitive_sorts_resolve { category: 1 vocabulary { state resolves_as_sort(t: TypeName) state primitive_or_declared(t: TypeName) } require { each t: TypeName . never (resolves_as_sort(t) and not primitive_or_declared(t)) } }'
+    gate:
+      status: passed
+      warnings: []
+    admission:
+      state: admitted
+      review: optional
+      by: greeng3
+      at_unix: 1795223340
+    bindings: []
+  REQ059:
+    revision: 4d63616f7fff666ebb9016b33bbe3c50e532794b27532043f68db57b2c5e5b0f
+    candidate: 'requirement REQ059_free_vars_closed_over_declared_sorts { category: 1 vocabulary { state lowered(v: Variable) state has_declared_sort(v: Variable) } require { each v: Variable . never (lowered(v) and not has_declared_sort(v)) } }'
+    gate:
+      status: passed
+      warnings: []
+    admission:
+      state: admitted
+      review: optional
+      by: greeng3
+      at_unix: 1795223340
+    bindings: []
+  REQ060:
+    revision: 18ccffe1afecafe8f8bd2de0286698a090eb95082fed68306299d9f11b79fd4b
+    candidate: 'requirement REQ060_never_walk_regenerable_or_sidecar { category: 1 vocabulary { state walked(p: Path) state is_regenerable_or_sidecar(p: Path) } require { each p: Path . never (walked(p) and is_regenerable_or_sidecar(p)) } }'
+    gate:
+      status: passed
+      warnings: []
+    admission:
+      state: admitted
+      review: optional
+      by: greeng3
+      at_unix: 1795223342
+    bindings: []
+  REQ061:
+    revision: 1de8f3f005d79279fd459a7c751284a7784da7daab6191cc23dd166e1b9d7c72
+    candidate: 'requirement REQ061_names_carry_module_or_decline { category: 1 vocabulary { state lowered(i: Item) state module_path_known(i: Item) } require { each i: Item . never (lowered(i) and not module_path_known(i)) } }'
+    gate:
+      status: passed
+      warnings: []
+    admission:
+      state: admitted
+      review: optional
+      by: greeng3
+      at_unix: 1795223343
+    bindings: []
+  REQ066:
+    revision: ff5291a6d600605b4dc061667daed554a243a6bd429a85926e93c0543264f127
+    candidate: 'requirement REQ066_bool_variable_lowers_as_condition { category: 1 vocabulary { state lowered_as_condition(v: Variable) state is_boolean(v: Variable) } require { each v: Variable . never (lowered_as_condition(v) and not is_boolean(v)) } }'
+    gate:
+      status: passed
+      warnings: []
+    admission:
+      state: admitted
+      review: optional
+      by: greeng3
+      at_unix: 1795223340
+    bindings: []
+  REQ069:
+    revision: a05ec3b0220c074e01be8c0e3b9da49bbccec66ba1aef391533488fdd4db6401
+    candidate: 'requirement REQ069_type_arguments_checked { category: 1 vocabulary { state applied(b: Binding) state arity_ok_and_unnested(b: Binding) } require { each b: Binding . never (applied(b) and not arity_ok_and_unnested(b)) } }'
+    gate:
+      status: passed
+      warnings: []
+    admission:
+      state: admitted
+      review: optional
+      by: greeng3
+      at_unix: 1795223343
+    bindings: []
+  REQ070:
+    revision: a44a29f1ab7a813a7901bae71671dc1f7779d8d116ed57cb3e016872b0e12492
+    candidate: 'requirement REQ070_first_diagnostic_decides { category: 1 vocabulary { state reported(r: Run) state from_first_diagnostic(r: Run) } require { each r: Run . never (reported(r) and not from_first_diagnostic(r)) } }'
+    gate:
+      status: passed
+      warnings: []
+    admission:
+      state: admitted
+      review: optional
+      by: greeng3
+      at_unix: 1795223343
+    bindings: []
   REQ071:
     revision: 41907367990521aea71606f9477e5b1f25717f0fdee8e72b60476430adff80e9
     candidate: |-
@@ -358,6 +562,42 @@ drafts:
       category: code
       observable: DriftInputs
       fidelity: definitional
+  REQ072:
+    revision: 66d3de0592be3e68fee44f5dd705e978b7a33cf754e494e13c784126adeebc19
+    candidate: 'requirement REQ072_triage_prompt_is_single_sourced { category: 1 vocabulary { state in_prompt(v: Verb) state gate_boundary(v: Verb) state truncated(v: Verb) } require { each v: Verb . never (gate_boundary(v) and not in_prompt(v) and not truncated(v)) } }'
+    gate:
+      status: passed
+      warnings: []
+    admission:
+      state: admitted
+      review: optional
+      by: greeng3
+      at_unix: 1795223339
+    bindings: []
+  REQ074:
+    revision: c9685dd5e0fde367f38e976bf5445833f122b7c2bc0651a5e09001e05704d111
+    candidate: 'requirement REQ074_authoring_is_valid_and_unreviewed { category: 1 vocabulary { state authored(a: Artifact) state fresh_active_unreviewed(a: Artifact) } require { each a: Artifact . never (authored(a) and not fresh_active_unreviewed(a)) } }'
+    gate:
+      status: passed
+      warnings: []
+    admission:
+      state: admitted
+      review: optional
+      by: greeng3
+      at_unix: 1795223343
+    bindings: []
+  REQ075:
+    revision: 4e06e4dba43b3b587b2261c3b3e0eae1829bf8b2e93d2d51c823fc37ea5d5ff0
+    candidate: 'requirement REQ075_module_tag_resolves_to_no_declaration { category: 1 vocabulary { state resolves_to_declaration(t: Tag) state on_module(t: Tag) } require { each t: Tag . never (resolves_to_declaration(t) and on_module(t)) } }'
+    gate:
+      status: passed
+      warnings: []
+    admission:
+      state: admitted
+      review: optional
+      by: greeng3
+      at_unix: 1795223344
+    bindings: []
   REQ076:
     revision: fa8b0dc2ec423538fbd417a50416388e7aa772ecbfad6f622372156946ed4c9a
     candidate: |-
@@ -381,6 +621,18 @@ drafts:
       category: code
       observable: decisive_correspondence_is_sound
       fidelity: definitional
+  REQ077:
+    revision: 1dd009c568ce9894640778252017dc75ce47f448a829bae54b832596e3ee222e
+    candidate: 'requirement REQ077_never_verified_is_distinct { category: 1 vocabulary { state never_verified(i: Item) state not_determined(i: Item) } require { each i: Item . never (never_verified(i) and not_determined(i)) } }'
+    gate:
+      status: passed
+      warnings: []
+    admission:
+      state: admitted
+      review: optional
+      by: greeng3
+      at_unix: 1795223339
+    bindings: []
   REQ078:
     revision: 50d61d449fc6cdd39307effff978cdd86388050bf81b27632918d72ce6bc1f1b
     candidate: 'requirement REQ078_verdict_event_is_sound { category: 1 vocabulary { state is_event_is_sound(i: VerdictEventInputs) } require { always (is_event_is_sound(i)) } }'
@@ -421,6 +673,18 @@ drafts:
       category: code
       observable: RetirePair
       fidelity: definitional
+  REQ080:
+    revision: fa4191ae8cb104c99fce5defa3059662c76e28cc2af6c3397e8d6a21efc7a08e
+    candidate: 'requirement REQ080_orphan_tag_fails_check { category: 1 vocabulary { state check_passes(s: Subject) state has_orphan_tag(s: Subject) } require { each s: Subject . never (check_passes(s) and has_orphan_tag(s)) } }'
+    gate:
+      status: passed
+      warnings: []
+    admission:
+      state: admitted
+      review: optional
+      by: greeng3
+      at_unix: 1795223344
+    bindings: []
   REQ083:
     revision: 542a3001a3bfc280f73c515e909b3c3c789d58e8414b4a2752a1235ca42c17d0
     candidate: 'requirement REQ083_expects_trace_guard_is_sound { category: 1 vocabulary { state decide_is_sound(c: GuardCase) } require { always (decide_is_sound(c)) } }'
@@ -441,6 +705,42 @@ drafts:
       category: code
       observable: GuardCase
       fidelity: definitional
+  REQ086:
+    revision: 1fde46175e04d73bbd7d5874e987873e4e2a29eb043d5f74085ed471bc086e9d
+    candidate: 'requirement REQ086_serve_draft_parity { category: 1 vocabulary { state served_result(r: Request) state matches_cli_machinery(r: Request) } require { each r: Request . never (served_result(r) and not matches_cli_machinery(r)) } }'
+    gate:
+      status: passed
+      warnings: []
+    admission:
+      state: admitted
+      review: optional
+      by: greeng3
+      at_unix: 1795223344
+    bindings: []
+  REQ087:
+    revision: c7fc817b53db96f19e1f1791eb86bb7831814b54c8b5d21fdcc1fa4a89848794
+    candidate: 'requirement REQ087_translate_has_no_offline_fallback { category: 1 vocabulary { state translate_request(r: Request) state model_configured(r: Request) state named_config_error(r: Request) } require { each r: Request . never (translate_request(r) and not model_configured(r) and not named_config_error(r)) } }'
+    gate:
+      status: passed
+      warnings: []
+    admission:
+      state: admitted
+      review: optional
+      by: greeng3
+      at_unix: 1795223345
+    bindings: []
+  REQ088:
+    revision: e9611f4159b5a7a1d63c8762d08aaa7e569c7e7f9d24d56ccba59a8ace020c38
+    candidate: 'requirement REQ088_admit_gate_is_source_of_truth { category: 1 vocabulary { state admitted(d: Draft) state gate_clean_or_confirmed(d: Draft) } require { each d: Draft . never (admitted(d) and not gate_clean_or_confirmed(d)) } }'
+    gate:
+      status: passed
+      warnings: []
+    admission:
+      state: admitted
+      review: optional
+      by: greeng3
+      at_unix: 1795223345
+    bindings: []
   REQ090:
     revision: 69b1b86b602f28bbf932d9a0dc935a5fac6e3f28d95b3ec6ddd50362be55b925
     candidate: |-
