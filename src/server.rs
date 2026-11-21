@@ -1361,6 +1361,106 @@ mod tests {
         assert_eq!(res.status(), StatusCode::CONFLICT);
     }
 
+    /// An adopted single-item subject whose `provreq.yml` points `llm:` at `base_url` (an
+    /// openai-compatible endpoint) so `translate_draft` resolves a live backend instead of the
+    /// honest no-model 400. Mirrors `adopted_subject_with_one_item` plus the `llm:` block.
+    fn adopted_subject_with_model(base_url: &str) -> tempfile::TempDir {
+        use std::fs;
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        fs::write(
+            root.join(".doorstop.yml"),
+            "settings:\n  prefix: REQ\n  digits: 3\n",
+        )
+        .unwrap();
+        fs::write(
+            root.join("REQ001.yml"),
+            "active: true\nlevel: 1.0\nnormative: true\nref: ''\nreviewed: null\ntext: |\n  Stay ok.\n",
+        )
+        .unwrap();
+        fs::write(
+            root.join(crate::adopt::MANIFEST_FILE),
+            format!(
+                "subject_requirements_root: .\nllm:\n  provider: openai-compatible\n  \
+                 base_url: {base_url}/v1\n  model: test-model\n"
+            ),
+        )
+        .unwrap();
+        dir
+    }
+
+    /// A wiremock responder that returns a gate-rejected PRL on the first `/v1/chat/completions`
+    /// call and a gate-clean one thereafter — enough to drive the web translate path through one
+    /// real repair round. Same bad→good shape as `formalize::repair_loop_recovers_on_second_attempt`.
+    struct RepairSequence {
+        calls: std::sync::atomic::AtomicUsize,
+    }
+
+    impl wiremock::Respond for RepairSequence {
+        fn respond(&self, _req: &wiremock::Request) -> wiremock::ResponseTemplate {
+            // `gone` is undeclared → gate rejects; the second reply declares its vocabulary.
+            const BAD: &str = "requirement r { require { always gone } }";
+            const GOOD: &str =
+                "requirement r { vocabulary { state ok(x) } require { always ok(x) } }";
+            let n = self.calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            let prl = if n == 0 { BAD } else { GOOD };
+            wiremock::ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "choices": [{ "message": { "content": prl } }]
+            }))
+        }
+    }
+
+    // Verifies: REQ087 — the web translate path runs the SAME generate→repair→gate→store machinery
+    // as the CLI, not just the no-model guardrail. With a model wired in (a mock endpoint), a POST
+    // to .../draft/translate proposes a candidate, the gate rejects the first reply and the repair
+    // loop issues a second call, and the gate-clean candidate is stored on the draft (drafting),
+    // persisting across a fresh GET. This is the headline the guardrail tags don't touch.
+    #[tokio::test]
+    async fn draft_translate_with_a_model_generates_repairs_and_stores_the_candidate() {
+        use wiremock::matchers::{method, path};
+        use wiremock::{Mock, MockServer};
+
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/v1/chat/completions"))
+            .respond_with(RepairSequence {
+                calls: std::sync::atomic::AtomicUsize::new(0),
+            })
+            .mount(&server)
+            .await;
+
+        let subject = adopted_subject_with_model(&server.uri());
+        let res = post_empty(
+            "/api/requirements/REQ001/draft/translate",
+            subject.path().to_path_buf(),
+        )
+        .await;
+        assert_eq!(res.status(), StatusCode::OK);
+        let bytes = to_bytes(res.into_body(), usize::MAX).await.unwrap();
+        let body: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        // The stored candidate is the SECOND (gate-clean) reply, not the first rejected one — the
+        // repair loop ran through the web path and kept the repaired candidate.
+        assert_eq!(
+            body["candidate"],
+            "requirement r { vocabulary { state ok(x) } require { always ok(x) } }",
+            "repaired candidate stored: {body}"
+        );
+        assert_eq!(body["formalization"], "drafting");
+
+        // The repair loop issued exactly two model calls (initial + one repair).
+        let requests = server.received_requests().await.unwrap();
+        assert_eq!(requests.len(), 2, "one initial call plus one repair round");
+
+        // Stored, not just returned: a fresh detail GET reflects the candidate.
+        let got = get_path_on("/api/requirements/REQ001", subject.path().to_path_buf()).await;
+        let bytes = to_bytes(got.into_body(), usize::MAX).await.unwrap();
+        let detail: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(
+            detail["candidate"],
+            "requirement r { vocabulary { state ok(x) } require { always ok(x) } }"
+        );
+    }
+
     /// A candidate PRL that clears the gate with no warnings (optional-review).
     fn clean_candidate() -> serde_json::Value {
         serde_json::json!({ "prl": "requirement no_message_lost {\n\
