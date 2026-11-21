@@ -505,7 +505,7 @@ fn tagged_evidence(
     prefixes: &BTreeSet<String>,
 ) -> Vec<verdict::Evidence> {
     let want = canonical_id(id);
-    let cargo = crate::trace::run::CargoTestConfig::load(companion);
+    let cargo = crate::trace::run::CargoTestConfig::load(companion, id);
     crate::trace::scan(subject, companion, prefixes)
         .iter()
         .filter(|t| t.kind == crate::trace::TraceKind::Verifies && canonical_id(&t.req_id) == want)

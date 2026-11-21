@@ -5497,6 +5497,53 @@ verdicts:
       ui_fingerprint: null
       tagged_source_fingerprint: db1899ea4b20ae19bd25b49e533cb2c126ebadb218e22a23e0ceada60c41d5fd
       scope_fingerprint: 270c0f775f32065e4b104ed5501c0afbc475c0ef64e85595e53c57cbd7bbd03a
+  REQ081:
+    id: REQ081
+    status: holds
+    basis: not-falsified
+    reason: null
+    witness: null
+    detail:
+    - 'cargo test: holds (not-falsified)'
+    - not falsified over — the tagged test `full_mcp_round_trip_against_mock_provreq_server` passed
+    - 'ran: cargo test -p provreq-mcp full_mcp_round_trip_against_mock_provreq_server'
+    evidence:
+    - engine: cargo test
+      status: holds
+      basis: not-falsified
+      witness: null
+      detail:
+      - not falsified over — the tagged test `full_mcp_round_trip_against_mock_provreq_server` passed
+      - 'ran: cargo test -p provreq-mcp full_mcp_round_trip_against_mock_provreq_server'
+      correspondence: asserted
+      source_location:
+        file: crates/provreq-mcp/tests/end_to_end.rs
+        line: 72
+        symbol: full_mcp_round_trip_against_mock_provreq_server
+    correspondence: asserted
+    provenance:
+      requirement_revision: 38376473b6f8280c88a83df0e7a7ace1358a089f91a26dd1a0efd5c474010cfd
+      subject_commit: 48f6528b15a513ee005044519cd9c1e017795b46
+      tool_version: 0.0.67
+      verified_scope: null
+      formalization: 7a8307e64c7cc58d
+      environment:
+        declared: provreq-devcontainer
+        engines:
+        - Creusot 0.14.0
+        - Kani 0.68.0
+        - TLC (TLA+) 2.19
+        unversioned:
+        - MonPoly
+        - Prusti
+        - Verus
+        container: true
+      spec_fingerprint: null
+      trace_fingerprint: null
+      source_fingerprint: 498dfeaa1a37ab47180f02c2313b8b3e616ad3f7
+      ui_fingerprint: null
+      tagged_source_fingerprint: 0db1b027130d48c1378405c99d8ca9e1993064b091bc11b78abd2faa6ba778d9
+      scope_fingerprint: 5e935de7498ad490038d8290b3f28e20552218218736723b0cf9df99573f3f49
   REQ083:
     id: REQ083
     status: holds

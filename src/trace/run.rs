@@ -50,7 +50,7 @@ impl CargoTestConfig {
     /// Read the `verify.cargo` block from the companion manifest. A manifest that is missing,
     /// unparseable, or silent on it yields the defaults — a subject that never configured it is
     /// the normal case, not an error (the same tolerance [`crate::kani::Bounds::load`] takes).
-    pub fn load(companion_root: &Path) -> CargoTestConfig {
+    pub fn load(companion_root: &Path, id: &str) -> CargoTestConfig {
         #[derive(serde::Deserialize)]
         struct Manifest {
             #[serde(default)]
@@ -60,6 +60,8 @@ impl CargoTestConfig {
         struct VerifyBlock {
             #[serde(default)]
             cargo: Option<Cargo_>,
+            #[serde(default)]
+            cargo_overrides: BTreeMap<String, Cargo_>,
         }
         #[derive(serde::Deserialize)]
         struct Cargo_ {
@@ -76,6 +78,16 @@ impl CargoTestConfig {
             #[serde(default)]
             env: BTreeMap<String, String>,
         }
+        fn into_config(c: Cargo_) -> CargoTestConfig {
+            CargoTestConfig {
+                features: c.features,
+                all_features: c.all_features,
+                no_default_features: c.no_default_features,
+                extra_args: c.extra_args,
+                harness_args: c.harness_args,
+                env: c.env,
+            }
+        }
         let Ok(text) = std::fs::read_to_string(companion_root.join(crate::adopt::MANIFEST_FILE))
         else {
             return CargoTestConfig::default();
@@ -83,18 +95,16 @@ impl CargoTestConfig {
         let Ok(manifest) = serde_yaml::from_str::<Manifest>(&text) else {
             return CargoTestConfig::default();
         };
-        manifest
-            .verify
-            .and_then(|v| v.cargo)
-            .map(|c| CargoTestConfig {
-                features: c.features,
-                all_features: c.all_features,
-                no_default_features: c.no_default_features,
-                extra_args: c.extra_args,
-                harness_args: c.harness_args,
-                env: c.env,
-            })
-            .unwrap_or_default()
+        let Some(mut verify) = manifest.verify else {
+            return CargoTestConfig::default();
+        };
+        // A per-requirement override wins wholesale over the subject-wide block — the same precedence
+        // `verify.crates` takes over `verify.crate` (#612), so a build input one requirement's test
+        // needs does not change the invocation for every other requirement.
+        if let Some(c) = verify.cargo_overrides.remove(id) {
+            return into_config(c);
+        }
+        verify.cargo.map(into_config).unwrap_or_default()
     }
 
     /// Whether the subject configured anything — an unconfigured subject stays on the exact bare
@@ -404,7 +414,7 @@ mod tests {
             "verify:\n  cargo:\n    features: [test-helpers]\n    extra_args: [--release]\n",
         )
         .unwrap();
-        let cfg = CargoTestConfig::load(&dir);
+        let cfg = CargoTestConfig::load(&dir, "REQ001");
         assert_eq!(cfg.features, vec!["test-helpers".to_string()]);
         assert_eq!(cfg.extra_args, vec!["--release".to_string()]);
         std::fs::remove_dir_all(&dir).ok();
@@ -415,10 +425,39 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("provreq-nocfg-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         // No manifest at all.
-        assert_eq!(CargoTestConfig::load(&dir), CargoTestConfig::default());
+        assert_eq!(
+            CargoTestConfig::load(&dir, "REQ001"),
+            CargoTestConfig::default()
+        );
         // A manifest with no verify block.
         std::fs::write(dir.join(crate::adopt::MANIFEST_FILE), "documents: {}\n").unwrap();
-        assert_eq!(CargoTestConfig::load(&dir), CargoTestConfig::default());
+        assert_eq!(
+            CargoTestConfig::load(&dir, "REQ001"),
+            CargoTestConfig::default()
+        );
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    // Verifies: #612 — a per-requirement `verify.cargo_overrides` entry wins over the subject-wide
+    // `verify.cargo` block (wholesale, like `verify.crates` over `verify.crate`); a requirement with
+    // no override falls back to the subject-wide block.
+    #[test]
+    fn a_per_requirement_cargo_override_wins() {
+        let dir = std::env::temp_dir().join(format!("provreq-cargo-ovr-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join(crate::adopt::MANIFEST_FILE),
+            "verify:\n  cargo:\n    features: [subject-wide]\n  cargo_overrides:\n    REQ068:\n      harness_args: [--ignored]\n",
+        )
+        .unwrap();
+        // The overridden requirement gets only its own block — the subject-wide features do not leak in.
+        let overridden = CargoTestConfig::load(&dir, "REQ068");
+        assert_eq!(overridden.harness_args, vec!["--ignored".to_string()]);
+        assert!(overridden.features.is_empty());
+        // A requirement with no override falls back to the subject-wide block.
+        let fallback = CargoTestConfig::load(&dir, "REQ001");
+        assert_eq!(fallback.features, vec!["subject-wide".to_string()]);
+        assert!(fallback.harness_args.is_empty());
         std::fs::remove_dir_all(&dir).ok();
     }
 

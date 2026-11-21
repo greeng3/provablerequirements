@@ -685,6 +685,18 @@ drafts:
       by: greeng3
       at_unix: 1795223344
     bindings: []
+  REQ081:
+    revision: 38376473b6f8280c88a83df0e7a7ace1358a089f91a26dd1a0efd5c474010cfd
+    candidate: 'requirement REQ081_mcp_is_a_thin_readonly_adapter { category: 1 vocabulary { state mcp_request(r: Request) state served_read_only_over_rest(r: Request) } require { each r: Request . never (mcp_request(r) and not served_read_only_over_rest(r)) } }'
+    gate:
+      status: passed
+      warnings: []
+    admission:
+      state: admitted
+      review: optional
+      by: greeng3
+      at_unix: 1795285414
+    bindings: []
   REQ083:
     revision: 542a3001a3bfc280f73c515e909b3c3c789d58e8414b4a2752a1235ca42c17d0
     candidate: 'requirement REQ083_expects_trace_guard_is_sound { category: 1 vocabulary { state decide_is_sound(c: GuardCase) } require { always (decide_is_sound(c)) } }'

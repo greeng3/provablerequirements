@@ -27,6 +27,14 @@ kani:
 # to that crate, so the proof is about the readiness provreq actually reports. Kani and Creusot both
 # run against it; every non-code world still resolves against the subject.
 verify:
+  # Per-requirement asserted `cargo test` overrides (#612), winning over a subject-wide `verify.cargo`
+  # block the way `verify.crates` wins over `verify.crate`. REQ081's tagged test lives in the member
+  # crate `provreq-mcp`, which the subject-level `cargo test <name>` (run in the `provreq` package)
+  # does not build — `-p provreq-mcp` reaches it. Without this the honest verdict is a permanent
+  # `unknown`, even though the test passes under the subject's own command.
+  cargo_overrides:
+    REQ081:
+      extra_args: ["-p", "provreq-mcp"]
   crates:
     REQ011: crates/provreq-proofs
     REQ024: crates/provreq-proofs
