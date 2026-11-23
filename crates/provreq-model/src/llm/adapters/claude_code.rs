@@ -29,6 +29,13 @@ const FAMILY: &str = "anthropic";
 const DEFAULT_PROGRAM: &str = "claude";
 const TIMEOUT_MS: u64 = 30_000;
 
+/// Bounded retry for an `ExecutableFileBusy` (ETXTBSY) spawn: a freshly-written executable can be
+/// transiently refused when another thread forked while the file was still open for writing, so the
+/// child inherited the writable fd. A race, not a fault — the same short retry cargo uses when it
+/// execs a build script it just wrote. ~500 ms of headroom outlasts the forked child's brief life.
+const SPAWN_RETRY_ATTEMPTS: u32 = 50;
+const SPAWN_RETRY_MS: u64 = 10;
+
 pub struct ClaudeCodeAdapter {
     program: String,
     model: String,
@@ -184,19 +191,36 @@ impl Adapter for ClaudeCodeAdapter {
                 cmd.args(["--append-system-prompt", system]);
             }
 
-            let mut child = cmd.spawn().map_err(|e| {
-                if e.kind() == std::io::ErrorKind::NotFound {
-                    AdapterError::Connection {
-                        family: FAMILY,
-                        detail: format!("`{}` not found on PATH", self.program),
-                    }
-                } else {
-                    AdapterError::Connection {
-                        family: FAMILY,
-                        detail: e.to_string(),
+            let mut child = {
+                let mut attempt = 0u32;
+                loop {
+                    match cmd.spawn() {
+                        Ok(child) => break child,
+                        // ETXTBSY is transient (a concurrent fork holding the file's writable fd);
+                        // back off briefly and retry rather than failing a runnable program.
+                        Err(e)
+                            if e.kind() == std::io::ErrorKind::ExecutableFileBusy
+                                && attempt < SPAWN_RETRY_ATTEMPTS =>
+                        {
+                            attempt += 1;
+                            tokio::time::sleep(Duration::from_millis(SPAWN_RETRY_MS)).await;
+                        }
+                        Err(e) => {
+                            return Err(if e.kind() == std::io::ErrorKind::NotFound {
+                                AdapterError::Connection {
+                                    family: FAMILY,
+                                    detail: format!("`{}` not found on PATH", self.program),
+                                }
+                            } else {
+                                AdapterError::Connection {
+                                    family: FAMILY,
+                                    detail: e.to_string(),
+                                }
+                            });
+                        }
                     }
                 }
-            })?;
+            };
 
             // Write the untrusted prompt to stdin and close it, then wait
             // for the process to finish — under the request's deadline.
@@ -408,5 +432,30 @@ printf '%s' '{{"is_error":false,"result":"hi there","usage":{{"input_tokens":11,
             matches!(err, AdapterError::Connection { .. }),
             "got {err:?}"
         );
+    }
+
+    // Regression for the CI flake (#620): exec refuses a program with ETXTBSY while any process
+    // holds it open for writing. Hold the stub's write fd open, release it after a beat, and the
+    // bounded spawn retry must recover rather than surfacing a Connection error. Without the retry
+    // this panics on the first spawn, exactly as the parallel-test race did in CI.
+    #[tokio::test]
+    async fn spawn_retries_past_a_transient_etxtbsy() {
+        let dir = scratch("etxtbsy");
+        let program = stub(
+            &dir,
+            r#"printf '%s' '{"is_error":false,"result":"recovered","usage":{"input_tokens":1,"output_tokens":1}}'"#,
+        );
+        // An open-for-write handle is what makes exec return ETXTBSY; drop it shortly, well inside
+        // the retry budget (~500 ms), so the retry's next attempt succeeds.
+        let writable = fs::OpenOptions::new().write(true).open(&program).unwrap();
+        let releaser = tokio::task::spawn_blocking(move || {
+            std::thread::sleep(Duration::from_millis(80));
+            drop(writable);
+        });
+
+        let adapter = ClaudeCodeAdapter::with_program(program, "claude-opus-4-8".into());
+        let resp = adapter.send_prompt(&req(None, "hi")).await.unwrap();
+        releaser.await.unwrap();
+        assert_eq!(resp.text, "recovered");
     }
 }
