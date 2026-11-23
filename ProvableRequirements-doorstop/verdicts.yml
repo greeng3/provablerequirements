@@ -6364,3 +6364,36 @@ verdicts:
       ui_fingerprint: null
       tagged_source_fingerprint: 15cca81bda97c2c0eed90c382fb3dc83d9d6bb0c0cd735dc044d381416bfe103
       scope_fingerprint: 68e98ca2711294f5352b6d0c0e8e58ed4e08522ed53686f5e266e8ee929a9000
+  REQ094:
+    id: REQ094
+    status: unknown
+    basis: null
+    reason: no-engine
+    witness: null
+    detail:
+    - category 3 routes to Selenium (WebDriver) — MISSING
+    evidence: []
+    correspondence: mechanical
+    provenance:
+      requirement_revision: b38dc71201801bf1af7e588eb8ad03abf7e2fd74b987dfb22263adc4ed248254
+      subject_commit: 15111603f800756aeaf070dc24db3451b3bd9b6d
+      tool_version: 0.0.70
+      verified_scope: null
+      formalization: a9ede178d03c6c4e
+      environment:
+        declared: provreq-devcontainer
+        engines:
+        - Creusot 0.14.0
+        - Kani 0.68.0
+        - TLC (TLA+) 2.19
+        unversioned:
+        - MonPoly
+        - Prusti
+        - Verus
+        container: true
+      spec_fingerprint: null
+      trace_fingerprint: null
+      source_fingerprint: 2914bcc82131fa1b16fcb7b0043a0aa062953779
+      ui_fingerprint: b145150b442a9d9e
+      tagged_source_fingerprint: null
+      scope_fingerprint: 806e0b6f406e78449117be807361fc381bfa2869fb777773280d24114c847296
