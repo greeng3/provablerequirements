@@ -219,7 +219,7 @@ fn write_collection_config(
 fn build_artifact_file(
     artifact: &PlanArtifact,
     collection: &PlanCollection,
-    import_run_at: &chrono::DateTime<chrono::Utc>,
+    import_run_at: &jiff::Timestamp,
     totals: &mut ReportTotals,
     ref_dispositions: &mut Vec<ReportRefDisposition>,
 ) -> (Artifact, String) {

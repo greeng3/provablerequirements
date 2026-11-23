@@ -6,7 +6,7 @@
 //! Example:
 //! `provreq-coverage-matrix-collection-sample-REQ-20260422T030000Z.csv`
 
-use chrono::{DateTime, Utc};
+use jiff::Timestamp;
 
 use crate::reports::{ReportKind, ScopeDto};
 
@@ -49,16 +49,11 @@ fn sanitize(s: &str) -> String {
 
 /// Format a timestamp as `YYYYMMDDTHHMMSSZ` — compact enough for
 /// a filename while still being unambiguous.
-pub fn utc_stamp(at: DateTime<Utc>) -> String {
-    at.format("%Y%m%dT%H%M%SZ").to_string()
+pub fn utc_stamp(at: Timestamp) -> String {
+    at.strftime("%Y%m%dT%H%M%SZ").to_string()
 }
 
-pub fn build(
-    kind: ReportKind,
-    scope: &ScopeDto,
-    format: ExportFormat,
-    at: DateTime<Utc>,
-) -> String {
+pub fn build(kind: ReportKind, scope: &ScopeDto, format: ExportFormat, at: Timestamp) -> String {
     format!(
         "provreq-{}-{}-{}.{}",
         kind.as_kebab(),
@@ -71,7 +66,6 @@ pub fn build(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use chrono::TimeZone;
 
     #[test]
     fn scope_slug_handles_the_three_variants() {
@@ -101,7 +95,7 @@ mod tests {
 
     #[test]
     fn filename_matches_locked_shape() {
-        let at = Utc.with_ymd_and_hms(2026, 4, 22, 3, 0, 0).unwrap();
+        let at: Timestamp = "2026-04-22T03:00:00Z".parse().unwrap();
         let name = build(
             ReportKind::CoverageMatrix,
             &ScopeDto::Collection {
@@ -119,7 +113,7 @@ mod tests {
 
     #[test]
     fn filename_applies_to_every_format() {
-        let at = Utc.with_ymd_and_hms(2026, 4, 22, 3, 0, 0).unwrap();
+        let at: Timestamp = "2026-04-22T03:00:00Z".parse().unwrap();
         let scope = ScopeDto::System;
         for (fmt, ext) in [
             (ExportFormat::Json, "json"),

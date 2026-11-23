@@ -82,6 +82,7 @@ pub mod search;
 // `crate::{links, llm, load, schema, write}`.
 pub mod suggestions;
 pub mod system;
+pub mod time;
 // Thumbnail registry — async generation via libreoffice/libvips binaries with in-flight coalescing
 // (arc-2 slice 1, #358). A leaf util, not yet wired.
 pub mod thumbnails;

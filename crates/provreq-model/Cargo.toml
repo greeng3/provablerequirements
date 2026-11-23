@@ -18,11 +18,10 @@ publish = false
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["preserve_order"] }
 uuid = { version = "1", features = ["v7", "serde"] }
-chrono = { version = "0.4", default-features = false, features = [
-    "std",
-    "clock",
-    "serde",
-] }
+# Timestamps on artifacts, review-log entries, and verdict provenance. chrono (RUSTSEC-2026-0543,
+# unmaintained) is gone; jiff's `Timestamp` replaces `DateTime<Utc>`. The on-disk encoding is frozen,
+# so `crate::time` wraps the serde so bytes stay identical to chrono's RFC-3339 `Z` + AutoSi grouping.
+jiff = { version = "1.0.2", default-features = false, features = ["std", "serde"] }
 thiserror = "2"
 # Doorstop's on-disk item format is YAML; the importer (`doorstop`) reads it. Pinned to Provreq's
 # own `=0.9` — deprecated and unmaintained, but it is the format of an external tool we import from,

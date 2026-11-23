@@ -65,10 +65,10 @@ provreq-model = { version = "0.1.0", path = "crates/provreq-model" }
 # delegates to it so a Creusot proof over the leaf crate is a proof about the real readiness answer.
 provreq-proofs = { version = "0.1.0", path = "crates/provreq-proofs" }
 # The Provreq adapter writes provenance back as a review-log entry, whose `timestamp` is a
-# `chrono::DateTime<Utc>` for the Provreq review-log back-write (REQ020) and `Utc::now()` for the
-# migrate-doorstop timestamps (#317). Already in the tree via provreq-model, so cargo unifies
-# rather than adding weight.
-chrono = { version = "0.4", default-features = false, features = ["std", "clock"] }
+# `jiff::Timestamp` for the Provreq review-log back-write (REQ020) and `Timestamp::now()` for the
+# migrate-doorstop timestamps (#317). Replaces chrono (RUSTSEC-2026-0543). Already in the tree via
+# provreq-model, so cargo unifies rather than adding weight.
+jiff = { version = "1.0.2", default-features = false, features = ["std"] }
 # Minting a fresh artifact uuid when authoring a requirement (`provreq new`, #325). v7 is
 # time-ordered, the id scheme Provreq artifacts use. Already in the tree via provreq-model.
 uuid = { version = "1", features = ["v7"] }

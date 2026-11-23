@@ -512,7 +512,7 @@ mod tests {
         let approved = ReviewLogEntry {
             outcome: "approved".into(),
             reviewer: "alice".into(),
-            timestamp: chrono::Utc::now(),
+            timestamp: jiff::Timestamp::now(),
             explanation: None,
             added_todos: Vec::new(),
             resolved_todos: Vec::new(),

@@ -7,7 +7,7 @@
 //! enum. Loaders can choose to validate shape-vs-field consistency after
 //! deserialization; serde itself accepts any combination at the type level.
 
-use chrono::{DateTime, Utc};
+use jiff::Timestamp;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -34,8 +34,10 @@ pub struct Artifact {
     pub uuid: Uuid,
     pub title: String,
     pub shape: ArtifactShape,
-    pub created_at: DateTime<Utc>,
-    pub modified_at: DateTime<Utc>,
+    #[serde(with = "crate::time::ts")]
+    pub created_at: Timestamp,
+    #[serde(with = "crate::time::ts")]
+    pub modified_at: Timestamp,
 
     /// Typed outgoing links. Empty vec when the artifact has none.
     #[serde(default)]
@@ -78,8 +80,12 @@ pub struct Artifact {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub url: Option<String>,
 
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub checked_at: Option<DateTime<Utc>>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        with = "crate::time::ts_opt"
+    )]
+    pub checked_at: Option<Timestamp>,
 
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub check_status: Option<String>,
@@ -228,5 +234,49 @@ mod tests {
         let artifact: Artifact = serde_json::from_value(raw).unwrap();
         assert!(artifact.is_active());
         assert!(!artifact.is_derived());
+    }
+
+    // Golden: the timestamp bytes must stay byte-identical to what
+    // chrono's `DateTime<Utc>` serde emitted — RFC-3339, `Z` suffix,
+    // and fractional seconds only when nonzero. Existing artifact
+    // files on disk carry exactly these strings.
+    #[test]
+    fn whole_second_timestamp_serializes_with_z_and_no_fraction() {
+        let raw = json!({
+            "schemaVersion": 1,
+            "uuid": "0194f6d0-0001-7000-8000-000000000001",
+            "title": "x",
+            "shape": "content",
+            "createdAt": "2026-11-22T19:52:37Z",
+            "modifiedAt": "2026-11-22T19:52:37Z",
+            "links": [],
+            "reviewLog": []
+        });
+        let artifact: Artifact = serde_json::from_value(raw).unwrap();
+        let out = serde_json::to_value(&artifact).unwrap();
+        assert_eq!(out["createdAt"], "2026-11-22T19:52:37Z");
+        assert_eq!(out["modifiedAt"], "2026-11-22T19:52:37Z");
+    }
+
+    #[test]
+    fn subsecond_checked_at_keeps_trailing_zero_grouping() {
+        // chrono's AutoSi padded to 3/6/9 digits: `.500Z`, never `.5Z`.
+        let raw = json!({
+            "schemaVersion": 1,
+            "uuid": "0194f6d0-0003-7000-8000-000000000001",
+            "title": "RFC",
+            "shape": "url",
+            "createdAt": "2026-11-22T19:52:37Z",
+            "modifiedAt": "2026-11-22T19:52:37Z",
+            "url": "https://example.test/",
+            "checkedAt": "2026-04-17T12:00:00.500Z",
+            "links": [],
+            "reviewLog": []
+        });
+        let artifact: Artifact = serde_json::from_value(raw.clone()).unwrap();
+        let out = serde_json::to_value(&artifact).unwrap();
+        assert_eq!(out["checkedAt"], "2026-04-17T12:00:00.500Z");
+        // Full round-trip stays byte-identical to the on-disk form.
+        assert_eq!(out, raw);
     }
 }

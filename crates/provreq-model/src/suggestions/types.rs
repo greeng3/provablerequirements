@@ -1,6 +1,6 @@
 //! Core types for Phase 12a's link-suggestion surface.
 
-use chrono::{DateTime, Utc};
+use jiff::Timestamp;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -30,5 +30,6 @@ pub struct Suggestion {
 pub struct DeclineRecord {
     #[serde(flatten)]
     pub suggestion: Suggestion,
-    pub declined_at: DateTime<Utc>,
+    #[serde(with = "crate::time::ts")]
+    pub declined_at: Timestamp,
 }

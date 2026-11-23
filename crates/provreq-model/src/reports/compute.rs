@@ -1348,7 +1348,7 @@ pub(crate) mod test_support {
     use crate::schema::{Artifact, ArtifactShape, CollectionConfig, Link, LinkHint, ProjectConfig};
     use crate::system::LoadedSystem;
     use crate::world::World;
-    use chrono::Utc;
+    use jiff::Timestamp;
     use std::collections::BTreeMap;
     use std::path::PathBuf;
     use uuid::Uuid;
@@ -1369,8 +1369,8 @@ pub(crate) mod test_support {
                 uuid,
                 title: title.to_owned(),
                 shape,
-                created_at: Utc::now(),
-                modified_at: Utc::now(),
+                created_at: Timestamp::now(),
+                modified_at: Timestamp::now(),
                 links,
                 review_log: Vec::new(),
                 description: None,
@@ -2318,7 +2318,7 @@ mod tests {
 
     fn review_log_entry(outcome: &str) -> crate::schema::ReviewLogEntry {
         crate::schema::ReviewLogEntry {
-            timestamp: chrono::Utc::now(),
+            timestamp: jiff::Timestamp::now(),
             reviewer: "t@t".to_owned(),
             outcome: outcome.to_owned(),
             explanation: None,

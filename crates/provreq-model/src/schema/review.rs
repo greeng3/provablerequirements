@@ -1,6 +1,6 @@
 //! Review log entry and TODO types — per `FORMAT-reviewLogSchema`.
 
-use chrono::{DateTime, Utc};
+use jiff::Timestamp;
 use serde::{Deserialize, Serialize};
 
 use crate::schema::Overflow;
@@ -9,7 +9,8 @@ use crate::schema::Overflow;
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ReviewLogEntry {
-    pub timestamp: DateTime<Utc>,
+    #[serde(with = "crate::time::ts")]
+    pub timestamp: Timestamp,
     pub reviewer: String,
 
     /// Outcome tag — one of "approved", "rejected", "todo-added",

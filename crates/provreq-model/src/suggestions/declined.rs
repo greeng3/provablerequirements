@@ -105,7 +105,6 @@ pub fn is_declined(records: &[DeclineRecord], from: Uuid, to: Uuid, link_type: &
 mod tests {
     use super::*;
     use crate::suggestions::types::Suggestion;
-    use chrono::{TimeZone, Utc};
 
     fn make_suggestion(id_byte: u8, from_byte: u8, to_byte: u8, link_type: &str) -> Suggestion {
         Suggestion {
@@ -127,7 +126,7 @@ mod tests {
     fn make_record(id_byte: u8, from_byte: u8, to_byte: u8, link_type: &str) -> DeclineRecord {
         DeclineRecord {
             suggestion: make_suggestion(id_byte, from_byte, to_byte, link_type),
-            declined_at: Utc.with_ymd_and_hms(2026, 5, 4, 12, 0, 0).unwrap(),
+            declined_at: "2026-05-04T12:00:00Z".parse().unwrap(),
         }
     }
 

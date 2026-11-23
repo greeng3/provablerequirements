@@ -100,7 +100,7 @@ mod tests {
     use super::*;
     use crate::load::LoadedArtifact;
     use crate::schema::{Artifact, ArtifactShape};
-    use chrono::Utc;
+    use jiff::Timestamp;
     use std::collections::BTreeMap;
 
     fn make_artifact(uuid: Uuid, name: &str) -> LoadedArtifact {
@@ -112,8 +112,8 @@ mod tests {
                 uuid,
                 title: name.to_owned(),
                 shape: ArtifactShape::Content,
-                created_at: Utc::now(),
-                modified_at: Utc::now(),
+                created_at: Timestamp::now(),
+                modified_at: Timestamp::now(),
                 links: Vec::new(),
                 review_log: Vec::new(),
                 description: None,

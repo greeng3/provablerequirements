@@ -22,7 +22,8 @@ pub fn render_csv(report: &ImportReport) -> Vec<u8> {
     let _ = wtr.write_record(["# doorstop import run"]);
     let _ = wtr.write_record(["project", report.project_slug.as_str()]);
     let _ = wtr.write_record(["source", report.source.as_str()]);
-    let _ = wtr.write_record(["importRunAt", report.import_run_at.to_rfc3339().as_str()]);
+    let import_run_at = crate::time::to_chrono_rfc3339_offset(report.import_run_at);
+    let _ = wtr.write_record(["importRunAt", import_run_at.as_str()]);
     let _ = wtr.write_record(Vec::<&str>::new());
 
     // Section 2 — per-collection summary.
@@ -126,7 +127,7 @@ code { font-family: ui-monospace, monospace; font-size: 0.85rem; background: #f1
         "<h1>Doorstop import report</h1><p class=\"muted\">Project <code>{}</code> · source <code>{}</code> · {}</p>",
         html_escape(&report.project_slug),
         html_escape(&report.source),
-        html_escape(&report.import_run_at.to_rfc3339()),
+        html_escape(&crate::time::to_chrono_rfc3339_offset(report.import_run_at)),
     ));
 
     // Totals.

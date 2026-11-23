@@ -14,8 +14,8 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use chrono::{DateTime, TimeZone, Utc};
 use dashmap::DashMap;
+use jiff::Timestamp;
 use thiserror::Error;
 
 /// Cap on the number of commits walked per request. Protects the
@@ -91,7 +91,8 @@ impl RepoCache {
 pub struct CommitInfo {
     pub oid: String,
     pub short_oid: String,
-    pub committed_at: DateTime<Utc>,
+    #[serde(with = "crate::time::ts")]
+    pub committed_at: Timestamp,
     pub author: String,
     pub summary: String,
 }
@@ -139,10 +140,8 @@ pub fn list_artifact_commits(
         let time = header.time().map_err(|err| {
             HistoryError::HistoryUnavailable(format!("decode commit time: {err}"))
         })?;
-        let committed_at = Utc
-            .timestamp_opt(time.seconds, 0)
-            .single()
-            .unwrap_or_else(Utc::now);
+        let committed_at =
+            Timestamp::from_second(time.seconds).unwrap_or_else(|_| Timestamp::now());
         let signature = header.author().map_err(|err| {
             HistoryError::HistoryUnavailable(format!("decode commit author: {err}"))
         })?;

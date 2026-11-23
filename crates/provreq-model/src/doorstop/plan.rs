@@ -14,7 +14,7 @@
 use std::collections::{BTreeMap, HashMap};
 use std::path::PathBuf;
 
-use chrono::{DateTime, Utc};
+use jiff::Timestamp;
 use serde::Serialize;
 use uuid::Uuid;
 
@@ -31,7 +31,8 @@ pub struct ImportPlan {
     /// artifact's `createdAt` / `modifiedAt` + any synthetic
     /// review entry. Computed once when the plan is built so
     /// the preview and the execute step agree.
-    pub import_run_at: DateTime<Utc>,
+    #[serde(with = "crate::time::ts")]
+    pub import_run_at: Timestamp,
 
     pub collections: Vec<PlanCollection>,
 
@@ -152,7 +153,8 @@ pub enum PlanRefDisposition {
 pub struct PlanSyntheticReview {
     pub outcome: String,
     pub reviewer: String,
-    pub timestamp: DateTime<Utc>,
+    #[serde(with = "crate::time::ts")]
+    pub timestamp: Timestamp,
     pub explanation: String,
 }
 
@@ -186,7 +188,7 @@ pub enum PlanError {
 pub fn build_plan(
     project: &LoadedProject,
     documents: Vec<DoorstopDocument>,
-    now: DateTime<Utc>,
+    now: Timestamp,
 ) -> Result<ImportPlan, PlanError> {
     let mut collections: Vec<PlanCollection> = Vec::new();
     let mut prefix_collisions: Vec<PrefixCollision> = Vec::new();
@@ -435,7 +437,7 @@ fn build_artifact_links(
     _source_prefix: &str,
     index: &HashMap<String, ItemKey>,
     unresolved_out: &mut Vec<UnresolvedLink>,
-    now: DateTime<Utc>,
+    now: Timestamp,
 ) -> (Vec<PlanArtifactLink>, Option<PlanArtifact>) {
     let mut links: Vec<PlanArtifactLink> = Vec::new();
     for target_uid in &item.links {
@@ -646,7 +648,7 @@ mod tests {
     #[test]
     fn empty_tree_plans_nothing() {
         let project = sample_project("sample");
-        let plan = build_plan(&project, Vec::new(), chrono::Utc::now()).unwrap();
+        let plan = build_plan(&project, Vec::new(), jiff::Timestamp::now()).unwrap();
         assert!(plan.collections.is_empty());
         assert!(plan.prefix_collisions.is_empty());
         assert!(plan.unresolved_links.is_empty());
@@ -669,7 +671,7 @@ mod tests {
                 Some("abcd"),
             )],
         )];
-        let now = chrono::Utc::now();
+        let now = jiff::Timestamp::now();
         let plan = build_plan(&project, docs, now).unwrap();
         assert_eq!(plan.collections.len(), 1);
         let col = &plan.collections[0];
@@ -718,7 +720,7 @@ mod tests {
             artifacts: Vec::new(),
         });
         let docs = vec![document("/src/req/.doorstop.yml", "REQ", Some("-"), vec![])];
-        let plan = build_plan(&project, docs, chrono::Utc::now()).unwrap();
+        let plan = build_plan(&project, docs, jiff::Timestamp::now()).unwrap();
         assert_eq!(plan.prefix_collisions.len(), 1);
         assert_eq!(plan.prefix_collisions[0].prefix, "REQ");
         assert_eq!(
@@ -762,7 +764,7 @@ mod tests {
                 )],
             ),
         ];
-        let plan = build_plan(&project, docs, chrono::Utc::now()).unwrap();
+        let plan = build_plan(&project, docs, jiff::Timestamp::now()).unwrap();
         let des_art = plan
             .collections
             .iter()
@@ -795,7 +797,7 @@ mod tests {
                 None,
             )],
         )];
-        let plan = build_plan(&project, docs, chrono::Utc::now()).unwrap();
+        let plan = build_plan(&project, docs, jiff::Timestamp::now()).unwrap();
         let art = &plan.collections[0].artifacts[0];
         match &art.ref_disposition {
             PlanRefDisposition::Legacy { value } => {
@@ -828,7 +830,7 @@ mod tests {
                 Some("-"),
                 vec![i],
             )],
-            chrono::Utc::now(),
+            jiff::Timestamp::now(),
         )
         .unwrap();
         assert_eq!(
@@ -848,7 +850,7 @@ mod tests {
                 Some("-"),
                 vec![],
             )],
-            chrono::Utc::now(),
+            jiff::Timestamp::now(),
         )
         .unwrap();
         assert_eq!(plan.collections.len(), 1);
@@ -876,7 +878,7 @@ mod tests {
                     None,
                 )],
             )],
-            chrono::Utc::now(),
+            jiff::Timestamp::now(),
         )
         .unwrap();
         assert!(plan.collections[0].artifacts.is_empty());

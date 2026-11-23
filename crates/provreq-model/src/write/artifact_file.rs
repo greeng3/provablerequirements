@@ -92,7 +92,7 @@ mod tests {
     use super::*;
     use crate::frontmatter::split_frontmatter;
     use crate::schema::{Artifact, ArtifactShape};
-    use chrono::{DateTime, Utc};
+    use jiff::Timestamp;
     use std::collections::BTreeMap;
     use uuid::Uuid;
 
@@ -102,8 +102,8 @@ mod tests {
             uuid: Uuid::parse_str("0194f6d0-0001-7000-8000-000000000001").unwrap(),
             title: "Hello World requirement".to_owned(),
             shape: ArtifactShape::Content,
-            created_at: "2026-04-18T00:00:00Z".parse::<DateTime<Utc>>().unwrap(),
-            modified_at: "2026-04-18T00:00:00Z".parse::<DateTime<Utc>>().unwrap(),
+            created_at: "2026-04-18T00:00:00Z".parse::<Timestamp>().unwrap(),
+            modified_at: "2026-04-18T00:00:00Z".parse::<Timestamp>().unwrap(),
             links: Vec::new(),
             review_log: Vec::new(),
             description: Some("A trivial starter requirement.".to_owned()),

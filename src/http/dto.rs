@@ -3,7 +3,7 @@
 //! These are distinct from the on-disk schema types in `provreq_model::schema`
 //! so the wire format can evolve independently of the file format.
 
-use chrono::{DateTime, Utc};
+use jiff::Timestamp;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -170,8 +170,10 @@ pub struct ArtifactDetail {
     pub description: Option<String>,
     pub active: bool,
     pub derived: bool,
-    pub created_at: DateTime<Utc>,
-    pub modified_at: DateTime<Utc>,
+    #[serde(with = "provreq_model::time::ts")]
+    pub created_at: Timestamp,
+    #[serde(with = "provreq_model::time::ts")]
+    pub modified_at: Timestamp,
     pub tags: Vec<String>,
     /// Outline level (e.g. "1.2.3") — surfaced when the underlying
     /// artifact declared one (`ART-outlineLevelField`).
@@ -196,8 +198,11 @@ pub struct ArtifactDetail {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub url: Option<String>,
     /// Present when `shape == "url"` and the URL has been checked.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub checked_at: Option<DateTime<Utc>>,
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        with = "provreq_model::time::ts_opt"
+    )]
+    pub checked_at: Option<Timestamp>,
     /// Present when `shape == "url"` and the URL has been checked;
     /// one of `"ok"`, `"not-found"`, `"server-error"`, etc. See
     /// `src/urls/check.rs` (Phase 5b) for the stable set.
@@ -269,7 +274,8 @@ pub struct CreateUrlArtifactRequest {
 #[serde(rename_all = "camelCase")]
 pub struct CheckUrlResponse {
     pub uuid: Uuid,
-    pub checked_at: DateTime<Utc>,
+    #[serde(with = "provreq_model::time::ts")]
+    pub checked_at: Timestamp,
     pub check_status: String,
 }
 
@@ -549,10 +555,16 @@ pub struct CreateArtifactRequest {
 #[serde(rename_all = "camelCase")]
 pub struct DerivedReviewStateDto {
     pub state: ReviewStateTag,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub last_approval_at: Option<DateTime<Utc>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub last_event_at: Option<DateTime<Utc>>,
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        with = "provreq_model::time::ts_opt"
+    )]
+    pub last_approval_at: Option<Timestamp>,
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        with = "provreq_model::time::ts_opt"
+    )]
+    pub last_event_at: Option<Timestamp>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub last_reviewer: Option<String>,
     pub blocking_todos: Vec<OpenTodoDto>,
@@ -583,7 +595,8 @@ impl From<ReviewState> for ReviewStateTag {
 pub struct OpenTodoDto {
     pub id: String,
     pub text: String,
-    pub added_at: DateTime<Utc>,
+    #[serde(with = "provreq_model::time::ts")]
+    pub added_at: Timestamp,
     pub added_by: String,
 }
 
@@ -772,7 +785,8 @@ pub struct ReviewerIdentityResponse {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LastApprovalSnapshotResponse {
-    pub approved_at: DateTime<Utc>,
+    #[serde(with = "provreq_model::time::ts")]
+    pub approved_at: Timestamp,
     pub body: String,
     pub metadata: serde_json::Value,
 }
@@ -799,9 +813,13 @@ pub struct ReviewQueueEntry {
     pub title: String,
     pub shape: ArtifactShape,
     pub state: ReviewStateTag,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub last_event_at: Option<DateTime<Utc>>,
-    pub modified_at: DateTime<Utc>,
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        with = "provreq_model::time::ts_opt"
+    )]
+    pub last_event_at: Option<Timestamp>,
+    #[serde(with = "provreq_model::time::ts")]
+    pub modified_at: Timestamp,
     pub blocking_todo_count: usize,
     pub tags: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
