@@ -311,6 +311,43 @@ to the whole) is yours to argue**, exactly as it is for a model you check by han
 that does not resolve, or a TLC run that still cannot decide, is an honest `unknown`; removing the
 entry reverts to the composed `Spec`.
 
+### Checking a cat-3 UI requirement against a running deployment: `ui:`
+
+A category-3 requirement is decided by driving a real browser against a running deployment, so it
+grounds against **declared UI steps** rather than the subject's code. Those steps live in a `ui:`
+block in the companion `provreq.yml`:
+
+```yaml
+ui:
+    base_url: http://localhost:8080 # the deployment under check
+    endpoint: http://localhost:4444 # the WebDriver grid (optional; see below)
+    steps:
+        open_cart: { goto: /cart }
+        checkout: { click: "button[data-test=checkout]" }
+        sees_total: { text_present: "Order total" }
+```
+
+A step is exactly one of `goto` (navigate to a path under `base_url`), `click` (a CSS selector), or
+`text_present` (assert text is on the page) — three verbs, because go-somewhere / do-something /
+observe-something is what makes a check. You then ground a cat-3 symbol onto a declared step by name:
+
+```text
+provreq draft SYS-0007 --ground 'sees_total=sees_total'   # symbol = declared step
+```
+
+`base_url` and `steps` describe the _subject_ — required, committed, and part of what the drift axis
+fingerprints. **`endpoint` is the odd field out: it is where the browser happens to run, not what is
+checked**, so it is optional in the manifest and overridden by the `WEBDRIVER_URL` environment
+variable (the same shape as `MONPOLY_BIN` for cat-2b) — an address that differs per operator does not
+belong welded into a committed file. Grounding never consults the grid: whether a grid is reachable
+is a fact about your machine, so **no endpoint configured** (yours to fix in your environment) and
+**no engine wired** (provreq's) stay distinct, never the same `unknown`.
+
+The verdict basis is `NotFalsified` at `probed` fidelity — the weakest rung in the tool, and
+deliberately so: a passing script says the claim was not falsified in what actually ran, never that
+it cannot be. See `docs/operator-workflow-notes.md` for the full cat-3 treatment (the step
+vocabulary's design, the grounding and drift semantics, and the grid-as-a-service seam).
+
 ---
 
 ## Configuring an LLM (optional)
@@ -396,5 +433,7 @@ The whole tool is built to be iterated against — treat its output as the oracl
 - `docs/formalizing-requirements.md` — the proof craft: how to make a requirement provable
   (extraction patterns, proof shapes, engine gotchas) once this pipeline is in hand.
 - `docs/requirement-language.md` — the complete PRL grammar and semantics.
+- `docs/operator-workflow-notes.md` — the full design notes behind each step, including the complete
+  cat-3 `ui:` treatment (step vocabulary, grounding and drift semantics, the grid-as-a-service seam).
 - `docs/installing-and-running.md` — getting the binary, engines, per-environment setup.
 - `docs/applying-to-existing-repos.md` — the design behind adoption and the companion tree.
