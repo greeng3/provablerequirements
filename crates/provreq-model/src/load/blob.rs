@@ -417,7 +417,7 @@ pub fn load_blob_artifact_by_sidecar(
 mod tests {
     use super::*;
     use crate::schema::{Artifact, ArtifactShape};
-    use chrono::Utc;
+    use jiff::Timestamp;
     use std::collections::BTreeMap;
     use tempfile::tempdir;
     use uuid::Uuid;
@@ -428,8 +428,8 @@ mod tests {
             uuid: Uuid::now_v7(),
             title: "Design doc".to_owned(),
             shape: ArtifactShape::Blob,
-            created_at: Utc::now(),
-            modified_at: Utc::now(),
+            created_at: Timestamp::now(),
+            modified_at: Timestamp::now(),
             links: Vec::new(),
             review_log: Vec::new(),
             description: None,

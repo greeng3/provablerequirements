@@ -13,7 +13,7 @@
 use std::path::{Path, PathBuf};
 
 use anyhow::{Result, bail};
-use chrono::Utc;
+use jiff::Timestamp;
 use uuid::Uuid;
 
 use provreq_model::schema::{Artifact, ArtifactShape};
@@ -62,7 +62,7 @@ pub fn create(subject: &Path, id: &str, title: &str, prose: &str) -> Result<Path
         bail!("{id} already exists at {}", path.display());
     }
 
-    let now = Utc::now();
+    let now = Timestamp::now();
     let artifact = Artifact {
         schema_version: 1,
         uuid: Uuid::now_v7(),

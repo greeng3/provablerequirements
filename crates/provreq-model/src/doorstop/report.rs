@@ -11,7 +11,7 @@
 
 use std::path::PathBuf;
 
-use chrono::{DateTime, Utc};
+use jiff::Timestamp;
 use serde::Serialize;
 
 use crate::doorstop::plan::{PrefixCollision, UnresolvedLink};
@@ -22,7 +22,8 @@ use crate::doorstop::plan::{PrefixCollision, UnresolvedLink};
 pub struct ImportReport {
     pub project_slug: String,
     pub source: String,
-    pub import_run_at: DateTime<Utc>,
+    #[serde(with = "crate::time::ts")]
+    pub import_run_at: Timestamp,
 
     /// Collection summaries in prefix-ascending order.
     pub collections: Vec<ReportCollection>,

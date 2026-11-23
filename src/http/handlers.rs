@@ -626,7 +626,7 @@ fn internal_error(msg: impl Into<String>) -> Response {
 /// PUT /api/artifacts/:uuid — update an artifact's mutable fields
 /// and (optionally) replace its body. Immutable fields — uuid,
 /// shape, createdAt, reviewLog — are left alone; modifiedAt gets
-/// bumped to Utc::now().
+/// bumped to `Timestamp::now()`.
 pub async fn update_artifact(
     State(state): State<Arc<AppState>>,
     Path(uuid): Path<Uuid>,
@@ -702,7 +702,7 @@ pub async fn update_artifact(
         metadata.checked_at = None;
         metadata.check_status = None;
     }
-    metadata.modified_at = chrono::Utc::now();
+    metadata.modified_at = jiff::Timestamp::now();
 
     let body = req
         .body
@@ -837,7 +837,7 @@ pub async fn create_review(
         action: req.action.into_action_input(),
         explanation: req.explanation,
     };
-    let now = chrono::Utc::now();
+    let now = jiff::Timestamp::now();
     let validated =
         match provreq_model::reviews::validate_and_build_entry(&derived, action_input, now) {
             Ok(v) => v,
@@ -1071,7 +1071,7 @@ pub async fn create_artifact(
     let target = collection.dir_path.join(format!("{}.md", req.name));
     let project_root = project.root.clone();
     let overrides = state.overrides();
-    let now = chrono::Utc::now();
+    let now = jiff::Timestamp::now();
 
     let metadata = Artifact {
         schema_version: 1,
@@ -1896,7 +1896,7 @@ pub async fn create_blob_artifact(
         )
             .into_response();
     }
-    let now = chrono::Utc::now();
+    let now = jiff::Timestamp::now();
     let new_uuid = Uuid::now_v7();
     let metadata = Artifact {
         schema_version: 1,
@@ -2041,7 +2041,7 @@ pub async fn replace_blob(
             .to_string_lossy()
             .into_owned(),
     );
-    metadata.modified_at = chrono::Utc::now();
+    metadata.modified_at = jiff::Timestamp::now();
     let overrides = state.overrides();
     drop(world);
 
@@ -2118,7 +2118,7 @@ pub async fn create_url_artifact(
         )
             .into_response();
     }
-    let now = chrono::Utc::now();
+    let now = jiff::Timestamp::now();
     let new_uuid = Uuid::now_v7();
     let metadata = Artifact {
         schema_version: 1,
@@ -2458,7 +2458,7 @@ pub async fn bulk_check_urls(
 
 struct UrlCheckOutcomeRaw {
     uuid: Uuid,
-    checked_at: chrono::DateTime<chrono::Utc>,
+    checked_at: jiff::Timestamp,
     check_status: String,
 }
 
@@ -2492,7 +2492,7 @@ async fn run_url_check(state: &Arc<AppState>, uuid: Uuid) -> Result<UrlCheckOutc
     drop(world);
 
     let outcome = state.url_check_client().check(&url).await;
-    let now = chrono::Utc::now();
+    let now = jiff::Timestamp::now();
     metadata.checked_at = Some(now);
     metadata.check_status = Some(outcome.as_wire().to_owned());
     metadata.modified_at = now;
@@ -3188,7 +3188,7 @@ pub async fn doorstop_preview(
         Ok(d) => d,
         Err(err) => return bad_request(format!("doorstop parse error: {err}")),
     };
-    match provreq_model::doorstop::plan::build_plan(project, documents, chrono::Utc::now()) {
+    match provreq_model::doorstop::plan::build_plan(project, documents, jiff::Timestamp::now()) {
         Ok(plan) => Json(plan).into_response(),
         Err(err) => internal_error(format!("doorstop plan error: {err}")),
     }
@@ -3220,7 +3220,8 @@ pub async fn doorstop_import(
         Err(err) => return bad_request(format!("doorstop parse error: {err}")),
     };
     let plan =
-        match provreq_model::doorstop::plan::build_plan(project, documents, chrono::Utc::now()) {
+        match provreq_model::doorstop::plan::build_plan(project, documents, jiff::Timestamp::now())
+        {
             Ok(p) => p,
             Err(err) => return internal_error(format!("doorstop plan error: {err}")),
         };
@@ -3295,7 +3296,7 @@ pub async fn doorstop_report_export(
     let filename = format!(
         "provreq-doorstop-import-{}-{}.{}",
         slug,
-        report.import_run_at.format("%Y%m%dT%H%M%SZ"),
+        report.import_run_at.strftime("%Y%m%dT%H%M%SZ"),
         format.ext()
     );
     let (bytes, mime) = match format {
@@ -3647,7 +3648,7 @@ pub async fn adopt_orphan_blob(
             .into_response();
     }
 
-    let now = chrono::Utc::now();
+    let now = jiff::Timestamp::now();
     let new_uuid = Uuid::now_v7();
     let metadata = Artifact {
         schema_version: 1,
@@ -3756,7 +3757,7 @@ pub async fn export_report(
         provreq_model::reports::ReportResponse::CodeTraceability(r) => &r.scope,
     };
     let filename =
-        provreq_model::exports::filename::build(kind, scope_dto, format, chrono::Utc::now());
+        provreq_model::exports::filename::build(kind, scope_dto, format, jiff::Timestamp::now());
 
     let bytes = match format {
         provreq_model::exports::ExportFormat::Json => match serde_json::to_vec_pretty(&response) {
@@ -4368,7 +4369,7 @@ fn write_sample_content(
     project_root: &std::path::Path,
     overrides: provreq_model::write::OwnershipOverrides,
 ) -> Result<(), String> {
-    use chrono::Utc;
+    use jiff::Timestamp;
     use provreq_model::schema::{Artifact, ArtifactShape, CollectionConfig};
 
     std::fs::create_dir_all(artifacts_root).map_err(|e| format!("create artifacts root: {e}"))?;
@@ -4395,7 +4396,7 @@ fn write_sample_content(
             .map_err(|e| format!("chown collection config: {e}"))?;
 
         for art in &draft.artifacts {
-            let now = Utc::now();
+            let now = Timestamp::now();
             let metadata = Artifact {
                 schema_version: 1,
                 uuid: art.uuid,
@@ -4622,7 +4623,7 @@ pub async fn reject_link_suggestion(
 
     let record = provreq_model::suggestions::DeclineRecord {
         suggestion,
-        declined_at: chrono::Utc::now(),
+        declined_at: jiff::Timestamp::now(),
     };
     if let Err(err) = provreq_model::suggestions::declined::append(&project_root, record) {
         return internal_error(format!("append to declined: {err}"));
@@ -4750,7 +4751,7 @@ async fn apply_suggestion_as_link(
 
     let mut metadata = from_artifact.metadata.clone();
     metadata.links = validated.0;
-    metadata.modified_at = chrono::Utc::now();
+    metadata.modified_at = jiff::Timestamp::now();
 
     let body = from_artifact.body.clone().unwrap_or_default();
     let source_path = from_artifact.source_path.clone();

@@ -29,7 +29,7 @@
 //! derivation logic inside this module changes; the serde schema and
 //! the function signature stay intact.
 
-use chrono::{DateTime, Utc};
+use jiff::Timestamp;
 
 use crate::schema::ReviewLogEntry;
 
@@ -55,7 +55,7 @@ pub struct OpenTodo {
     pub text: String,
     /// When the TODO was added (the timestamp of the log entry that
     /// added it, not the current time).
-    pub added_at: DateTime<Utc>,
+    pub added_at: Timestamp,
     pub added_by: String,
 }
 
@@ -65,8 +65,8 @@ pub struct OpenTodo {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DerivedReviewState {
     pub state: ReviewState,
-    pub last_approval_at: Option<DateTime<Utc>>,
-    pub last_event_at: Option<DateTime<Utc>>,
+    pub last_approval_at: Option<Timestamp>,
+    pub last_event_at: Option<Timestamp>,
     pub last_reviewer: Option<String>,
     pub blocking_todos: Vec<OpenTodo>,
 }
@@ -202,10 +202,8 @@ mod tests {
     use crate::schema::AddedTodo;
     use std::collections::BTreeMap;
 
-    fn at(ts: &str) -> DateTime<Utc> {
-        DateTime::parse_from_rfc3339(ts)
-            .unwrap()
-            .with_timezone(&Utc)
+    fn at(ts: &str) -> Timestamp {
+        ts.parse().unwrap()
     }
 
     fn entry(ts: &str, reviewer: &str, outcome: &str) -> ReviewLogEntry {

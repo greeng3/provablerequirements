@@ -431,7 +431,7 @@ fn finish(
             status: report.status.clone(),
             basis: report.basis.clone(),
             correspondence: report.correspondence.clone(),
-            at_unix: chrono::Utc::now().timestamp(),
+            at_unix: jiff::Timestamp::now().as_second(),
         };
         let id = report.id.clone();
         let recorded = crate::verdict_store::record(&store, report);

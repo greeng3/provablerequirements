@@ -18,7 +18,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use chrono::{DateTime, Utc};
+use jiff::Timestamp;
 use uuid::Uuid;
 
 use crate::reviews::identity::{ReviewersFile, ReviewersFileError, load_reviewers_json};
@@ -61,7 +61,7 @@ pub fn append_reviewer_if_missing(
 pub fn write_approval_snapshot(
     workspace_dir: &Path,
     artifact_uuid: Uuid,
-    approved_at: DateTime<Utc>,
+    approved_at: Timestamp,
     frontmatter_json: &str,
     body: &str,
 ) -> Result<PathBuf, ReviewerPersistenceError> {
@@ -81,8 +81,8 @@ pub fn write_approval_snapshot(
 
 /// Filesystem-portable timestamp encoding for snapshot directory
 /// names: `YYYYMMDDTHHMMSSZ`.
-pub fn format_snapshot_timestamp(ts: DateTime<Utc>) -> String {
-    ts.format("%Y%m%dT%H%M%SZ").to_string()
+pub fn format_snapshot_timestamp(ts: Timestamp) -> String {
+    ts.strftime("%Y%m%dT%H%M%SZ").to_string()
 }
 
 /// Load the most recent approval snapshot for `artifact_uuid`, if
@@ -141,7 +141,7 @@ pub fn load_latest_approval_snapshot(
 /// timestamp, the verbatim JSON frontmatter string, and the body.
 #[derive(Debug, Clone)]
 pub struct LoadedSnapshot {
-    pub approved_at: DateTime<Utc>,
+    pub approved_at: Timestamp,
     pub frontmatter_json: String,
     pub body: String,
 }
@@ -162,10 +162,10 @@ fn split_frontmatter_body(contents: &str) -> (String, String) {
     (frontmatter.to_owned(), body.to_owned())
 }
 
-fn parse_snapshot_timestamp(dir_name: &str) -> DateTime<Utc> {
+fn parse_snapshot_timestamp(dir_name: &str) -> Timestamp {
     // The snapshot directory name is `YYYYMMDDTHHMMSSZ`; convert
-    // to RFC-3339 for chrono. If parsing fails (directory
-    // hand-created?) fall back to `Utc::now()` so the handler
+    // to RFC-3339 for the parser. If parsing fails (directory
+    // hand-created?) fall back to `Timestamp::now()` so the handler
     // still returns something sensible.
     let rfc = format!(
         "{}-{}-{}T{}:{}:{}Z",
@@ -176,9 +176,7 @@ fn parse_snapshot_timestamp(dir_name: &str) -> DateTime<Utc> {
         dir_name.get(11..13).unwrap_or("00"),
         dir_name.get(13..15).unwrap_or("00"),
     );
-    DateTime::parse_from_rfc3339(&rfc)
-        .map(|dt| dt.with_timezone(&Utc))
-        .unwrap_or_else(|_| Utc::now())
+    rfc.parse().unwrap_or_else(|_| Timestamp::now())
 }
 
 fn ensure_dir_exists(dir: &Path) -> Result<(), ReviewerPersistenceError> {
@@ -257,9 +255,7 @@ mod tests {
     fn snapshot_writes_under_review_snapshots_tree() {
         let temp = tempfile::tempdir().unwrap();
         let uuid = Uuid::now_v7();
-        let ts = DateTime::parse_from_rfc3339("2026-04-21T12:00:00Z")
-            .unwrap()
-            .with_timezone(&Utc);
+        let ts: Timestamp = "2026-04-21T12:00:00Z".parse().unwrap();
         let file =
             write_approval_snapshot(temp.path(), uuid, ts, "{\"schemaVersion\":1}", "# Body\n")
                 .unwrap();
@@ -274,9 +270,18 @@ mod tests {
 
     #[test]
     fn snapshot_timestamp_format_is_filesystem_portable() {
-        let ts = DateTime::parse_from_rfc3339("2026-04-21T12:00:00Z")
-            .unwrap()
-            .with_timezone(&Utc);
+        let ts: Timestamp = "2026-04-21T12:00:00Z".parse().unwrap();
         assert_eq!(format_snapshot_timestamp(ts), "20260421T120000Z");
+    }
+
+    // Golden: the directory-name encoding and its inverse must
+    // round-trip, so a snapshot written today is still found after
+    // the chrono→jiff swap.
+    #[test]
+    fn snapshot_timestamp_round_trips_through_dir_name() {
+        let ts: Timestamp = "2026-04-21T12:00:00Z".parse().unwrap();
+        let name = format_snapshot_timestamp(ts);
+        assert_eq!(name, "20260421T120000Z");
+        assert_eq!(parse_snapshot_timestamp(&name), ts);
     }
 }

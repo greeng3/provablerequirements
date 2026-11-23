@@ -57,8 +57,8 @@ pub fn migrate_doorstop(
         .with_context(|| format!("creating {}", artifacts_root.display()))?;
     write_project_marker(&project)?;
 
-    let plan =
-        build_plan(&project, documents, chrono::Utc::now()).context("building the import plan")?;
+    let plan = build_plan(&project, documents, jiff::Timestamp::now())
+        .context("building the import plan")?;
     let exec_target = ExecuteTarget::from_project(&project);
     let report = execute(
         &exec_target,

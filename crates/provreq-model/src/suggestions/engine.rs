@@ -411,7 +411,6 @@ mod tests {
 
     #[test]
     fn parse_filters_declined_triples() {
-        use chrono::{TimeZone, Utc};
         let declined = vec![DeclineRecord {
             suggestion: Suggestion {
                 id: uuid_byte(99),
@@ -421,7 +420,7 @@ mod tests {
                 confidence: 0.5,
                 rationale: "previously rejected".to_owned(),
             },
-            declined_at: Utc.with_ymd_and_hms(2026, 5, 4, 12, 0, 0).unwrap(),
+            declined_at: "2026-05-04T12:00:00Z".parse().unwrap(),
         }];
 
         let text = format!(
@@ -613,8 +612,8 @@ mod tests {
                 uuid,
                 title: format!("Title for {name}"),
                 shape: crate::schema::ArtifactShape::Content,
-                created_at: chrono::Utc::now(),
-                modified_at: chrono::Utc::now(),
+                created_at: jiff::Timestamp::now(),
+                modified_at: jiff::Timestamp::now(),
                 links: Vec::new(),
                 review_log: Vec::new(),
                 description: None,

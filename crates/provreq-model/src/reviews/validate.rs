@@ -14,7 +14,7 @@
 //! (`addedTodos: Vec<…>`) but are rejected at the validator here so
 //! the UI and the write path stay in lockstep.
 
-use chrono::{DateTime, Utc};
+use jiff::Timestamp;
 use uuid::Uuid;
 
 use crate::reviews::state::{
@@ -91,7 +91,7 @@ pub enum ReviewValidationError {
 pub fn validate_and_build_entry(
     derived: &DerivedReviewState,
     input: ReviewActionInput,
-    now: DateTime<Utc>,
+    now: Timestamp,
 ) -> Result<ValidatedReview, ReviewValidationError> {
     let reviewer = input.reviewer.trim().to_owned();
     if reviewer.is_empty() {
@@ -159,7 +159,7 @@ pub fn validate_and_build_entry(
 }
 
 fn base_entry(
-    now: DateTime<Utc>,
+    now: Timestamp,
     reviewer: String,
     outcome: &str,
     explanation: Option<String>,
@@ -193,10 +193,8 @@ mod tests {
     use super::*;
     use crate::reviews::OpenTodo;
 
-    fn now() -> DateTime<Utc> {
-        DateTime::parse_from_rfc3339("2026-04-21T12:00:00Z")
-            .unwrap()
-            .with_timezone(&Utc)
+    fn now() -> Timestamp {
+        "2026-04-21T12:00:00Z".parse().unwrap()
     }
 
     fn derived(state: ReviewState) -> DerivedReviewState {

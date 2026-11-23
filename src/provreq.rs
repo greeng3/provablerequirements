@@ -156,8 +156,8 @@ impl RequirementsSource for ProvreqSource {
     /// Doorstop adapter replaces its single `provreq:` block. Mutates the working tree; the operator
     /// commits it.
     fn annotate(&self, id: &str, annotation: &Annotation) -> Result<()> {
-        let timestamp = chrono::DateTime::from_timestamp(annotation.reviewed_at_unix, 0)
-            .with_context(|| {
+        let timestamp =
+            jiff::Timestamp::from_second(annotation.reviewed_at_unix).with_context(|| {
                 format!(
                     "annotation timestamp {} is out of range",
                     annotation.reviewed_at_unix
@@ -225,7 +225,7 @@ impl RequirementsSource for ProvreqSource {
             prl: field("prl")?,
             review: field("review")?,
             reviewer: entry.reviewer.clone(),
-            reviewed_at_unix: entry.timestamp.timestamp(),
+            reviewed_at_unix: entry.timestamp.as_second(),
             source_revision: field("sourceRevision")?,
         }))
     }
@@ -245,7 +245,7 @@ impl ProvreqSource {
     /// outcome tag's own fields. Asserted correspondence is carried verbatim so a human-tagged pass
     /// can never read as a mechanical proof. Mutates the working tree; the operator commits it.
     pub fn record_verdict(&self, id: &str, breadcrumb: &VerdictBreadcrumb) -> Result<()> {
-        let timestamp = chrono::DateTime::from_timestamp(breadcrumb.at_unix, 0)
+        let timestamp = jiff::Timestamp::from_second(breadcrumb.at_unix)
             .with_context(|| format!("verdict timestamp {} is out of range", breadcrumb.at_unix))?;
 
         let provreq = serde_json::json!({
@@ -557,7 +557,7 @@ mod tests {
             .expect("a review-log entry was appended");
         assert_eq!(entry.outcome, "provreq-formalized");
         assert_eq!(entry.reviewer, "someone");
-        assert_eq!(entry.timestamp.timestamp(), 1_700_000_000);
+        assert_eq!(entry.timestamp.as_second(), 1_700_000_000);
         let provreq = entry.overflow.get("provreq").expect("namespaced block");
         assert_eq!(provreq["status"], "admitted-but-ungrounded");
         assert_eq!(provreq["prl"], "requirement r { }");
@@ -650,7 +650,7 @@ mod tests {
             .expect("a review-log entry was appended");
         assert_eq!(entry.outcome, "provreq-verdict");
         assert_eq!(entry.reviewer, "provreq");
-        assert_eq!(entry.timestamp.timestamp(), 1_700_000_000);
+        assert_eq!(entry.timestamp.as_second(), 1_700_000_000);
         let provreq = entry.overflow.get("provreq").expect("namespaced block");
         assert_eq!(provreq["status"], "holds");
         assert_eq!(provreq["basis"], "not-falsified");

@@ -6,7 +6,7 @@
 //! [`artifact_href`] so links work either relative (same-origin
 //! re-serve) or absolute (via `PROVREQ_EXTERNAL_URL`).
 
-use chrono::Utc;
+use jiff::Timestamp;
 
 use crate::reports::{
     ConflictsReport, CoverageMatrixReport, CycleNode, CyclesReport, FilesystemOrphansReport,
@@ -85,7 +85,7 @@ pub fn render(response: &ReportResponse, external_url: Option<&str>) -> Vec<u8> 
         }
     };
     let scope = scope_description(response.scope());
-    let stamp = Utc::now().format("%Y-%m-%d %H:%M UTC").to_string();
+    let stamp = Timestamp::now().strftime("%Y-%m-%d %H:%M UTC").to_string();
     format!(
         "<!DOCTYPE html>\n\
 <html lang=\"en\">\n\
@@ -713,5 +713,17 @@ mod tests {
         let bytes = render(&ReportResponse::LinkOrphans(report), None);
         let text = String::from_utf8(bytes).unwrap();
         assert!(text.contains("No link-graph orphans in scope."));
+    }
+
+    // Golden: the "Generated:" stamp pattern must stay exactly what
+    // chrono's `%Y-%m-%d %H:%M UTC` produced. `render` reads the wall
+    // clock, so pin the format against a fixed instant instead.
+    #[test]
+    fn generated_stamp_format_matches_legacy_chrono() {
+        let at: Timestamp = "2026-04-22T03:07:00Z".parse().unwrap();
+        assert_eq!(
+            at.strftime("%Y-%m-%d %H:%M UTC").to_string(),
+            "2026-04-22 03:07 UTC"
+        );
     }
 }

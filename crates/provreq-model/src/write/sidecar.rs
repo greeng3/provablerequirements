@@ -93,7 +93,7 @@ pub enum ShapeWriteError {
 mod tests {
     use super::*;
     use crate::schema::{Artifact, ArtifactShape};
-    use chrono::Utc;
+    use jiff::Timestamp;
     use std::collections::BTreeMap;
     use std::fs;
     use tempfile::tempdir;
@@ -105,8 +105,8 @@ mod tests {
             uuid: Uuid::now_v7(),
             title: "Artifact".to_owned(),
             shape,
-            created_at: Utc::now(),
-            modified_at: Utc::now(),
+            created_at: Timestamp::now(),
+            modified_at: Timestamp::now(),
             links: Vec::new(),
             review_log: Vec::new(),
             description: None,
