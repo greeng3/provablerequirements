@@ -13,6 +13,23 @@ llm:
   provider: openai-compatible
   base_url: http://localhost:11434/v1
   model: qwen3:32b
+# Category-3 (UI/WebDriver) deployment the sole cat-3 requirement drives (#630). provreq dogfoods
+# every other engine against itself; this closes the last gap by driving a browser against provreq's
+# OWN running web surface. `base_url` is the `provreq serve` deployment under check — a committed
+# fact about the subject; `steps` are what the driver does and observes. The grid `endpoint` is
+# deliberately omitted: it is a fact about the operator's machine, supplied via `WEBDRIVER_URL`, not
+# welded into a committed file. Nothing here is up by default, so the committed verdict is an honest
+# `unknown` (a cat-3 verdict exists only while a deployment + grid are live); run it with
+# `provreq serve --port 8787` plus a grid (e.g. `docker run -d --network host
+# selenium/standalone-chromium`, `--network host` so the containerized browser can reach serve's
+# loopback bind) and `WEBDRIVER_URL=http://localhost:4444`.
+ui:
+  base_url: http://localhost:8787
+  steps:
+    open_app:
+      goto: /
+    shows_brand:
+      text_present: ProvableRequirements
 # Kani bounds for the category-1 ensemble (#117). REQ030's harness folds over a length-3
 # `ProofEnsemble`, so every loop exits by the fourth iteration — `default_unwind: 4` is the
 # tightest bound that discharges the unwinding assertions (verified: 0/513 checks fail in ~4s).
