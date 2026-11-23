@@ -837,3 +837,23 @@ drafts:
       by: gg
       at_unix: 1793749646
     bindings: []
+  REQ094:
+    revision: b38dc71201801bf1af7e588eb8ad03abf7e2fd74b987dfb22263adc4ed248254
+    candidate: 'requirement REQ094_web_shell_mounts_in_a_browser { category: 3 vocabulary { state open_app state shows_brand } require { open_app leads_to shows_brand } }'
+    gate:
+      status: passed
+      warnings: []
+    admission:
+      state: admitted
+      review: optional
+      by: greeng3
+      at_unix: 1795466163
+    bindings:
+    - symbol: open_app
+      category: ui
+      observable: open_app
+      fidelity: probed
+    - symbol: shows_brand
+      category: ui
+      observable: shows_brand
+      fidelity: probed
