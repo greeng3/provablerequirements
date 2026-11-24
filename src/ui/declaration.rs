@@ -21,6 +21,10 @@ pub enum Step {
     Click(String),
     /// Assert that some text is present in the page.
     TextPresent(String),
+    /// Assert that an element matching a CSS selector is present. The observation for controls
+    /// whose accessible name lives in an attribute (`aria-label`/`title`) rather than visible text,
+    /// so `text_present` cannot see them.
+    ElementPresent(String),
 }
 
 impl Step {
@@ -31,12 +35,13 @@ impl Step {
             Step::Goto(_) => "goto",
             Step::Click(_) => "click",
             Step::TextPresent(_) => "text_present",
+            Step::ElementPresent(_) => "element_present",
         }
     }
 
     pub fn argument(&self) -> &str {
         match self {
-            Step::Goto(a) | Step::Click(a) | Step::TextPresent(a) => a,
+            Step::Goto(a) | Step::Click(a) | Step::TextPresent(a) | Step::ElementPresent(a) => a,
         }
     }
 }
@@ -78,6 +83,8 @@ struct StepBlock {
     click: Option<String>,
     #[serde(default)]
     text_present: Option<String>,
+    #[serde(default)]
+    element_present: Option<String>,
 }
 
 impl Ui {
@@ -296,6 +303,7 @@ fn declared_step(alias: &str, block: StepBlock) -> Result<Step, String> {
         block.goto.map(Step::Goto),
         block.click.map(Step::Click),
         block.text_present.map(Step::TextPresent),
+        block.element_present.map(Step::ElementPresent),
     ]
     .into_iter()
     .flatten()
@@ -310,7 +318,7 @@ fn declared_step(alias: &str, block: StepBlock) -> Result<Step, String> {
                     step.key(),
                     match step {
                         Step::Goto(_) => "path",
-                        Step::Click(_) => "CSS selector",
+                        Step::Click(_) | Step::ElementPresent(_) => "CSS selector",
                         Step::TextPresent(_) => "text",
                     }
                 ));
@@ -318,8 +326,8 @@ fn declared_step(alias: &str, block: StepBlock) -> Result<Step, String> {
             Ok(step)
         }
         0 => Err(format!(
-            "step `{alias}` in provreq.yml declares no action — give it one of `goto`, `click` or \
-             `text_present`"
+            "step `{alias}` in provreq.yml declares no action — give it one of `goto`, `click`, \
+             `text_present` or `element_present`"
         )),
         n => Err(format!(
             "step `{alias}` in provreq.yml declares {n} actions ({}) — a step is one action, so \
@@ -390,6 +398,34 @@ mod tests {
         );
         assert_eq!(ui.aliases(), vec!["checkout", "open_cart", "sees_total"]);
         assert_eq!(ui.step("nope"), None);
+    }
+
+    // Verifies: #632 — an `element_present` step parses to its own variant, the observation for a
+    // control whose accessible name lives in an attribute rather than visible text.
+    #[test]
+    fn an_element_present_step_loads_as_its_own_variant() {
+        let tmp = companion_with(
+            "ui:\n  base_url: http://x.test\n  steps:\n    \
+             has_unlock: { element_present: \"button[aria-label='Force unlock']\" }\n",
+        );
+        let ui = Ui::load(tmp.path()).expect("loads").expect("configured");
+        assert_eq!(
+            ui.step("has_unlock"),
+            Some(&Step::ElementPresent(
+                "button[aria-label='Force unlock']".into()
+            ))
+        );
+
+        // And an empty selector is refused the same way the other steps' arguments are.
+        let blank = companion_with(
+            "ui:\n  base_url: http://x.test\n  steps:\n    a: { element_present: \"\" }\n",
+        );
+        let err = blank_err(&blank);
+        assert!(err.contains("CSS selector"), "{err}");
+    }
+
+    fn blank_err(tmp: &tempfile::TempDir) -> String {
+        Ui::load(tmp.path()).expect_err("an empty selector is an error")
     }
 
     // Verifies: #239 — a block that IS there and is half-written names the key, rather than being

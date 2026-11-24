@@ -285,16 +285,25 @@ impl Session {
                          observation — a driver reads it rather than does it"
                     ));
                 }
+                Step::ElementPresent(sel) => {
+                    return Err(format!(
+                        "the script was asked to perform `element_present: \"{sel}\"`, which is an \
+                         observation — a driver reads it rather than does it"
+                    ));
+                }
             }
         }
-        let Step::TextPresent(text) = &claim.expect else {
-            return Err(format!(
-                "the claim asserts `{}`, which is an action the driver performs itself — nothing \
-                 the deployment decides",
-                claim.expect.key()
-            ));
+        let present = match &claim.expect {
+            Step::TextPresent(text) => self.watch_for(text).await?,
+            Step::ElementPresent(css) => self.watch_for_element(css).await?,
+            other => {
+                return Err(format!(
+                    "the claim asserts `{}`, which is an action the driver performs itself — \
+                     nothing the deployment decides",
+                    other.key()
+                ));
+            }
         };
-        let present = self.watch_for(text).await?;
         Ok(Ran {
             present,
             at: self
@@ -311,6 +320,24 @@ impl Session {
         let deadline = std::time::Instant::now() + SETTLE;
         loop {
             if self.body_text().await?.contains(text) {
+                return Ok(true);
+            }
+            if std::time::Instant::now() >= deadline {
+                return Ok(false);
+            }
+            tokio::time::sleep(POLL).await;
+        }
+    }
+
+    /// Poll for an element matching `css` until it appears or the settle window closes — the
+    /// element analogue of [`Session::watch_for`]. `find` already retries within the implicit
+    /// timeout, but polling here keeps the absence case (`never`) honest: an element asserted
+    /// absent gets the whole window to betray itself before the page is judged not to show it,
+    /// exactly as the text watch does.
+    async fn watch_for_element(&self, css: &str) -> Result<bool, String> {
+        let deadline = std::time::Instant::now() + SETTLE;
+        loop {
+            if self.find(css).await.is_ok() {
                 return Ok(true);
             }
             if std::time::Instant::now() >= deadline {
@@ -908,6 +935,32 @@ mod tests {
             panic!("a script that could not run is never a verdict: {outcome:?}")
         };
         assert!(reason.contains("#no-such-element-anywhere"), "{reason}");
+    }
+
+    // Verifies: #632 against the REAL GRID — `element_present` drives over the wire. A page that
+    // really has the element required `holds`, exercising `watch_for_element` → `find` end to end
+    // rather than only in the lowering unit tests. Static green is not evidence for the driver
+    // (#245's live catches were invisible to 565 passing tests), so the new observation earns the
+    // same real-grid check `text_present` has.
+    #[test]
+    #[ignore = "requires a WebDriver grid (WEBDRIVER_URL), a deployment (UI_TEST_BASE_URL) and a \
+                selector (UI_TEST_SELECTOR)"]
+    fn real_grid_holds_when_the_page_has_the_element() {
+        let base = std::env::var("UI_TEST_BASE_URL").expect("UI_TEST_BASE_URL");
+        let selector = std::env::var("UI_TEST_SELECTOR").expect("UI_TEST_SELECTOR");
+        let ui = Ui::new(base, None, BTreeMap::new());
+        let claim = UiClaim {
+            steps: vec![Step::Goto("/".into())],
+            expect: Step::ElementPresent(selector),
+            expect_absent: false,
+        };
+        let outcome = run(&ui, &claim);
+        let Outcome::NotFalsified { .. } = &outcome else {
+            panic!("the page really has this element: {outcome:?}")
+        };
+        let e = outcome.into_evidence(&ui, &claim);
+        assert_eq!(e.status, Status::Holds);
+        assert_eq!(e.basis, Some(Basis::NotFalsified));
     }
 
     /// The deployment the real-grid tests drive, and text it really shows. Both are the operator's
