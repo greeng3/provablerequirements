@@ -138,6 +138,14 @@ fn render_scope(s: &Scope, vars: &[Binder]) -> String {
         Scope::Globally => String::new(),
         Scope::Before(a) => format!(", before {}", render_atom(a, vars)),
         Scope::After(a) => format!(", after {}", render_atom(a, vars)),
+        Scope::AfterSequence(atoms) => format!(
+            ", after {}",
+            atoms
+                .iter()
+                .map(|a| render_atom(a, vars))
+                .collect::<Vec<_>>()
+                .join(" then ")
+        ),
         Scope::Between(a, b) => format!(
             ", between {} and {}",
             render_atom(a, vars),
@@ -275,6 +283,18 @@ mod tests {
         let out = readback("requirement r { require { always p between open and close } }");
         assert!(
             out.contains("p always holds, between open and close"),
+            "got: {out}"
+        );
+    }
+
+    // Verifies: #634 — an after-sequence reads back as the ordered boundaries joined by `then`, so
+    // the operator confirms the exact order the setup runs in.
+    #[test]
+    fn renders_an_after_sequence_in_order() {
+        let out =
+            readback("requirement r { require { always done after open then act then settle } }");
+        assert!(
+            out.contains("after open then act then settle"),
             "got: {out}"
         );
     }

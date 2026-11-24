@@ -124,6 +124,11 @@ pub enum Scope {
     Before(Atom),
     After(Atom),
     Between(Atom, Atom),
+    /// An ordered sequence of `after` boundaries — `after a then b then c`. Only a category-3 UI
+    /// driver, which performs its own ordered actions, can honour it; every other category rejects
+    /// a non-`Globally` scope, so this is inert for them. Always holds at least two atoms (a single
+    /// `after a` parses to [`Scope::After`]).
+    AfterSequence(Vec<Atom>),
 }
 
 /// A boolean combination of predicate applications inside a pattern.
@@ -292,6 +297,7 @@ impl Property {
                 f(a);
                 f(b);
             }
+            Scope::AfterSequence(atoms) => atoms.iter().for_each(f),
         }
     }
 }
