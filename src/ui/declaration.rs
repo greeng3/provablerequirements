@@ -25,6 +25,11 @@ pub enum Step {
     /// whose accessible name lives in an attribute (`aria-label`/`title`) rather than visible text,
     /// so `text_present` cannot see them.
     ElementPresent(String),
+    /// Accept a native dialog (`window.confirm`/`alert`/`prompt`). An action with no target — there
+    /// is one active dialog — needed to drive past a confirmation that gates a click's effect.
+    AcceptDialog,
+    /// Dismiss a native dialog. The cancelling counterpart of [`Step::AcceptDialog`].
+    DismissDialog,
 }
 
 impl Step {
@@ -36,13 +41,23 @@ impl Step {
             Step::Click(_) => "click",
             Step::TextPresent(_) => "text_present",
             Step::ElementPresent(_) => "element_present",
+            Step::AcceptDialog => "accept_dialog",
+            Step::DismissDialog => "dismiss_dialog",
         }
     }
 
     pub fn argument(&self) -> &str {
         match self {
             Step::Goto(a) | Step::Click(a) | Step::TextPresent(a) | Step::ElementPresent(a) => a,
+            // The dialog verbs act on the one active dialog, so they carry no target.
+            Step::AcceptDialog | Step::DismissDialog => "",
         }
+    }
+
+    /// Whether this verb carries a target (a path, selector or text). The dialog verbs do not —
+    /// there is a single active dialog — so an empty argument is not a half-written step for them.
+    fn takes_argument(&self) -> bool {
+        !matches!(self, Step::AcceptDialog | Step::DismissDialog)
     }
 }
 
@@ -85,6 +100,10 @@ struct StepBlock {
     text_present: Option<String>,
     #[serde(default)]
     element_present: Option<String>,
+    #[serde(default)]
+    accept_dialog: Option<bool>,
+    #[serde(default)]
+    dismiss_dialog: Option<bool>,
 }
 
 impl Ui {
@@ -304,6 +323,16 @@ fn declared_step(alias: &str, block: StepBlock) -> Result<Step, String> {
         block.click.map(Step::Click),
         block.text_present.map(Step::TextPresent),
         block.element_present.map(Step::ElementPresent),
+        // A flag verb: `accept_dialog: true` declares it, `false` or absent does not — there is no
+        // target to carry, so the key's presence is the whole declaration.
+        block
+            .accept_dialog
+            .filter(|&on| on)
+            .map(|_| Step::AcceptDialog),
+        block
+            .dismiss_dialog
+            .filter(|&on| on)
+            .map(|_| Step::DismissDialog),
     ]
     .into_iter()
     .flatten()
@@ -312,7 +341,7 @@ fn declared_step(alias: &str, block: StepBlock) -> Result<Step, String> {
     match candidates.len() {
         1 => {
             let step = candidates.into_iter().next().expect("length checked");
-            if step.argument().trim().is_empty() {
+            if step.takes_argument() && step.argument().trim().is_empty() {
                 return Err(format!(
                     "step `{alias}` in provreq.yml has an empty `{}` — give it the {} it acts on",
                     step.key(),
@@ -320,6 +349,8 @@ fn declared_step(alias: &str, block: StepBlock) -> Result<Step, String> {
                         Step::Goto(_) => "path",
                         Step::Click(_) | Step::ElementPresent(_) => "CSS selector",
                         Step::TextPresent(_) => "text",
+                        // Exempt by `takes_argument`; arm only for exhaustiveness.
+                        Step::AcceptDialog | Step::DismissDialog => "dialog",
                     }
                 ));
             }
@@ -327,7 +358,7 @@ fn declared_step(alias: &str, block: StepBlock) -> Result<Step, String> {
         }
         0 => Err(format!(
             "step `{alias}` in provreq.yml declares no action — give it one of `goto`, `click`, \
-             `text_present` or `element_present`"
+             `text_present`, `element_present`, `accept_dialog` or `dismiss_dialog`"
         )),
         n => Err(format!(
             "step `{alias}` in provreq.yml declares {n} actions ({}) — a step is one action, so \
@@ -426,6 +457,27 @@ mod tests {
 
     fn blank_err(tmp: &tempfile::TempDir) -> String {
         Ui::load(tmp.path()).expect_err("an empty selector is an error")
+    }
+
+    // Verifies: #633 — the dialog verbs are no-target flag steps: `accept_dialog: true` declares the
+    // action, and an empty argument is not held against them the way it is for the string-valued
+    // verbs. A `false` or absent flag declares nothing.
+    #[test]
+    fn a_dialog_verb_loads_from_a_true_flag_with_no_argument() {
+        let tmp = companion_with(
+            "ui:\n  base_url: http://x.test\n  steps:\n    \
+             confirm: { accept_dialog: true }\n    cancel: { dismiss_dialog: true }\n",
+        );
+        let ui = Ui::load(tmp.path()).expect("loads").expect("configured");
+        assert_eq!(ui.step("confirm"), Some(&Step::AcceptDialog));
+        assert_eq!(ui.step("cancel"), Some(&Step::DismissDialog));
+
+        // A `false` flag is not a declaration — the step then has no action at all.
+        let off = companion_with(
+            "ui:\n  base_url: http://x.test\n  steps:\n    a: { accept_dialog: false }\n",
+        );
+        let err = Ui::load(off.path()).expect_err("a false flag declares nothing");
+        assert!(err.contains("declares no action"), "{err}");
     }
 
     // Verifies: #239 — a block that IS there and is half-written names the key, rather than being

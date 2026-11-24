@@ -326,17 +326,22 @@ ui:
         checkout: { click: "button[data-test=checkout]" }
         sees_total: { text_present: "Order total" }
         has_checkout: { element_present: "button[aria-label='Checkout']" }
+        confirm_unlock: { accept_dialog: true }
 ```
 
-A step is exactly one of `goto` (navigate to a path under `base_url`), `click` (a CSS selector),
-`text_present` (assert visible text is on the page), or `element_present` (assert an element
-matching a CSS selector is on the page) — go-somewhere / do-something / observe-something is what
-makes a check. The two observations differ in what they can see: `text_present` reads visible body
-text, while `element_present` finds a control by selector, which is the only way to assert an icon
-button whose accessible name lives in `aria-label`/`title` rather than visible text. Either
-observation can be the thing a claim asserts; `goto`/`click` cannot (a claim the driver satisfies by
-performing it cannot be falsified). `never <observation>` asserts absence — "the control is not
-shown". You then ground a cat-3 symbol onto a declared step by name:
+A step is one of two **actions** the driver performs — `goto` (navigate to a path under `base_url`)
+or `click` (a CSS selector) — one of two **observations** it reads — `text_present` (visible text is
+on the page) or `element_present` (an element matching a CSS selector is on the page) — or one of
+two **dialog verbs** that drive past a native `window.confirm`/`alert`: `accept_dialog: true` /
+`dismiss_dialog: true` (no target — there is one active dialog). The two observations differ in what
+they can see: `text_present` reads visible body text, while `element_present` finds a control by
+selector, the only way to assert an icon button whose accessible name lives in `aria-label`/`title`
+rather than visible text. Either observation can be the thing a claim asserts; the actions and
+dialog verbs cannot (a claim the driver satisfies by performing it cannot be falsified). `never
+<observation>` asserts absence — "the control is not shown". A dialog verb is how a claim reaches the
+effect of a click gated by a confirmation: `confirm_unlock leads_to sees_result after click_unlock`
+clicks, accepts the dialog, then observes. You then ground a cat-3 symbol onto a declared step by
+name:
 
 ```text
 provreq draft SYS-0007 --ground 'sees_total=sees_total'   # symbol = declared step

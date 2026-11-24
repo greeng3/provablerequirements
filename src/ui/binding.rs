@@ -101,6 +101,8 @@ fn describe_action(step: &Step) -> String {
         Step::ElementPresent(selector) => {
             format!("check that the page has an element matching `{selector}`")
         }
+        Step::AcceptDialog => "accept the dialog".to_string(),
+        Step::DismissDialog => "dismiss the dialog".to_string(),
     }
 }
 

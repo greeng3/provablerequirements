@@ -291,6 +291,8 @@ impl Session {
                          observation — a driver reads it rather than does it"
                     ));
                 }
+                Step::AcceptDialog => self.alert("accept").await?,
+                Step::DismissDialog => self.alert("dismiss").await?,
             }
         }
         let present = match &claim.expect {
@@ -365,6 +367,23 @@ impl Session {
                 .post(self.url(&format!("/element/{element}/click")))
                 .json(&serde_json::json!({})),
             &format!("clicking `{css}`"),
+        )
+        .await
+        .map(|_| ())
+    }
+
+    /// Accept or dismiss the active native dialog (`window.confirm`/`alert`/`prompt`). A no-target
+    /// action — WebDriver acts on the one open dialog. `which` is `"accept"` or `"dismiss"`.
+    ///
+    /// If no dialog is open the grid answers `no such alert`, which surfaces as the step failing to
+    /// run — an inconclusive, never a refutation (#245): a confirmation that did not appear is a
+    /// script that could not run, not a requirement that was falsified.
+    async fn alert(&self, which: &str) -> Result<(), String> {
+        call(
+            self.http
+                .post(self.url(&format!("/alert/{which}")))
+                .json(&serde_json::json!({})),
+            &format!("{which}ing the dialog"),
         )
         .await
         .map(|_| ())
@@ -961,6 +980,32 @@ mod tests {
         let e = outcome.into_evidence(&ui, &claim);
         assert_eq!(e.status, Status::Holds);
         assert_eq!(e.basis, Some(Basis::NotFalsified));
+    }
+
+    // Verifies: #633 against the REAL GRID — a native dialog is accepted over the wire, the one new
+    // WebDriver call this adds. Needs a deployment at `UI_TEST_BASE_URL` whose `/` has a
+    // `#confirm-go` button that calls `window.confirm()` and, on accept, puts `dialog accepted` on
+    // the page. Without the accept step the `confirm` blocks and nothing is revealed, so a `holds`
+    // here is the dialog genuinely being accepted — not a page that showed the text anyway.
+    #[test]
+    #[ignore = "requires a WebDriver grid (WEBDRIVER_URL) and a deployment (UI_TEST_BASE_URL) with a \
+                confirm button"]
+    fn real_grid_accepts_a_native_dialog_and_sees_the_result() {
+        let base = std::env::var("UI_TEST_BASE_URL").expect("UI_TEST_BASE_URL");
+        let ui = Ui::new(base, None, BTreeMap::new());
+        let claim = UiClaim {
+            steps: vec![
+                Step::Goto("/".into()),
+                Step::Click("#confirm-go".into()),
+                Step::AcceptDialog,
+            ],
+            expect: Step::TextPresent("dialog accepted".into()),
+            expect_absent: false,
+        };
+        let outcome = run(&ui, &claim);
+        let Outcome::NotFalsified { .. } = &outcome else {
+            panic!("the dialog should have been accepted and the result shown: {outcome:?}")
+        };
     }
 
     /// The deployment the real-grid tests drive, and text it really shows. Both are the operator's
