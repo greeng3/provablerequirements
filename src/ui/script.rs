@@ -82,6 +82,8 @@ fn action_phrase(step: &Step) -> String {
         Step::ElementPresent(sel) => {
             format!("check that the page has an element matching `{sel}`")
         }
+        Step::AcceptDialog => "accept the dialog".to_string(),
+        Step::DismissDialog => "dismiss the dialog".to_string(),
     }
 }
 
@@ -228,7 +230,9 @@ fn step_for<'a>(atom: &Atom, ui: &'a Ui, bindings: &[Binding]) -> Result<&'a Ste
 fn action_for(atom: &Atom, ui: &Ui, bindings: &[Binding]) -> Result<Step, NotLowerable> {
     let step = step_for(atom, ui, bindings)?;
     match step {
-        Step::Goto(_) | Step::Click(_) => Ok(step.clone()),
+        Step::Goto(_) | Step::Click(_) | Step::AcceptDialog | Step::DismissDialog => {
+            Ok(step.clone())
+        }
         Step::TextPresent(t) => Err(NotLowerable::new(format!(
             "`{}` is used as something to do, but it is declared as `text_present: \"{t}\"` — an \
              observation, which a driver reads rather than performs",
@@ -247,14 +251,16 @@ fn observation_for(atom: &Atom, ui: &Ui, bindings: &[Binding]) -> Result<Step, N
     let step = step_for(atom, ui, bindings)?;
     match step {
         Step::TextPresent(_) | Step::ElementPresent(_) => Ok(step.clone()),
-        Step::Goto(_) | Step::Click(_) => Err(NotLowerable::new(format!(
-            "`{}` is what this claim asserts, but it is declared as `{}` — an action the driver \
-             performs itself. A claim the driver satisfies by doing it cannot be falsified: it \
-             would report `not-falsified` having checked nothing the deployment decided. Assert a \
-             `text_present` or `element_present` step instead",
-            atom.name,
-            step.key()
-        ))),
+        Step::Goto(_) | Step::Click(_) | Step::AcceptDialog | Step::DismissDialog => {
+            Err(NotLowerable::new(format!(
+                "`{}` is what this claim asserts, but it is declared as `{}` — an action the \
+                 driver performs itself. A claim the driver satisfies by doing it cannot be \
+                 falsified: it would report `not-falsified` having checked nothing the deployment \
+                 decided. Assert a `text_present` or `element_present` step instead",
+                atom.name,
+                step.key()
+            )))
+        }
     }
 }
 
@@ -282,6 +288,7 @@ mod tests {
                     "has_checkout_button".to_string(),
                     Step::ElementPresent("button[aria-label='Checkout']".into()),
                 ),
+                ("confirm_it".to_string(), Step::AcceptDialog),
             ]),
         )
     }
@@ -304,8 +311,8 @@ mod tests {
         lower(&req, &prop, &ui(), &bindings(symbols))
     }
 
-    const VOCAB: &str =
-        "vocabulary { state open_cart state checkout state sees_total state has_checkout_button }";
+    const VOCAB: &str = "vocabulary { state open_cart state checkout state sees_total \
+                         state has_checkout_button state confirm_it }";
 
     // Verifies: #243 — the shape of the whole slice. An action antecedent and an observation
     // consequent lower to a script the operator can read back.
@@ -557,5 +564,47 @@ mod tests {
                     .to_string()
             ]
         );
+    }
+
+    // Verifies: #633 — a dialog verb is an ACTION the driver performs. click (setup) → accept the
+    // dialog (antecedent) → observe is the click-behind-confirm flow, and it lowers to an ordered
+    // script within the current cap.
+    #[test]
+    fn accept_dialog_lowers_as_an_action_in_a_click_then_confirm_flow() {
+        let claim = lower_src(
+            &format!(
+                "requirement u {{ category: 3 {VOCAB} \
+                 require {{ confirm_it leads_to sees_total after checkout }} }}"
+            ),
+            &["checkout", "confirm_it", "sees_total"],
+        )
+        .expect("lowers");
+
+        assert_eq!(
+            claim.steps,
+            vec![
+                Step::Click("button[data-test=checkout]".into()),
+                Step::AcceptDialog
+            ],
+            "the click runs first, then the dialog is accepted"
+        );
+        assert_eq!(claim.expect, Step::TextPresent("Order total".into()));
+        assert_eq!(claim.describe()[1], "2. accept the dialog");
+    }
+
+    // Verifies: #633 — a dialog verb cannot be what a claim ASSERTS. Accepting a dialog is something
+    // the driver does, not something the deployment decides, so a claim satisfied by performing it
+    // could never be falsified — refused, the same rule `click` already meets.
+    #[test]
+    fn a_dialog_verb_asserted_as_the_observation_is_refused() {
+        let err = lower_src(
+            &format!(
+                "requirement u {{ category: 3 {VOCAB} require {{ checkout leads_to confirm_it }} }}"
+            ),
+            &["checkout", "confirm_it"],
+        )
+        .expect_err("a dialog action is not an observation");
+        assert!(err.reason.contains("confirm_it"), "{}", err.reason);
+        assert!(err.reason.contains("cannot be falsified"), "{}", err.reason);
     }
 }
