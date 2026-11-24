@@ -98,6 +98,9 @@ fn describe_action(step: &Step) -> String {
         Step::Goto(path) => format!("navigate to `{path}`"),
         Step::Click(selector) => format!("click the first element matching `{selector}`"),
         Step::TextPresent(text) => format!("check that the page contains `{text}`"),
+        Step::ElementPresent(selector) => {
+            format!("check that the page has an element matching `{selector}`")
+        }
     }
 }
 

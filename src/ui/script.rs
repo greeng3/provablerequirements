@@ -66,6 +66,7 @@ impl UiClaim {
             },
             match &self.expect {
                 Step::TextPresent(t) => format!("`{t}`"),
+                Step::ElementPresent(sel) => format!("an element matching `{sel}`"),
                 other => format!("`{}`", other.argument()),
             }
         ));
@@ -78,6 +79,9 @@ fn action_phrase(step: &Step) -> String {
         Step::Goto(path) => format!("navigate to `{path}`"),
         Step::Click(sel) => format!("click the first element matching `{sel}`"),
         Step::TextPresent(t) => format!("check that the page contains `{t}`"),
+        Step::ElementPresent(sel) => {
+            format!("check that the page has an element matching `{sel}`")
+        }
     }
 }
 
@@ -230,6 +234,11 @@ fn action_for(atom: &Atom, ui: &Ui, bindings: &[Binding]) -> Result<Step, NotLow
              observation, which a driver reads rather than performs",
             atom.name
         ))),
+        Step::ElementPresent(sel) => Err(NotLowerable::new(format!(
+            "`{}` is used as something to do, but it is declared as `element_present: \"{sel}\"` — \
+             an observation, which a driver reads rather than performs",
+            atom.name
+        ))),
     }
 }
 
@@ -237,12 +246,12 @@ fn action_for(atom: &Atom, ui: &Ui, bindings: &[Binding]) -> Result<Step, NotLow
 fn observation_for(atom: &Atom, ui: &Ui, bindings: &[Binding]) -> Result<Step, NotLowerable> {
     let step = step_for(atom, ui, bindings)?;
     match step {
-        Step::TextPresent(_) => Ok(step.clone()),
+        Step::TextPresent(_) | Step::ElementPresent(_) => Ok(step.clone()),
         Step::Goto(_) | Step::Click(_) => Err(NotLowerable::new(format!(
             "`{}` is what this claim asserts, but it is declared as `{}` — an action the driver \
              performs itself. A claim the driver satisfies by doing it cannot be falsified: it \
              would report `not-falsified` having checked nothing the deployment decided. Assert a \
-             `text_present` step instead",
+             `text_present` or `element_present` step instead",
             atom.name,
             step.key()
         ))),
@@ -269,6 +278,10 @@ mod tests {
                     "sees_total".to_string(),
                     Step::TextPresent("Order total".into()),
                 ),
+                (
+                    "has_checkout_button".to_string(),
+                    Step::ElementPresent("button[aria-label='Checkout']".into()),
+                ),
             ]),
         )
     }
@@ -291,7 +304,8 @@ mod tests {
         lower(&req, &prop, &ui(), &bindings(symbols))
     }
 
-    const VOCAB: &str = "vocabulary { state open_cart state checkout state sees_total }";
+    const VOCAB: &str =
+        "vocabulary { state open_cart state checkout state sees_total state has_checkout_button }";
 
     // Verifies: #243 — the shape of the whole slice. An action antecedent and an observation
     // consequent lower to a script the operator can read back.
@@ -472,5 +486,76 @@ mod tests {
         .expect_err("sees_total has no binding");
         assert!(unbound.reason.contains("sees_total"), "{}", unbound.reason);
         assert!(unbound.reason.contains("no binding"), "{}", unbound.reason);
+    }
+
+    // Verifies: #632 — an `element_present` step is an observation on a par with `text_present`: it
+    // can be what a claim asserts, and lowers to the element presence check the driver watches for.
+    #[test]
+    fn element_present_lowers_as_an_observation() {
+        let claim = lower_src(
+            &format!(
+                "requirement u {{ category: 3 {VOCAB} \
+                 require {{ open_cart leads_to has_checkout_button }} }}"
+            ),
+            &["open_cart", "has_checkout_button"],
+        )
+        .expect("lowers");
+
+        assert_eq!(
+            claim,
+            UiClaim {
+                steps: vec![Step::Goto("/cart".into())],
+                expect: Step::ElementPresent("button[aria-label='Checkout']".into()),
+                expect_absent: false,
+            }
+        );
+        assert_eq!(
+            claim.describe().last().unwrap(),
+            "2. then check the page contains an element matching `button[aria-label='Checkout']`"
+        );
+    }
+
+    // Verifies: #632 — the fragment rule carries over unchanged: an observation used as something
+    // to DO is refused, because a driver reads an element's presence rather than performs it.
+    #[test]
+    fn element_present_used_as_an_action_is_refused() {
+        let err = lower_src(
+            &format!(
+                "requirement u {{ category: 3 {VOCAB} \
+                 require {{ has_checkout_button leads_to sees_total }} }}"
+            ),
+            &["has_checkout_button", "sees_total"],
+        )
+        .expect_err("an observation is not something to do");
+        assert!(err.reason.contains("element_present"), "{}", err.reason);
+        assert!(
+            err.reason.contains("rather than performs"),
+            "{}",
+            err.reason
+        );
+    }
+
+    // Verifies: #632 — `never element_present` asserts the control is ABSENT, which a deployment can
+    // genuinely answer (the "type is not editable" shape qrusty needs). The driver watches the whole
+    // settle window for it to appear before judging it absent.
+    #[test]
+    fn never_element_present_asserts_the_control_is_absent() {
+        let claim = lower_src(
+            &format!(
+                "requirement u {{ category: 3 {VOCAB} require {{ never has_checkout_button }} }}"
+            ),
+            &["has_checkout_button"],
+        )
+        .expect("lowers");
+        assert!(claim.expect_absent);
+        assert!(claim.steps.is_empty());
+        assert_eq!(
+            claim.describe(),
+            vec![
+                "1. then check the page does NOT contain an element matching \
+                 `button[aria-label='Checkout']`"
+                    .to_string()
+            ]
+        );
     }
 }
