@@ -129,6 +129,11 @@ fn collect_used(prop: &Property, used: &mut HashSet<String>) {
             used.insert(a.name.clone());
             used.insert(b.name.clone());
         }
+        Scope::AfterSequence(atoms) => {
+            for a in atoms {
+                used.insert(a.name.clone());
+            }
+        }
     }
 }
 

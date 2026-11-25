@@ -340,8 +340,11 @@ rather than visible text. Either observation can be the thing a claim asserts; t
 dialog verbs cannot (a claim the driver satisfies by performing it cannot be falsified). `never
 <observation>` asserts absence — "the control is not shown". A dialog verb is how a claim reaches the
 effect of a click gated by a confirmation: `confirm_unlock leads_to sees_result after click_unlock`
-clicks, accepts the dialog, then observes. You then ground a cat-3 symbol onto a declared step by
-name:
+clicks, accepts the dialog, then observes. For a journey several steps deep, `after` takes an
+**ordered sequence** joined by `then` — `... after open_page then open_modal then fill_form` runs
+each action in turn before the claim, which no single boundary could express. (`then` orders a
+sequence; it is distinct from `and`, which stays unordered inside a pattern.) You then ground a
+cat-3 symbol onto a declared step by name:
 
 ```text
 provreq draft SYS-0007 --ground 'sees_total=sees_total'   # symbol = declared step

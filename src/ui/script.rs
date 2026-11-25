@@ -115,6 +115,14 @@ pub fn lower(
         // every scope (#232) — a driver is *already* performing actions, so a setup action is the
         // same kind of thing it does anyway.
         Scope::After(atom) => vec![action_for(atom, ui, bindings)?],
+        // `after a then b then c` is the same idea extended: an ordered run of setup actions, each
+        // performed before the next, the way a driver reaches a state several steps deep (navigate,
+        // open a modal, fill a field) that no single boundary can name. Each must be an action —
+        // an observation among them would have nothing to do.
+        Scope::AfterSequence(atoms) => atoms
+            .iter()
+            .map(|atom| action_for(atom, ui, bindings))
+            .collect::<Result<Vec<_>, _>>()?,
         Scope::Before(_) | Scope::Between(_, _) => {
             return Err(NotLowerable::new(
                 "the claim is limited to a `before`/`between` scope — a driver's run starts when it \
@@ -606,5 +614,60 @@ mod tests {
         .expect_err("a dialog action is not an observation");
         assert!(err.reason.contains("confirm_it"), "{}", err.reason);
         assert!(err.reason.contains("cannot be falsified"), "{}", err.reason);
+    }
+
+    // Verifies: #634 — an ordered `after a then b` sequence lowers to a deep setup script, lifting
+    // the old ~2-action cap. navigate → click → accept → observe is four steps a single boundary
+    // could not express, and they run in the order written.
+    #[test]
+    fn an_after_sequence_lowers_to_a_deep_ordered_script() {
+        let claim = lower_src(
+            &format!(
+                "requirement u {{ category: 3 {VOCAB} \
+                 require {{ confirm_it leads_to sees_total after open_cart then checkout }} }}"
+            ),
+            &["open_cart", "checkout", "confirm_it", "sees_total"],
+        )
+        .expect("lowers");
+
+        assert_eq!(
+            claim.steps,
+            vec![
+                Step::Goto("/cart".into()),
+                Step::Click("button[data-test=checkout]".into()),
+                Step::AcceptDialog,
+            ],
+            "the after-sequence runs in order, then the leads_to antecedent"
+        );
+        assert_eq!(claim.expect, Step::TextPresent("Order total".into()));
+        assert_eq!(
+            claim.describe(),
+            vec![
+                "1. navigate to `/cart`".to_string(),
+                "2. click the first element matching `button[data-test=checkout]`".to_string(),
+                "3. accept the dialog".to_string(),
+                "4. then check the page contains `Order total`".to_string(),
+            ]
+        );
+    }
+
+    // Verifies: #634 — every atom in the sequence must be an action; an observation among the setup
+    // steps has nothing for the driver to do, refused with the observation-as-action reason.
+    #[test]
+    fn an_observation_inside_an_after_sequence_is_refused() {
+        let err = lower_src(
+            &format!(
+                "requirement u {{ category: 3 {VOCAB} \
+                 require {{ confirm_it leads_to sees_total after open_cart then sees_total }} }}"
+            ),
+            &["open_cart", "sees_total", "confirm_it"],
+        )
+        .expect_err("an observation cannot be a setup action");
+        assert!(err.reason.contains("observation"), "{}", err.reason);
+        assert!(
+            err.reason.contains("rather than performs"),
+            "{}",
+            err.reason
+        );
     }
 }

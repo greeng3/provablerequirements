@@ -584,7 +584,24 @@ impl<'a> Parser<'a> {
             }
             Some("after") => {
                 self.pos += 1;
-                self.atom().map(Scope::After).unwrap_or(Scope::Globally)
+                let Some(first) = self.atom() else {
+                    return Scope::Globally;
+                };
+                // `after a then b then c` is an ordered sequence of boundaries — the mechanism for a
+                // multi-step setup a UI driver walks in order. A single `after a` stays `After`, so
+                // every existing claim and every other category are untouched.
+                let mut atoms = vec![first];
+                while self.eat_ident("then") {
+                    match self.atom() {
+                        Some(a) => atoms.push(a),
+                        None => break,
+                    }
+                }
+                if atoms.len() == 1 {
+                    Scope::After(atoms.into_iter().next().expect("one atom"))
+                } else {
+                    Scope::AfterSequence(atoms)
+                }
             }
             Some("between") => {
                 self.pos += 1;
@@ -854,6 +871,28 @@ mod tests {
                 assert_eq!(b.name, "close");
             }
             other => panic!("expected between scope, got {other:?}"),
+        }
+    }
+
+    // Verifies: #634 — `after a then b then c` is an ordered sequence of boundaries, while a lone
+    // `after a` stays a single-atom `After` so existing claims and other categories are untouched.
+    #[test]
+    fn parses_an_after_sequence_and_keeps_the_single_form() {
+        let seq =
+            parse("requirement r { require { always done after open then act then settle } }")
+                .unwrap();
+        match &seq.require[0].scope {
+            Scope::AfterSequence(atoms) => {
+                let names: Vec<_> = atoms.iter().map(|a| a.name.as_str()).collect();
+                assert_eq!(names, vec!["open", "act", "settle"]);
+            }
+            other => panic!("expected an after-sequence, got {other:?}"),
+        }
+
+        let single = parse("requirement r { require { always done after open } }").unwrap();
+        match &single.require[0].scope {
+            Scope::After(a) => assert_eq!(a.name, "open"),
+            other => panic!("a single after must stay After, got {other:?}"),
         }
     }
 
